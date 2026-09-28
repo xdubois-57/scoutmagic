@@ -42,11 +42,6 @@ use Tests\DatabaseTestHelper;
  * fast — the same trade-off already made in CreateBackupHandlerTest.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class InstallUpdateHandlerTest extends TestCase
 {
     private \PDO $pdo;
@@ -94,7 +89,7 @@ class InstallUpdateHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -470,7 +465,7 @@ class InstallUpdateHandlerTest extends TestCase
         $history = $this->updateHistoryRepository->findById($historyId);
         $this->assertNotNull($history);
 
-        $backupService = $this->createMock(BackupService::class);
+        $backupService = $this->createStub(BackupService::class);
 
         $method = new \ReflectionMethod(InstallUpdateHandler::class, 'rollbackToSafetyBackup');
         $method->setAccessible(true);
@@ -936,7 +931,7 @@ class InstallUpdateHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),

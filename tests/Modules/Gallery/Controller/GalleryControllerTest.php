@@ -55,11 +55,6 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class GalleryControllerTest extends TestCase
 {
     private GalleryLocationService $galleryLocationService;
@@ -116,13 +111,13 @@ class GalleryControllerTest extends TestCase
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->albumService = new AlbumService(
-            $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
+            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(OgScraperService::class),
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService, $this->scoutYearService, $settingService,
-            $this->createMock(SchedulerService::class), $uploadHandler
+            $this->createStub(SchedulerService::class), $uploadHandler
         );
         $this->mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
-            $settingService, $accessService, $this->storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class)
+            $settingService, $accessService, $this->storageBackendFactory, $this->galleryLocationService, $this->createStub(FfmpegAvailability::class)
         );
 
         $this->locationId = $this->storageLocationRepository->create(
@@ -344,7 +339,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createDelegatedAlbum($this->locationId);
         $mediaId = $this->createDoneMediaForSize($albumId, $size);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-delegated-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
         $controller = $this->controllerWithRegistry($this->allowingRegistry());
@@ -658,7 +653,7 @@ class GalleryControllerTest extends TestCase
         $albumId = $this->createDelegatedAlbum($locationId);
         $mediaId = $this->createDoneMedia($albumId);
         $usedTtl = null;
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('directUrl')->willReturnCallback(function (string $key, string $ttl = '+1 hour') use (&$usedTtl) {
             $usedTtl = $ttl;
             return 'https://s3.example.com/x';
@@ -775,7 +770,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createLocalAlbum(null);
         $mediaId = $this->createDoneMedia($albumId);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -834,7 +829,7 @@ class GalleryControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum(null);
         $this->createDoneMedia($id);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -891,7 +886,7 @@ class GalleryControllerTest extends TestCase
         $albumId = $this->createLocalAlbum(null);
         $first = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
         $second = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -919,7 +914,7 @@ class GalleryControllerTest extends TestCase
         $albumId = $this->createLocalAlbum(null);
         $first = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
         $second = $this->createDoneMediaNamed($albumId, 'IMG_1234.jpg');
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1036,7 +1031,7 @@ class GalleryControllerTest extends TestCase
         $this->createDoneMedia($id);
         $this->albumRepository->startMigration($id, $this->locationId);
         $this->albumRepository->failMigration($id, 'boom');
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1084,7 +1079,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createLocalAlbum($this->sectionId);
         $mediaId = $this->createDoneMedia($albumId);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         // The 304 short-circuit must sit behind the authorization check, not
@@ -1101,7 +1096,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createLocalAlbum($this->sectionId);
         $mediaId = $this->createDoneMedia($albumId);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
         AuthSession::login(1, 'chief@test.be', 'chief');
@@ -1118,7 +1113,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createLocalAlbum(null);
         $mediaId = $this->createDoneMedia($albumId);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1140,7 +1135,7 @@ class GalleryControllerTest extends TestCase
         // getRange() lives on the capability, and a backend without it
         // makes the controller ignore the header — which is the right
         // behaviour and not what these cases are about.
-        $backend = $this->createMock(\Core\Storage\Location\Backend\RangeReadableBackend::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\RangeReadableBackend::class);
         $backend->method('supports')->willReturn(true);
         $backend->method('size')->willReturn($objectSize);
         // **The double answers the length it was asked for**, filling it
@@ -1268,7 +1263,7 @@ class GalleryControllerTest extends TestCase
     {
         $albumId = $this->createLocalAlbum(null);
         $mediaId = $this->createDoneMedia($albumId);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1327,7 +1322,7 @@ class GalleryControllerTest extends TestCase
             Album::TYPE_LOCAL, '夏', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId
         );
         $this->createDoneMedia($id);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1348,7 +1343,7 @@ class GalleryControllerTest extends TestCase
             Album::TYPE_LOCAL, 'Camp d\'été 2026 !', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId
         );
         $this->createDoneMedia($id);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -1372,7 +1367,7 @@ class GalleryControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum(null);
         $this->createDoneMedia($id);
-        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->method('get')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 

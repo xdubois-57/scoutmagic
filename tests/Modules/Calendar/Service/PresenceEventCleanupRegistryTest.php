@@ -8,11 +8,6 @@ use Modules\Calendar\Service\PresenceEventCleanupRegistry;
 use Modules\Presences\Api\PresenceEventCleanupInterface;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class PresenceEventCleanupRegistryTest extends TestCase
 {
     public function testEmptyRegistryBehavesExactlyLikePresencesBeingAbsent(): void
@@ -44,10 +39,10 @@ class PresenceEventCleanupRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new PresenceEventCleanupRegistry();
-        $registry->provide($this->createMock(PresenceEventCleanupInterface::class));
+        $registry->provide($this->createStub(PresenceEventCleanupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(PresenceEventCleanupInterface::class));
+        $registry->provide($this->createStub(PresenceEventCleanupInterface::class));
     }
 
     public function testItPassesWhereTheCalendarExpectsTheCleanup(): void

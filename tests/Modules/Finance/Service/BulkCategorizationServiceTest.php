@@ -29,11 +29,6 @@ use Tests\Modules\Finance\FinanceTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class BulkCategorizationServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -124,7 +119,7 @@ class BulkCategorizationServiceTest extends TestCase
         $categoryId = $this->categoryRepository->create('Fournitures');
         $this->createTransaction('Achat mystère');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{}', ['category' => 'Fournitures', 'new_category_suggestion' => null], 10, 5));
 
@@ -301,7 +296,7 @@ class BulkCategorizationServiceTest extends TestCase
         $secondId = $this->createTransaction('Deuxième mouvement');
 
         $calls = 0;
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturnCallback(function () use (&$calls) {
             $calls++;

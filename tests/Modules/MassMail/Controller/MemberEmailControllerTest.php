@@ -30,11 +30,6 @@ use Core\Member\Repository\MemberProfileRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MemberEmailControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -133,7 +128,7 @@ class MemberEmailControllerTest extends TestCase
     public function testAllowedForAChiefViewingAnyMember(): void
     {
         AuthSession::login(1, 'chief@test.example', 'chief');
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')
             ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
 
@@ -157,7 +152,7 @@ class MemberEmailControllerTest extends TestCase
     public function testAPurgedPublipostageSaysWhyItStillShowsItsVariables(): void
     {
         AuthSession::login(1, 'member@test.example', 'identified');
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn([
             'subject' => 'Camp de {{Prenom}}',
             'body_html' => '<p>Cher {{Prenom}}</p>',
@@ -184,7 +179,7 @@ class MemberEmailControllerTest extends TestCase
     public function testAnOrdinaryEmailCarriesNoRetentionNotice(): void
     {
         AuthSession::login(1, 'member@test.example', 'identified');
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn([
             'subject' => 'Sujet',
             'body_html' => '<p>Corps</p>',
@@ -205,7 +200,7 @@ class MemberEmailControllerTest extends TestCase
     public function testReturns404WhenRecipientDoesNotBelongToThisMember(): void
     {
         AuthSession::login(1, 'member@test.example', 'identified');
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn(null);
 
         $controller = $this->buildController($massMailQuery);
@@ -220,7 +215,7 @@ class MemberEmailControllerTest extends TestCase
     public function testReturns404ForANonExistentMemberYear(): void
     {
         AuthSession::login(1, 'stranger@test.example', 'chief');
-        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(

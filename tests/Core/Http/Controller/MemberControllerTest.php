@@ -25,11 +25,6 @@ use Twig\Environment;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MemberControllerTest extends TestCase
 {
     private MemberController $controller;
@@ -80,11 +75,11 @@ class MemberControllerTest extends TestCase
             $twig,
             $memberService,
             new MemberYearService(),
-            $this->createMock(JournalService::class),
+            $this->createStub(JournalService::class),
             $memberPageService,
-            $this->createMock(DepartureService::class),
-            $this->createMock(SectionStaffAuthorizationService::class),
-            $this->createMock(SectionService::class)
+            $this->createStub(DepartureService::class),
+            $this->createStub(SectionStaffAuthorizationService::class),
+            $this->createStub(SectionService::class)
         );
     }
 
@@ -133,7 +128,7 @@ class MemberControllerTest extends TestCase
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
-        $controller = $this->newController($this->createMock(Environment::class), $memberService);
+        $controller = $this->newController($this->createStub(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/1', [], [], [], []);
         $response = $controller->show($request, ['id' => '1']);
@@ -157,7 +152,7 @@ class MemberControllerTest extends TestCase
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
-        $controller = $this->newController($this->createMock(Environment::class), $memberService);
+        $controller = $this->newController($this->createStub(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/2', [], [], [], []);
         $response = $controller->show($request, ['id' => '2']);
@@ -205,7 +200,7 @@ class MemberControllerTest extends TestCase
         $memberService->method('getMemberProfile')
             ->willThrowException(new MemberNotFoundException());
 
-        $controller = $this->newController($this->createMock(Environment::class), $memberService);
+        $controller = $this->newController($this->createStub(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/99999', [], [], [], []);
         $response = $controller->show($request, ['id' => '99999']);

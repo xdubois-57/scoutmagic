@@ -33,11 +33,6 @@ use Modules\Gallery\Service\GalleryLocationService;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class DelegatedAlbumServiceTest extends TestCase
 {
     private GalleryLocationService $galleryLocationService;
@@ -246,13 +241,13 @@ class DelegatedAlbumServiceTest extends TestCase
         };
 
         $service = new DelegatedAlbumService(
-            $racingRepository, $this->mediaRepository, $this->createMock(MediaService::class),
+            $racingRepository, $this->mediaRepository, $this->createStub(MediaService::class),
             $this->storageLocationRepository,
             $this->storageLocationService,
             new GalleryLocationService(
                 $this->storageLocationService,
                 $racingRepository,
-                $this->createMock(SettingService::class)
+                $this->createStub(SettingService::class)
             ),
             $this->storageBackendFactory, new ScoutYearService($this->pdo)
         );
@@ -359,7 +354,7 @@ class DelegatedAlbumServiceTest extends TestCase
         // can go and re-point. ARCHITECTURE.md § 8.107 states the rule and
         // StorageCapabilities::require() is where it normally lives; this
         // call site builds the same sentence from the same enum.
-        $backend = $this->createMock(StorageBackendInterface::class);
+        $backend = $this->createStub(StorageBackendInterface::class);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);

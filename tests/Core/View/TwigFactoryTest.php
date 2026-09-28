@@ -10,11 +10,6 @@ use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class TwigFactoryTest extends TestCase
 {
     public function testFrenchDateFormatsAStringDate(): void
@@ -252,7 +247,7 @@ class TwigFactoryTest extends TestCase
     public function testMemberPhotoIsNotEditableWithoutTheEditableFlagOutsideConfigMode(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $service = $this->createMock(\Core\Photo\MemberPhotoService::class);
+        $service = $this->createStub(\Core\Photo\MemberPhotoService::class);
         $service->method('resolveFileId')->willReturn(7);
         $twig->addGlobal('_member_photo_service', $service);
         $twig->addGlobal('effective_scout_year_id', 999);
@@ -271,7 +266,7 @@ class TwigFactoryTest extends TestCase
     public function testMemberPhotoIsLazyLoaded(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $service = $this->createMock(\Core\Photo\MemberPhotoService::class);
+        $service = $this->createStub(\Core\Photo\MemberPhotoService::class);
         $service->method('resolveFileId')->willReturn(7);
         $twig->addGlobal('_member_photo_service', $service);
         $twig->addGlobal('effective_scout_year_id', 999);
@@ -304,7 +299,7 @@ class TwigFactoryTest extends TestCase
     public function testEditableImageRendersAClickableButtonWhenNoImageIsSetYet(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $service = $this->createMock(EditableContentService::class);
+        $service = $this->createStub(EditableContentService::class);
         $service->method('get')->willReturn(null);
         $twig->addGlobal('_editable_content_service', $service);
         $twig->addGlobal('config_mode', true);
@@ -319,7 +314,7 @@ class TwigFactoryTest extends TestCase
     public function testEditableImageRendersAChangerButtonWhenAnImageAlreadyExists(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $service = $this->createMock(EditableContentService::class);
+        $service = $this->createStub(EditableContentService::class);
         $service->method('get')->willReturn('42');
         $twig->addGlobal('_editable_content_service', $service);
         $twig->addGlobal('config_mode', true);
@@ -334,7 +329,7 @@ class TwigFactoryTest extends TestCase
     public function testEditableImageRendersNothingOutsideConfigModeWithNoImage(): void
     {
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
-        $service = $this->createMock(EditableContentService::class);
+        $service = $this->createStub(EditableContentService::class);
         $service->method('get')->willReturn(null);
         $twig->addGlobal('_editable_content_service', $service);
         $twig->addGlobal('config_mode', false);

@@ -53,11 +53,6 @@ use Tests\TestTwig;
  * @group database
  */
 #[Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class PostControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -170,12 +165,12 @@ class PostControllerTest extends TestCase
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
-            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo, new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
         $postLinkRepo = new PostLinkRepository($this->pdo);
         $postLinkService = new PostLinkService(
-            $linkPreviewFetcher ?? $this->createMock(LinkPreviewFetcher::class),
+            $linkPreviewFetcher ?? $this->createStub(LinkPreviewFetcher::class),
             new LinkFetchThrottleService(new LinkFetchLogRepository($this->pdo)),
             $postLinkRepo,
             new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
@@ -498,7 +493,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateDetectsTheUrlInTheBodyStoresAndRendersThePreviewCardAndStripsItFromTheText(): void
     {
-        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher = $this->createStub(LinkPreviewFetcher::class);
         $fetcher->method('fetch')->willReturn(new \Core\Http\LinkPreview('Un super lien', 'Une belle description', null));
         $this->withCsrf(['body' => 'Regarde ça: https://example.com/article trop bien']);
 
@@ -533,7 +528,7 @@ class PostControllerTest extends TestCase
     {
         // The body is empty AFTER stripping the URL, but the post is still
         // saved — a link alone counts as content, same as it always has.
-        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher = $this->createStub(LinkPreviewFetcher::class);
         $fetcher->method('fetch')->willReturn(null);
         $this->withCsrf(['body' => 'https://example.com/article']);
 
@@ -690,7 +685,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateAcceptsExactlyFourMedia(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         // **Counted, not drawn.** Four `random_int(1000, 9999)` draws
         // collide about once in fifteen hundred runs, and the collision
@@ -718,7 +713,7 @@ class PostControllerTest extends TestCase
 
     public function testCreateAcceptsAMediaOnlyPostWithNoBodyText(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $manager->method('addMedia')->willReturn(new DelegatedMedia(1, 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00'));
 
@@ -749,7 +744,7 @@ class PostControllerTest extends TestCase
         // videoUploadAllowed()'s docblock) — this asserts the whole post
         // disappears, not just the media, matching the module spec
         // ("never a silent failure or a stuck upload").
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $manager->method('addMedia')->willThrowException(new GalleryException("L'envoi de vidéos est désactivé."));
 

@@ -12,11 +12,6 @@ use Modules\Retro\Service\RetroException;
 use Modules\Retro\Service\SummaryService;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class SummaryServiceTest extends TestCase
 {
     private function comment(string $column, string $body): Comment
@@ -51,7 +46,7 @@ class SummaryServiceTest extends TestCase
 
     public function testGenerateReturnsBulletsFromStructuredResponse(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('', ['bullets' => ['Ambiance top', 'Repas à améliorer']], 5, 5));
         $service = new SummaryService($llmConnector);
@@ -63,7 +58,7 @@ class SummaryServiceTest extends TestCase
 
     public function testGenerateWrapsAnLlmFailureAsARetroException(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider down.'));
         $service = new SummaryService($llmConnector);
@@ -80,7 +75,7 @@ class SummaryServiceTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheRetroExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 401 — {"error":{"message":"invalid x-api-key"}}');
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
         $service = new SummaryService($llmConnector);

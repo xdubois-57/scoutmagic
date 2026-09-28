@@ -32,10 +32,10 @@ use Twig\Environment;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class BoardServiceTest extends TestCase
 {
@@ -130,7 +130,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateWithAnEventResolvesTheDateServerSideIgnoringTheClient(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
@@ -150,7 +150,7 @@ class BoardServiceTest extends TestCase
      */
     public function testCreateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
@@ -162,7 +162,7 @@ class BoardServiceTest extends TestCase
 
     public function testUpdateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
         $service = $this->service(null, $calendarLookup);
 
@@ -177,7 +177,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateThrowsWhenLinkedEventDoesNotExist(): void
     {
-        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup = $this->createStub(CalendarEventLookupInterface::class);
         $calendarLookup->method('findEventById')->willReturn(null);
 
         $this->expectException(RetroException::class);
@@ -405,7 +405,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseSucceedsEvenWhenTheMailServiceThrows(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
@@ -420,7 +420,7 @@ class BoardServiceTest extends TestCase
 
     public function testCloseJournalLogsWhenTheMailServiceThrows(): void
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(

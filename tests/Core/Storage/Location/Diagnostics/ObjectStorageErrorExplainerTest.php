@@ -11,11 +11,6 @@ use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ObjectStorageErrorExplainerTest extends TestCase
 {
     public function testIsAvailableIsFalseWithoutAConnector(): void
@@ -27,7 +22,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
 
     public function testIsAvailableReflectsTheConnectorsOwnAvailability(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(false);
         $service = new ObjectStorageErrorExplainer($llmConnector);
 
@@ -66,7 +61,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
 
     public function testExplainWrapsAnLlmFailureAsAStorageLocationException(): void
     {
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider timeout.'));
         $service = new ObjectStorageErrorExplainer($llmConnector);
@@ -82,7 +77,7 @@ class ObjectStorageErrorExplainerTest extends TestCase
     public function testTheLlmFailuresTextNeverReachesTheStorageLocationExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 429 — {"error":{"message":"rate_limit_exceeded for org-abc"}}');
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
         $service = new ObjectStorageErrorExplainer($llmConnector);

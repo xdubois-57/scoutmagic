@@ -10,11 +10,6 @@ use Modules\LlmConnector\Provider\ProviderResponse;
 use Modules\LlmConnector\Service\OcrModelSelector;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class OcrModelSelectorTest extends TestCase
 {
     public function testSelectsAllThreeTiersInOneQuery(): void
@@ -56,7 +51,7 @@ class OcrModelSelectorTest extends TestCase
 
     public function testExtractsTiersFromMarkdownJsonBlock(): void
     {
-        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider = $this->createStub(LlmProviderInterface::class);
         $provider->method('complete')
             ->willReturn(new ProviderResponse("```json\n{\"cheap_model_id\":\"cheap-model\",\"capable_model_id\":\"capable-model\",\"ocr_model_id\":\"vision-model\"}\n```", 1, 1));
 
@@ -83,7 +78,7 @@ class OcrModelSelectorTest extends TestCase
 
     public function testRejectsUnknownModelAndFallsBackToRuleBased(): void
     {
-        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider = $this->createStub(LlmProviderInterface::class);
         $provider->method('complete')
             ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"unknown-model","ocr_model_id":"vision-model"}', 1, 1));
 
@@ -112,7 +107,7 @@ class OcrModelSelectorTest extends TestCase
 
     public function testRejectsTooExpensiveCheapModelAndFallsBack(): void
     {
-        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider = $this->createStub(LlmProviderInterface::class);
         $provider->method('complete')
             ->willReturn(new ProviderResponse('{"cheap_model_id":"huge-opus-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1));
 
@@ -139,7 +134,7 @@ class OcrModelSelectorTest extends TestCase
 
     public function testFallsBackWhenLlmCallFails(): void
     {
-        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider = $this->createStub(LlmProviderInterface::class);
         $provider->method('complete')->willThrowException(new \RuntimeException('Network error'));
 
         $journal = $this->createMock(JournalService::class);
@@ -169,7 +164,7 @@ class OcrModelSelectorTest extends TestCase
         // document-OCR API model, not a chat/vision model reachable via
         // chat completions. The selector must reject it regardless of
         // what the selector LLM reasoned.
-        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider = $this->createStub(LlmProviderInterface::class);
         $provider->method('complete')
             ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"mistral-ocr-3"}', 1, 1));
 

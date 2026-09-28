@@ -45,11 +45,6 @@ use Tests\TestTwig;
  * @group database
  */
 #[Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class GroupControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -206,7 +201,7 @@ class GroupControllerTest extends TestCase
         $activityService = new GroupActivityService($this->groupRepo, $postRepo);
         $postService = new PostService($postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
-            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo,
             new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
@@ -717,7 +712,7 @@ class GroupControllerTest extends TestCase
         $this->groupRepo->setGalleryAlbumId($groupId, 42);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SCP2', $this->sectionId, $this->currentYearId);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(7, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(8, 'photo', 'pending', 1, 'b.jpg', '2026-01-02 10:00:00'),
@@ -1313,7 +1308,7 @@ class GroupControllerTest extends TestCase
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC2', $this->sectionId, $this->currentYearId);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([]);
 
         $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace membres']])
@@ -1340,7 +1335,7 @@ class GroupControllerTest extends TestCase
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'pending', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(2, 'photo', 'failed', 1, 'b.jpg', '2026-01-01 10:00:00'),
@@ -1370,7 +1365,7 @@ class GroupControllerTest extends TestCase
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
             new DelegatedMedia(2, 'photo', 'pending', 1, 'b.jpg', '2026-01-01 10:00:00'),
@@ -1405,7 +1400,7 @@ class GroupControllerTest extends TestCase
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une photo', '2026-01-01 10:00:00', 1, $creator);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
         ]);
@@ -1439,7 +1434,7 @@ class GroupControllerTest extends TestCase
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une vidéo', '2026-01-01 10:00:00', 1, $creator);
         (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 5, 0);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('listMedia')->willReturn([
             new DelegatedMedia(5, 'video', 'done', 0, 'a.mp4', '2026-01-01 10:00:00'),
         ]);

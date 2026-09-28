@@ -10,11 +10,6 @@ use Modules\Retro\Api\RetroEventLinkLookupInterface;
 use Modules\Retro\Api\RetroLinkSummary;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RetroEventLinkRegistryTest extends TestCase
 {
     public function testEmptyRegistryBehavesExactlyLikeRetroBeingAbsent(): void
@@ -42,10 +37,10 @@ class RetroEventLinkRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new RetroEventLinkRegistry();
-        $registry->provide($this->createMock(RetroEventLinkLookupInterface::class));
+        $registry->provide($this->createStub(RetroEventLinkLookupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(RetroEventLinkLookupInterface::class));
+        $registry->provide($this->createStub(RetroEventLinkLookupInterface::class));
     }
 
     public function testItPassesWhereACalendarServiceExpectsTheLookup(): void

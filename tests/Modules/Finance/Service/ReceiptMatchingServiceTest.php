@@ -27,11 +27,6 @@ use Tests\Modules\Finance\FinanceTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ReceiptMatchingServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -346,7 +341,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":9999}', ['transaction_id' => 9999], 10, 10));
 
@@ -360,7 +355,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":null}', ['transaction_id' => null], 10, 10));
 
@@ -417,7 +412,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(LlmException::apiError('boom'));
 

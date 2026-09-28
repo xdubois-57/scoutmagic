@@ -34,11 +34,6 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class PersonalFeedServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -209,7 +204,7 @@ class PersonalFeedServiceTest extends TestCase
         $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
 
-        $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $lookup = $this->createStub(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
         $lookup->method('findLinkedBoardLink')->willReturn(null);
         $service = $this->serviceWithLookup($lookup);
 
@@ -317,7 +312,7 @@ class PersonalFeedServiceTest extends TestCase
             $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null
         );
 
-        $lookup = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $lookup = $this->createStub(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
         $lookup->method('findSheetLink')->willReturn(null);
         $service = $this->serviceWithPresenceLookup($lookup);
 

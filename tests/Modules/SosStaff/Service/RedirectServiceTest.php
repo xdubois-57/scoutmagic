@@ -28,10 +28,10 @@ use Twig\Environment;
 // reaches an in-memory database by way of its own `emptyStore()`: this
 // class builds none itself and inherits none.
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RedirectServiceTest extends TestCase
 {
@@ -119,7 +119,7 @@ class RedirectServiceTest extends TestCase
 
     public function testApplyThrowsWhenNoNumberResolvable(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
         $this->memberService->method('findProfileByMemberAndYear')->willReturn(null);
         $this->settingsService->method('getDefaultNumber')->willReturn(null);
@@ -167,7 +167,7 @@ class RedirectServiceTest extends TestCase
 
     public function testApplyThrowsWhenPostChangeVerificationFails(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000000') // unchanged after setForwarding — verification fails
@@ -187,7 +187,7 @@ class RedirectServiceTest extends TestCase
 
     public function testApplyWrapsProviderExceptionAsSosException(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willThrowException(new ProviderException('OVH indisponible'));
 
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
@@ -235,7 +235,7 @@ class RedirectServiceTest extends TestCase
      */
     public function testApplyDispatchesAHandoverNotificationToNewAndPreviousMember(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000002')
@@ -275,7 +275,7 @@ class RedirectServiceTest extends TestCase
      */
     public function testHandoverPayloadCarriesNoPhoneNumber(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')
@@ -298,7 +298,7 @@ class RedirectServiceTest extends TestCase
 
     public function testApplySkipsTheNotificationWhenMemberHasNoEmail(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')
@@ -318,7 +318,7 @@ class RedirectServiceTest extends TestCase
     /** A member with no account on this site is simply not a recipient. */
     public function testApplySkipsTheNotificationWhenMemberHasNoAccount(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')
@@ -342,7 +342,7 @@ class RedirectServiceTest extends TestCase
      */
     public function testTheModuleSettingStillSilencesEveryHandoverNotification(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')
@@ -365,7 +365,7 @@ class RedirectServiceTest extends TestCase
      */
     public function testApplyTellsNobodyWhenTheDutyDidNotChangeHands(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')
@@ -422,7 +422,7 @@ class RedirectServiceTest extends TestCase
      */
     public function testAFailedNotificationIsJournaledWithoutTheAddress(): void
     {
-        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
             new ForwardingState(true, '+32470000000'),
             new ForwardingState(true, '+32470000001')

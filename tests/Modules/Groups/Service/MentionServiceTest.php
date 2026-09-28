@@ -22,11 +22,6 @@ use Core\Member\Repository\MemberProfileRepository;
  * @group database
  */
 #[Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MentionServiceTest extends TestCase
 {
     private DiscussionGroup $group;
@@ -44,10 +39,10 @@ class MentionServiceTest extends TestCase
      */
     private function service(array $memberIds, array $names): MentionService
     {
-        $resolver = $this->createMock(GroupRecipientResolver::class);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
         $resolver->method('memberIdsFor')->willReturn($memberIds);
 
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('findDisplayNamesByMemberIds')->willReturn($names);
 
         return new MentionService($resolver, $memberService);
@@ -199,7 +194,7 @@ class MentionServiceTest extends TestCase
             $memberIds = array_merge($memberIds, $seeded['member_ids']);
         }
 
-        $resolver = $this->createMock(GroupRecipientResolver::class);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
         $resolver->method('memberIdsFor')->willReturn($memberIds);
 
         $encryption = GroupsTestHelper::testEncryption();

@@ -13,11 +13,6 @@ use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmResponse;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RgpdContentServiceTest extends TestCase
 {
     private ModuleManager $moduleManager;
@@ -125,7 +120,7 @@ class RgpdContentServiceTest extends TestCase
             fn(string $key) => $key === 'site_name' ? 'Unité Test' : ''
         );
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(

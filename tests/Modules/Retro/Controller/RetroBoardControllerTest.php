@@ -32,11 +32,6 @@ use Twig\Environment;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RetroBoardControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -203,7 +198,7 @@ class RetroBoardControllerTest extends TestCase
         $this->settingService->register('retro_moderation_mode', 'disabled', 'select', 'Modération', '', 'retro');
         $this->settingService->set('retro_moderation_mode', 'enforced', 'retro');
 
-        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService = $this->createStub(ModerationService::class);
         $moderationService->method('isAvailable')->willReturn(true);
         $moderationService->method('moderate')->willReturn([
             'flagged' => true, 'reason' => 'Propos irrespectueux.', 'suggestion' => 'Une version plus polie.',

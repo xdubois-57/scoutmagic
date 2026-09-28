@@ -20,11 +20,6 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class SchedulerRunnerTest extends TestCase
 {
     private SchedulerRunner $runner;
@@ -314,7 +309,7 @@ class SchedulerRunnerTest extends TestCase
         // getTaskHandler() answers null — the runner must fail the task
         // with the "No handler registered" diagnostic, never crash and
         // never silently drop the row.
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getTaskHandler')->willReturn(null);
         $this->runner->setModuleManager($moduleManager);
 
@@ -334,7 +329,7 @@ class SchedulerRunnerTest extends TestCase
         // A manifest can name a class that is not on disk (a module
         // half-deployed over FTP). class_exists() is the guard; the
         // outcome must be the same clean failure as no handler at all.
-        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
         $moduleManager->method('getTaskHandler')->willReturn('\\Modules\\Nowhere\\Task\\GhostHandler');
         $this->runner->setModuleManager($moduleManager);
 

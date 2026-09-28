@@ -44,11 +44,6 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MemberControllerMassMailTest extends TestCase
 {
     private \PDO $pdo;
@@ -94,7 +89,7 @@ class MemberControllerMassMailTest extends TestCase
 
     private function buildTwigCapturingContext(): Environment
     {
-        $twig = $this->getMockBuilder(Environment::class)->disableOriginalConstructor()->onlyMethods(['render'])->getMock();
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturnCallback(fn($template, $context) => json_encode(array_key_exists('recent_mass_mail_emails', $context)
             ? ['has_key' => true, 'value' => $context['recent_mass_mail_emails']]
             : ['has_key' => false]));
@@ -109,7 +104,7 @@ class MemberControllerMassMailTest extends TestCase
         $memberEmailService = new MemberEmailService(
             new MemberEmailRepository($this->pdo, $this->encryption),
             $this->createStub(\Core\Mail\MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(Environment::class)),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService(
     new SectionRepository($connection),
@@ -168,8 +163,8 @@ class MemberControllerMassMailTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             $this->buildMemberPageService($massMailQuery),
             new DepartureService(new DepartureRepository($this->pdo, $this->encryption), new JournalService(new JournalRepository($this->pdo))),
-            $this->createMock(SectionStaffAuthorizationService::class),
-            $this->createMock(SectionService::class)
+            $this->createStub(SectionStaffAuthorizationService::class),
+            $this->createStub(SectionService::class)
         );
     }
 

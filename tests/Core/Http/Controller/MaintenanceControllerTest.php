@@ -43,11 +43,6 @@ require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MaintenanceControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -1484,7 +1479,7 @@ class MaintenanceControllerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
         $this->updateHistoryRepository->setStatus($id, 'migrating');
 
-        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner = $this->createStub(\Core\Database\MigrationRunner::class);
         $runner->method('migrate')->willThrowException(new \RuntimeException('boom'));
 
         $response = $this->controllerWithRunner($runner)->updateStatus(

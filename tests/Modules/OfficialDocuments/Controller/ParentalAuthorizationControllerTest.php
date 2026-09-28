@@ -33,10 +33,10 @@ use Twig\Environment;
  * refused » (the guard answers that before any of this runs) but « another
  * identified member is refused », which is the one a role check cannot see.
  */
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 final class ParentalAuthorizationControllerTest extends TestCase
 {

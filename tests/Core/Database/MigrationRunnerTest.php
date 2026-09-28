@@ -17,11 +17,6 @@ use Tests\UsesProductionEngine;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MigrationRunnerTest extends TestCase
 {
     use UsesProductionEngine;
@@ -774,7 +769,7 @@ class MigrationRunnerTest extends TestCase
         file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE noisy_journal_test DROP COLUMN legacy;');
 
         try {
-            $journal = $this->createMock(JournalService::class);
+            $journal = $this->createStub(JournalService::class);
             $journal->method('log')->willThrowException(new \RuntimeException('no event_log yet'));
 
             $runner = new MigrationRunner(

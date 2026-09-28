@@ -17,11 +17,6 @@ use Tests\DatabaseTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ReceiptExtractionServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -42,7 +37,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testIsAvailableFalseWhenConnectorReportsUnavailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(false);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);
@@ -52,7 +47,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testIsAvailableTrueWhenConnectorReportsAvailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);
@@ -83,7 +78,7 @@ class ReceiptExtractionServiceTest extends TestCase
 
     public function testScheduleExtractionSchedulesTaskWhenAvailable(): void
     {
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isAvailable')->willReturn(true);
 
         $service = new ReceiptExtractionService($this->schedulerService, $connector);

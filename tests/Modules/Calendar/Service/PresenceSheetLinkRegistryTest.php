@@ -10,11 +10,6 @@ use Modules\Presences\Api\PresenceSheetLink;
 use Modules\Presences\Api\PresenceSheetLinkLookupInterface;
 use PHPUnit\Framework\TestCase;
 
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class PresenceSheetLinkRegistryTest extends TestCase
 {
     public function testEmptyRegistryBehavesExactlyLikePresencesBeingAbsent(): void
@@ -42,10 +37,10 @@ class PresenceSheetLinkRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new PresenceSheetLinkRegistry();
-        $registry->provide($this->createMock(PresenceSheetLinkLookupInterface::class));
+        $registry->provide($this->createStub(PresenceSheetLinkLookupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(PresenceSheetLinkLookupInterface::class));
+        $registry->provide($this->createStub(PresenceSheetLinkLookupInterface::class));
     }
 
     public function testItPassesWhereThePersonalFeedExpectsTheLookup(): void

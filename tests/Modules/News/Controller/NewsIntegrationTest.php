@@ -64,10 +64,10 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class NewsIntegrationTest extends TestCase
 {
@@ -1245,7 +1245,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheWarningSaysSoWhenNoStatementWasEverImported(): void
     {
         $event = $this->crossedEvent();
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn(null);
 
         $body = $this->responsesBody($event['article'], 'in_unpaid', $status);
@@ -1256,7 +1256,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheWarningIsAbsentFromTheOtherFilters(): void
     {
         $event = $this->crossedEvent();
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
 
         $this->assertStringNotContainsString('Dernier extrait bancaire', $this->responsesBody($event['article'], 'all', $status));
@@ -1363,7 +1363,7 @@ class NewsIntegrationTest extends TestCase
     {
         $event = $this->crossedEvent();
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $status = $this->createMock(\Modules\Finance\Api\StatementImportStatusInterface::class);
+        $status = $this->createStub(\Modules\Finance\Api\StatementImportStatusInterface::class);
         $status->method('lastStatementImportedAt')->willReturn('2026-02-21 08:00:00');
 
         $controller = new FormController(
@@ -1874,7 +1874,7 @@ class NewsIntegrationTest extends TestCase
      */
     private function controllerWithFinanceAccounts(): array
     {
-        $financeAccount = $this->createMock(FinanceAccountInterface::class);
+        $financeAccount = $this->createStub(FinanceAccountInterface::class);
         $financeAccount->method('getConfiguredAccounts')->willReturn([
             ['id' => 42, 'name' => 'Compte unité', 'iban' => null, 'holder_name' => null, 'section_id' => null],
         ]);

@@ -29,11 +29,6 @@ use Tests\Modules\Groups\GroupsTestHelper;
  * @group database
  */
 #[Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
-#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class ReplyServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -63,7 +58,7 @@ class ReplyServiceTest extends TestCase
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
             new PostMediaService(
-                $this->createMock(DelegatedAlbumManager::class),
+                $this->createStub(DelegatedAlbumManager::class),
                 new PostMediaRepository($this->pdo),
                 $this->groupRepo,
                 $this->replyRepo
@@ -253,7 +248,7 @@ class ReplyServiceTest extends TestCase
 
     public function testDeleteAllMediaForPostSweepsEveryReplyImage(): void
     {
-        $album = $this->createMock(DelegatedAlbumManager::class);
+        $album = $this->createStub(DelegatedAlbumManager::class);
         $deleted = [];
         $album->method('deleteMedia')->willReturnCallback(function (int $albumId, int $mediaId) use (&$deleted): void {
             $deleted[] = $mediaId;

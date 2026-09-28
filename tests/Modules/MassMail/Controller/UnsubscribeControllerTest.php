@@ -20,10 +20,10 @@ use Twig\Environment;
  * idempotent (a mailbox prefetch of the one-click target, a real click,
  * and a resubmit may all reach it for the same recipient).
  */
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class UnsubscribeControllerTest extends TestCase
 {
@@ -38,7 +38,7 @@ class UnsubscribeControllerTest extends TestCase
         $this->memberEmailService = $this->createMock(MemberEmailService::class);
         $this->suppressedAddressRepository = $this->createMock(SuppressedAddressRepository::class);
         $this->controller = new UnsubscribeController(
-            $this->createMock(Environment::class),
+            $this->createStub(Environment::class),
             $this->recipientRepository,
             $this->memberEmailService,
             $this->suppressedAddressRepository

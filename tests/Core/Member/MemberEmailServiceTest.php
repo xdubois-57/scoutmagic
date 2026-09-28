@@ -33,10 +33,10 @@ use Core\Member\Repository\SectionRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-// This class shares its doubles between tests (set up once, or built by
-// a helper): some tests set expectations on them, the others only need
-// their answers, and PHPUnit would report each of those as a mock with
-// no expectation (issue #665).
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class MemberEmailServiceTest extends TestCase
 {
@@ -160,7 +160,7 @@ class MemberEmailServiceTest extends TestCase
         $service = new MemberEmailService(
             $this->repository,
             $this->mailService,
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(\Twig\Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             new SectionService(
     new SectionRepository(Connection::withPdo($this->pdo)),
