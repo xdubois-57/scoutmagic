@@ -26,6 +26,8 @@ Chaque ligne porte des icônes à droite : une **flèche vers le bas**
 pour télécharger l'archive, une **clé** pour afficher son mot de passe,
 une **corbeille** pour la supprimer. Télécharger affiche aussi le mot
 de passe, juste avant de servir le fichier : notez-le à ce moment-là.
+Dans l'application installée, touchez une seconde fois la flèche une
+fois le mot de passe noté.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
 vôtres, les planifiées et celles prises avant une opération — une série

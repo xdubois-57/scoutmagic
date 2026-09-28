@@ -812,17 +812,42 @@
             // could not be read says so in the row, and must not also
             // cost the download.
             //
-            // By clicking the link again rather than navigating: the link
-            // carries `download` and `target="_blank"`, which keep the
-            // installed app's held-document viewer out of THIS window —
-            // the one now showing the password. The second click finds the
-            // output visible and returns at the top of this listener.
+            // In a browser tab, by clicking the link again rather than
+            // navigating: `download` and `target="_blank"` keep this
+            // window — the one now showing the password — where it is. The
+            // second click finds the output visible and returns at the top
+            // of this listener.
+            //
+            // Not in the installed app: there, file-viewer.js sends EVERY
+            // file link to the viewer in this same window (on iOS neither
+            // attribute keeps it still), so an automatic second click
+            // would take the password off the screen the moment it
+            // appeared. The operator notes it, then taps again.
             revealBackupPassword(id, backupButton, passwordOutput).then(function () {
                 revealing = false;
+                if (isInstalledApp()) {
+                    var again = document.createElement('span');
+                    again.className = 'd-block';
+                    again.textContent = 'Notez-le, puis touchez de nouveau le bouton de téléchargement.';
+                    passwordOutput.append(again);
+                    return;
+                }
                 downloadLink.click();
             });
         });
     });
+
+    /**
+     * Whether this page runs as the installed application, where
+     * file-viewer.js turns every file link into a navigation of this very
+     * window — the same test it uses.
+     *
+     * @returns {boolean}
+     */
+    function isInstalledApp() {
+        return window.matchMedia?.('(display-mode: standalone)').matches === true
+            || /** @type {{standalone?: boolean}} */ (window.navigator).standalone === true;
+    }
 
     /**
      * Asks the server for one archive's password and writes it, or why it

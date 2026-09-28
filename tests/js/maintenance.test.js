@@ -1583,6 +1583,31 @@ describe('maintenance.js: downloading an archive reveals its password', () => {
         expect(fetch).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * The installed app sends every file link to its viewer in this same
+     * window: an automatic second click would take the password off the
+     * screen as it appears. The operator notes it and taps again.
+     */
+    it('in the installed app, shows the password and waits for a second tap', async () => {
+        buildDom();
+        // jsdom has no matchMedia: the installed app is described, not spied on.
+        window.matchMedia = vi.fn((query) => ({ matches: query === '(display-mode: standalone)' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').textContent)
+            .toContain('touchez de nouveau'));
+        expect(clicks).toEqual([true]);
+
+        link.click();
+        expect(clicks).toEqual([true, false]);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        delete window.matchMedia;
+    });
+
     it('does not ask again once the password is on screen', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
