@@ -4,7 +4,7 @@
 // events, and the point on the map.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = false } = {}) {
+function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = false, pointAddress = '' } = {}) {
     const locateUrl = locate ? 'data-locate-url="/covoiturage/organiser/adresse"' : '';
     document.body.innerHTML = `
         <div id="carpool-events"></div>
@@ -16,7 +16,7 @@ function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = fa
         <fieldset data-carpool-point data-manual="${manual}" ${locateUrl}>
             <input type="hidden" name="point_automatic" value="0" data-carpool-point-automatic>
             <input type="hidden" name="point_manual" value="${manual}" data-carpool-point-manual>
-            <input type="hidden" name="point_address" value="" data-carpool-point-address>
+            <input type="hidden" name="point_address" value="${pointAddress}" data-carpool-point-address>
             <div data-carpool-point-fields>
                 <input id="carpool-latitude" name="latitude" value="${lat}">
                 <input id="carpool-longitude" name="longitude" value="${lng}">
@@ -234,6 +234,24 @@ describe('covoiturage-organize', () => {
             } finally {
                 vi.unstubAllGlobals();
             }
+        });
+
+        it('keeps the address a refused form says its pin was found for, and drops that pin when the new one is not found', async () => {
+            // Sent before the lookup of B answered, refused for another
+            // reason: the pin is still A's, whatever the field now says.
+            vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50.7', lng: '4.6', address: 'Gîte de Han', pointAddress: 'Plaine de Basse-Wavre', locate: true });
+            await load();
+            vi.unstubAllGlobals();
+            expect(document.querySelector('[data-carpool-point-address]').value).toBe('Plaine de Basse-Wavre');
+
+            answer({ success: true, found: false });
+            leave('Gîte de Han');
+            await settle();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('carpool-latitude')).toBe('');
         });
 
         it('keeps a pin moved by hand where it is, and moves the address marker', async () => {

@@ -108,6 +108,19 @@
         }
     }
 
+    /**
+     * The address a point the page opens with was found for.
+     *
+     * @param {HTMLInputElement|null} pointAddress
+     * @param {HTMLInputElement|null} address
+     */
+    function savedPinAddress(pointAddress, address) {
+        if (pointAddress && pointAddress.value) {
+            return pointAddress.value;
+        }
+        return address ? address.value.trim() : '';
+    }
+
     /** What wirePoint() hands back when there is no map to centre. */
     function nothing() {
         // No map on this page: a change of address has nothing to move.
@@ -316,8 +329,10 @@
         var latitude = coordinate(lat.value);
         var longitude = coordinate(lng.value);
         if (latitude !== null && longitude !== null) {
-            // A saved automatic point belongs to the saved address.
-            pinAddress = address ? address.value.trim() : '';
+            // A form shown again after a refusal says which address its
+            // point was found for — perhaps not the one now in the field.
+            // Otherwise a saved automatic point belongs to the saved address.
+            pinAddress = savedPinAddress(pointAddress, address);
             showMap([latitude, longitude]);
             pin([latitude, longitude]);
         } else {
