@@ -794,8 +794,14 @@
             // The file is served whatever the answer: a password that
             // could not be read says so in the row, and must not also
             // cost the download.
+            //
+            // By clicking the link again rather than navigating: the link
+            // carries `download` and `target="_blank"`, which keep the
+            // installed app's held-document viewer out of THIS window —
+            // the one now showing the password. The second click finds the
+            // output visible and returns at the top of this listener.
             revealBackupPassword(id, backupButton, passwordOutput).then(function () {
-                window.location.href = downloadLink.href;
+                downloadLink.click();
             });
         });
     });

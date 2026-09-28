@@ -1503,31 +1503,39 @@ describe('maintenance.js: downloading an archive reveals its password', () => {
     function buildDom() {
         const row = el('<li></li>');
         row.append(
-            el('<a href="/files/40" class="btn">télécharger</a>'),
+            el('<a href="/files/40" class="btn" download target="_blank" rel="noopener">télécharger</a>'),
             el('<button type="button" data-backup-password="12">clé</button>'),
             el('<output id="backup-password-12" class="d-none"></output>'),
         );
         appendAll(row);
     }
 
-    function stubLocation() {
-        const location = { href: '' };
-        Object.defineProperty(window, 'location', { configurable: true, value: location });
-        return location;
+    /**
+     * Records every click the link receives, and cancels the browser's own
+     * handling of it — jsdom has none to give.
+     */
+    function watchClicks(link) {
+        const clicks = [];
+        link.addEventListener('click', (e) => {
+            clicks.push(e.defaultPrevented);
+            e.preventDefault();
+        });
+        return clicks;
     }
 
-    it('shows the password first, then serves the file', async () => {
+    it('shows the password first, then serves the file through the link itself', async () => {
         buildDom();
-        const location = stubLocation();
         global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
         await boot();
-
         const link = document.querySelector('a[href="/files/40"]');
-        const click = new MouseEvent('click', { bubbles: true, cancelable: true });
-        link.dispatchEvent(click);
+        const clicks = watchClicks(link);
 
-        expect(click.defaultPrevented).toBe(true);
-        await vi.waitFor(() => expect(location.href).toContain('/files/40'));
+        link.click();
+
+        // The first click is held back for the password; the second, the
+        // link clicking itself once it is shown, is left to the browser —
+        // so `download` and `target="_blank"` still apply.
+        await vi.waitFor(() => expect(clicks).toEqual([true, false]));
         expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/12/password', expect.objectContaining({ method: 'POST' }));
         expect(document.getElementById('backup-password-12').querySelector('code').textContent)
             .toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
@@ -1535,29 +1543,30 @@ describe('maintenance.js: downloading an archive reveals its password', () => {
 
     it('still serves the file when the password cannot be read, and says why', async () => {
         buildDom();
-        const location = stubLocation();
         global.fetch = vi.fn(() => Promise.reject(new Error('réseau')));
         await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
 
-        document.querySelector('a[href="/files/40"]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        link.click();
 
-        await vi.waitFor(() => expect(location.href).toContain('/files/40'));
+        await vi.waitFor(() => expect(clicks).toEqual([true, false]));
         expect(document.getElementById('backup-password-12').textContent).toContain('n\'a pas pu être lu');
         expect(document.querySelector('[data-backup-password]').disabled).toBe(false);
     });
 
     it('does not ask again once the password is on screen', async () => {
         buildDom();
-        stubLocation();
         global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
         await boot();
         document.querySelector('[data-backup-password]').click();
         await vi.waitFor(() => expect(document.getElementById('backup-password-12').classList.contains('d-none')).toBe(false));
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
 
-        const click = new MouseEvent('click', { bubbles: true, cancelable: true });
-        document.querySelector('a[href="/files/40"]').dispatchEvent(click);
+        link.click();
 
-        expect(click.defaultPrevented).toBe(false);
+        expect(clicks).toEqual([false]);
         expect(fetch).toHaveBeenCalledTimes(1);
     });
 });
