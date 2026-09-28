@@ -357,9 +357,14 @@ jobs:
     # A blocking check like every other job here. The bound is generous
     # enough for a cold Chromium download plus a full schema migration,
     # and tight enough that a hung PHP server fails the run instead of
-    # occupying a runner for six hours. The evidence run gets ten minutes
-    # more because it runs the full tier, boot matrix included.
-    timeout-minutes: ${{ inputs.evidence && 30 || 20 }}
+    # occupying a runner for six hours. The evidence run gets more because
+    # it runs the full tier, boot matrix included — and that tier grows
+    # with every module: 23, 24, then 26 minutes on the v1.0.42 and v1.1.0
+    # tags, until the v1.1.0 re-run passed all 90 tests in 28.8 minutes
+    # and was cancelled at 30 while stopping its server (the boot matrix
+    # alone took 15.7). A Release must not fail on a green suite, so the
+    # bound leaves room for a year of growth rather than two minutes.
+    timeout-minutes: ${{ inputs.evidence && 45 || 20 }}
     services:
       mysql:
         image: mysql:8.0
