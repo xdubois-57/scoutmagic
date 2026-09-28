@@ -1092,10 +1092,10 @@ class MailTransportChainTest extends TestCase
         // Writes fail, reads keep working: the quota check happens before
         // the send and must still answer, or the lane would be skipped and
         // the test would prove nothing about the counter at all.
-        $this->pdo->exec(
+        $this->pdo->prepare(
             'CREATE TRIGGER refuse_counter_writes BEFORE INSERT ON mail_send_counters
              BEGIN SELECT RAISE(FAIL, \'compteur indisponible\'); END'
-        );
+        )->execute();
 
         $delivery = $this->recordingTransport();
         $this->chain($delivery)->deliver($this->message(), MailPurpose::MagicLink);
