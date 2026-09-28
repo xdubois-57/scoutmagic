@@ -304,9 +304,18 @@ class SchedulerRepository
         // one, so the arm would be code no caller can reach — and unreachable
         // code in a supersede path is worse than an asymmetry between two
         // methods. Add it back the day something needs it.
+        // `created_at DESC, id DESC`, and the second key is not decoration:
+        // `created_at` has one-second granularity, so two rows queued in the
+        // same second tie — and a tie resolved by whatever the engine feels
+        // like returning handed back the OLDER one, which is how a test
+        // written for this method caught it. The caller supersedes what this
+        // returns, so picking the older of two live installs would supersede
+        // the wrong one. Same shape as UpdateHistoryRepository::
+        // findInProgress() and findLatestAttempt(), which already tie-break
+        // on the id for the same reason.
         $stmt = $this->pdo->prepare(
             "SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ?
-               AND status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 1"
+               AND status IN ('pending', 'processing') ORDER BY created_at DESC, id DESC LIMIT 1"
         );
         $stmt->execute([$moduleId, $taskKey, $reference]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);

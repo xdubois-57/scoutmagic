@@ -92,6 +92,62 @@ class SchedulerServiceTest extends TestCase
         $this->assertNull($found);
     }
 
+    /**
+     * **`findLive()` answers about a task that is alive, not merely queued**
+     * (issue #689). `find()` above answers `pending` only, and
+     * `SchedulerRepository::claimOverdue()` flips a row to `processing` before
+     * its handler runs — so for as long as that handler works, `find()` says
+     * « nothing there » about a task that plainly exists. Reading the wrong
+     * one of the two is what let an older install survive a newer push.
+     *
+     * Added in review of #691, which had this method exercised only through
+     * `GitHubWebhookServiceTest` and never on its own contract.
+     */
+    public function testFindLiveSeesAClaimedActionThatFindDoesNot(): void
+    {
+        $id = $this->service->schedule('core', 'task_live', new \DateTimeImmutable('+1 hour'), [], 'ref-live');
+        $this->pdo->prepare("UPDATE scheduled_actions SET status = 'processing' WHERE id = ?")->execute([$id]);
+
+        $this->assertNull(
+            $this->service->find('core', 'task_live', 'ref-live'),
+            'find() is supposed to answer about a queued action only'
+        );
+
+        $live = $this->service->findLive('core', 'task_live', 'ref-live');
+        $this->assertNotNull($live, 'findLive() missed an action whose handler is running');
+        $this->assertSame('processing', $live['status'], 'the caller needs the status to know it may not cancel');
+    }
+
+    /** A queued one is alive too — both statuses, not just the awkward one. */
+    public function testFindLiveSeesAQueuedAction(): void
+    {
+        $this->service->schedule('core', 'task_queued', new \DateTimeImmutable('+1 hour'), [], 'ref-queued');
+
+        $live = $this->service->findLive('core', 'task_queued', 'ref-queued');
+        $this->assertNotNull($live);
+        $this->assertSame('pending', $live['status']);
+    }
+
+    /** And a finished or cancelled one is not: nothing left to supersede. */
+    public function testFindLiveIgnoresACancelledAction(): void
+    {
+        $id = $this->service->schedule('core', 'task_done', new \DateTimeImmutable('+1 hour'), [], 'ref-done');
+        $this->service->cancel($id);
+
+        $this->assertNull($this->service->findLive('core', 'task_done', 'ref-done'));
+    }
+
+    /** Newest first, because the supersede is about the most recent one. */
+    public function testFindLiveReturnsTheNewestOfSeveral(): void
+    {
+        $this->service->schedule('core', 'task_many', new \DateTimeImmutable('+1 hour'), ['n' => 1], 'ref-many');
+        $this->service->schedule('core', 'task_many', new \DateTimeImmutable('+2 hours'), ['n' => 2], 'ref-many');
+
+        $live = $this->service->findLive('core', 'task_many', 'ref-many');
+        $this->assertNotNull($live);
+        $this->assertSame(['n' => 2], json_decode((string) $live['payload'], true));
+    }
+
     public function testCancelChangesStatus(): void
     {
         $runAt = new \DateTimeImmutable('+1 hour');
