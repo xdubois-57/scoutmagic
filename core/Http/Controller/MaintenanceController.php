@@ -1266,6 +1266,16 @@ class MaintenanceController extends AbstractController
                 // (IT-03): an older one was encrypted with a password its
                 // operator typed, and nobody here can say it again.
                 'hasPassword' => in_array($backup->id, $withPassword, true),
+                // The one archive of this server a restore may still need
+                // a typed password for (IT-06): a full backup from before
+                // IT-03, encrypted with a password its operator chose and
+                // the site never kept. The picker shows the field for it
+                // alone; every other archive of this server needs none.
+                'needsTypedPassword' => in_array(
+                    $backup->type,
+                    ['full_config', 'full_no_gallery', 'full_with_gallery'],
+                    true
+                ) && !in_array($backup->id, $withPassword, true),
                 // What the last verification pass found (§8.101). Null
                 // where there is nothing to say — a backup taken an hour
                 // ago has not been re-read yet, and a badge saying so
@@ -1424,11 +1434,13 @@ class MaintenanceController extends AbstractController
 
         $userId = AuthSession::getUserAccountId();
         $source = (string) $request->getBody('source', 'server');
-        // Only an uploaded archive can need one: an archive of this server
-        // restores with the password the site kept for it (IT-03), so a
-        // field left filled on the page is not carried into the task
-        // (issue #619, IT-06).
-        $password = $source === 'upload' ? (string) $request->getBody('password', '') : '';
+        // An archive of this server restores with the password the site
+        // kept for it (IT-03) and the page asks for none — except for a
+        // full backup from before IT-03, whose password its operator chose
+        // and the site never kept. The field is shown for that one alone,
+        // and what is typed there is carried like an upload's; for every
+        // other archive the kept password wins in RestoreBackupHandler.
+        $password = (string) $request->getBody('password', '');
         $encryptedPassword = $password !== ''
             ? base64_encode($this->encryption->encrypt($password, 'backup_password'))
             : null;

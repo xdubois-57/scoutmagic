@@ -616,13 +616,23 @@
     var sourceUploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
     var serverPicker = document.getElementById('restore-server-picker');
     var uploadPicker = document.getElementById('restore-upload-picker');
+    var passwordField = document.getElementById('restore-password-field');
+    var backupSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('restore-backup-id'));
+    // The password field: always for an uploaded file, and for an archive
+    // of this server only when its option says the site never kept its
+    // password — a full backup from before IT-03 (issue #619, IT-06).
     function toggleRestoreSource() {
-        var isUpload = sourceUploadRadio?.checked;
-        if (serverPicker) serverPicker.classList.toggle('d-none', !!isUpload);
+        var isUpload = !!sourceUploadRadio?.checked;
+        var chosen = backupSelect?.selectedOptions[0];
+        var needsPassword = isUpload || chosen?.dataset.needsPassword === '1';
+        if (serverPicker) serverPicker.classList.toggle('d-none', isUpload);
         if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
+        if (passwordField) passwordField.classList.toggle('d-none', !needsPassword);
     }
     if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
     if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);
+    if (backupSelect) backupSelect.addEventListener('change', toggleRestoreSource);
+    toggleRestoreSource();
 
     var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {

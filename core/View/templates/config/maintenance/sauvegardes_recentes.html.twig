@@ -97,32 +97,34 @@
                                this only spares finding that out. #}
                             {% for backup in backups %}
                                 {% if backup.status == 'completed' and not backup.isPortable %}
-                                    <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
+                                    <option value="{{ backup.id }}"{% if backup.needsTypedPassword %} data-needs-password="1"{% endif %}>{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                 {% endif %}
                             {% endfor %}
                         </select>
                     </div>
                     <div class="mb-2 d-none" id="restore-upload-picker">
-                        <input type="file" class="form-control form-control-sm mb-2" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
-                        <div>
-                            {# One field for both: the password of an
-                               encrypted full backup, or the passphrase of a
-                               portable one. The site tells which it received
-                               from the archive's own header, so asking the
-                               same thing twice in two fields would only make
-                               the operator choose between them.
+                        <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
+                    </div>
+                    <div class="mb-2 d-none" id="restore-password-field">
+                        {# One field for both: the password of an
+                           encrypted full backup, or the passphrase of a
+                           portable one. The site tells which it received
+                           from the archive's own header, so asking the
+                           same thing twice in two fields would only make
+                           the operator choose between them.
 
-                               Inside the upload picker since issue #619
-                               (IT-06): an archive of this server restores with
-                               the password the site kept, so the field is only
-                               there for a file that came from elsewhere. #}
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'restore-backup-password', field_name: 'password',
-                                type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
-                                help: "Une sauvegarde complète ou portable venue d'ailleurs. Une sauvegarde de ce serveur n'en demande pas : le site connaît le sien.",
-                                size: 'sm', wrapper_class: '',
-                            } only %}
-                        </div>
+                           Hidden for an archive of this server since issue
+                           #619 (IT-06): the site restores it with the
+                           password it kept. maintenance.js shows it for an
+                           uploaded file, and for the one archive of this
+                           server whose password was never kept — a full
+                           backup from before IT-03, flagged on its option. #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'restore-backup-password', field_name: 'password',
+                            type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
+                            help: "Pour une sauvegarde venue d'ailleurs, ou une sauvegarde complète de ce serveur antérieure aux mots de passe générés. Les autres sauvegardes de ce serveur n'en demandent pas : le site connaît le leur.",
+                            size: 'sm', wrapper_class: '',
+                        } only %}
                     </div>
                     <label class="form-label small" for="restore-backup-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
                     <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">

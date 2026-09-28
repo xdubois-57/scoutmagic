@@ -19,7 +19,9 @@ et les fichiers actuels par ceux de la sauvegarde choisie.
 
 Choisissez une sauvegarde dans la liste déroulante, tapez RESTAURER,
 puis confirmez. **Aucun mot de passe n'est demandé** : le site connaît
-celui qu'il a généré pour chacune de ses archives.
+celui qu'il a généré pour chacune de ses archives. Seule une sauvegarde
+complète d'avant les mots de passe générés demande encore celui que vous
+aviez choisi : le champ apparaît quand vous la sélectionnez.
 
 Les sauvegardes portables n'y figurent pas : elles servent à repartir
 sur une installation neuve, pas à écraser celle-ci — voyez « Remonter

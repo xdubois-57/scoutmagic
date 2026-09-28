@@ -2295,18 +2295,20 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * **An archive of this server restores with no password** (issue #619,
-     * IT-06): the site kept the one it generated, so a value left in the
-     * field — hidden for this source — is not carried into the task.
+     * **A typed password still reaches the task for a server archive**
+     * (IT-06 review). The page asks for none for an archive whose password
+     * the site kept — RestoreBackupHandler uses the kept one — but a full
+     * backup from before IT-03 was encrypted with a password its operator
+     * chose, and dropping what they type would leave it unrestorable here.
      */
-    public function testAServerRestoreCarriesNoPasswordEvenWhenOneIsPosted(): void
+    public function testAServerRestoreCarriesATypedPasswordForAnArchiveWhosePasswordWasNeverKept(): void
     {
         $backupId = $this->backupRepository->create('full_config', 1);
         $this->backupRepository->markCompleted($backupId, 1, 1);
 
         $request = new Request('POST', '/config/maintenance/reset/restore', [], [
             '_csrf_token' => $this->csrfToken(), 'confirm_keyword' => 'RESTAURER', 'source' => 'server',
-            'backup_id' => (string) $backupId, 'password' => 'saisi-par-erreur',
+            'backup_id' => (string) $backupId, 'password' => 'choisi-avant-it03',
         ], [], []);
 
         $this->controller->restoreBackup($request, []);
@@ -2314,7 +2316,7 @@ class MaintenanceControllerTest extends TestCase
         $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
         $this->assertCount(1, $tasks);
         $payload = json_decode((string) $tasks[0]['payload'], true);
-        $this->assertNull($payload['encrypted_password'], 'a server restore carried a password into its task');
+        $this->assertIsString($payload['encrypted_password'], 'the typed password was dropped');
     }
 
     /**
@@ -2339,13 +2341,32 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Une sauvegarde de sécurité est prise automatiquement avant la restauration', $body);
         $this->assertStringNotContainsString('<option value="' . $portableId . '">', $body);
 
-        $picker = substr($body, (int) strpos($body, 'id="restore-upload-picker"'));
-        $picker = substr($picker, 0, (int) strpos($picker, 'restore-backup-keyword'));
-        $this->assertStringContainsString('id="restore-backup-password"', $picker, 'the password field is outside the upload picker');
+        // The password field is hidden until an upload, or an archive of
+        // this server whose password was never kept, asks for it.
+        $this->assertStringContainsString('<div class="mb-2 d-none" id="restore-password-field">', $body);
+        $this->assertStringContainsString('id="restore-backup-password"', $body);
 
         $reset = $this->page('resetPage');
         $this->assertStringNotContainsString('restore-backup-form', $reset);
         $this->assertStringContainsString('/config/maintenance/sauvegardes-recentes#maintenance-restore', $reset);
+    }
+
+    /**
+     * **Only a full backup whose password was never kept asks for one**
+     * (IT-06 review): its option carries the flag maintenance.js reads to
+     * show the field; an archive whose password the site kept does not.
+     */
+    public function testOnlyAnArchiveWhosePasswordWasNeverKeptIsFlaggedForATypedPassword(): void
+    {
+        $legacy = $this->backupRepository->create('full_config', 1);
+        $this->backupRepository->markCompleted($legacy, 1, 1);
+        $database = $this->backupRepository->create('database', 1);
+        $this->backupRepository->markCompleted($database, 1, 1);
+
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertStringContainsString('<option value="' . $legacy . '" data-needs-password="1">', $body);
+        $this->assertStringContainsString('<option value="' . $database . '">', $body);
     }
 
     // --- Mises à jour automatiques ---

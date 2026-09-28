@@ -1159,6 +1159,40 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(document.getElementById('restore-upload-picker').classList.contains('d-none')).toBe(false);
             expect(document.getElementById('restore-server-picker').classList.contains('d-none')).toBe(true);
         });
+
+        /**
+         * The password field (issue #619, IT-06): hidden for an archive of
+         * this server, whose password the site kept; shown for an upload,
+         * and for the one server archive flagged as never having had its
+         * password kept — a full backup from before IT-03.
+         */
+        it('shows the password field for an upload and for a server archive whose password was never kept', async () => {
+            buildRestoreBackup();
+            appendAll(
+                el(`<select id="restore-backup-id">
+                    <option value="1">récente</option>
+                    <option value="2" data-needs-password="1">ancienne</option>
+                </select>`),
+                el('<div id="restore-password-field" class="d-none"></div>'),
+            );
+            await boot();
+            const field = document.getElementById('restore-password-field');
+            const select = /** @type {HTMLSelectElement} */ (document.getElementById('restore-backup-id'));
+            expect(field.classList.contains('d-none')).toBe(true);
+
+            select.value = '2';
+            select.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(false);
+
+            select.value = '1';
+            select.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(true);
+
+            const uploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
+            uploadRadio.checked = true;
+            uploadRadio.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(false);
+        });
     });
 
     describe('restore-backup-form submit — chunked upload of a large archive (audit M2)', () => {
