@@ -591,6 +591,100 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('restauré automatiquement', $body);
     }
 
+    /**
+     * **And the history the warning points at actually contains it** (issue
+     * #681). The warning above is found by looking through the whole table;
+     * the history is the 20 newest rows. More skipped installs than that
+     * between the two, and the page said « la dernière tentative a échoué —
+     * voir l'historique » while the history held nothing but « Ignorée ».
+     * The test next door built exactly this case and only ever checked the
+     * warning, so the contradiction was pinned in place rather than caught.
+     *
+     * Option 1 of the ticket, as decided: the row is rendered whatever its
+     * age, labelled as older, and NOT quietly mixed into a list read newest
+     * first.
+     */
+    public function testTheFailureBehindTooManySkippedInstallsIsAlsoInTheHistoryShown(): void
+    {
+        $failed = $this->updateHistoryRepository->create('9.9.9', '9.9.10', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->page('updatePage');
+
+        // The version pair of the failed row: the 20 shown are all skipped
+        // ones, so without the extra row this string is nowhere on the page.
+        $this->assertStringContainsString(
+            '9.9.9 → 9.9.10',
+            $body,
+            'the failure the warning is about is absent from the history the warning points at'
+        );
+        $this->assertStringContainsString('Dernière tentative réelle', $body);
+        // And it is the failure that is shown, with its badge — not just its
+        // version echoed somewhere.
+        $this->assertStringContainsString('Échouée — restaurée automatiquement', $body);
+        // A failure DOES keep the warning colour: the test below proves a
+        // success does not, and without this one the fix for it could drop
+        // the colour everywhere unnoticed.
+        $this->assertStringContainsString('table-warning', $body);
+    }
+
+    /**
+     * **The extra row is not an alarm unless the attempt failed** (raised in
+     * review of #687). `update_history_older_attempt` is decided by age
+     * alone, so a SUCCEEDED attempt pushed out of the fetched rows reaches
+     * the same branch — and `table-warning` there painted a yellow warning
+     * directly above that attempt's own green « Réussie » badge, on a page
+     * whose banner says nothing is wrong. The row stays (option 1 of the
+     * ticket says the last attempt is always shown, not only a failed one);
+     * only the colour follows the outcome.
+     */
+    public function testAnOlderAttemptThatSucceededIsNotPaintedAsAWarning(): void
+    {
+        $ok = $this->updateHistoryRepository->create('9.9.9', '9.9.10', false, null);
+        $this->updateHistoryRepository->markCompleted($ok);
+        for ($i = 0; $i < 25; $i++) {
+            $skipped = $this->updateHistoryRepository->create('1.1.0', '1.2.' . $i, false, null);
+            $this->updateHistoryRepository->markSkipped($skipped, 'Installation remplacée.');
+        }
+
+        $body = $this->page('updatePage');
+
+        // Still shown, and still announced as older — that part is the fix.
+        $this->assertStringContainsString('9.9.9 → 9.9.10', $body);
+        $this->assertStringContainsString('Dernière tentative réelle', $body);
+        // But not dressed as a failure.
+        $this->assertStringNotContainsString(
+            'table-warning',
+            $body,
+            'a successful older attempt is painted as a warning, contradicting its own « Réussie » badge'
+        );
+    }
+
+    /**
+     * The other half of the same rule: when the last attempt IS among the
+     * rows shown — the normal case — nothing extra is rendered. Without
+     * this, the fix above could duplicate every failure on the page and no
+     * test would mind.
+     */
+    public function testAFailureAlreadyInTheHistoryIsNotRepeatedAboveIt(): void
+    {
+        $failed = $this->updateHistoryRepository->create('9.9.9', '9.9.10', false, null);
+        $this->updateHistoryRepository->markRolledBack($failed, 'migration KO');
+
+        $body = $this->page('updatePage');
+
+        $this->assertStringNotContainsString('Dernière tentative réelle', $body);
+        $this->assertSame(
+            1,
+            substr_count($body, '9.9.9 → 9.9.10'),
+            'the last attempt is rendered twice when it is already in the list'
+        );
+    }
+
     public function testTheUpdatePageStaysQuietWhenTheMostRecentAttemptSucceeded(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, null);
