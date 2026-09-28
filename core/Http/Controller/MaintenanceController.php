@@ -28,6 +28,7 @@ use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\UpdateException;
+use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
 use Core\Storage\Location\StorageCapability;
@@ -308,16 +309,34 @@ class MaintenanceController extends AbstractController
         // whose last three installs all rolled back still has a perfectly
         // good "dernière mise à jour réussie" date, and reading only that
         // one is how six consecutive rollbacks stayed invisible on this
-        // very page. Taken from the list the table below already fetched
-        // (newest first) rather than a second query for the same row.
+        // very page.
         $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
         // An install skipped before it started was never an attempt
         // (issue #622): the last one is the newest that actually ran or
-        // is still to run — asked of the table rather than of the rows
-        // shown, which a burst of skipped pushes can fill entirely.
+        // is still to run — asked of the WHOLE table rather than of the
+        // rows shown, which a burst of skipped pushes can fill entirely.
+        // It is a second query for that reason, and not, as the comment
+        // here used to claim, taken from the list above (issues #659,
+        // #674).
         $lastAttempt = $this->updateHistoryRepository->findLatestAttempt();
         $lastAttemptFailed = $lastAttempt !== null
             && in_array($lastAttempt->status, ['failed', 'rolled_back'], true);
+
+        // …and asking the whole table is exactly what made the two
+        // disagree (issue #681). More than UPDATE_HISTORY_SHOWN skipped
+        // installs after a failure, and the warning said « voir
+        // l'historique » while the history it points at held nothing but
+        // « Ignorée » rows. The row the warning is about is carried
+        // separately so the page can show it whatever its age; null
+        // whenever the table already contains it, which is the normal
+        // case and renders nothing extra.
+        $olderAttempt = null;
+        if ($lastAttempt !== null) {
+            $shownIds = array_map(static fn(UpdateHistory $entry): int => $entry->id, $updateHistory);
+            if (!in_array($lastAttempt->id, $shownIds, true)) {
+                $olderAttempt = $lastAttempt;
+            }
+        }
 
         return [
             'abandoned_migration' => $abandonedMigration,
@@ -347,6 +366,14 @@ class MaintenanceController extends AbstractController
             // invisible to the person looking at it. A run of failures is
             // the thing this table exists to make obvious.
             'update_history' => $updateHistory,
+            // The last attempt when it falls outside the rows above, so
+            // that a warning about it never points at a table that does
+            // not contain it (issue #681). Rendered separately, with its
+            // own date, rather than padded into the list: it is older than
+            // everything else there, and pretending otherwise would put a
+            // stale row at the top of a table that is read as « newest
+            // first ».
+            'update_history_older_attempt' => $olderAttempt,
             // ——— Bloc « Sauvegarde hors site » ———
             // ——— Where the archives go (IT-05) ———
             // **This page no longer knows what Google is.** The

@@ -113,6 +113,26 @@
                                already fetched them, and a reader who opens the list
                                should not wait for a round trip. #}
                             <tbody>
+                                {% if update_history_older_attempt %}
+                                    {# The last real attempt, when a burst of skipped
+                                       installs has pushed it out of the rows fetched
+                                       (issue #681). Above the list and outside the
+                                       collapse on purpose: it is the row the warning
+                                       about a failed update points at, so it has to be
+                                       readable without expanding anything. Labelled as
+                                       older, because this table is read newest first and
+                                       an unannounced old row at the top would misdate
+                                       every other line by association. #}
+                                    <tr class="table-warning">
+                                        <td colspan="3" class="small">
+                                            Dernière tentative réelle, plus ancienne que les
+                                            {{ update_history|length }} lignes suivantes :
+                                        </td>
+                                    </tr>
+                                    {% include 'partials/update_history_row.html.twig' with {
+                                        entry: update_history_older_attempt,
+                                    } only %}
+                                {% endif %}
                                 {% for entry in update_history|slice(0, 5) %}
                                     {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
                                 {% endfor %}
