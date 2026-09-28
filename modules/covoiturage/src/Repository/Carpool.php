@@ -55,9 +55,25 @@ final class Carpool
      * a chief organising a trip for their own section should not lose
      * sight of it because the outing is an Unit-wide event.
      *
-     * Carpools created before #650 are unchanged by the same expression:
-     * those with events carry no section of their own, and those without
-     * carry no event.
+     * Carpools created before #650 are unchanged by the same expression
+     * **as long as nobody edits them**: those with events carried no
+     * section of their own, and those without carried no event — the old
+     * `validate()` forced `section_id` to null whenever an event was
+     * retained, and the old `update()` wrote that null back, so the two
+     * shapes were mutually exclusive in the table and still are at the
+     * moment this ships.
+     *
+     * An edit that links an event to a legacy carpool is the one case where
+     * this reads differently from before: the hand-picked section survives
+     * alongside the event's, where the old rule silently dropped it. Its
+     * staff keep a carpool they were already seeing, so nothing is
+     * disclosed that was not disclosed before — but that section came from
+     * the old unrestricted picker and may be one the creator never staffed,
+     * which the new `create()` refuses. Issue #680 carries that legacy
+     * question: neither repair fits here — clearing a stored section once
+     * events exist would undo this very union for carpools created since,
+     * and a migration keyed on « has a section and has events » would
+     * target no row at all, the two shapes being exclusive as above.
      *
      * @return list<int>
      */
