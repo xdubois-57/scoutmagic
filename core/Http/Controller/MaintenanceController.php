@@ -1181,6 +1181,54 @@ class MaintenanceController extends AbstractController
     }
 
     /**
+     * POST /config/maintenance/reset/full/password (AJAX, JSON) — the
+     * password the full reset will encrypt its safety copy with (IT-03b).
+     *
+     * Shown BEFORE the reset, because the reset deletes secrets.enc and
+     * the password with it: afterwards, nobody could say it again. The
+     * same one every time it is asked for, until the reset runs.
+     *
+     * @param array<string, string> $params
+     */
+    public function revealFullResetPassword(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        $token = is_array($data) && is_string($data['_csrf_token'] ?? null) ? $data['_csrf_token'] : null;
+        if (($guard = $this->guardCsrfJson($request, $token)) !== null) {
+            return $guard;
+        }
+        if (!$this->backupService->supportsZipEncryption()) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Ce serveur ne sait pas chiffrer les archives : la copie de sécurité sera en clair.',
+            ], 409);
+        }
+
+        try {
+            $password = $this->passwords()->fullResetPassword();
+        } catch (\Throwable $e) {
+            error_log('Full reset password could not be kept: ' . $e::class);
+
+            return $this->json([
+                'success' => false,
+                'error' => 'Le mot de passe de la copie de sécurité n\'a pas pu être conservé.',
+            ], 500);
+        }
+
+        $this->journalService->log(
+            'core',
+            'full_reset_password_revealed',
+            'security',
+            'Mot de passe de la copie de sécurité de la réinitialisation complète affiché',
+            [],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'password' => $password])
+            ->setHeader('Cache-Control', 'no-store');
+    }
+
+    /**
      * Generates and keeps the password of a backup row just created, or
      * fails that row: an archive must never be written with a password the
      * site did not manage to keep.
@@ -1349,6 +1397,30 @@ class MaintenanceController extends AbstractController
         }
         if (($data['confirm_checkbox'] ?? false) !== true) {
             return $this->json(['success' => false, 'error' => 'Vous devez cocher la case de confirmation.'], 400);
+        }
+        // The safety copy is encrypted, and its password is erased with
+        // secrets.enc (issue #619, IT-03b): it must have been shown, and
+        // noted, before anything is erased. FullResetHandler refuses too.
+        if ($this->backupService->supportsZipEncryption()) {
+            // An unreadable secrets file counts as a password never shown:
+            // refused in the JSON this endpoint always answers with.
+            try {
+                $revealed = $this->passwords()->revealedFullResetPassword();
+            } catch (\Throwable) {
+                $revealed = null;
+            }
+            if ($revealed === null) {
+                return $this->json([
+                    'success' => false,
+                    'error' => 'Affichez d\'abord le mot de passe de la copie de sécurité, et notez-le.',
+                ], 400);
+            }
+            if (($data['password_noted'] ?? false) !== true) {
+                return $this->json([
+                    'success' => false,
+                    'error' => 'Confirmez avoir noté le mot de passe de la copie de sécurité.',
+                ], 400);
+            }
         }
 
         $userId = AuthSession::getUserAccountId();

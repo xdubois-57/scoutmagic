@@ -607,6 +607,7 @@ class InstallUpdateHandlerTest extends TestCase
             $backupService,
             $this->storagePath . '/dump.sql',
             $this->storagePath . '/files.zip',
+            null,
             $error
         );
 
@@ -629,6 +630,36 @@ class InstallUpdateHandlerTest extends TestCase
      * tooltip on Configuration > Maintenance, so it must stay free of the
      * exception's own text.
      */
+    /**
+     * The safety copy is encrypted since IT-03b (issue #619): the rollback
+     * hands its password to restoreFiles(), or it could not open it.
+     */
+    public function testTheRollbackOpensTheSafetyCopyWithItsPassword(): void
+    {
+        $historyId = $this->updateHistoryRepository->create('dev-8e3b6c1', 'dev-63afd86', false, $this->userId);
+        $history = $this->updateHistoryRepository->findById($historyId);
+        $this->assertNotNull($history);
+
+        $backupService = $this->createMock(BackupService::class);
+        $backupService->expects($this->once())
+            ->method('restoreFiles')
+            ->with($this->storagePath . '/files.zip', 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'rollbackToSafetyBackup');
+        $method->invoke(
+            $this->handler,
+            $historyId,
+            $history,
+            $this->context,
+            $this->updateHistoryRepository,
+            $backupService,
+            $this->storagePath . '/dump.sql',
+            $this->storagePath . '/files.zip',
+            'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678',
+            new \RuntimeException('install failed')
+        );
+    }
+
     public function testTheDetailStaysOutOfWhatTheMaintenancePageShows(): void
     {
         $historyId = $this->updateHistoryRepository->create('dev-8e3b6c1', 'dev-63afd86', false, $this->userId);
@@ -648,6 +679,7 @@ class InstallUpdateHandlerTest extends TestCase
             $backupService,
             $this->storagePath . '/dump.sql',
             $this->storagePath . '/files.zip',
+            null,
             new \Error('Unknown named parameter $backupCreated')
         );
 

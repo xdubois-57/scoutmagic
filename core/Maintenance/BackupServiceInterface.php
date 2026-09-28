@@ -23,7 +23,7 @@ interface BackupServiceInterface
 
     public function createConfigOnlyDump(): string;
 
-    public function createFileBackup(): string;
+    public function createFileBackup(?string $password = null): string;
 
     /**
      * Reserves the dump AND the archive together, before either exists —

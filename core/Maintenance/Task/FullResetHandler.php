@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Maintenance\Task;
 
+use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupPasswords;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\BackupServiceInterface;
 use Core\Scheduler\TaskContext;
@@ -46,6 +48,43 @@ class FullResetHandler implements TaskHandlerInterface
     }
 
     /**
+     * Moves the database dump into the encrypted safety archive, as
+     * `database.sql`, and deletes its clear copy.
+     *
+     * @throws BackupException
+     */
+    private function sealDumpIntoArchive(string $dumpPath, string $zipPath, string $password): void
+    {
+        // The clear dump goes whether sealing works or not: a failure here
+        // stops the reset before anything is erased, and must not leave the
+        // whole database in clear beside a key that survives. Nor may the
+        // archive: an entry added but not encrypted is written in clear by
+        // close() — or by the destructor — so a failed seal discards every
+        // pending change first, and a failed seal's archive is deleted.
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open($zipPath) !== true) {
+                throw new BackupException('La copie de sécurité n\'a pas pu être rouverte.');
+            }
+            $sealed = is_file($dumpPath)
+                && $zip->addFile($dumpPath, 'database.sql')
+                && $zip->setEncryptionName('database.sql', \ZipArchive::EM_AES_256, $password);
+            if (!$sealed) {
+                $zip->unchangeAll();
+                $zip->close();
+            }
+            if (!$sealed || !$zip->close()) {
+                throw new BackupException('La base de données n\'a pas pu être ajoutée à la copie de sécurité.');
+            }
+        } catch (\Throwable $e) {
+            @unlink($zipPath);
+            throw $e;
+        } finally {
+            @unlink($dumpPath);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     public function handle(array $payload, TaskContext $context): void
@@ -74,6 +113,11 @@ class FullResetHandler implements TaskHandlerInterface
         );
 
         $preserveDir = null;
+        // Whether anything was destroyed yet. A failure before that point
+        // changed nothing and is thrown on, so the scheduler records it
+        // as failed and the screen says so; after it, the tracking row
+        // itself is gone with the tables and there is nobody to tell.
+        $erasing = false;
 
         try {
             // Step 1: safety backup. Its two files are moved outside
@@ -90,17 +134,44 @@ class FullResetHandler implements TaskHandlerInterface
             // is the only copy of a site that no longer exists.
             $backupService->ensureRoomForDumpAndArchive();
 
+            // Encrypted like every archive (issue #619, IT-03b), with the
+            // password the reset page revealed — and made the operator
+            // confirm they noted — before scheduling this task: step 3
+            // deletes secrets.enc, and the password with it. Checked before
+            // anything is written, let alone erased: no password revealed
+            // means no reset at all, never a copy nobody can open.
+            $password = null;
+            if ($backupService->supportsZipEncryption()) {
+                $password = BackupPasswords::forStorage($context->storagePath)->revealedFullResetPassword();
+                if ($password === null) {
+                    throw new BackupException(
+                        'Le mot de passe de la copie de sécurité n\'a pas été affiché : rien n\'a été effacé.'
+                    );
+                }
+            }
+
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup();
+            $filesZipPath = $backupService->createFileBackup($password);
+            if ($password !== null) {
+                // The dump goes INSIDE the encrypted archive, and its clear
+                // copy is deleted: master.key survives the reset, so a
+                // readable dump left beside it would be the whole database
+                // in clear on the disk.
+                $this->sealDumpIntoArchive($dbDumpPath, $filesZipPath, $password);
+                $dbDumpPath = null;
+            }
 
             $preserveDir = sys_get_temp_dir() . '/scoutmagic_reset_preserve_' . bin2hex(random_bytes(8));
             mkdir($preserveDir, 0755, true);
-            $preservedDbDump = $preserveDir . '/' . basename($dbDumpPath);
+            $preservedDbDump = $dbDumpPath !== null ? $preserveDir . '/' . basename($dbDumpPath) : null;
             $preservedZip = $preserveDir . '/' . basename($filesZipPath);
-            rename($dbDumpPath, $preservedDbDump);
+            if ($dbDumpPath !== null) {
+                rename($dbDumpPath, $preservedDbDump);
+            }
             rename($filesZipPath, $preservedZip);
 
             // Step 2: wipe every table's data.
+            $erasing = true;
             $this->truncateAllTables($pdo);
 
             // Step 3: delete secrets.enc (forces DB/SMTP reconfiguration at setup).
@@ -132,7 +203,9 @@ class FullResetHandler implements TaskHandlerInterface
                     mkdir($context->storagePath . '/' . $dir, 0755, true);
                 }
             }
-            rename($preservedDbDump, $context->storagePath . '/maintenance/' . basename($preservedDbDump));
+            if ($preservedDbDump !== null) {
+                rename($preservedDbDump, $context->storagePath . '/maintenance/' . basename($preservedDbDump));
+            }
             rename($preservedZip, $context->storagePath . '/maintenance/' . basename($preservedZip));
             rmdir($preserveDir);
             $preserveDir = null;
@@ -164,6 +237,9 @@ class FullResetHandler implements TaskHandlerInterface
                 );
             } catch (\Throwable) {
                 // Nothing more can be done from here.
+            }
+            if (!$erasing) {
+                throw $e;
             }
         }
     }

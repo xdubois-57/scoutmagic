@@ -1246,6 +1246,7 @@ class MaintenanceControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame($kept, $decoded['password']);
+        $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
 
         $rows = $this->pdo->query(
             "SELECT level, context FROM event_log WHERE event_type = 'backup_password_revealed'"
@@ -1773,17 +1774,122 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
     }
 
-    public function testFullResetSchedulesTheBackgroundTask(): void
+    public function testFullResetSchedulesTheBackgroundTaskOnceThePasswordWasShownAndNoted(): void
     {
-        $token = $this->csrfToken();
+        $this->revealFullResetPassword();
 
         $response = $this->controller->fullReset($this->jsonRequest([
-            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $token,
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /**
+     * The safety copy is encrypted and the reset erases its password with
+     * secrets.enc (issue #619, IT-03b): nothing is scheduled before the
+     * password was shown.
+     */
+    public function testFullResetIsRefusedUntilTheSafetyCopyPasswordWasShown(): void
+    {
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringContainsString('Affichez', $response->getBody());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /** A secrets file that cannot be read refuses the reset in JSON, not with an error page. */
+    public function testAnUnreadableSecretsFileRefusesTheResetInJson(): void
+    {
+        file_put_contents($this->storagePath . '/config/secrets.enc', 'not a secrets blob');
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, 'password_noted' => true,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /** …and until the operator confirms having noted it. */
+    public function testFullResetIsRefusedUntilThePasswordIsConfirmedNoted(): void
+    {
+        $this->revealFullResetPassword();
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /**
+     * A host whose libzip cannot encrypt keeps the copy in clear: there is
+     * no password to show, and the reset goes ahead without one.
+     */
+    public function testWhereArchivesCannotBeEncryptedTheResetNeedsNoPassword(): void
+    {
+        $controller = ($this->rebuildController)(new class (
+            $this->connection,
+            $this->storagePath,
+            dirname($this->storagePath)
+        ) extends BackupService {
+            public function supportsZipEncryption(): bool
+            {
+                return false;
+            }
+        });
+
+        $reveal = $controller->revealFullResetPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $reset = $controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(409, $reveal->getStatusCode());
+        $this->assertArrayNotHasKey('password', json_decode($reveal->getBody(), true));
+        $this->assertTrue(json_decode($reset->getBody(), true)['success']);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    /** The same password every time it is shown, journaled without it. */
+    public function testTheFullResetPasswordIsStableAndItsRevealJournaled(): void
+    {
+        $first = $this->revealFullResetPassword();
+        $second = $this->revealFullResetPassword();
+
+        $this->assertSame($first, $second);
+        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/', $first);
+        $rows = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'full_reset_password_revealed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(2, $rows);
+        $this->assertSame('security', $rows[0]['level']);
+        $this->assertStringNotContainsString($first, (string) $rows[0]['context']);
+    }
+
+    private function revealFullResetPassword(): string
+    {
+        $response = $this->controller->revealFullResetPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
+
+        return (string) json_decode($response->getBody(), true)['password'];
     }
 
     public function testRestoreBackupValidatesCsrf(): void

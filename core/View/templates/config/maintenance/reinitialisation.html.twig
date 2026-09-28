@@ -123,6 +123,28 @@
                         </p>
                         <form id="full-reset-form">
                             {{ csrf_field()|raw }}
+                            {# The safety copy is encrypted and its password is
+                               erased with everything else (issue #619,
+                               IT-03b): shown, and noted, before the reset. #}
+                            {% if zip_encryption_supported %}
+                                <div class="mb-2" id="full-reset-password-block">
+                                    <p class="small mb-1">
+                                        Une copie de sécurité chiffrée est prise avant l'effacement. Son mot de passe
+                                        est effacé avec tout le reste&nbsp;: affichez-le et notez-le maintenant, personne
+                                        ne pourra vous le redire ensuite.
+                                    </p>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" id="full-reset-password-reveal">
+                                        <i class="bi bi-key" aria-hidden="true"></i> Afficher le mot de passe de la copie de sécurité
+                                    </button>
+                                    <output class="d-block small mt-1 d-none" id="full-reset-password" aria-live="polite"></output>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" id="full-reset-password-noted" disabled>
+                                        <label class="form-check-label small" for="full-reset-password-noted">
+                                            J'ai noté le mot de passe de la copie de sécurité
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endif %}
                             <div class="form-check mb-2">
                                 <input class="form-check-input" type="checkbox" id="full-reset-checkbox">
                                 <label class="form-check-label small" for="full-reset-checkbox">

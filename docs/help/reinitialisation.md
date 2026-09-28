@@ -42,6 +42,11 @@ retrouvera l'assistant d'installation, comme sur un site neuf. Il faut
 cocher la case de compréhension, taper EFFACER, puis confirmer encore
 une fois.
 
+Juste avant, le site prend une copie de sécurité chiffrée. Son mot de
+passe est effacé avec tout le reste : affichez-le avec le bouton prévu,
+notez-le, puis cochez « J'ai noté le mot de passe ». Sans lui, cette
+copie ne s'ouvre plus.
+
 Les dossiers déclarés comme **emplacements de stockage** ne sont pas
 effacés : leur contenu n'est repris dans aucune archive, il serait donc
 perdu sans retour. Le site cesse simplement de les connaître ;

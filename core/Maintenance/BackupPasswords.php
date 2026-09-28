@@ -41,6 +41,14 @@ final class BackupPasswords
 {
     private const KEY_TEMPLATE = 'backup_password_%d';
 
+    /**
+     * The password of the safety copy a full reset takes (IT-03b). Not
+     * keyed by a row: the reset empties the `backups` table and deletes
+     * secrets.enc itself, so this password is revealed on the reset page,
+     * and must be noted, before anything is erased.
+     */
+    public const FULL_RESET_KEY = 'full_reset_password';
+
     public function __construct(private readonly SecretManager $secrets)
     {
     }
@@ -57,6 +65,42 @@ final class BackupPasswords
     }
 
     /**
+     * A new password, not yet kept — for an archive written before its
+     * `backups` row exists (the safety copies, IT-03b), kept with store()
+     * as soon as the row has an id.
+     */
+    public static function generate(): string
+    {
+        return RemotePassphrase::generate();
+    }
+
+    /**
+     * The password for a safety copy, or null where it cannot be both used
+     * and kept — a host whose libzip cannot encrypt, or an installation
+     * with no secrets file to keep it in: the operation still gets its
+     * safety net, in clear, rather than being refused one or given one
+     * nobody could open.
+     */
+    public function forSafetyCopy(BackupServiceInterface $backupService): ?string
+    {
+        return $this->secrets->isInitialized() && $backupService->supportsZipEncryption()
+            ? self::generate()
+            : null;
+    }
+
+    /**
+     * Keeps the password of a safety copy under its row, when it has one.
+     * A failure here fails the operation: an archive whose password was
+     * not kept is an archive nobody can restore.
+     */
+    public function keepFor(int $backupId, ?string $password): void
+    {
+        if ($password !== null) {
+            $this->store($backupId, $password);
+        }
+    }
+
+    /**
      * Generates the password of a new archive and keeps it.
      *
      * @throws \RuntimeException when the secrets file cannot be written —
@@ -64,7 +108,7 @@ final class BackupPasswords
      */
     public function issue(int $backupId): string
     {
-        $password = RemotePassphrase::generate();
+        $password = self::generate();
         $this->store($backupId, $password);
 
         return $password;
@@ -93,6 +137,44 @@ final class BackupPasswords
         $value = $this->secrets->readSecrets()[self::keyFor($backupId)] ?? null;
 
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The password the next full reset will encrypt its safety copy with,
+     * generated the first time it is asked for and the same afterwards —
+     * revealing it twice must not show two different passwords, one of
+     * which would open nothing.
+     */
+    public function fullResetPassword(): string
+    {
+        $kept = $this->secrets->readSecrets()[self::FULL_RESET_KEY] ?? null;
+        if (is_string($kept) && $kept !== '') {
+            return $kept;
+        }
+
+        // Checked again under the lock: two reveals racing each other must
+        // still end up showing the same password.
+        $password = '';
+        $this->secrets->updateSecrets(static function (array $secrets) use (&$password): array {
+            $current = $secrets[self::FULL_RESET_KEY] ?? null;
+            $password = is_string($current) && $current !== '' ? $current : self::generate();
+            $secrets[self::FULL_RESET_KEY] = $password;
+
+            return $secrets;
+        });
+
+        return $password;
+    }
+
+    /** The full reset's password if it was revealed, null otherwise. */
+    public function revealedFullResetPassword(): ?string
+    {
+        if (!$this->secrets->isInitialized()) {
+            return null;
+        }
+        $kept = $this->secrets->readSecrets()[self::FULL_RESET_KEY] ?? null;
+
+        return is_string($kept) && $kept !== '' ? $kept : null;
     }
 
     /**

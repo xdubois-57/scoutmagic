@@ -63,10 +63,10 @@ class AutoBackupHandlerTest extends TestCase
         );
     }
 
-    private function fakeBackupService(): BackupServiceInterface
+    private function fakeBackupService(?string $dir = null): BackupServiceInterface
     {
-        $dir = sys_get_temp_dir() . '/auto_backup_fake_' . uniqid();
-        mkdir($dir, 0755, true);
+        $dir ??= sys_get_temp_dir() . '/auto_backup_fake_' . uniqid();
+        @mkdir($dir, 0755, true);
 
         return new class ($dir) implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
@@ -90,12 +90,15 @@ class AutoBackupHandlerTest extends TestCase
                 return $this->createDatabaseDump();
             }
 
-            public function createFileBackup(): string
+            public function createFileBackup(?string $password = null): string
             {
                 $path = $this->dir . '/files_' . bin2hex(random_bytes(4)) . '.zip';
                 $zip = new \ZipArchive();
                 $zip->open($path, \ZipArchive::CREATE);
                 $zip->addFromString('marker.txt', 'fake backup');
+                if ($password !== null) {
+                    $zip->setEncryptionName('marker.txt', \ZipArchive::EM_AES_256, $password);
+                }
                 $zip->close();
                 return $path;
             }
@@ -131,6 +134,34 @@ class AutoBackupHandlerTest extends TestCase
         $this->assertCount(1, $recent);
         $this->assertSame('auto_backup', $recent[0]->type);
         $this->assertSame('completed', $recent[0]->status);
+    }
+
+    /**
+     * The automatic backup is encrypted at its creation (issue #619,
+     * IT-03b), with a password kept under its row and able to open it.
+     */
+    public function testTheAutomaticBackupIsEncryptedWithAPasswordKeptUnderItsRow(): void
+    {
+        $secrets = new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secrets->generateMasterKey();
+        $secrets->writeSecrets([]);
+        $this->settings->set('backup_auto_frequency', 'weekly');
+
+        (new AutoBackupHandler($this->fakeBackupService($this->storagePath . '/backups')))->handle([], $this->context);
+
+        $backup = $this->backupRepository->findRecent(1)[0];
+        $password = \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->passwordFor($backup->id);
+        $this->assertNotNull($password);
+        $file = (new \Core\File\FileRepository($this->pdo))->findById((int) $backup->fileId);
+        $zip = new \ZipArchive();
+        $zip->open($this->storagePath . '/' . $file->relativePath);
+        $this->assertNotSame(0, $zip->statName('marker.txt')['encryption_method']);
+        $zip->setPassword($password);
+        $this->assertSame('fake backup', $zip->getFromName('marker.txt'));
+        $zip->close();
     }
 
     public function testHandleUpdatesLastRunSetting(): void
@@ -238,7 +269,7 @@ class AutoBackupHandlerTest extends TestCase
 
             public function createDatabaseDump(): string { throw new \RuntimeException('mysqldump unavailable'); }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
-            public function createFileBackup(): string { return ''; }
+            public function createFileBackup(?string $password = null): string { return ''; }
             public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}

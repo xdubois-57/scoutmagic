@@ -237,6 +237,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $backupService,
                     (string) $safetyDbDump,
                     (string) $safetyZip,
+                    $safetyBackupId,
                     $requestedBy,
                     $restoreError
                 );
@@ -461,6 +462,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $backupService,
                 $safety['dbDump'],
                 $safety['zip'],
+                $safety['id'],
                 $requestedBy,
                 $restoreError
             );
@@ -572,10 +574,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // one is unrecoverable.
         $backupService->ensureRoomForDumpAndArchive();
 
+        // Encrypted at its creation like every archive (issue #619,
+        // IT-03b), its password kept under the row — which is also where
+        // the rollback finds it, even after the database was replaced:
+        // secrets.enc is never part of a restore.
+        $safetyPassword = BackupPasswords::forStorage($context->storagePath)->forSafetyCopy($backupService);
         $safetyDbDump = $backupService->createDatabaseDump();
-        $safetyZip = $backupService->createFileBackup();
+        $safetyZip = $backupService->createFileBackup($safetyPassword);
 
         $safetyBackupId = $backupRepository->create('auto_reset', $requestedBy);
+        BackupPasswords::forStorage($context->storagePath)->keepFor($safetyBackupId, $safetyPassword);
         $safetyZipFileId = $fileRepository->create(
             $this->relativePath($context->storagePath, $safetyZip),
             'sauvegarde.zip',
@@ -795,6 +803,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $backupService,
                 $safetyDbDumpPath,
                 $safetyZipPath,
+                $safetyBackupId,
                 $requestedBy,
                 $migrationError
             );
@@ -955,6 +964,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
         BackupService $backupService,
         string $safetyDbDump,
         string $safetyZip,
+        int $safetyBackupId,
         ?int $requestedBy,
         \Throwable $error
     ): void {
@@ -968,8 +978,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         );
 
         try {
+            // By the safety copy's id, never its row: the row may be gone
+            // with the database this restore replaced, while secrets.enc,
+            // which no restore touches, still holds the password (IT-03b).
+            // Read first, so that a secrets file that cannot be read stops
+            // the rollback before it changes the database.
+            $safetyPassword = $safetyBackupId > 0
+                ? BackupPasswords::forStorage($context->storagePath)->passwordFor($safetyBackupId)
+                : null;
             $backupService->restoreDatabase($safetyDbDump);
-            $backupService->restoreFiles($safetyZip);
+            $backupService->restoreFiles($safetyZip, $safetyPassword);
             $context->journal->log(
                 'core',
                 'backup_restore_rolled_back',
@@ -1068,19 +1086,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
             }
         }
 
+        // An archive of this server: the site kept the password it
+        // generated for it (issue #619, IT-03) — safety copies included
+        // since IT-03b — so nobody has to type it.
+        $kept = BackupPasswords::forStorage($storagePath)->passwordFor($backup->id);
+        if ($kept !== null) {
+            return [$dbDumpPath, $filesZipPath, $kept, null];
+        }
+
+        // Older archives: a full backup still needs the password its
+        // operator typed; anything else was written in clear.
         $needsPassword = in_array($backup->type, self::ENCRYPTED_BACKUP_TYPES, true);
+        // Said here, before the database is touched: found missing only at
+        // extraction, it would cost a restore and a rollback.
         if ($needsPassword && $password === null) {
-            // An archive of this server: the site kept the password it
-            // generated for it (issue #619, IT-03), so nobody has to type it.
-            $password = BackupPasswords::forStorage($storagePath)->passwordFor($backup->id);
-            // Said here, before the database is touched: found missing only
-            // at extraction, it would cost a restore and a rollback.
-            if ($password === null) {
-                throw new BackupException(
-                    'Le mot de passe de cette sauvegarde n\'est plus conservé sur ce serveur : '
-                    . 'téléversez l\'archive avec son mot de passe.'
-                );
-            }
+            throw new BackupException(
+                'Le mot de passe de cette sauvegarde n\'est plus conservé sur ce serveur : '
+                . 'téléversez l\'archive avec son mot de passe.'
+            );
         }
 
         return [$dbDumpPath, $filesZipPath, $needsPassword ? $password : null, null];

@@ -317,6 +317,38 @@ class RestoreBackupRoundTripTest extends TestCase
     }
 
     /**
+     * Since IT-03b (issue #619) the safety copy is encrypted like every
+     * archive, and the rollback finds its password by the copy's id in
+     * secrets.enc — which no restore replaces. A rollback that could not
+     * open its own copy would journal `backup_restore_rollback_failed`.
+     */
+    public function testARestoreThatFailsRollsBackFromAnEncryptedSafetyCopy(): void
+    {
+        $this->initialiseSecrets();
+        $this->setUnitName('Unité du Chêne');
+
+        $upload = $this->storagePath . '/corrompu.zip';
+        $zip = new \ZipArchive();
+        $zip->open($upload, \ZipArchive::CREATE);
+        $zip->addFromString('database.sql', 'CECI N\'EST PAS DU SQL;');
+        $zip->close();
+
+        $this->restore(['source' => 'upload', 'uploaded_temp_path' => $upload]);
+
+        $this->assertSame('Unité du Chêne', $this->unitName());
+        $this->assertContains('backup_restore_rolled_back', $this->journalTypes());
+        $this->assertNotContains('backup_restore_rollback_failed', $this->journalTypes());
+
+        // And the copy on disk really is encrypted.
+        $copies = glob($this->storagePath . '/maintenance/files_*.zip') ?: [];
+        $this->assertNotSame([], $copies);
+        $archive = new \ZipArchive();
+        $this->assertTrue($archive->open($copies[0]));
+        $this->assertSame(\ZipArchive::EM_AES_256, $archive->statIndex(0)['encryption_method']);
+        $archive->close();
+    }
+
+    /**
      * `warning` exists in this journal for exactly this class of event —
      * a rejected report, a booking mail that would not send. A restore
      * that failed and rolled back, filed as `info`, sits in the journal
@@ -630,7 +662,7 @@ class RestoreBackupRoundTripTest extends TestCase
 
         return [
             'safety_db_dump_path' => $service->createDatabaseDump(),
-            'safety_zip_path' => $service->createFileBackup(true),
+            'safety_zip_path' => $service->createFileBackup(),
         ];
     }
 
@@ -718,8 +750,8 @@ class RestoreBackupRoundTripTest extends TestCase
         return $backupId;
     }
 
-    /** A « configuration seule » archive, encrypted with a generated, kept password. */
-    private function takeEncryptedServerBackup(): int
+    /** A secrets file to keep archive passwords in, as every installed site has. */
+    private function initialiseSecrets(): void
     {
         $secrets = new \Core\Security\SecretManager(
             $this->storagePath . '/keys/master.key',
@@ -728,6 +760,12 @@ class RestoreBackupRoundTripTest extends TestCase
         @mkdir($this->storagePath . '/config', 0o700, true);
         $secrets->generateMasterKey();
         $secrets->writeSecrets([]);
+    }
+
+    /** A « configuration seule » archive, encrypted with a generated, kept password. */
+    private function takeEncryptedServerBackup(): int
+    {
+        $this->initialiseSecrets();
 
         $backups = new BackupRepository($this->pdo());
         $files = new FileRepository($this->pdo());

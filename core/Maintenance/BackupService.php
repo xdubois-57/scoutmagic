@@ -198,9 +198,18 @@ class BackupService implements BackupServiceInterface
      * content is out of every archive, and what protects it is the
      * location's own copy (IT-04) rather than a bigger zip.
      *
+     * **With a password, every entry is AES-256 encrypted** (issue #619,
+     * IT-03b): the safety copies an operation takes before it starts are
+     * downloadable archives like any other, and « every archive is
+     * encrypted at its creation ». Null writes the archive in clear, which
+     * is only for a host whose libzip cannot encrypt: an update must not
+     * be refused a safety net because the host lacks crypto in libzip.
+     *
+     * @param string|null $password the archive's generated password
+     *        (Core\Maintenance\BackupPasswords), or null for no encryption
      * @throws BackupException
      */
-    public function createFileBackup(): string
+    public function createFileBackup(?string $password = null): string
     {
         $this->diskBudget?->ensureRoom($this->estimateFileBackupBytes());
 
@@ -211,8 +220,14 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Impossible de créer l\'archive de fichiers.');
         }
 
-        foreach (self::BACKED_UP_TOP_LEVEL as $topDir) {
-            $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir);
+        try {
+            foreach (self::BACKED_UP_TOP_LEVEL as $topDir) {
+                $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir, $password);
+            }
+        } catch (\Throwable $e) {
+            $zip->close();
+            @unlink($path);
+            throw $e;
         }
 
         $zip->close();

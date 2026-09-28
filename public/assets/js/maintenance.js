@@ -514,12 +514,52 @@
 
     // --- Réinitialisation complète ---
     var fullResetCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
+    // Present only where the host can encrypt (issue #619, IT-03b): the
+    // safety copy's password must be shown, then confirmed as noted, before
+    // the reset can be submitted — the reset erases it.
+    var fullResetNoted = /** @type {HTMLInputElement|null} */ (document.getElementById('full-reset-password-noted'));
     var fullResetUpdate = wireKeywordGate('full-reset-keyword', 'EFFACER', function () {
-        return fullResetCheckbox?.checked;
+        return fullResetCheckbox?.checked && fullResetNoted?.checked !== false;
     });
     if (fullResetCheckbox && fullResetUpdate) {
         fullResetCheckbox.addEventListener('change', fullResetUpdate);
     }
+    wireFullResetPassword(fullResetNoted, fullResetUpdate);
+
+    /**
+     * The reveal button and the « noté » box of the full reset's safety-copy
+     * password. Its own function so the section above stays readable.
+     *
+     * @param {HTMLInputElement|null} notedBox
+     * @param {(() => void)|null} update
+     * @returns {void}
+     */
+    function wireFullResetPassword(notedBox, update) {
+        if (!notedBox) return;
+        if (update) notedBox.addEventListener('change', update);
+        var revealButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('full-reset-password-reveal'));
+        var revealOutput = document.getElementById('full-reset-password');
+        if (!revealButton || !revealOutput) return;
+        revealButton.addEventListener('click', function () {
+            revealButton.disabled = true;
+            window.ScoutMagicApi.postJson('/config/maintenance/reset/full/password', {}).then(function (res) {
+                var data = res.data || {};
+                revealButton.disabled = false;
+                revealOutput.textContent = '';
+                if (!data.success || !data.password) {
+                    revealOutput.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
+                } else {
+                    var value = document.createElement('code');
+                    value.className = 'user-select-all';
+                    value.textContent = data.password;
+                    revealOutput.append('Mot de passe : ', value);
+                    notedBox.disabled = false;
+                }
+                revealOutput.classList.remove('d-none');
+            });
+        });
+    }
+
     var fullResetForm = document.getElementById('full-reset-form');
     if (fullResetForm) {
         fullResetForm.addEventListener('submit', async function (e) {
@@ -540,7 +580,8 @@
 
             window.ScoutMagicApi.postJson('/config/maintenance/reset/full', {
                 confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
-                confirm_checkbox: true
+                confirm_checkbox: true,
+                password_noted: fullResetNoted?.checked === true
             })
                 .then(function (res) {
                     if (!res.data) {
