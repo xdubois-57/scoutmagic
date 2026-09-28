@@ -43,11 +43,17 @@ use Core\Scheduler\TaskContext;
 final class RequesterNotice
 {
     /**
-     * Where a restore's or a reset's outcome is visible: both are started
-     * from the Réinitialisation sub-page (issue #619), and their requester
-     * is sent back to it.
+     * Where a reset's outcome is visible: it is started from the
+     * Réinitialisation sub-page (issue #619), and its requester is sent
+     * back to it.
      */
     private const MAINTENANCE_URL = '/config/maintenance/reinitialisation';
+
+    /**
+     * Where a restore's is: « Sauvegardes récentes », where the restore
+     * form moved in IT-06.
+     */
+    private const RESTORE_URL = '/config/maintenance/sauvegardes-recentes';
 
     public static function send(
         TaskContext $context,
@@ -56,6 +62,28 @@ final class RequesterNotice
         string $title,
         string $body
     ): void {
+        self::dispatch($context, $requestedBy, $typeId, $title, $body, self::MAINTENANCE_URL);
+    }
+
+    /** {@see send()}, pointing at the page the restore is started from. */
+    public static function sendAboutRestore(
+        TaskContext $context,
+        ?int $requestedBy,
+        string $typeId,
+        string $title,
+        string $body
+    ): void {
+        self::dispatch($context, $requestedBy, $typeId, $title, $body, self::RESTORE_URL);
+    }
+
+    private static function dispatch(
+        TaskContext $context,
+        ?int $requestedBy,
+        string $typeId,
+        string $title,
+        string $body,
+        string $url
+    ): void {
         if ($requestedBy === null) {
             return;
         }
@@ -63,7 +91,7 @@ final class RequesterNotice
         $context->notifications?->dispatch(
             $typeId,
             [['userAccountId' => $requestedBy, 'memberId' => null]],
-            ['title' => $title, 'body' => $body, 'url' => self::MAINTENANCE_URL]
+            ['title' => $title, 'body' => $body, 'url' => $url]
         );
     }
 }

@@ -1,18 +1,18 @@
 ---
 id: reinitialisation
-title: Réinitialiser ou restaurer le site
-summary: La zone de danger : paramètres par défaut, restauration d'une sauvegarde, remise à zéro.
+title: Réinitialiser le site
+summary: La zone de danger : paramètres par défaut et remise à zéro complète.
 category: Configuration
 role_min: superadmin
 discovery: off
-question: Comment restaurer le site à partir d'une sauvegarde ?
+question: Comment remettre les paramètres par défaut ?
 question: Comment remettre le site complètement à zéro ?
 paths: /config/maintenance/reinitialisation
-related: sauvegardes, mises-a-jour
+related: sauvegardes, restaurer, mises-a-jour
 ---
 
-Le bloc rouge « Réinitialisation », en bas de la page Maintenance,
-regroupe les trois actions les plus lourdes du site. Chacune exige de
+Le bloc rouge « Réinitialisation » regroupe les deux actions les plus
+lourdes du site. Chacune exige de
 taper un mot de confirmation exact, vérifié par le site, et une
 sauvegarde de sécurité est prise automatiquement avant d'agir. Ces
 actions demandent le rôle d'administrateur du site.
@@ -23,17 +23,9 @@ Remet tous les réglages (généraux et modules) à leurs valeurs
 d'origine. Les comptes, les membres, les contenus et les fichiers ne
 sont pas touchés. Confirmation : tapez REINITIALISER.
 
-## Restaurer une sauvegarde
-
-Remplace la base de données et les fichiers actuels par ceux d'une
-sauvegarde : choisissez-en une sur le serveur, ou téléversez une
-archive téléchargée auparavant (une archive chiffrée demande son mot
-de passe ; un gros fichier s'envoie automatiquement par morceaux).
-Confirmation : tapez RESTAURER.
-
-Tout ce qui a été fait sur le site **après** la date de la sauvegarde
-sera perdu : inscriptions, messages, modifications de contenu.
-Vérifiez la date affichée avant de confirmer.
+Restaurer une sauvegarde n'est pas réinitialiser : cela se fait dans
+« Sauvegardes récentes », et le sujet « Restaurer une sauvegarde »
+l'explique.
 
 ## Réinitialisation complète
 
@@ -59,7 +51,6 @@ supprimez-les vous-même si vous vouliez repartir d'un disque vide.
 
 ## En pratique
 
-Ces actions servent rarement : une restauration après une mauvaise
-manipulation, une remise à zéro avant de céder l'hébergement ou pour
-repartir proprement après des essais. Dans le doute, commencez
+Ces actions servent rarement : une remise à zéro avant de céder
+l'hébergement, ou pour repartir proprement après des essais. Dans le doute, commencez
 toujours par télécharger une sauvegarde complète.

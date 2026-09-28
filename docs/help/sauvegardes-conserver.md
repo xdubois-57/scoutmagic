@@ -8,7 +8,7 @@ discovery: off
 question: Où télécharger la dernière sauvegarde du site ?
 question: Combien de sauvegardes le site conserve-t-il ?
 paths: /config/maintenance/sauvegardes-recentes
-related: sauvegardes, mises-a-jour, reinitialisation
+related: sauvegardes, restaurer, mises-a-jour
 ---
 
 La section « Sauvegardes récentes » de la page Maintenance montre ce
@@ -22,8 +22,12 @@ avec leur type, leur date, leur taille et leur état. « Voir plus »
 révèle les lignes au-delà des cinq premières. Le bloc arrive replié
 comme les autres : cliquez sur son titre pour l'ouvrir.
 
-Chaque ligne porte deux icônes à droite : une **flèche vers le bas**
-pour télécharger l'archive, une **corbeille** pour la supprimer.
+Chaque ligne porte des icônes à droite : une **flèche vers le bas**
+pour télécharger l'archive, une **clé** pour afficher son mot de passe,
+une **corbeille** pour la supprimer. Télécharger affiche aussi le mot
+de passe, juste avant de servir le fichier : notez-le à ce moment-là.
+Dans l'application installée, touchez une seconde fois la flèche une
+fois le mot de passe noté.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
 vôtres, les planifiées et celles prises avant une opération — une série

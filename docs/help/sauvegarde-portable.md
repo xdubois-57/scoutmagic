@@ -39,8 +39,8 @@ autres n'ont pas.
 
 Vous n'avez rien à inventer : le site génère le mot de passe de
 chaque archive, trente caractères faciles à recopier sur papier, et
-le conserve. Il s'affiche dans **Sauvegardes récentes**, avec le
-bouton en forme de clé à côté du téléchargement.
+le conserve. Il s'affiche dans **Sauvegardes récentes** au moment où
+vous téléchargez l'archive, ou avec le bouton en forme de clé.
 
 **Notez-le au moment de télécharger l'archive.** Le jour où vous en
 aurez besoin, le serveur qui pourrait vous le redire n'existera

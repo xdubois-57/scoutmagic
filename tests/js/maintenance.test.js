@@ -848,8 +848,9 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             </form>`),
             el('<input type="radio" name="restore-source" id="restore-source-server" checked>'),
             el('<input type="radio" name="restore-source" id="restore-source-upload">'),
-            el('<div id="restore-server-picker"></div>'),
+            el('<div id="restore-server-picker"><select id="restore-backup-id"><option value="5">Configuration</option></select></div>'),
             el('<div id="restore-upload-picker" class="d-none"></div>'),
+            el('<div id="restore-backup-error" class="d-none"></div>'),
         );
     }
 
@@ -1150,6 +1151,20 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(true);
         });
 
+        it('refuses a server restore with nothing to restore, before any confirmation', async () => {
+            buildRestoreBackup();
+            const select = /** @type {HTMLSelectElement} */ (document.getElementById('restore-backup-id'));
+            select.innerHTML = '';
+            select.disabled = true;
+            window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+            await boot();
+
+            document.getElementById('restore-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+            expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
+            expect(document.getElementById('restore-backup-error').textContent).toContain('Aucune sauvegarde de ce serveur');
+        });
+
         it('toggleRestoreSource() shows the upload picker and hides the server picker when "upload" is selected', async () => {
             buildRestoreBackup();
             await boot();
@@ -1158,6 +1173,36 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             uploadRadio.dispatchEvent(new Event('change'));
             expect(document.getElementById('restore-upload-picker').classList.contains('d-none')).toBe(false);
             expect(document.getElementById('restore-server-picker').classList.contains('d-none')).toBe(true);
+        });
+
+        /**
+         * The password field (issue #619, IT-06): hidden for an archive of
+         * this server, whose password the site kept; shown for an upload,
+         * and for the one server archive flagged as never having had its
+         * password kept — a full backup from before IT-03.
+         */
+        it('shows the password field for an upload and for a server archive whose password was never kept', async () => {
+            buildRestoreBackup();
+            document.getElementById('restore-backup-id').innerHTML =
+                '<option value="1">récente</option><option value="2" data-needs-password="1">ancienne</option>';
+            appendAll(el('<div id="restore-password-field" class="d-none"></div>'));
+            await boot();
+            const field = document.getElementById('restore-password-field');
+            const select = /** @type {HTMLSelectElement} */ (document.getElementById('restore-backup-id'));
+            expect(field.classList.contains('d-none')).toBe(true);
+
+            select.value = '2';
+            select.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(false);
+
+            select.value = '1';
+            select.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(true);
+
+            const uploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
+            uploadRadio.checked = true;
+            uploadRadio.dispatchEvent(new Event('change'));
+            expect(field.classList.contains('d-none')).toBe(false);
         });
     });
 
@@ -1173,7 +1218,7 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
                 </form>`),
                 el('<input type="radio" name="restore-source" id="restore-source-server">'),
                 el('<input type="radio" name="restore-source" id="restore-source-upload" checked>'),
-                el('<div id="restore-server-picker"></div>'),
+                el('<div id="restore-server-picker"><select id="restore-backup-id"><option value="5">Configuration</option></select></div>'),
                 el('<div id="restore-upload-picker"></div>'),
                 el('<div id="restore-backup-progress" class="d-none"></div>'),
                 el('<div id="restore-backup-error" class="d-none"></div>'),
@@ -1300,8 +1345,8 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
             await vi.advanceTimersByTimeAsync(3000);
             expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99', expect.anything());
-            // Back to the sub-page the restore was started from (issue #619).
-            expect(window.location.href).toBe('/config/maintenance/reinitialisation');
+            // Back to the sub-page the restore lives on since IT-06 (issue #619).
+            expect(window.location.href).toBe('/config/maintenance/sauvegardes-recentes');
         });
 
         it('shows the failure message on the resumed poll without redirecting', async () => {
@@ -1457,5 +1502,124 @@ describe('maintenance.js: revealing an archive password', () => {
         document.querySelector('[data-backup-password]').click();
         await vi.waitFor(() => expect(document.getElementById('backup-password-12').textContent).toContain('Aucun mot de passe'));
         expect(document.getElementById('backup-password-12').querySelector('code')).toBeNull();
+    });
+});
+
+/**
+ * Downloading an archive reveals its password, then serves the file at
+ * once (issue #619, IT-06): an archive taken off the server without its
+ * password is an archive nobody will open.
+ */
+describe('maintenance.js: downloading an archive reveals its password', () => {
+    function buildDom() {
+        const row = el('<li></li>');
+        row.append(
+            el('<a href="/files/40" class="btn" download target="_blank" rel="noopener">télécharger</a>'),
+            el('<button type="button" data-backup-password="12">clé</button>'),
+            el('<output id="backup-password-12" class="d-none"></output>'),
+        );
+        appendAll(row);
+    }
+
+    /**
+     * Records every click the link receives, and cancels the browser's own
+     * handling of it — jsdom has none to give.
+     */
+    function watchClicks(link) {
+        const clicks = [];
+        link.addEventListener('click', (e) => {
+            clicks.push(e.defaultPrevented);
+            e.preventDefault();
+        });
+        return clicks;
+    }
+
+    it('shows the password first, then serves the file through the link itself', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+
+        // The first click is held back for the password; the second, the
+        // link clicking itself once it is shown, is left to the browser —
+        // so `download` and `target="_blank"` still apply.
+        await vi.waitFor(() => expect(clicks).toEqual([true, false]));
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/12/password', expect.objectContaining({ method: 'POST' }));
+        expect(document.getElementById('backup-password-12').querySelector('code').textContent)
+            .toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
+    });
+
+    it('still serves the file when the password cannot be read, and says why', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => Promise.reject(new Error('réseau')));
+        await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+
+        await vi.waitFor(() => expect(clicks).toEqual([true, false]));
+        expect(document.getElementById('backup-password-12').textContent).toContain('n\'a pas pu être lu');
+        expect(document.querySelector('[data-backup-password]').disabled).toBe(false);
+    });
+
+    it('asks once, and serves the file once, however often the link is clicked while it asks', async () => {
+        buildDom();
+        let answer;
+        global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+        await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+        link.click();
+        expect(fetch).toHaveBeenCalledTimes(1);
+
+        answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }) });
+        await vi.waitFor(() => expect(clicks).toEqual([true, true, false]));
+        expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * The installed app sends every file link to its viewer in this same
+     * window: an automatic second click would take the password off the
+     * screen as it appears. The operator notes it and taps again.
+     */
+    it('in the installed app, shows the password and waits for a second tap', async () => {
+        buildDom();
+        // jsdom has no matchMedia: the installed app is described, not spied on.
+        window.matchMedia = vi.fn((query) => ({ matches: query === '(display-mode: standalone)' }));
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').textContent)
+            .toContain('touchez de nouveau'));
+        expect(clicks).toEqual([true]);
+
+        link.click();
+        expect(clicks).toEqual([true, false]);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        delete window.matchMedia;
+    });
+
+    it('does not ask again once the password is on screen', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        document.querySelector('[data-backup-password]').click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').classList.contains('d-none')).toBe(false));
+        const link = document.querySelector('a[href="/files/40"]');
+        const clicks = watchClicks(link);
+
+        link.click();
+
+        expect(clicks).toEqual([false]);
+        expect(fetch).toHaveBeenCalledTimes(1);
     });
 });

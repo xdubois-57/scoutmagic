@@ -101,6 +101,7 @@ class ResetSettingsHandlerTest extends TestCase
         $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
         $this->assertCount(1, $notifications);
         $this->assertSame('Échec de la réinitialisation', $notifications[0]->title);
+        $this->assertSame('/config/maintenance/reinitialisation', $notifications[0]->url);
     }
 
     public function testHandleJournalsFailureWhenNoRequester(): void

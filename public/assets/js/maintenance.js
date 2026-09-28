@@ -616,13 +616,23 @@
     var sourceUploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
     var serverPicker = document.getElementById('restore-server-picker');
     var uploadPicker = document.getElementById('restore-upload-picker');
+    var passwordField = document.getElementById('restore-password-field');
+    var backupSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('restore-backup-id'));
+    // The password field: always for an uploaded file, and for an archive
+    // of this server only when its option says the site never kept its
+    // password — a full backup from before IT-03 (issue #619, IT-06).
     function toggleRestoreSource() {
-        var isUpload = sourceUploadRadio?.checked;
-        if (serverPicker) serverPicker.classList.toggle('d-none', !!isUpload);
+        var isUpload = !!sourceUploadRadio?.checked;
+        var chosen = backupSelect?.selectedOptions[0];
+        var needsPassword = isUpload || chosen?.dataset.needsPassword === '1';
+        if (serverPicker) serverPicker.classList.toggle('d-none', isUpload);
         if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
+        if (passwordField) passwordField.classList.toggle('d-none', !needsPassword);
     }
     if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
     if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);
+    if (backupSelect) backupSelect.addEventListener('change', toggleRestoreSource);
+    toggleRestoreSource();
 
     var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {
@@ -631,6 +641,18 @@
         // stopped here, and the confirmed one is re-sent by hand below.
         restoreForm.addEventListener('submit', function (e) {
             e.preventDefault();
+            // From this server with nothing to choose: a disabled select is
+            // left out of the POST, and the controller would answer with an
+            // error after a confirmation that promised a restore.
+            var serverSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('restore-backup-id'));
+            if (!sourceUploadRadio?.checked && (!serverSelect || serverSelect.disabled || serverSelect.value === '')) {
+                var noBackupEl = document.getElementById('restore-backup-error');
+                if (noBackupEl) {
+                    noBackupEl.textContent = 'Aucune sauvegarde de ce serveur à restaurer : choisissez un fichier.';
+                    noBackupEl.classList.remove('d-none');
+                }
+                return;
+            }
             window.ScoutMagicConfirm.ask({
                 message: 'Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?',
                 confirmLabel: 'Restaurer'
@@ -754,6 +776,10 @@
     // (issue #619, IT-03), revealed on demand beside its download button.
     // Same rules as the off-site passphrase above: a POST, CSRF-guarded and
     // journaled on the server, never rendered into the page.
+    //
+    // Since IT-06 the download reveals it too, then serves the file at
+    // once: an archive taken off the server without its password is an
+    // archive nobody will open, and the key button alone was easy to miss.
     document.querySelectorAll('[data-backup-password]').forEach(function (button) {
         var backupButton = /** @type {HTMLButtonElement} */ (button);
         var id = backupButton.dataset.backupPassword || '';
@@ -767,31 +793,99 @@
                 passwordOutput.textContent = '';
                 return;
             }
+            revealBackupPassword(id, backupButton, passwordOutput);
+        });
 
-            backupButton.disabled = true;
-            window.ScoutMagicApi.postJson('/config/maintenance/backup/' + id + '/password', {})
-                .then(function (res) {
-                    var data = res.data || {};
-                    backupButton.disabled = false;
-                    passwordOutput.textContent = '';
-                    if (!data.success || !data.password) {
-                        passwordOutput.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
-                    } else {
-                        var label = document.createElement('span');
-                        label.textContent = 'Mot de passe de l\'archive : ';
-                        var value = document.createElement('code');
-                        value.className = 'user-select-all';
-                        value.textContent = data.password;
-                        var note = document.createElement('span');
-                        note.className = 'd-block text-body-secondary';
-                        note.textContent = 'Notez-le : le serveur qui pourrait vous le redire n\'existera '
-                            + 'peut-être plus le jour où vous en aurez besoin.';
-                        passwordOutput.append(label, value, note);
-                    }
-                    passwordOutput.classList.remove('d-none');
-                });
+        var row = backupButton.closest('li');
+        var download = /** @type {HTMLAnchorElement|null} */ (row?.querySelector('a[href^="/files/"]') ?? null);
+        if (!download) return;
+        var downloadLink = download;
+        var revealing = false;
+        downloadLink.addEventListener('click', function (e) {
+            if (!passwordOutput.classList.contains('d-none')) return;
+            e.preventDefault();
+            // One reveal per download: a second click while the first is
+            // still asking would ask again and serve the file twice.
+            if (revealing) return;
+            revealing = true;
+            // The file is served whatever the answer: a password that
+            // could not be read says so in the row, and must not also
+            // cost the download.
+            //
+            // In a browser tab, by clicking the link again rather than
+            // navigating: `download` and `target="_blank"` keep this
+            // window — the one now showing the password — where it is. The
+            // second click finds the output visible and returns at the top
+            // of this listener.
+            //
+            // Not in the installed app: there, file-viewer.js sends EVERY
+            // file link to the viewer in this same window (on iOS neither
+            // attribute keeps it still), so an automatic second click
+            // would take the password off the screen the moment it
+            // appeared. The operator notes it, then taps again.
+            revealBackupPassword(id, backupButton, passwordOutput).then(function () {
+                revealing = false;
+                if (isInstalledApp()) {
+                    var again = document.createElement('span');
+                    again.className = 'd-block';
+                    again.textContent = 'Notez-le, puis touchez de nouveau le bouton de téléchargement.';
+                    passwordOutput.append(again);
+                    return;
+                }
+                downloadLink.click();
+            });
         });
     });
+
+    /**
+     * Whether this page runs as the installed application, where
+     * file-viewer.js turns every file link into a navigation of this very
+     * window — the same test it uses.
+     *
+     * @returns {boolean}
+     */
+    function isInstalledApp() {
+        return window.matchMedia?.('(display-mode: standalone)').matches === true
+            || /** @type {{standalone?: boolean}} */ (window.navigator).standalone === true;
+    }
+
+    /**
+     * Asks the server for one archive's password and writes it, or why it
+     * could not be read, into the row's output.
+     *
+     * @param {string} id
+     * @param {HTMLButtonElement} button
+     * @param {HTMLElement} output
+     * @returns {Promise<void>}
+     */
+    function revealBackupPassword(id, button, output) {
+        button.disabled = true;
+        return window.ScoutMagicApi.postJson('/config/maintenance/backup/' + id + '/password', {})
+            .then(function (res) {
+                var data = res.data || {};
+                button.disabled = false;
+                output.textContent = '';
+                if (!data.success || !data.password) {
+                    output.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
+                } else {
+                    var label = document.createElement('span');
+                    label.textContent = 'Mot de passe de l\'archive : ';
+                    var value = document.createElement('code');
+                    value.className = 'user-select-all';
+                    value.textContent = data.password;
+                    var note = document.createElement('span');
+                    note.className = 'd-block text-body-secondary';
+                    note.textContent = 'Notez-le : le serveur qui pourrait vous le redire n\'existera '
+                        + 'peut-être plus le jour où vous en aurez besoin.';
+                    output.append(label, value, note);
+                }
+                output.classList.remove('d-none');
+            }, function () {
+                button.disabled = false;
+                output.textContent = 'Le mot de passe n\'a pas pu être lu.';
+                output.classList.remove('d-none');
+            });
+    }
 
     // Resume polling after the classic-form restore redirect.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
@@ -801,7 +895,7 @@
         if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
         pollResetStatus(
             Number.parseInt(restoreIdMatch[1], 10),
-            function () { window.location.href = '/config/maintenance/reinitialisation'; },
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; },
             function (message) {
                 if (restoreProgressEl) restoreProgressEl.classList.add('d-none');
                 if (restoreErrorEl) {
@@ -809,7 +903,7 @@
                     restoreErrorEl.classList.remove('d-none');
                 }
             },
-            function () { window.location.href = '/config/maintenance/reinitialisation'; }
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; }
         );
     }
 })();

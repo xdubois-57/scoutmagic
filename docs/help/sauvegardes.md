@@ -9,7 +9,7 @@ question: Comment sauvegarder le site avant une opération risquée ?
 question: Quelle sauvegarde choisir ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?
 paths: /config/maintenance/sauvegarde-manuelle, /config/maintenance/sauvegarde-automatique
-related: sauvegarde-portable, sauvegardes-conserver, mises-a-jour, reinitialisation
+related: sauvegarde-portable, sauvegardes-conserver, restaurer, mises-a-jour
 ---
 
 Le bloc « Sauvegarde manuelle » de la page Maintenance copie la base de
@@ -74,7 +74,5 @@ les sauvegardes ».
 
 ## Restaurer
 
-La restauration d'une sauvegarde se fait depuis le bloc
-Réinitialisation, plus bas sur la même page — voyez le sujet
-« Réinitialiser ou restaurer le site », car elle remplace les données
-actuelles.
+Elle se fait dans « Sauvegardes récentes » : voyez « Restaurer une
+sauvegarde », qui dit aussi quand un mot de passe est demandé.
