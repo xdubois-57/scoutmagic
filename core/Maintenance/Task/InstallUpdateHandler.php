@@ -251,7 +251,27 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // here, and `Task\FullResetHandler` — the one operation that
             // really did delete those folders — stopped doing so for the
             // same reason.
-            $updateHistoryRepository->setStatus($historyId, 'backing_up');
+            //
+            // **The claim is a guarded write, and it is the last word on
+            // whether this install proceeds** (raised in review of #689).
+            // Everything above — the lock, markOtherInProgressAsFailed(), the
+            // disk walk — takes long enough for a newer push to land and mark
+            // this row « Ignorée », and an unguarded setStatus() would
+            // overwrite that silently, installing the older commit after the
+            // newer. Re-reading here instead would only shorten the window;
+            // letting the database arbitrate closes it.
+            if (!$updateHistoryRepository->claimPendingForBackup($historyId)) {
+                $context->journal->log(
+                    'core',
+                    'update_superseded_while_waiting',
+                    'info',
+                    'Installation remplacée pendant la préparation de la sauvegarde — abandonnée',
+                    ['history_id' => $historyId, 'version_to' => $history->versionTo],
+                    $history->requestedBy
+                );
+
+                return;
+            }
             $dbDumpPath = $backupService->createDatabaseDump();
             $filesZipPath = $backupService->createFileBackup();
 
@@ -621,8 +641,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
         // scheduled row — so this row is the only place the news arrives, and
         // it has to be read as late as possible. Read before the probe, the
         // blind window would be the probe itself, which is exactly the window
-        // that let an older commit install after a newer one; read here, it is
-        // the few statements between this and the write below.
+        // that let an older commit install after a newer one.
+        //
+        // It does NOT close the window on its own, and the comment here used
+        // to say it did (raised in review): between this read and the first
+        // history write come the install lock,
+        // markOtherInProgressAsFailed() and an uncached disk-usage walk. The
+        // guarded claim at that write is what closes it; this read is what
+        // stops a retry being queued, which the claim never sees.
         //
         // Only « skipped » stands us down, and only that: it is the marker a
         // newer push writes (issue #622), and reacting to any other status

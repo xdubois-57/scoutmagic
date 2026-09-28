@@ -301,6 +301,35 @@ class UpdateHistoryRepository
     }
 
     /**
+     * Claim a `pending` row for the install that is about to overwrite the
+     * live tree, and say whether the claim was won.
+     *
+     * **Atomic, because narrowing the window is not closing it** (raised in
+     * review of #689). `Task\InstallUpdateHandler` re-reads this row when it
+     * stops waiting for its artifact, but between that read and its first
+     * write come the install lock, markOtherInProgressAsFailed() and an
+     * uncached disk-usage walk — not milliseconds. A newer push landing in
+     * there writes « Ignorée » on this row, and {@see setStatus()} would
+     * overwrite it without looking, so the older commit installed anyway: the
+     * very inversion #689 is about, on a shorter window. A second re-read
+     * would only have shortened it again.
+     *
+     * `WHERE … AND status = 'pending'` lets the database arbitrate instead:
+     * whoever changed the row first wins, and this answers false rather than
+     * clobbering their decision.
+     */
+    public function claimPendingForBackup(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE update_history SET status = 'backing_up', progress_at = ?
+              WHERE id = ? AND status = 'pending'"
+        );
+        $stmt->execute([self::now(), $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
      * A status change is a sign of life, so it carries the heartbeat with
      * it — see touch() and isStale().
      */

@@ -536,9 +536,12 @@ class GitHubWebhookService
         // A claimed row is executing: cancelling it would only delete the
         // bookkeeping of a process already running, which is why this is a
         // status check and not a second cancel. Marking the history row below
-        // is what stops it — the handler re-reads that row before it queues a
-        // retry or installs anything, and stands down when it reads
-        // « skipped ».
+        // is what stops it, in two places rather than one — the handler
+        // re-reads the row when it stops waiting for its artifact, and its
+        // first write is a guarded « pending → backing_up » claim
+        // ({@see UpdateHistoryRepository::claimPendingForBackup()}) that the
+        // « Ignorée » written here makes fail. The read alone left the lock,
+        // markOtherInProgressAsFailed() and a disk walk uncovered.
         if ((string) ($queued['status'] ?? '') !== 'processing') {
             $this->schedulerService->cancel((int) $queued['id']);
         }
