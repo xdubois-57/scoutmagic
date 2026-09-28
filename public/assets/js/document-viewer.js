@@ -8,12 +8,21 @@
 // page works without this script — three plain links — but two of them
 // only do the right thing with it.
 //
-// « Ouvrir dans le navigateur »: window.open(), which from an installed
-// web app launches the phone's browser, a separate application, and
-// leaves this window where it is. The address was minted with the page:
-// iOS refuses a window.open() that follows a wait, so nothing is asked of
-// the server at the moment of the tap. The address works once, so the
-// button is spent after it.
+// « Ouvrir dans le navigateur »: window.open(), which must launch the
+// phone's browser, a separate application, and leave this window where it
+// is. The address was minted with the page: iOS refuses a window.open()
+// that follows a wait, so nothing is asked of the server at the moment of
+// the tap. The address works once, so the button is spent after it.
+//
+// **On an iPhone or iPad, a plain address does not leave the app** (issue
+// #684). The manifest's scope is the whole site (PwaController, 'scope' =>
+// '/'), and iOS opens an address inside that scope in the installed app's
+// own window — where /document/{key}, which InstalledAppFileInterceptor
+// lets through on purpose, lands the raw file with no way back. So there,
+// and only there, the address is handed over as `x-safari-https://…`, the
+// scheme iOS 17+ answers by launching Safari. Where iOS does not know it,
+// it refuses the address and this window stays put: a failure that strands
+// nobody.
 //
 // « Télécharger »: in the installed app on an iPhone, the share sheet
 // (Enregistrer dans Fichiers, Imprimer, Mail…) — the only way to save a
@@ -59,6 +68,33 @@
             || (nav.platform === 'MacIntel' && Number(nav.maxTouchPoints) > 1);
     }
 
+    /**
+     * The address « Ouvrir dans le navigateur » hands to window.open().
+     *
+     * Checked here, at the sink, and not trusted for having come from a
+     * template: only an address of this very site, over http(s), is ever
+     * rewritten to the Safari scheme — anything else is returned as the
+     * link already said, exactly as before this existed.
+     *
+     * @param {HTMLAnchorElement} link
+     * @returns {string}
+     */
+    function browserAddress(link) {
+        if (!(isStandalone() && isAppleMobile())) {
+            return link.href;
+        }
+        var url;
+        try {
+            url = new win.URL(link.href, win.location.href);
+        } catch {
+            return link.href;
+        }
+        if (url.origin !== win.location.origin || (url.protocol !== 'https:' && url.protocol !== 'http:')) {
+            return link.href;
+        }
+        return 'x-safari-' + url.href;
+    }
+
     var browserLink = /** @type {HTMLAnchorElement|null} */ (root.querySelector('[data-document-viewer-browser]'));
     if (browserLink) {
         var opener = browserLink;
@@ -67,7 +103,7 @@
             if (opener.classList.contains('disabled')) {
                 return;
             }
-            win.open(opener.href, '_blank');
+            win.open(browserAddress(opener), '_blank');
             if ('documentViewerReusable' in opener.dataset) {
                 // The page's own public address, not a one-use key.
                 return;

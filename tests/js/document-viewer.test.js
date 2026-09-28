@@ -76,6 +76,53 @@ describe('document-viewer', () => {
             expect(window.fetch).not.toHaveBeenCalled();
         });
 
+        // Issue #684: on an iPhone in the installed app, an address of this
+        // site is inside the app's scope, so iOS opened it in the app's own
+        // window — the raw file, with no way back. Safari's own scheme is
+        // what leaves the app.
+        it('hands the address to Safari on an iPhone in the installed app', async () => {
+            pretendIphone();
+            await load();
+
+            click('browser');
+
+            expect(window.open).toHaveBeenCalledWith(
+                'x-safari-' + window.location.origin + '/document/b1',
+                '_blank'
+            );
+        });
+
+        it('keeps the plain address in a browser tab on an iPhone', async () => {
+            pretendStandalone(false);
+            pretendIphone();
+            await load();
+
+            click('browser');
+
+            expect(window.open).toHaveBeenCalledWith(window.location.origin + '/document/b1', '_blank');
+        });
+
+        it('keeps the plain address in the installed app on Android', async () => {
+            Object.defineProperty(window.navigator, 'userAgent', { value: 'Mozilla/5.0 (Linux; Android 15)', configurable: true });
+            await load();
+
+            click('browser');
+
+            expect(window.open).toHaveBeenCalledWith(window.location.origin + '/document/b1', '_blank');
+        });
+
+        it('never rewrites an address of another site, even on an iPhone', async () => {
+            document.body.innerHTML = `<div data-document-viewer>
+              <a id="browser" href="https://elsewhere.example/document/b1" data-document-viewer-browser>x</a>
+              <output class="d-none" data-document-viewer-status></output></div>`;
+            pretendIphone();
+            await load();
+
+            click('browser');
+
+            expect(window.open).toHaveBeenCalledWith('https://elsewhere.example/document/b1', '_blank');
+        });
+
         it('is spent after one use, and says why', async () => {
             await load();
 
