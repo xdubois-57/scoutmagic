@@ -311,14 +311,44 @@ async function runDirect(page, entry) {
         return accepted ? STILL_PERFORMED : 'the engine refused the command';
     }
 
-    await seedAndSelect(page, TEXT);
-    const html = await page.evaluate(([command, argument]) => {
+    // Seeded, selected and issued in ONE synchronous evaluate, never two.
+    // Between two round trips the page runs whatever else is due, and
+    // under the DAST pass — every request slowed by the ZAP proxy — that
+    // is when something late took the selection away from the surface:
+    // `insertImage` then found no editable selection and did nothing,
+    // while the plain end-to-end run passed on the same commit (#652,
+    // which a data: URI alone did not settle). A single task leaves the
+    // engine nothing to answer but the command itself, which is the only
+    // question this spec asks.
+    const outcome = await page.evaluate(([seed, command, argument]) => {
         const surface = /** @type {HTMLElement} */ (document.getElementById('e2e-surface'));
-        document.execCommand(command, false, argument ?? null);
-        return surface.innerHTML.trim();
-    }, [entry.command, entry.argument]);
+        surface.innerHTML = seed;
+        surface.focus();
+        const range = document.createRange();
+        range.selectNodeContents(surface);
+        const selection = window.getSelection();
+        if (selection === null) {
+            throw new Error('no Selection object — the engine cannot be asked this question');
+        }
+        selection.removeAllRanges();
+        selection.addRange(range);
 
-    return entry.produces !== undefined && entry.produces.test(html) ? STILL_PERFORMED : html;
+        const accepted = document.execCommand(command, false, argument ?? null);
+        const anchor = selection.anchorNode;
+        return {
+            html: surface.innerHTML.trim(),
+            // Read only when the command did nothing, so a recurrence says
+            // what the engine was looking at rather than merely that it
+            // declined.
+            context: `execCommand returned ${String(accepted)}; focus on `
+                + (document.activeElement === surface ? 'the surface' : String(document.activeElement?.tagName))
+                + '; selection ' + (anchor !== null && surface.contains(anchor) ? 'inside' : 'outside') + ' the surface',
+        };
+    }, [TEXT, entry.command, entry.argument]);
+
+    return entry.produces !== undefined && entry.produces.test(outcome.html)
+        ? STILL_PERFORMED
+        : `${outcome.html} (${outcome.context})`;
 }
 
 test('every execCommand the product issues is still performed by this browser engine', async ({ page }) => {
