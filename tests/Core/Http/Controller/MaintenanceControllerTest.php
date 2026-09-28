@@ -21,6 +21,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\CommitInfo;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\Health\HostHealth;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Module\ModuleManager;
@@ -58,6 +59,8 @@ class MaintenanceControllerTest extends TestCase
     private Connection $connection;
     /** @var callable(BackupService, ?HostHealth=): MaintenanceController */
     private $rebuildController;
+
+    private BackupService $backupService;
 
     /**
      * Configurable per-test — the "Vérifier maintenant" / dev-branch
@@ -182,7 +185,11 @@ class MaintenanceControllerTest extends TestCase
         // BackupService — the disk-budget refusal below needs one whose
         // quota is already full, and everything else about the page must
         // stay identical for that test to mean anything.
-        $this->rebuildController = function (BackupService $service, ?HostHealth $hostHealth = null) use (
+        $this->rebuildController = function (
+            BackupService $service,
+            ?HostHealth $hostHealth = null,
+            ?RemoteBackupDestination $remoteDestination = null
+        ) use (
             $fileRepository,
             $schedulerService,
             $moduleManager,
@@ -198,11 +205,13 @@ class MaintenanceControllerTest extends TestCase
                 // The health block's crontab line is spelled from the public
                 // directory, the one anchor valid in both hosting layouts.
                 dirname($storagePath) . '/public',
+                remoteBackupDestination: $remoteDestination,
                 hostHealth: $hostHealth
             );
         };
 
         $this->connection = $connection;
+        $this->backupService = $backupService;
         $this->controller = ($this->rebuildController)($backupService);
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -214,6 +223,36 @@ class MaintenanceControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+    }
+
+    /** An off-site destination over this test's database and settings. */
+    private function remoteDestination(): RemoteBackupDestination
+    {
+        RemoteBackupDestination::register($this->settingService);
+        $locations = new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+
+        return new RemoteBackupDestination(
+            $this->settingService,
+            $locations,
+            new \Core\Storage\Location\Backend\StorageBackendFactory($locations, sys_get_temp_dir())
+        );
+    }
+
+    /** A Google Drive folder declared as a storage location, by id. */
+    private function declareRemoteLocation(): int
+    {
+        return (new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->create(
+            \Core\Storage\Location\StorageLocationType::GoogleDrive,
+            'Drive de l\'unité',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'dossier-1', ''),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'unite@example.org'])
+        );
     }
 
     private function csrfToken(): string
@@ -417,11 +456,16 @@ class MaintenanceControllerTest extends TestCase
         );
         $this->assertStringContainsString('Pas encore de relevé', $body);
 
+        // A destination, chosen before the reading is recorded: choosing
+        // one forgets whatever the previous destination held.
+        $destination = $this->remoteDestination();
+        $destination->choose($this->declareRemoteLocation());
         \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
         (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
             ['count' => 14, 'bytes' => 3 * 1024 * 1024 * 1024, 'oldest' => '2025-10-31 03:00:00'],
             new \DateTimeImmutable('2026-09-28 04:12:00')
         );
+        $this->controller = ($this->rebuildController)($this->backupService, null, $destination);
 
         $body = $this->page('automaticBackupPage');
         $this->assertStringNotContainsString('Pas encore de relevé', $body);
@@ -429,6 +473,26 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('3,0 Go occupés', $body);
         $this->assertStringContainsString('la plus ancienne du 31/10/2025', $body);
         $this->assertMatchesRegularExpression('~Relevé à la fin de l\'envoi du\s+28/09/2026 à 04:12~', $body);
+    }
+
+    /**
+     * **A reading is never shown without a destination** (IT-05 review):
+     * the figures describe a folder, and with no destination chosen there
+     * is none they could describe — the page says nothing leaves the
+     * server, and must not beside it show fourteen archives there.
+     */
+    public function testNoReadingIsShownWhileNoDestinationIsChosen(): void
+    {
+        \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
+        (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
+            ['count' => 14, 'bytes' => 1024, 'oldest' => '2025-10-31 03:00:00'],
+            new \DateTimeImmutable('2026-09-28 04:12:00')
+        );
+
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertStringNotContainsString('<strong>14', $body);
+        $this->assertStringContainsString('Pas encore de relevé', $body);
     }
 
     /**

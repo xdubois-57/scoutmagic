@@ -235,7 +235,7 @@
                             selon son âge, comme les autres : elle ne s'ouvre qu'avec l'ancienne phrase.
                         </p>
                         <div class="small mb-2" id="remote-backup-state">
-                            {% if remote_backup_destination_state %}
+                            {% if remote_backup_location and remote_backup_destination_state %}
                                 {% if remote_backup_destination_state.count > 0 %}
                                     <strong>{{ remote_backup_destination_state.count }}
                                     archive{{ remote_backup_destination_state.count > 1 ? 's' : '' }}</strong>

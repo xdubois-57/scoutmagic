@@ -212,9 +212,25 @@ final class RemoteBackupDestination
         return $location->createdAt;
     }
 
-    /** Points the off-site backup at $locationId, or at nothing for 0. */
+    /**
+     * Points the off-site backup at $locationId, or at nothing for 0.
+     *
+     * **A new destination forgets what the old one held.** The count,
+     * volume and oldest date recorded after the last purge
+     * ({@see RemoteRetention::recordState()}) describe the folder it was
+     * read from; shown under a different destination — or under none —
+     * they would be the old folder's figures presented as the new one's,
+     * and nothing would ever overwrite them while no send runs.
+     */
     public function choose(int $locationId): void
     {
-        $this->settings->setInternal(self::LOCATION_SETTING, $locationId > 0 ? (string) $locationId : '');
+        $chosen = $locationId > 0 ? (string) $locationId : '';
+        $current = (string) ($this->settings->get(self::LOCATION_SETTING) ?? '');
+        $this->settings->setInternal(self::LOCATION_SETTING, $chosen);
+
+        $state = $this->settings->get(RemoteRetention::STATE_SETTING);
+        if ($chosen !== $current && is_string($state) && $state !== '') {
+            $this->settings->setInternal(RemoteRetention::STATE_SETTING, '');
+        }
     }
 }
