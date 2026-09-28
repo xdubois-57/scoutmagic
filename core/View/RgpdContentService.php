@@ -915,7 +915,8 @@ ses clés — consultable et régénérable par un administrateur depuis Configu
 ne détient qu'un fichier chiffré dont il n'a pas la clé ; que la galerie photo n'est pas envoyée sauf réglage
 explicite ; que les archives conservées chez la destination sont éclaircies — la plus récente, puis une par semaine
 sur le mois écoulé, puis une par mois au-delà, soit des copies remontant jusqu'à environ un an — puis bornées en
-nombre et en volume, tout le reste étant supprimé automatiquement ; et que le déraccordement efface le jeton et les identifiants et arrête tout —
+nombre et en volume, tout le reste étant supprimé automatiquement ; et que le déraccordement efface le jeton et
+les identifiants et arrête tout —
 dépôts comme purges — en laissant à l'unité les sauvegardes déjà déposées, dont la suppression relève alors d'elle
 seule. Ne décris jamais ce raccordement comme actif par
 défaut, ni l'envoi comme déclenché à la main, ni la phrase de passe comme choisie par l'unité, ni ce dépôt comme un
