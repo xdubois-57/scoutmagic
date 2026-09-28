@@ -260,7 +260,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // overwrite that silently, installing the older commit after the
             // newer. Re-reading here instead would only shorten the window;
             // letting the database arbitrate closes it.
-            if (!$updateHistoryRepository->claimPendingForBackup($historyId)) {
+            if (!$this->claimForBackup($updateHistoryRepository, $historyId)) {
                 $context->journal->log(
                     'core',
                     'update_superseded_while_waiting',
@@ -767,6 +767,22 @@ class InstallUpdateHandler implements TaskHandlerInterface
         [$status] = $this->fetchFollowingAllowlistedRedirects($url, 'HEAD');
 
         return $status;
+    }
+
+    /**
+     * The guarded « pending → backing_up » claim, as one overridable call.
+     *
+     * `protected` for the same reason {@see probeArtifactStatus()} is, and it
+     * buys the same thing: the branch this guards only runs when a newer push
+     * lands in the seconds between the artifact wait and this write — the lock,
+     * markOtherInProgressAsFailed() and a disk walk — and no test can place a
+     * push there from outside. A test overrides this to supply the timing, and
+     * still lets the real SQL decide, so what it proves is the production
+     * guard rather than a stub of it.
+     */
+    protected function claimForBackup(UpdateHistoryRepository $updateHistory, int $historyId): bool
+    {
+        return $updateHistory->claimPendingForBackup($historyId);
     }
 
     private function scheduleMigrationResume(

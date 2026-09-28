@@ -462,6 +462,61 @@ class InstallUpdateHandlerTest extends TestCase
     }
 
     /**
+     * **And the same news arriving LATER still stops it** (raised in review of
+     * #691). The re-read above closes the waiting window; it does not close the
+     * one after it — the install lock, `markOtherInProgressAsFailed()` and an
+     * uncached disk walk all run before the first history write. A push landing
+     * there marks the row « Ignorée », and the guarded claim is what refuses to
+     * overwrite it.
+     *
+     * The seam supplies only the timing a test cannot otherwise reach: the real
+     * `claimPendingForBackup()` still decides, so what passes here is the
+     * production `WHERE … AND status = 'pending'` rather than a stub of it.
+     */
+    public function testAnInstallSupersededDuringItsBackupPreparationStandsDown(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $handler = new class (new UpdateHistoryRepository($this->pdo), $id) extends InstallUpdateHandler {
+            public function __construct(private UpdateHistoryRepository $repo, private int $rowId)
+            {
+            }
+
+            protected function probeArtifactStatus(string $url): ?int
+            {
+                return 200;
+            }
+
+            protected function claimForBackup(UpdateHistoryRepository $updateHistory, int $historyId): bool
+            {
+                // The push lands HERE: after the artifact re-read, before the
+                // first write. Then the real claim runs and must refuse.
+                $this->repo->markSkipped($this->rowId, 'Installation remplacée : un push plus récent.');
+
+                return parent::claimForBackup($updateHistory, $historyId);
+            }
+        };
+
+        $handler->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        $this->assertSame(
+            'skipped',
+            $this->updateHistoryRepository->findById($id)->status,
+            'the install overwrote the « Ignorée » a newer push had just written'
+        );
+        $this->assertNull(
+            $this->updateHistoryRepository->findById($id)->backupId,
+            'a superseded install went on to take a safety backup'
+        );
+    }
+
+    /**
      * A handler whose artifact probe has the side effect a newer push would
      * have: it marks this install « Ignorée », exactly as
      * `GitHubWebhookService::supersedeQueuedInstall()` does, while the handler
