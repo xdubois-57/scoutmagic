@@ -614,6 +614,37 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
 
         $status = $this->probeArtifactStatus($downloadUrl);
+
+        // **Re-read before acting, not before probing** (issue #689). A push
+        // that lands while the HEAD above is in flight marks this history row
+        // « Ignorée » without being able to cancel this already-claimed
+        // scheduled row — so this row is the only place the news arrives, and
+        // it has to be read as late as possible. Read before the probe, the
+        // blind window would be the probe itself, which is exactly the window
+        // that let an older commit install after a newer one; read here, it is
+        // the few statements between this and the write below.
+        //
+        // Only « skipped » stands us down, and only that: it is the marker a
+        // newer push writes (issue #622), and reacting to any other status
+        // would silence flows nobody asked about.
+        $current = $updateHistoryRepository->findById($historyId);
+        if ($current !== null && $current->status === 'skipped') {
+            $context->journal->log(
+                'core',
+                'update_superseded_while_waiting',
+                'info',
+                'Installation remplacée par un push plus récent pendant l\'attente de l\'archive — abandonnée',
+                [
+                    'history_id' => $historyId,
+                    'version_to' => $history->versionTo,
+                    'http_status' => $status,
+                ],
+                $history->requestedBy
+            );
+
+            return false;
+        }
+
         if ($status !== null && $status >= 200 && $status < 300) {
             return true;
         }

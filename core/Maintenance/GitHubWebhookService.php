@@ -519,12 +519,29 @@ class GitHubWebhookService
      */
     private function supersedeQueuedInstall(string $reference, string $reason): void
     {
-        $queued = $this->schedulerService->find('core', 'install_update', $reference);
+        // `findLive()` and NOT `find()`: the latter answers about a `pending`
+        // row only, and SchedulerRepository::claimOverdue() flips the row to
+        // `processing` before Task\InstallUpdateHandler runs. A push landing
+        // while that handler probed GitHub for its artifact therefore
+        // superseded NOTHING — the older install kept its `pending` history
+        // row, the newer one queued itself under the same reference, and the
+        // older commit could install after the newer (issue #689). The wait
+        // is 45 minutes since #683, so there are ~30 probes per install to
+        // land inside instead of ~6.
+        $queued = $this->schedulerService->findLive('core', 'install_update', $reference);
         if ($queued === null) {
             return;
         }
 
-        $this->schedulerService->cancel((int) $queued['id']);
+        // A claimed row is executing: cancelling it would only delete the
+        // bookkeeping of a process already running, which is why this is a
+        // status check and not a second cancel. Marking the history row below
+        // is what stops it — the handler re-reads that row before it queues a
+        // retry or installs anything, and stands down when it reads
+        // « skipped ».
+        if ((string) ($queued['status'] ?? '') !== 'processing') {
+            $this->schedulerService->cancel((int) $queued['id']);
+        }
 
         $payload = json_decode((string) ($queued['payload'] ?? ''), true);
         $historyId = is_array($payload) ? (int) ($payload['history_id'] ?? 0) : 0;

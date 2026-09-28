@@ -811,6 +811,69 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame('pending', $byVersion['dev-bbbbbbb']->status, 'the newest push is the one still to install');
     }
 
+    /**
+     * **The same supersede, with the older install already CLAIMED** (issue
+     * #689). `SchedulerRepository::claimOverdue()` flips the row to
+     * `processing` before `Task\InstallUpdateHandler` runs, and the handler
+     * then spends seconds probing GitHub for its artifact — up to ~30 times
+     * now that the wait is 45 minutes (#683). A push landing in that window
+     * asked the `pending` question, got null, and superseded nothing: the
+     * older install kept its `pending` history row and the newer one queued
+     * itself under the same reference, so the older commit could install
+     * after the newer.
+     *
+     * The claimed row is deliberately NOT cancelled — it belongs to a process
+     * already running, and deleting its bookkeeping would not stop it. The
+     * history row is what carries the news, and the handler reads it before
+     * it queues a retry or installs anything.
+     */
+    public function testAPushDuringTheArtifactProbeStillSupersedesTheClaimedInstall(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $this->service()->handlePushEvent($this->pushPayload('main', 'aaaaaaaaaaaa'));
+
+        // The state this test exists for: the first install has been claimed
+        // and is probing, so the row is 'processing' rather than 'pending'.
+        $this->pdo->exec(
+            "UPDATE scheduled_actions SET status = 'processing' WHERE task_key = 'install_update'"
+        );
+
+        $this->service()->handlePushEvent($this->pushPayload('main', 'bbbbbbbbbbbb'));
+
+        $byVersion = [];
+        foreach ($this->updateHistoryRepository->findRecent(10) as $row) {
+            $byVersion[$row->versionTo] = $row;
+        }
+
+        $this->assertSame(
+            'skipped',
+            $byVersion['dev-aaaaaaa']->status,
+            'a push during the probe left the older install pending, so two installs were due at once'
+        );
+        $this->assertStringContainsString('push plus récent', (string) $byVersion['dev-aaaaaaa']->errorMessage);
+        $this->assertSame('pending', $byVersion['dev-bbbbbbb']->status);
+
+        // The claimed row is left alone; only the newer one is queued.
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'install_update' AND status = 'processing'"
+            )->fetchColumn(),
+            'the running install was cancelled instead of being told to stand down'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'install_update' AND status = 'pending'"
+            )->fetchColumn(),
+            'more than one install is queued under the same reference'
+        );
+    }
+
     public function testASupersededReleaseInstallDoesNotLeaveItsHistoryRowPendingForever(): void
     {
         $this->settings->set('auto_update_enabled', '1');

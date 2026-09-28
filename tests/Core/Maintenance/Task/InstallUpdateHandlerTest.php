@@ -398,6 +398,96 @@ class InstallUpdateHandlerTest extends TestCase
     }
 
     /**
+     * **The other half of #689: the claimed handler stands down by itself.**
+     *
+     * A push that lands while this handler probes GitHub marks the history row
+     * « Ignorée » but cannot cancel the scheduled row, which is already
+     * claimed — so that row is the only place the news arrives.
+     *
+     * **The window has to be forced from inside the probe, and the first
+     * version of this test did not.** Marking the row « Ignorée » BEFORE
+     * calling handle() proves nothing: `handle()` already returns on any
+     * status but `pending` (see its own guard), so the test passed with the
+     * guard under test removed — vacuous. The push does not land before the
+     * handler starts; it lands while the HEAD request is in flight, which is
+     * what `handlerSupersededMidProbe()` reproduces.
+     */
+    public function testAnInstallSupersededDuringItsProbeNeitherRetriesNorInstalls(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        // 404, so the retry path is the one that would fire without the guard.
+        $this->handlerSupersededMidProbe($id, 404)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        $this->assertSame(
+            'skipped',
+            $this->updateHistoryRepository->findById($id)->status,
+            'the superseded install overwrote its own « Ignorée » status'
+        );
+        $this->assertCount(
+            0,
+            (new SchedulerRepository($this->pdo))->findByModuleAndTaskKey('core', 'install_update', 10),
+            'a superseded install queued a retry, so two installs are due at once'
+        );
+    }
+
+    /**
+     * And it stands down even when the archive IS there — the case that would
+     * actually install an older commit over a newer one, so the guard sits
+     * before the « artifact published » branch rather than after it.
+     */
+    public function testASupersededInstallDoesNotProceedEvenWithItsArtifactPublished(): void
+    {
+        $id = $this->updateHistoryRepository->create('dev-0000000', 'dev-a1b2c3d', false, null);
+
+        $this->handlerSupersededMidProbe($id, 200)->handle([
+            'history_id' => $id,
+            'download_url' => self::DEV_ARTIFACT_URL,
+            'source_type' => 'release',
+            'wait_for_artifact_until' => time() + 600,
+            'reference' => 'push_install',
+        ], $this->context);
+
+        // Still « Ignorée »: had it proceeded it would have reached the
+        // safety-backup step and failed there, as the other tests in this
+        // class do against fake database credentials.
+        $this->assertSame('skipped', $this->updateHistoryRepository->findById($id)->status);
+        $this->assertNull($this->updateHistoryRepository->findById($id)->backupId);
+    }
+
+    /**
+     * A handler whose artifact probe has the side effect a newer push would
+     * have: it marks this install « Ignorée », exactly as
+     * `GitHubWebhookService::supersedeQueuedInstall()` does, while the handler
+     * is between its own status guard and its decision to retry or install.
+     * That is the window #689 is about, and the only way to be inside it.
+     */
+    private function handlerSupersededMidProbe(int $historyId, ?int $status): InstallUpdateHandler
+    {
+        return new class ($status, new UpdateHistoryRepository($this->pdo), $historyId) extends InstallUpdateHandler {
+            public function __construct(
+                private ?int $probeStatus,
+                private UpdateHistoryRepository $history,
+                private int $historyId
+            ) {
+            }
+
+            protected function probeArtifactStatus(string $url): ?int
+            {
+                $this->history->markSkipped($this->historyId, 'Installation remplacée : un push plus récent.');
+
+                return $this->probeStatus;
+            }
+        };
+    }
+
+    /**
      * A stable-release install — and any task queued before this field
      * existed — carries no deadline, and must never be probed or delayed:
      * its artifact was published before the install was ever scheduled.
