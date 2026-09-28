@@ -1246,6 +1246,7 @@ class MaintenanceControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame($kept, $decoded['password']);
+        $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
 
         $rows = $this->pdo->query(
             "SELECT level, context FROM event_log WHERE event_type = 'backup_password_revealed'"
@@ -1840,6 +1841,7 @@ class MaintenanceControllerTest extends TestCase
             []
         );
         $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('no-store', $response->getHeaders()['Cache-Control'] ?? null);
 
         return (string) json_decode($response->getBody(), true)['password'];
     }

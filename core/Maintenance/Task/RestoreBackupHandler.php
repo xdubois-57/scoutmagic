@@ -978,13 +978,15 @@ class RestoreBackupHandler implements TaskHandlerInterface
         );
 
         try {
-            $backupService->restoreDatabase($safetyDbDump);
             // By the safety copy's id, never its row: the row may be gone
             // with the database this restore replaced, while secrets.enc,
             // which no restore touches, still holds the password (IT-03b).
+            // Read first, so that a secrets file that cannot be read stops
+            // the rollback before it changes the database.
             $safetyPassword = $safetyBackupId > 0
                 ? BackupPasswords::forStorage($context->storagePath)->passwordFor($safetyBackupId)
                 : null;
+            $backupService->restoreDatabase($safetyDbDump);
             $backupService->restoreFiles($safetyZip, $safetyPassword);
             $context->journal->log(
                 'core',

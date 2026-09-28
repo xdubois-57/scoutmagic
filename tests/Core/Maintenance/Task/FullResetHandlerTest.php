@@ -291,6 +291,31 @@ class FullResetHandlerTest extends TestCase
         $this->assertCount(1, $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'full_reset_failed'")->fetchAll());
     }
 
+    /**
+     * A copy that cannot be sealed stops the reset — and takes the clear
+     * dump with it rather than leaving the whole database readable beside
+     * a key that survives.
+     */
+    public function testADumpThatCannotBeSealedIsNotLeftInClear(): void
+    {
+        $dump = $this->storagePath . '/dump.sql';
+        file_put_contents($dump, 'CREATE TABLE t (id INT);');
+        $seal = new \ReflectionMethod(FullResetHandler::class, 'sealDumpIntoArchive');
+
+        try {
+            $seal->invoke(
+                new FullResetHandler($this->fakeBackupService()),
+                $dump,
+                $this->storagePath . '/no-such-archive.zip',
+                'password'
+            );
+            $this->fail('Sealing into a missing archive must fail.');
+        } catch (\Core\Maintenance\BackupException) {
+        }
+
+        $this->assertFileDoesNotExist($dump);
+    }
+
     public function testHandleRecreatesEmptyDirectoryStructure(): void
     {
         $handler = new FullResetHandler($this->fakeBackupService());

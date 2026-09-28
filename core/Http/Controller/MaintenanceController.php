@@ -1224,7 +1224,8 @@ class MaintenanceController extends AbstractController
             AuthSession::getUserAccountId()
         );
 
-        return $this->json(['success' => true, 'password' => $password]);
+        return $this->json(['success' => true, 'password' => $password])
+            ->setHeader('Cache-Control', 'no-store');
     }
 
     /**

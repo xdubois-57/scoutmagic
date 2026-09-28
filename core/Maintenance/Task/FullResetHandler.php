@@ -55,16 +55,22 @@ class FullResetHandler implements TaskHandlerInterface
      */
     private function sealDumpIntoArchive(string $dumpPath, string $zipPath, string $password): void
     {
-        $zip = new \ZipArchive();
-        if ($zip->open($zipPath) !== true) {
-            throw new BackupException('La copie de sécurité n\'a pas pu être rouverte.');
+        // The clear dump goes whether sealing works or not: a failure here
+        // stops the reset before anything is erased, and must not leave the
+        // whole database in clear beside a key that survives.
+        try {
+            $zip = new \ZipArchive();
+            if ($zip->open($zipPath) !== true) {
+                throw new BackupException('La copie de sécurité n\'a pas pu être rouverte.');
+            }
+            $sealed = $zip->addFile($dumpPath, 'database.sql')
+                && $zip->setEncryptionName('database.sql', \ZipArchive::EM_AES_256, $password);
+            if (!$sealed || !$zip->close()) {
+                throw new BackupException('La base de données n\'a pas pu être ajoutée à la copie de sécurité.');
+            }
+        } finally {
+            @unlink($dumpPath);
         }
-        $sealed = $zip->addFile($dumpPath, 'database.sql')
-            && $zip->setEncryptionName('database.sql', \ZipArchive::EM_AES_256, $password);
-        if (!$sealed || !$zip->close()) {
-            throw new BackupException('La base de données n\'a pas pu être ajoutée à la copie de sécurité.');
-        }
-        @unlink($dumpPath);
     }
 
     /**
