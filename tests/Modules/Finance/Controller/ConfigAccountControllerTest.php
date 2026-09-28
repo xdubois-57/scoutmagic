@@ -11,6 +11,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -219,11 +220,7 @@ class ConfigAccountControllerTest extends TestCase
         $this->createAccount('Compte unité', 'intendant');
         $before = DatabaseTestHelper::snapshot($this->pdo);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/accounts', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn('pas du json');
+        $request = new RequestWithInput('POST', '/config/finance/accounts', [], [], [], [], 'pas du json');
 
         $response = $this->controller->save($request, []);
 
@@ -250,11 +247,7 @@ class ConfigAccountControllerTest extends TestCase
             'account_type' => Account::TYPE_CASH,
             'role_min_view' => 'intendant',
         ];
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/accounts', [], $payload, [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($payload));
+        $request = new RequestWithInput('POST', '/config/finance/accounts', [], $payload, [], [], (string) json_encode($payload));
 
         $this->controller->save($request, []);
 
@@ -327,11 +320,7 @@ class ConfigAccountControllerTest extends TestCase
     {
         $payload['_csrf_token'] = CsrfGuard::generateToken();
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/finance/accounts', [], $payload, [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($payload));
+        $request = new RequestWithInput('POST', '/config/finance/accounts', [], $payload, [], [], (string) json_encode($payload));
 
         return $this->controller->save($request, []);
     }

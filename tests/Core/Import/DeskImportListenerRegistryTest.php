@@ -15,8 +15,8 @@ class DeskImportListenerRegistryTest extends TestCase
         $registry = new DeskImportListenerRegistry();
         $this->assertSame([], $registry->all());
 
-        $first = $this->createMock(DeskImportListener::class);
-        $second = $this->createMock(DeskImportListener::class);
+        $first = $this->createStub(DeskImportListener::class);
+        $second = $this->createStub(DeskImportListener::class);
         $registry->register($first);
         $registry->register($second);
 
@@ -32,7 +32,7 @@ class DeskImportListenerRegistryTest extends TestCase
         $registry = new DeskImportListenerRegistry();
         $snapshotTakenAtConstruction = $registry->all();
 
-        $late = $this->createMock(DeskImportListener::class);
+        $late = $this->createStub(DeskImportListener::class);
         $registry->register($late);
 
         $this->assertSame([], $snapshotTakenAtConstruction);

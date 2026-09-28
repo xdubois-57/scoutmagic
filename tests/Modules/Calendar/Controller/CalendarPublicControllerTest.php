@@ -10,6 +10,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -546,12 +547,7 @@ class CalendarPublicControllerTest extends TestCase
      */
     private function createJsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/calendar/personal-token/regenerate', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/calendar/personal-token/regenerate', [], [], [], [], json_encode($data));
 
         return $request;
     }

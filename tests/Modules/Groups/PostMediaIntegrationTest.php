@@ -113,7 +113,7 @@ class PostMediaIntegrationTest extends TestCase
     private function delegatedAlbumService(?AlbumRepository $albumRepository = null): DelegatedAlbumService
     {
         $albumRepository ??= $this->albumRepo;
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
@@ -122,12 +122,12 @@ class PostMediaIntegrationTest extends TestCase
             );
         $storageLocationService = $storageWiring->locationService;
         $this->galleryLocationService = $storageWiring->galleryLocations;
-        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService = $this->createStub(GalleryAccessService::class);
         $uploadHandler = new UploadHandler($this->fileRepo, $this->storagePath);
         $mediaService = new MediaService(
-            $this->mediaRepo, $albumRepository, $uploadHandler, $this->createMock(\Core\Scheduler\SchedulerService::class),
+            $this->mediaRepo, $albumRepository, $uploadHandler, $this->createStub(\Core\Scheduler\SchedulerService::class),
             $settingService, $accessService, $this->storageBackendFactory, $this->galleryLocationService,
-            $this->createMock(FfmpegAvailability::class)
+            $this->createStub(FfmpegAvailability::class)
         );
 
         return new DelegatedAlbumService(
@@ -159,7 +159,7 @@ class PostMediaIntegrationTest extends TestCase
         $sectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($this->pdo);
         $memberRepo = new \Modules\Groups\Repository\GroupMemberRepository($this->pdo);
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
 
         return new GroupFileOwnershipChecker($this->groupRepo, $access, $resolver);
@@ -302,7 +302,7 @@ class PostMediaIntegrationTest extends TestCase
 
         $backend = $this->createMock(StorageBackendInterface::class);
         $backend->method('put');
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturn($backend);
         $this->storageBackendFactory = $factory;
 

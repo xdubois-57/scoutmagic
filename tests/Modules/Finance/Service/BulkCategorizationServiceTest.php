@@ -119,7 +119,7 @@ class BulkCategorizationServiceTest extends TestCase
         $categoryId = $this->categoryRepository->create('Fournitures');
         $this->createTransaction('Achat mystère');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{}', ['category' => 'Fournitures', 'new_category_suggestion' => null], 10, 5));
 
@@ -296,7 +296,7 @@ class BulkCategorizationServiceTest extends TestCase
         $secondId = $this->createTransaction('Deuxième mouvement');
 
         $calls = 0;
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturnCallback(function () use (&$calls) {
             $calls++;

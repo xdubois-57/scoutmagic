@@ -20,10 +20,10 @@ class RgpdContentServiceTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->moduleManager = $this->createMock(ModuleManager::class);
+        $this->moduleManager = $this->createStub(ModuleManager::class);
         $this->moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
-        $this->settingService = $this->createMock(SettingService::class);
+        $this->settingService = $this->createStub(SettingService::class);
         $this->settingService->method('get')->willReturn('');
     }
 
@@ -115,12 +115,12 @@ class RgpdContentServiceTest extends TestCase
 
     public function testGenerateWithAiThrowsAndDoesNotReturnContentWhenNoControllerIsDesignated(): void
     {
-        $settingService = $this->createMock(SettingService::class);
+        $settingService = $this->createStub(SettingService::class);
         $settingService->method('get')->willReturnCallback(
             fn(string $key) => $key === 'site_name' ? 'Unité Test' : ''
         );
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(
@@ -150,7 +150,7 @@ class RgpdContentServiceTest extends TestCase
     public function testTheSystemPromptDescribesTheSameProcessing(): void
     {
         $captured = null;
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isTierAvailable')->willReturn(true);
         $connector->method('complete')->willReturnCallback(
             function (LlmRequest $request) use (&$captured): LlmResponse {
@@ -181,11 +181,11 @@ class RgpdContentServiceTest extends TestCase
      */
     private function capturePrompt(array $enabledModuleIds, \Core\Module\SubProcessorProvider ...$providers): string
     {
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn($enabledModuleIds);
 
         $captured = null;
-        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector = $this->createStub(LlmConnectorInterface::class);
         $connector->method('isTierAvailable')->willReturn(true);
         $connector->method('complete')->willReturnCallback(
             function (LlmRequest $request) use (&$captured): LlmResponse {

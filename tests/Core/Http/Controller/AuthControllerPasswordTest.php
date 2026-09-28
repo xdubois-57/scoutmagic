@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Database\Connection;
 use Core\Http\Controller\AuthController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -41,16 +42,16 @@ class AuthControllerPasswordTest extends TestCase
 
         $this->userRepo = new UserAccountRepository($this->pdo, $this->encryption);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $throttler = new LoginThrottler($connection);
         $passwordAuth = new PasswordAuthMethod($this->userRepo, $this->encryption, $throttler);
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        $authService = $this->createMock(AuthService::class);
+        $authService = $this->createStub(AuthService::class);
 
         $this->controller = new AuthController($twig, $authService);
         $this->controller->setPasswordAuth($passwordAuth);
@@ -192,12 +193,7 @@ class AuthControllerPasswordTest extends TestCase
     private function createJsonRequest(string $path, array $data): Request
     {
         // We can't easily mock getRawBody, so create a real request and override
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', $path, [], [], [], [], json_encode($data));
 
         return $request;
     }

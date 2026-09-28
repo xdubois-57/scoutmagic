@@ -47,8 +47,8 @@ class TextPageUploadDoorTest extends TestCase
 
         $this->controller = new UploadController(
             new \Twig\Environment(new \Twig\Loader\ArrayLoader([])),
-            $this->createMock(\Core\Photo\PhotoIngestionService::class),
-            $this->createMock(\Core\Member\MemberService::class),
+            $this->createStub(\Core\Photo\PhotoIngestionService::class),
+            $this->createStub(\Core\Member\MemberService::class),
             new EditableContentService($content, [new TextPageContentAuthorizer($repository)])
         );
 

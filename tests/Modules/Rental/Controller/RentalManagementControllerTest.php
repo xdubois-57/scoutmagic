@@ -79,6 +79,11 @@ use Core\Member\Repository\MemberProfileRepository;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RentalManagementControllerTest extends TestCase
 {
     use \Tests\Modules\InboundMail\TriageScreenScenario;
@@ -306,7 +311,7 @@ class RentalManagementControllerTest extends TestCase
      */
     private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
     {
-        $mock = $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class);
+        $mock = $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class);
         $mock->method('sendDecision')->willReturnCallback(
             function (
                 \Modules\Rental\Booking\RentalBooking $booking,
@@ -2753,7 +2758,7 @@ class RentalManagementControllerTest extends TestCase
     public function testCourrierNeedsExactlyOneDedicatedMailbox(array $boxes): void
     {
         $this->loginAsManager();
-        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
         $inbound->method('isCollecting')->willReturn(true);
         $inbound->method('dedicatedMailboxesFor')->willReturn($boxes);
         $this->withMailbox($inbound);

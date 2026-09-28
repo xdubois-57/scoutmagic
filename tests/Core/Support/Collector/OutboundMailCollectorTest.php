@@ -112,7 +112,7 @@ class OutboundMailCollectorTest extends TestCase
         $this->storagePath = $this->projectRoot . '/storage';
         mkdir($this->storagePath . '/temp', 0700, true);
 
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
         $this->connection = $connection;
     }

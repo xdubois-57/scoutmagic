@@ -109,7 +109,7 @@ class RentalReminderServiceTest extends TestCase
 
     private function notificationService(): \Core\Notification\NotificationService
     {
-        $service = $this->createMock(\Core\Notification\NotificationService::class);
+        $service = $this->createStub(\Core\Notification\NotificationService::class);
         $service->method('dispatch')->willReturnCallback(
             function (string $typeId, array $recipients, array $payload) : void {
                 $this->dispatched[] = ['typeId' => $typeId, 'recipients' => $recipients, 'payload' => $payload];
@@ -121,7 +121,7 @@ class RentalReminderServiceTest extends TestCase
 
     private function mailService(bool $succeeds = true): \Modules\Rental\Service\RentalBookingMailService
     {
-        $service = $this->createMock(\Modules\Rental\Service\RentalBookingMailService::class);
+        $service = $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class);
         $service->method('sendPracticalInfo')->willReturnCallback(
             function (RentalBooking $booking) use ($succeeds): bool {
                 if ($succeeds) {

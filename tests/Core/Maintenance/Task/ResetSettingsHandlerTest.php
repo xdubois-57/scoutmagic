@@ -67,7 +67,7 @@ class ResetSettingsHandlerTest extends TestCase
         $this->context = new TaskContext(
             $connection,
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $journalService,
             $this->settings,
             $userAccountRepository,
@@ -76,7 +76,7 @@ class ResetSettingsHandlerTest extends TestCase
                 new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
                 new NotificationPreferenceRepository($this->pdo),
-                $this->createMock(WebPush::class),
+                $this->createStub(WebPush::class),
                 $this->settings,
                 $journalService,
                 new SchedulerService(new SchedulerRepository($this->pdo)),

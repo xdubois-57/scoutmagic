@@ -46,7 +46,7 @@ class GroupFileOwnershipCheckerTest extends TestCase
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
         $this->groupService = new GroupService($this->groupRepo, $sectionRepo, $memberRepo);
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $this->checker = new GroupFileOwnershipChecker($this->groupRepo, $access, $resolver);

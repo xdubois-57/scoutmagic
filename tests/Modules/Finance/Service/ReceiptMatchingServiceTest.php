@@ -341,7 +341,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":9999}', ['transaction_id' => 9999], 10, 10));
 
@@ -355,7 +355,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":null}', ['transaction_id' => null], 10, 10));
 
@@ -412,7 +412,7 @@ class ReceiptMatchingServiceTest extends TestCase
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
-        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(LlmException::apiError('boom'));
 

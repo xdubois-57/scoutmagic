@@ -21,6 +21,11 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class SecondaryEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -37,7 +42,7 @@ class SecondaryEmailServiceTest extends TestCase
 
         $this->repository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $this->mailService = $this->createMock(MailService::class);
-        $journalService = $this->createMock(JournalService::class);
+        $journalService = $this->createStub(JournalService::class);
 
         // The real renderer over the shipped templates, not a mock: this
         // e-mail is declared `editable: false`, and a mocked renderer

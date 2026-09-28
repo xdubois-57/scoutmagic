@@ -206,7 +206,7 @@ class MassMailServiceTest extends TestCase
      */
     private function siteMailService(): MailService
     {
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('getDefaultSender')
             ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
 
@@ -217,8 +217,8 @@ class MassMailServiceTest extends TestCase
     {
         return new MemberEmailService(
             new MemberEmailRepository($this->pdo, $encryption),
-            $this->createMock(MailService::class),
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
+            $this->createStub(MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createStub(\Twig\Environment::class)),
             new JournalService(new JournalRepository($this->pdo)),
             $sectionService,
             $memberService,

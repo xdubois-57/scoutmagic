@@ -9,6 +9,7 @@ use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -176,15 +177,10 @@ class ReceiptControllerTest extends TestCase
             'type' => 'application/pdf',
         ], $tmpPaths);
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/finance/receipts/new', [], [
-                '_csrf_token' => $csrf,
-                'account_id' => (string) ($accountId ?? $this->accountId),
-            ], [], []])
-            ->onlyMethods(['getFiles'])
-            ->getMock();
-        $request->method('getFiles')->willReturn($files);
-        return $request;
+        return new RequestWithInput('POST', '/finance/receipts/new', [], [
+            '_csrf_token' => $csrf,
+            'account_id' => (string) ($accountId ?? $this->accountId),
+        ], [], [], files: $files);
     }
 
     public function testUploadCreatesAttachmentAndRedirects(): void
@@ -247,12 +243,7 @@ class ReceiptControllerTest extends TestCase
 
     private function jsonRequest(string $method, string $path, array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([$method, $path, [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
-        return $request;
+        return new RequestWithInput($method, $path, [], [], [], [], json_encode($data));
     }
 
     public function testUploadFormDropZoneIsNotAFakeButtonAndItsInputIsLabelledAndFocusable(): void
@@ -799,12 +790,16 @@ class ReceiptControllerTest extends TestCase
         $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
         $original = $this->attachmentRepository->findActiveOrdered()[0];
 
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/finance/receipts/' . $original->id . '/replace', [], ['_csrf_token' => $this->csrfToken()], [], []])
-            ->onlyMethods(['getFile'])
-            ->getMock();
         $tmp = $this->tmpPdfFile();
-        $request->method('getFile')->willReturn(['tmp_name' => $tmp, 'name' => 'v2.pdf', 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmp)]);
+        $request = new RequestWithInput(
+            'POST',
+            '/finance/receipts/' . $original->id . '/replace',
+            [],
+            ['_csrf_token' => $this->csrfToken()],
+            [],
+            [],
+            file: ['tmp_name' => $tmp, 'name' => 'v2.pdf', 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmp)],
+        );
 
         $response = $this->controller->replace($request, ['id' => (string) $original->id]);
 

@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\Http\Controller\MaintenanceController;
 use Core\Http\FrontController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -106,7 +107,7 @@ class MaintenanceControllerTest extends TestCase
         $this->secretManager->generateMasterKey();
         $this->secretManager->writeSecrets([]);
 
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
         // Built through the real factory, not a bare Environment: this page
@@ -225,11 +226,7 @@ class MaintenanceControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/maintenance/backup/full', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn(json_encode($data));
+        $request = new RequestWithInput('POST', '/config/maintenance/backup/full', [], [], [], [], json_encode($data));
         return $request;
     }
 
@@ -1482,7 +1479,7 @@ class MaintenanceControllerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
         $this->updateHistoryRepository->setStatus($id, 'migrating');
 
-        $runner = $this->createMock(\Core\Database\MigrationRunner::class);
+        $runner = $this->createStub(\Core\Database\MigrationRunner::class);
         $runner->method('migrate')->willThrowException(new \RuntimeException('boom'));
 
         $response = $this->controllerWithRunner($runner)->updateStatus(

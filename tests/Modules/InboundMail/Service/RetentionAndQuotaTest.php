@@ -449,7 +449,7 @@ class RetentionAndQuotaTest extends TestCase
         $this->purge->handle([], new \Core\Scheduler\TaskContext(
             \Core\Database\Connection::withPdo($this->pdo),
             $encryption,
-            $this->createMock(\Core\Mail\MailService::class),
+            $this->createStub(\Core\Mail\MailService::class),
             new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             new \Core\Security\UserAccountRepository($this->pdo, $encryption),

@@ -54,9 +54,9 @@ class RetroConfigControllerTest extends TestCase
         // override this to prove the denial path. The underlying STAFFDU
         // logic itself is fully tested against real fixtures by
         // Core\Member\MemberServiceTest.
-        $this->memberService = $this->createMock(MemberService::class);
+        $this->memberService = $this->createStub(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
-        $this->scoutYearService = $this->createMock(\Core\ScoutYear\ScoutYearResolver::class);
+        $this->scoutYearService = $this->createStub(\Core\ScoutYear\ScoutYearResolver::class);
         $this->scoutYearService->method('getAuthorizationYear')
             ->willReturn(new \Core\ScoutYear\EffectiveScoutYear(1, '2025-2026', null));
 
@@ -111,7 +111,7 @@ class RetroConfigControllerTest extends TestCase
 
     public function testIndexDeniesANonUnitChief(): void
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
         $controller = new RetroConfigController(
             $this->twig, $this->settingService, new JournalService(new JournalRepository($this->pdo)),
@@ -125,7 +125,7 @@ class RetroConfigControllerTest extends TestCase
 
     public function testSaveDeniesANonUnitChief(): void
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
         $controller = new RetroConfigController(
             $this->twig, $this->settingService, new JournalService(new JournalRepository($this->pdo)),
@@ -214,7 +214,7 @@ class RetroConfigControllerTest extends TestCase
 
     public function testSavePersistsModerationModeWhenAiIsAvailable(): void
     {
-        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService = $this->createStub(ModerationService::class);
         $moderationService->method('isAvailable')->willReturn(true);
 
         $response = $this->controller($moderationService)->save($this->postRequest([

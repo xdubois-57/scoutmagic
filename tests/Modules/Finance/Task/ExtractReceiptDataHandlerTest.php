@@ -80,7 +80,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
         // configured", exactly as before the migration.
         $capabilities = null;
         if ($withLlmConnector) {
-            $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+            $moduleManager = $this->createStub(\Core\Module\ModuleManager::class);
             $moduleManager->method('getEnabledModuleIds')->willReturn(['finance', 'llm_connector']);
             $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
             $capabilities->register(
@@ -97,10 +97,10 @@ class ExtractReceiptDataHandlerTest extends TestCase
         return new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(UserAccountRepository::class),
+            $this->createStub(UserAccountRepository::class),
             $this->storagePath,
             null,
             $capabilities

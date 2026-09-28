@@ -47,7 +47,7 @@ class MemberScoutYearOffsetRbacTest extends TestCase
         // Mirrors the module route registered in public/index.php.
         $router->addRoute('POST', '/members/{id}/scout-year-offset', ScoutYearOffsetStubController::class, 'update', 'chief');
 
-        $twig = $this->createMock(Environment::class);
+        $twig = $this->createStub(Environment::class);
         $fc = new FrontController($router, $twig, $this->config);
         $fc->registerController(ScoutYearOffsetStubController::class, new ScoutYearOffsetStubController($twig));
 

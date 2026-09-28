@@ -12,6 +12,7 @@ use Core\Http\FrontController;
 use Core\Http\Router;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
@@ -177,7 +178,7 @@ class StorageConfigControllerTest extends TestCase
     private function webDavController(): StorageConfigController
     {
         $this->share = new FakeWebDavServer('https://example.org/dav/scoutmagic');
-        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory = $this->createStub(StorageBackendFactory::class);
         $factory->method('create')->willReturnCallback(
             fn (StorageLocation $location): WebDavBackend => new WebDavBackend(
                 new WebDavClient($this->share->transport()),
@@ -2139,11 +2140,7 @@ class StorageConfigControllerTest extends TestCase
      */
     private function jsonRequest(array $data): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/stockage/emplacements/1', [], [], [], []])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn((string) json_encode($data));
+        $request = new RequestWithInput('POST', '/config/stockage/emplacements/1', [], [], [], [], (string) json_encode($data));
 
         return $request;
     }

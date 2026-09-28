@@ -107,7 +107,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->sharedMemberYearId = $this->primaryMemberYearIds[0];
         $this->addValidSecondaryEmail($this->memberIdOf($this->sharedMemberYearId), self::SECONDARY_EMAIL);
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send')->willReturnCallback(
             function (string $to, string $subject, string $bodyHtml, string $bodyText): void {
                 $this->sentMail = ['to' => $to, 'subject' => $subject, 'body' => $bodyText !== '' ? $bodyText : $bodyHtml];

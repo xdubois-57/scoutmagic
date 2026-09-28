@@ -63,7 +63,7 @@ class PurgeSupportPackagesHandlerTest extends TestCase
         $this->settings->clearCache();
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
         $connection->method('dumpCredentials')->willReturn([
             'host' => '', 'port' => 0, 'dbName' => '', 'user' => '', 'password' => '',

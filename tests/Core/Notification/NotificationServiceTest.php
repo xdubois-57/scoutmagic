@@ -32,6 +32,11 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class NotificationServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -497,7 +502,7 @@ class NotificationServiceTest extends TestCase
         $subId = $this->subscriptionRepository->create($userId, 'https://push.example/gone', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
 
-        $expiredReport = $this->createMock(MessageSentReport::class);
+        $expiredReport = $this->createStub(MessageSentReport::class);
         $expiredReport->method('isSubscriptionExpired')->willReturn(true);
         $expiredReport->method('isSuccess')->willReturn(false);
         $expiredReport->method('getEndpoint')->willReturn('https://push.example/gone');
@@ -565,7 +570,7 @@ class NotificationServiceTest extends TestCase
     {
         /** @var \ArrayObject<int, array<string, string>> $sent */
         $sent = new \ArrayObject();
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $expectation = $mailService->method('send');
         if ($throwOnSend !== null) {
             $expectation->willThrowException($throwOnSend);
@@ -650,9 +655,11 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
         $this->enableEmailChannel($userId, self::TEST_TYPE);
-        // A window covering the whole day, so "now" is always inside it.
-        $this->settingService->register('notifications_quiet_hours_start', '00:00', 'text', 'L', 'D');
-        $this->settingService->register('notifications_quiet_hours_end', '23:59', 'text', 'L', 'D');
+        // A window around "now", so it is inside it at any hour. 00:00–23:59
+        // was not: it left out the minute before midnight, and CI met it.
+        $now = new \DateTimeImmutable();
+        $this->settingService->register('notifications_quiet_hours_start', $now->modify('-1 hour')->format('H:i'), 'text', 'L', 'D');
+        $this->settingService->register('notifications_quiet_hours_end', $now->modify('+1 hour')->format('H:i'), 'text', 'L', 'D');
 
         $this->service->dispatch(self::TEST_TYPE, [
             ['userAccountId' => $userId, 'memberId' => null],

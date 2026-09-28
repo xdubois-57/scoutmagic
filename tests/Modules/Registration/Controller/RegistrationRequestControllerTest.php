@@ -123,7 +123,7 @@ class RegistrationRequestControllerTest extends TestCase
         $journalService = new JournalService($this->journalRepository);
         $statusService = new RequestStatusService($this->requestRepository, $journalService);
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $mailService->method('send');
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $emailService = new RequestEmailService(

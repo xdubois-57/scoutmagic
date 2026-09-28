@@ -113,7 +113,7 @@ final class ImmediateDeliveryTest extends TestCase
             $this->notifications,
             $subscriptions ?? new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferences,
-            $withWebPush ? $this->createMock(WebPush::class) : null,
+            $withWebPush ? $this->createStub(WebPush::class) : null,
             $this->settings,
             $journal,
             new SchedulerService($this->scheduler),
@@ -155,7 +155,7 @@ final class ImmediateDeliveryTest extends TestCase
             return $this->mailService;
         }
 
-        $mailService = $this->createMock(MailService::class);
+        $mailService = $this->createStub(MailService::class);
         $expectation = $mailService->method('send');
         if ($fails !== null) {
             $expectation->willThrowException($fails);
@@ -290,8 +290,11 @@ final class ImmediateDeliveryTest extends TestCase
     public function testQuietHoursStillHoldThePushBackWhileTheMailGoesNow(): void
     {
         $admin = $this->createUserAccount();
-        $this->settings->register('notifications_quiet_hours_start', '00:00', 'text', 'L', 'D');
-        $this->settings->register('notifications_quiet_hours_end', '23:59', 'text', 'L', 'D');
+        // A window around "now", so it is inside it at any hour. 00:00–23:59
+        // was not: it left out the minute before midnight, and CI met it.
+        $now = new \DateTimeImmutable();
+        $this->settings->register('notifications_quiet_hours_start', $now->modify('-1 hour')->format('H:i'), 'text', 'L', 'D');
+        $this->settings->register('notifications_quiet_hours_end', $now->modify('+1 hour')->format('H:i'), 'text', 'L', 'D');
 
         $this->dispatchAlert($this->service(), $admin);
 
@@ -332,7 +335,7 @@ final class ImmediateDeliveryTest extends TestCase
         $admin = $this->createUserAccount();
 
         $refuses = new class (
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             $this->pdo,
             $this->settings,
             new JournalService($this->journalRepository)
@@ -515,7 +518,7 @@ final class ImmediateDeliveryTest extends TestCase
             $this->notifications,
             new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferences,
-            $this->createMock(WebPush::class),
+            $this->createStub(WebPush::class),
             $this->settings,
             $journal,
             new SchedulerService($this->scheduler),

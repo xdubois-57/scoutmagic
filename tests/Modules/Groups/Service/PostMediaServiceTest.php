@@ -81,7 +81,7 @@ class PostMediaServiceTest extends TestCase
 
     public function testAddMediaAttachesEachFileInOrderAndReturnsTheirIds(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $manager->method('addMedia')->willReturnOnConsecutiveCalls(
             $this->delegatedMedia(10),
@@ -102,7 +102,7 @@ class PostMediaServiceTest extends TestCase
      */
     private function managerFailingOnSecondAddMedia(): DelegatedAlbumManager
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
         $call = 0;
         $manager->method('addMedia')->willReturnCallback(function () use (&$call) {
@@ -186,7 +186,7 @@ class PostMediaServiceTest extends TestCase
         $postId = $this->createPost();
         $this->postMediaRepo->attach($postId, 10, 0);
 
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('deleteMedia')->willThrowException(new GalleryException('déjà supprimé'));
 
         $group = $this->groupRepo->findById($this->groupId);
@@ -217,7 +217,7 @@ class PostMediaServiceTest extends TestCase
         // than breaking postA's whole render.
         $mediaById = [10 => $this->delegatedMedia(10), 12 => $this->delegatedMedia(12)];
 
-        $result = $this->service($this->createMock(DelegatedAlbumManager::class))
+        $result = $this->service($this->createStub(DelegatedAlbumManager::class))
             ->mediaForPosts([$postA, $postB], $mediaById);
 
         $this->assertSame([10], array_map(fn(DelegatedMedia $m) => $m->id, $result[$postA]));
@@ -311,7 +311,7 @@ class PostMediaServiceTest extends TestCase
 
     public function testVideoUploadAllowedDelegatesToTheApi(): void
     {
-        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager = $this->createStub(DelegatedAlbumManager::class);
         $manager->method('videoUploadAllowed')->willReturn(true);
 
         $this->assertTrue($this->service($manager)->videoUploadAllowed());

@@ -37,10 +37,10 @@ class RetroEventLinkRegistryTest extends TestCase
     public function testASecondProviderIsRefusedRatherThanSilentlyShadowed(): void
     {
         $registry = new RetroEventLinkRegistry();
-        $registry->provide($this->createMock(RetroEventLinkLookupInterface::class));
+        $registry->provide($this->createStub(RetroEventLinkLookupInterface::class));
 
         $this->expectException(\LogicException::class);
-        $registry->provide($this->createMock(RetroEventLinkLookupInterface::class));
+        $registry->provide($this->createStub(RetroEventLinkLookupInterface::class));
     }
 
     public function testItPassesWhereACalendarServiceExpectsTheLookup(): void

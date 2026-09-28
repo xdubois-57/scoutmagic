@@ -6,6 +6,7 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\WebhookController;
 use Core\Http\Request;
+use Tests\RequestWithInput;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\GitHubWebhookService;
@@ -18,12 +19,17 @@ use Tests\TestTwig;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
+// This class builds its doubles once (in setUp() or a shared helper) and
+// hands the same ones to every test: some tests set expectations on
+// them, the others only need their answers, and PHPUnit would report
+// each of those as a mock with no expectation (issue #665).
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class WebhookControllerTest extends TestCase
 {
     private \PDO $pdo;
     private WebhookController $controller;
     private GitHubWebhookService&\PHPUnit\Framework\MockObject\MockObject $webhookService;
-    private SecretManager&\PHPUnit\Framework\MockObject\MockObject $secretManager;
+    private SecretManager&\PHPUnit\Framework\MockObject\Stub $secretManager;
 
     protected function setUp(): void
     {
@@ -31,7 +37,7 @@ class WebhookControllerTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $this->webhookService = $this->createMock(GitHubWebhookService::class);
-        $this->secretManager = $this->createMock(SecretManager::class);
+        $this->secretManager = $this->createStub(SecretManager::class);
         $this->secretManager->method('readSecrets')->willReturn(['github_webhook_secret' => 'test-secret']);
 
         $twig = TestTwig::create();
@@ -44,11 +50,7 @@ class WebhookControllerTest extends TestCase
      */
     private function requestWithBody(string $rawBody, array $server): Request
     {
-        $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/api/webhook/github', [], [], [], $server])
-            ->onlyMethods(['getRawBody'])
-            ->getMock();
-        $request->method('getRawBody')->willReturn($rawBody);
+        $request = new RequestWithInput('POST', '/api/webhook/github', [], [], [], $server, $rawBody);
 
         return $request;
     }

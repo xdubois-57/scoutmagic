@@ -46,20 +46,20 @@ class SendRentalRemindersSelfBuildTest extends TestCase
         $pdo = DatabaseTestHelper::createTestDatabase();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $moduleManager = $this->createMock(ModuleManager::class);
+        $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')
             ->willReturn($financeAndInboundMail ? ['rental', 'finance', 'inbound_mail'] : ['rental']);
         $capabilities = new TaskCapabilities($moduleManager);
-        $capabilities->register(ExpectedReceivableInterface::class, 'finance', fn (): object => $this->createMock(ExpectedReceivableInterface::class));
-        $capabilities->register(StructuredCommunicationInterface::class, 'finance', fn (): object => $this->createMock(StructuredCommunicationInterface::class));
-        $capabilities->register(SepaQrCodeInterface::class, 'finance', fn (): object => $this->createMock(SepaQrCodeInterface::class));
-        $capabilities->register(FinanceAccountInterface::class, 'finance', fn (): object => $this->createMock(FinanceAccountInterface::class));
-        $capabilities->register(InboundMailInterface::class, 'inbound_mail', fn (): object => $this->createMock(InboundMailInterface::class));
+        $capabilities->register(ExpectedReceivableInterface::class, 'finance', fn (): object => $this->createStub(ExpectedReceivableInterface::class));
+        $capabilities->register(StructuredCommunicationInterface::class, 'finance', fn (): object => $this->createStub(StructuredCommunicationInterface::class));
+        $capabilities->register(SepaQrCodeInterface::class, 'finance', fn (): object => $this->createStub(SepaQrCodeInterface::class));
+        $capabilities->register(FinanceAccountInterface::class, 'finance', fn (): object => $this->createStub(FinanceAccountInterface::class));
+        $capabilities->register(InboundMailInterface::class, 'inbound_mail', fn (): object => $this->createStub(InboundMailInterface::class));
 
         return new TaskContext(
             Connection::withPdo($pdo),
             $encryption,
-            $this->createMock(MailService::class),
+            $this->createStub(MailService::class),
             new JournalService(new JournalRepository($pdo)),
             new SettingService(new SettingRepository($pdo)),
             new UserAccountRepository($pdo, $encryption),

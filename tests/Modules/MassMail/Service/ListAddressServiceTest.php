@@ -48,7 +48,7 @@ class ListAddressServiceTest extends TestCase
             $this->repository,
             new MailingListRepository($this->pdo),
             $this->settings,
-            $this->createMock(JournalService::class)
+            $this->createStub(JournalService::class)
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO mass_mail_lists (name, description) VALUES (?, ?)');

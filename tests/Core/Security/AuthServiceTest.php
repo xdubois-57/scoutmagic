@@ -123,7 +123,7 @@ class AuthServiceTest extends TestCase
         mkdir($tempDir, 0700, true);
         $dkimManager = new DkimManager($tempDir);
 
-        $this->mailService = $this->createMock(MailService::class);
+        $this->mailService = $this->createStub(MailService::class);
         $this->sentPurpose = null;
         $this->mailService->method('send')->willReturnCallback(
             /**
@@ -154,7 +154,7 @@ class AuthServiceTest extends TestCase
         $twig->addGlobal('site_name', 'Test Unit');
 
         // Create a mock connection that returns our PDO
-        $connection = $this->createMock(Connection::class);
+        $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
 
         $this->authService = new AuthService(

@@ -89,7 +89,7 @@ class HomeActivityServiceTest extends TestCase
      */
     private function service(array $linkedMemberIds): HomeActivityService
     {
-        $memberService = $this->createMock(MemberService::class);
+        $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(
             fn(int $id) => new MemberProfile(
                 $id * 100, $id, 'DESK' . $id, 'Marie', 'Dupont', 'Akéla',
@@ -98,12 +98,12 @@ class HomeActivityServiceTest extends TestCase
             $linkedMemberIds
         ));
 
-        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(
             new UserAccount(1, 'parent@test.be', 'Marie', 'Dupont', null, false, null)
         );
 
-        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(
             new EffectiveScoutYear($this->currentYearId, '2025-2026', null)
         );
