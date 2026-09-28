@@ -93,6 +93,8 @@ class RestoreBackupHandlerTest extends TestCase
         $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
         $this->assertCount(1, $notifications);
         $this->assertSame('Échec de la restauration', $notifications[0]->title);
+        // Back to where the restore is started from since IT-06 (issue #619).
+        $this->assertSame('/config/maintenance/sauvegardes-recentes', $notifications[0]->url);
     }
 
     public function testHandleJournalsFailureOfTheSafetyBackup(): void

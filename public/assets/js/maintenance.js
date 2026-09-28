@@ -754,6 +754,10 @@
     // (issue #619, IT-03), revealed on demand beside its download button.
     // Same rules as the off-site passphrase above: a POST, CSRF-guarded and
     // journaled on the server, never rendered into the page.
+    //
+    // Since IT-06 the download reveals it too, then serves the file at
+    // once: an archive taken off the server without its password is an
+    // archive nobody will open, and the key button alone was easy to miss.
     document.querySelectorAll('[data-backup-password]').forEach(function (button) {
         var backupButton = /** @type {HTMLButtonElement} */ (button);
         var id = backupButton.dataset.backupPassword || '';
@@ -767,31 +771,62 @@
                 passwordOutput.textContent = '';
                 return;
             }
+            revealBackupPassword(id, backupButton, passwordOutput);
+        });
 
-            backupButton.disabled = true;
-            window.ScoutMagicApi.postJson('/config/maintenance/backup/' + id + '/password', {})
-                .then(function (res) {
-                    var data = res.data || {};
-                    backupButton.disabled = false;
-                    passwordOutput.textContent = '';
-                    if (!data.success || !data.password) {
-                        passwordOutput.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
-                    } else {
-                        var label = document.createElement('span');
-                        label.textContent = 'Mot de passe de l\'archive : ';
-                        var value = document.createElement('code');
-                        value.className = 'user-select-all';
-                        value.textContent = data.password;
-                        var note = document.createElement('span');
-                        note.className = 'd-block text-body-secondary';
-                        note.textContent = 'Notez-le : le serveur qui pourrait vous le redire n\'existera '
-                            + 'peut-être plus le jour où vous en aurez besoin.';
-                        passwordOutput.append(label, value, note);
-                    }
-                    passwordOutput.classList.remove('d-none');
-                });
+        var row = backupButton.closest('li');
+        var download = /** @type {HTMLAnchorElement|null} */ (row?.querySelector('a[href^="/files/"]') ?? null);
+        if (!download) return;
+        var downloadLink = download;
+        downloadLink.addEventListener('click', function (e) {
+            if (!passwordOutput.classList.contains('d-none')) return;
+            e.preventDefault();
+            // The file is served whatever the answer: a password that
+            // could not be read says so in the row, and must not also
+            // cost the download.
+            revealBackupPassword(id, backupButton, passwordOutput).then(function () {
+                window.location.href = downloadLink.href;
+            });
         });
     });
+
+    /**
+     * Asks the server for one archive's password and writes it, or why it
+     * could not be read, into the row's output.
+     *
+     * @param {string} id
+     * @param {HTMLButtonElement} button
+     * @param {HTMLElement} output
+     * @returns {Promise<void>}
+     */
+    function revealBackupPassword(id, button, output) {
+        button.disabled = true;
+        return window.ScoutMagicApi.postJson('/config/maintenance/backup/' + id + '/password', {})
+            .then(function (res) {
+                var data = res.data || {};
+                button.disabled = false;
+                output.textContent = '';
+                if (!data.success || !data.password) {
+                    output.textContent = data.error || 'Le mot de passe n\'a pas pu être lu.';
+                } else {
+                    var label = document.createElement('span');
+                    label.textContent = 'Mot de passe de l\'archive : ';
+                    var value = document.createElement('code');
+                    value.className = 'user-select-all';
+                    value.textContent = data.password;
+                    var note = document.createElement('span');
+                    note.className = 'd-block text-body-secondary';
+                    note.textContent = 'Notez-le : le serveur qui pourrait vous le redire n\'existera '
+                        + 'peut-être plus le jour où vous en aurez besoin.';
+                    output.append(label, value, note);
+                }
+                output.classList.remove('d-none');
+            }, function () {
+                button.disabled = false;
+                output.textContent = 'Le mot de passe n\'a pas pu être lu.';
+                output.classList.remove('d-none');
+            });
+    }
 
     // Resume polling after the classic-form restore redirect.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
@@ -801,7 +836,7 @@
         if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
         pollResetStatus(
             Number.parseInt(restoreIdMatch[1], 10),
-            function () { window.location.href = '/config/maintenance/reinitialisation'; },
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; },
             function (message) {
                 if (restoreProgressEl) restoreProgressEl.classList.add('d-none');
                 if (restoreErrorEl) {
@@ -809,7 +844,7 @@
                     restoreErrorEl.classList.remove('d-none');
                 }
             },
-            function () { window.location.href = '/config/maintenance/reinitialisation'; }
+            function () { window.location.href = '/config/maintenance/sauvegardes-recentes'; }
         );
     }
 })();

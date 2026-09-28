@@ -1300,8 +1300,8 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
             expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
             await vi.advanceTimersByTimeAsync(3000);
             expect(fetch).toHaveBeenCalledWith('/api/maintenance/reset-status/99', expect.anything());
-            // Back to the sub-page the restore was started from (issue #619).
-            expect(window.location.href).toBe('/config/maintenance/reinitialisation');
+            // Back to the sub-page the restore lives on since IT-06 (issue #619).
+            expect(window.location.href).toBe('/config/maintenance/sauvegardes-recentes');
         });
 
         it('shows the failure message on the resumed poll without redirecting', async () => {
@@ -1457,5 +1457,73 @@ describe('maintenance.js: revealing an archive password', () => {
         document.querySelector('[data-backup-password]').click();
         await vi.waitFor(() => expect(document.getElementById('backup-password-12').textContent).toContain('Aucun mot de passe'));
         expect(document.getElementById('backup-password-12').querySelector('code')).toBeNull();
+    });
+});
+
+/**
+ * Downloading an archive reveals its password, then serves the file at
+ * once (issue #619, IT-06): an archive taken off the server without its
+ * password is an archive nobody will open.
+ */
+describe('maintenance.js: downloading an archive reveals its password', () => {
+    function buildDom() {
+        const row = el('<li></li>');
+        row.append(
+            el('<a href="/files/40" class="btn">télécharger</a>'),
+            el('<button type="button" data-backup-password="12">clé</button>'),
+            el('<output id="backup-password-12" class="d-none"></output>'),
+        );
+        appendAll(row);
+    }
+
+    function stubLocation() {
+        const location = { href: '' };
+        Object.defineProperty(window, 'location', { configurable: true, value: location });
+        return location;
+    }
+
+    it('shows the password first, then serves the file', async () => {
+        buildDom();
+        const location = stubLocation();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+
+        const link = document.querySelector('a[href="/files/40"]');
+        const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(click);
+
+        expect(click.defaultPrevented).toBe(true);
+        await vi.waitFor(() => expect(location.href).toContain('/files/40'));
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/12/password', expect.objectContaining({ method: 'POST' }));
+        expect(document.getElementById('backup-password-12').querySelector('code').textContent)
+            .toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678');
+    });
+
+    it('still serves the file when the password cannot be read, and says why', async () => {
+        buildDom();
+        const location = stubLocation();
+        global.fetch = vi.fn(() => Promise.reject(new Error('réseau')));
+        await boot();
+
+        document.querySelector('a[href="/files/40"]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        await vi.waitFor(() => expect(location.href).toContain('/files/40'));
+        expect(document.getElementById('backup-password-12').textContent).toContain('n\'a pas pu être lu');
+        expect(document.querySelector('[data-backup-password]').disabled).toBe(false);
+    });
+
+    it('does not ask again once the password is on screen', async () => {
+        buildDom();
+        stubLocation();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, password: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678' }));
+        await boot();
+        document.querySelector('[data-backup-password]').click();
+        await vi.waitFor(() => expect(document.getElementById('backup-password-12').classList.contains('d-none')).toBe(false));
+
+        const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+        document.querySelector('a[href="/files/40"]').dispatchEvent(click);
+
+        expect(click.defaultPrevented).toBe(false);
+        expect(fetch).toHaveBeenCalledTimes(1);
     });
 });

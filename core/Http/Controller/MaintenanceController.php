@@ -285,8 +285,8 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * GET /config/maintenance/reinitialisation — the reset box, restore
-     * still included until it moves to Sauvegardes récentes (IT-06).
+     * GET /config/maintenance/reinitialisation — the reset box. The
+     * restore moved to Sauvegardes récentes in IT-06.
      *
      * @param array<string, string> $params
      */
@@ -1405,21 +1405,30 @@ class MaintenanceController extends AbstractController
      * ?restore_id={id} so its JS can start polling resetStatus()
      * immediately. Requires typing KEYWORD_RESTORE.
      *
+     * The form lives on « Sauvegardes récentes » since issue #619 (IT-06):
+     * restoring is what a backup is for, not a reset, and that is where
+     * it is looked for. The route keeps its address so nothing that
+     * already points at it breaks.
+     *
      * @param array<string, string> $params
      */
     public function restoreBackup(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_RESET)) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PAGE_RECENT_BACKUPS)) !== null) {
             return $guard;
         }
         if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
             FlashMessage::set('error', 'Mot de confirmation incorrect.');
-            return $this->redirect(self::PAGE_RESET);
+            return $this->redirect(self::PAGE_RECENT_BACKUPS);
         }
 
         $userId = AuthSession::getUserAccountId();
         $source = (string) $request->getBody('source', 'server');
-        $password = (string) $request->getBody('password', '');
+        // Only an uploaded archive can need one: an archive of this server
+        // restores with the password the site kept for it (IT-03), so a
+        // field left filled on the page is not carried into the task
+        // (issue #619, IT-06).
+        $password = $source === 'upload' ? (string) $request->getBody('password', '') : '';
         $encryptedPassword = $password !== ''
             ? base64_encode($this->encryption->encrypt($password, 'backup_password'))
             : null;
@@ -1438,41 +1447,41 @@ class MaintenanceController extends AbstractController
                 $assembled = $this->restoreChunkStore()->assembledPath($uploadId, session_id());
                 if ($assembled === null) {
                     FlashMessage::set('error', 'Fichier téléversé introuvable — recommencez l\'envoi.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
                 if ((int) (filesize($assembled) ?: 0) > self::RESTORE_UPLOAD_MAX_BYTES) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
                     FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!rename($assembled, $tempPath)) {
                     $this->restoreChunkStore()->discard($uploadId, session_id());
                     FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
                 $payload['uploaded_temp_path'] = $tempPath;
             } else {
                 $file = $request->getFile('backup_file');
                 if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
                     FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
                 $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
                 if ($ext !== 'zip') {
                     FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
                 if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
                     FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
 
                 $tempPath = $this->restoreTempPath();
                 if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
                     FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                    return $this->redirect(self::PAGE_RESET);
+                    return $this->redirect(self::PAGE_RECENT_BACKUPS);
                 }
                 $payload['uploaded_temp_path'] = $tempPath;
             }
@@ -1481,7 +1490,7 @@ class MaintenanceController extends AbstractController
             $backup = $this->backupRepository->findById($backupId);
             if ($backup === null || $backup->status !== 'completed') {
                 FlashMessage::set('error', 'Sauvegarde introuvable ou incomplète.');
-                return $this->redirect(self::PAGE_RESET);
+                return $this->redirect(self::PAGE_RECENT_BACKUPS);
             }
             // A portable archive is refused HERE, before a single row is
             // written. It looks restorable — completed, with a database
@@ -1497,7 +1506,7 @@ class MaintenanceController extends AbstractController
                     'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur '
                     . 'une installation neuve, à qui vous la téléversez avec sa phrase de passe.'
                 );
-                return $this->redirect(self::PAGE_RESET);
+                return $this->redirect(self::PAGE_RECENT_BACKUPS);
             }
             $payload['backup_id'] = $backupId;
         }
@@ -1513,7 +1522,7 @@ class MaintenanceController extends AbstractController
             $userId
         );
 
-        return $this->redirect(self::PAGE_RESET . '?restore_id=' . $actionId);
+        return $this->redirect(self::PAGE_RECENT_BACKUPS . '?restore_id=' . $actionId);
     }
 
     /**

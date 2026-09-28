@@ -188,12 +188,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
         backupsList.getByLabel(/^Télécharger la sauvegarde « Configuration seule »/).first(),
     ).toBeVisible();
 
-    // Its generated password is revealed on demand beside the download,
-    // with the sentence that says to note it.
-    await backupsList.getByLabel(/^Afficher le mot de passe de la sauvegarde « Configuration seule »/).first().click();
+    // Downloading it reveals its generated password first, with the
+    // sentence that says to note it, then serves the file (IT-06).
     const revealed = backupsList.locator('output[id^="backup-password-"]').first();
+    const downloaded = page.waitForEvent('download');
+    await backupsList.getByLabel(/^Télécharger la sauvegarde « Configuration seule »/).first().click();
+    expect((await downloaded).suggestedFilename()).toMatch(/\.zip$/);
     await expect(revealed.locator('code')).toHaveText(/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/);
     await expect(revealed).toContainText('Notez-le');
+
+    // The key beside it still hides and shows it on demand (IT-03).
+    const key = backupsList.getByLabel(/^Afficher le mot de passe de la sauvegarde « Configuration seule »/).first();
+    await key.click();
+    await expect(revealed).toBeHidden();
+    await key.click();
+    await expect(revealed.locator('code')).toHaveText(/^[A-HJKMNP-Z2-9]{5}(-[A-HJKMNP-Z2-9]{5}){5}$/);
 
     // ---------------------------------------------------------------
     // The webhook secret (dev-level auto-updates): revealed only by the
@@ -218,20 +227,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // until its exact keyword is typed, and arms the moment it is.
     // Nothing is clicked while armed.
     // ---------------------------------------------------------------
+    // Restoring lives under « Sauvegardes récentes » since IT-06 (issue
+    // #619). An archive of this server needs no password, so the field only
+    // appears once « Depuis un fichier téléversé » is chosen.
+    await page.goto('/config/maintenance/sauvegardes-recentes', { waitUntil: 'load' });
+    await expect(page.locator('#restore-backup-password')).toBeHidden();
+    await page.locator('#restore-source-upload').check();
+    await expect(page.locator('#restore-backup-password')).toBeVisible();
+    await page.locator('#restore-source-server').check();
+    await expect(page.locator('#restore-backup-password')).toBeHidden();
+    await expectKeywordGate(page, '#restore-backup-keyword', '#restore-backup-submit', 'RESTAURER');
+
     await page.goto('/config/maintenance/reinitialisation', { waitUntil: 'load' });
     await expect(page.locator('#maintenance-reset-body')).toBeVisible();
-    for (const [keywordField, submit, keyword] of [
-        ['#reset-settings-keyword', '#reset-settings-submit', 'REINITIALISER'],
-        ['#restore-backup-keyword', '#restore-backup-submit', 'RESTAURER'],
-    ]) {
-        await expect(page.locator(submit)).toBeDisabled();
-        await page.locator(keywordField).fill('pas-le-bon-mot');
-        await expect(page.locator(submit), `${submit} must stay locked on a wrong keyword`).toBeDisabled();
-        await page.locator(keywordField).fill(keyword);
-        await expect(page.locator(submit)).toBeEnabled();
-        await page.locator(keywordField).fill('');
-        await expect(page.locator(submit), `${submit} must re-lock when the keyword goes`).toBeDisabled();
-    }
+    await expect(page.locator('#restore-backup-form')).toHaveCount(0);
+    await expectKeywordGate(page, '#reset-settings-keyword', '#reset-settings-submit', 'REINITIALISER');
 
     // The full erase adds a checkbox to its keyword — both are required —
     // and, since IT-03b (issue #619), the safety copy's password: shown,
@@ -256,3 +266,22 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
+
+/**
+ * A destructive button is dead until its exact keyword is typed, arms the
+ * moment it is, and re-locks when the keyword goes. Nothing is clicked.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} keywordField
+ * @param {string} submit
+ * @param {string} keyword
+ */
+async function expectKeywordGate(page, keywordField, submit, keyword) {
+    await expect(page.locator(submit)).toBeDisabled();
+    await page.locator(keywordField).fill('pas-le-bon-mot');
+    await expect(page.locator(submit), `${submit} must stay locked on a wrong keyword`).toBeDisabled();
+    await page.locator(keywordField).fill(keyword);
+    await expect(page.locator(submit)).toBeEnabled();
+    await page.locator(keywordField).fill('');
+    await expect(page.locator(submit), `${submit} must re-lock when the keyword goes`).toBeDisabled();
+}

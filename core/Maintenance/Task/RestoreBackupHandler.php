@@ -34,7 +34,7 @@ use Core\Storage\DiskBudget;
 use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
- * Background "Restaurer un backup" — scheduled by Core\Http\Controller\
+ * Background "Restaurer une sauvegarde" — scheduled by Core\Http\Controller\
  * MaintenanceController::restoreBackup() after its own server-side keyword
  * confirmation. Two sources (module spec):
  *
@@ -133,7 +133,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 ['backup_id' => (int) ($payload['backup_id'] ?? 0)],
                 $requestedBy
             );
-            RequesterNotice::send(
+            RequesterNotice::sendAboutRestore(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -258,7 +258,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            RequesterNotice::send(
+            RequesterNotice::sendAboutRestore(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -358,7 +358,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 ['error' => $refusal->getMessage()],
                 $requestedBy
             );
-            RequesterNotice::send(
+            RequesterNotice::sendAboutRestore(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -412,7 +412,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 ['error' => $e->getMessage()],
                 $requestedBy
             );
-            RequesterNotice::send(
+            RequesterNotice::sendAboutRestore(
                 $context,
                 $requestedBy,
                 self::TYPE_FAILED,
@@ -771,7 +771,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['error' => $migrationError->getMessage()],
                     $requestedBy
                 );
-                RequesterNotice::send(
+                RequesterNotice::sendAboutRestore(
                     $context,
                     $requestedBy,
                     self::TYPE_FAILED,
@@ -949,7 +949,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
         ))->purgeAfterCreating('auto_reset');
 
-        RequesterNotice::send(
+        RequesterNotice::sendAboutRestore(
             $context,
             $requestedBy,
             self::TYPE_COMPLETED,
@@ -1018,7 +1018,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 . 'échoué. Une intervention manuelle est nécessaire.';
         }
 
-        RequesterNotice::send($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
+        RequesterNotice::sendAboutRestore($context, $requestedBy, self::TYPE_FAILED, $notifyTitle, $notifyBody);
     }
 
     /**

@@ -324,7 +324,7 @@ class MaintenanceControllerTest extends TestCase
             // One box since IT-05: « Hors site » is its second half, no
             // longer a box of its own (see the test just below).
             'automaticBackupPage' => ['maintenance-backups-automatic'],
-            'recentBackupsPage' => ['maintenance-backups-list'],
+            'recentBackupsPage' => ['maintenance-backups-list', 'maintenance-restore'],
             'resetPage' => ['maintenance-reset'],
         ];
 
@@ -537,13 +537,14 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testThePageSaysTheArchiveCarriesNoEncryptionKey(): void
     {
-        $body = $this->page('manualBackupPage', 'resetPage');
+        $body = $this->page('manualBackupPage', 'recentBackupsPage');
 
         // One sentence per scope since IT-04 of issue #619: the complete
         // site says it leaves the keys behind, and what that costs.
         $this->assertStringContainsString('sans les clés du site', $body);
         $this->assertStringContainsString('reste illisible ailleurs', $body);
-        // And on the restore side, where the consequence is met.
+        // And on the restore side, where the consequence is met — beside
+        // the list since IT-06.
         $this->assertStringContainsString('pas les clés de chiffrement', $body);
     }
 
@@ -1041,20 +1042,20 @@ class MaintenanceControllerTest extends TestCase
      * Each page is read on its own since issue #619 split them: on the old
      * single screen, the « Base de données seule » heading of the manual
      * backup box satisfied this test whatever the list and the picker
-     * printed.
+     * printed. The picker sits under the list since IT-06, so the option
+     * itself is asserted rather than the page as a whole.
      */
     public function testBackupTypeIsShownAsAHumanReadableLabelEverywhere(): void
     {
         $id = $this->backupRepository->create('database', 1);
         $this->backupRepository->markCompleted($id, 42, null);
 
-        foreach (['recentBackupsPage', 'resetPage'] as $action) {
-            $body = $this->page($action);
+        $body = $this->page('recentBackupsPage');
 
-            $this->assertStringContainsString('Base de données', $body, $action);
-            $this->assertStringNotContainsString('>database<', $body, $action);
-            $this->assertStringNotContainsString('>database —', $body, $action);
-        }
+        $this->assertStringContainsString('Base de données', $body);
+        $this->assertStringContainsString('<option value="' . $id . '">Base de données — ', $body);
+        $this->assertStringNotContainsString('>database<', $body);
+        $this->assertStringNotContainsString('>database —', $body);
     }
 
     // --- Suppression manuelle d'une sauvegarde (IT-04) ---
@@ -2166,7 +2167,7 @@ class MaintenanceControllerTest extends TestCase
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id IN (?, ?)");
         $stmt->execute([$portableId, $ordinaryId]);
 
-        $body = $this->page('resetPage');
+        $body = $this->page('recentBackupsPage');
 
         // The ordinary one is offered; the portable one is listed in
         // « Sauvegardes récentes » but never as a restore option.
@@ -2243,8 +2244,12 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertStringContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
-        // Back to the sub-page the restore is started from (issue #619).
-        $this->assertStringStartsWith('/config/maintenance/reinitialisation?restore_id=', $response->getHeaders()['Location'] ?? '');
+        // Back to the sub-page the restore is started from — « Sauvegardes
+        // récentes » since IT-06 (issue #619).
+        $this->assertStringStartsWith(
+            '/config/maintenance/sauvegardes-recentes?restore_id=',
+            $response->getHeaders()['Location'] ?? ''
+        );
         $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
         $this->assertCount(1, $tasks);
         $payload = json_decode((string) $tasks[0]['payload'], true);
@@ -2287,6 +2292,60 @@ class MaintenanceControllerTest extends TestCase
         $location = $response->getHeaders()['Location'] ?? '';
         $this->assertStringContainsString('restore_id=', $location);
         $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    /**
+     * **An archive of this server restores with no password** (issue #619,
+     * IT-06): the site kept the one it generated, so a value left in the
+     * field — hidden for this source — is not carried into the task.
+     */
+    public function testAServerRestoreCarriesNoPasswordEvenWhenOneIsPosted(): void
+    {
+        $backupId = $this->backupRepository->create('full_config', 1);
+        $this->backupRepository->markCompleted($backupId, 1, 1);
+
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $this->csrfToken(), 'confirm_keyword' => 'RESTAURER', 'source' => 'server',
+            'backup_id' => (string) $backupId, 'password' => 'saisi-par-erreur',
+        ], [], []);
+
+        $this->controller->restoreBackup($request, []);
+
+        $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
+        $this->assertCount(1, $tasks);
+        $payload = json_decode((string) $tasks[0]['payload'], true);
+        $this->assertNull($payload['encrypted_password'], 'a server restore carried a password into its task');
+    }
+
+    /**
+     * **The restoration lives beside the list it restores from** (issue
+     * #619, IT-06), with everything it had under the red card: both
+     * sources, the chunked upload, the RESTAURER keyword, portable
+     * archives kept out of the server list. The password field sits in the
+     * upload picker only. The reset page keeps a sentence pointing there.
+     */
+    public function testTheRestorationMovedToTheRecentBackupsPage(): void
+    {
+        $portableId = $this->backupRepository->create(\Core\Maintenance\Backup::PORTABLE_TYPE, 1);
+        $this->backupRepository->markCompleted($portableId, 1, 1);
+        $body = $this->page('recentBackupsPage');
+
+        $this->assertStringContainsString('id="maintenance-restore"', $body);
+        $this->assertStringContainsString('action="/config/maintenance/reset/restore"', $body);
+        $this->assertStringContainsString('id="restore-source-server"', $body);
+        $this->assertStringContainsString('id="restore-source-upload"', $body);
+        $this->assertStringContainsString('id="restore-upload-id"', $body);
+        $this->assertStringContainsString('Tapez <strong>RESTAURER</strong> pour confirmer', $body);
+        $this->assertStringContainsString('Une sauvegarde de sécurité est prise automatiquement avant la restauration', $body);
+        $this->assertStringNotContainsString('<option value="' . $portableId . '">', $body);
+
+        $picker = substr($body, (int) strpos($body, 'id="restore-upload-picker"'));
+        $picker = substr($picker, 0, (int) strpos($picker, 'restore-backup-keyword'));
+        $this->assertStringContainsString('id="restore-backup-password"', $picker, 'the password field is outside the upload picker');
+
+        $reset = $this->page('resetPage');
+        $this->assertStringNotContainsString('restore-backup-form', $reset);
+        $this->assertStringContainsString('/config/maintenance/sauvegardes-recentes#maintenance-restore', $reset);
     }
 
     // --- Mises à jour automatiques ---
