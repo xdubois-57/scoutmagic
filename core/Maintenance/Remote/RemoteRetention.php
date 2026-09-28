@@ -389,12 +389,13 @@ final class RemoteRetention
      */
     public function recordState(array $state, \DateTimeImmutable $observedAt): void
     {
-        $this->settings->setInternal(self::STATE_SETTING, (string) json_encode([
+        $recorded = json_encode([
             'count' => $state['count'],
             'bytes' => $state['bytes'],
             'oldest' => $state['oldest'],
             'observedAt' => $observedAt->format('Y-m-d H:i:s'),
-        ]));
+        ]);
+        $this->settings->setInternal(self::STATE_SETTING, (string) $recorded);
     }
 
     /**
