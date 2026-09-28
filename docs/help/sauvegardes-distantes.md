@@ -7,6 +7,7 @@ role_min: superadmin
 discovery: off
 question: À quel rythme le site envoie-t-il ses sauvegardes sur Drive ?
 question: Qu'est-ce qui part, et qu'est-ce qui ne part pas ?
+question: Combien de temps les archives restent-elles sur Drive ?
 paths: /config/maintenance/sauvegarde-automatique
 related: phrase-de-passe-distante, sauvegarde-hors-site, restaurer-ailleurs, sauvegardes
 ---
@@ -22,10 +23,12 @@ secondes et une sauvegarde pèse des gigaoctets, donc chaque passage en
 envoie un morceau. Un envoi interrompu — serveur redémarré, connexion
 coupée — reprend où il s'était arrêté plutôt que de tout recommencer.
 
-**Ce rythme n'est pas celui du bloc « Sauvegarde automatique ».** Les
-deux ne partagent aucun réglage : celui-là garde une archive non
-chiffrée sur votre serveur, celui-ci construit la sienne, chiffrée, et
-c'est elle qui part.
+**Ce rythme n'est pas celui de « Sur ce serveur ».** Le bloc
+« Sauvegarde automatique » a deux moitiés qui ne partagent aucun
+réglage : « Sur ce serveur » garde une archive sans les clés du site,
+pour revenir en arrière après une fausse manœuvre ; « Hors site »
+construit la sienne, portable et chiffrée avec la phrase de passe, pour
+le jour où le serveur n'existe plus — et c'est elle qui part.
 
 **Aucun emplacement de stockage n'est envoyé** — ni la galerie photo,
 ni les autres. Ils se comptent en gigaoctets, et un envoi quotidien
@@ -33,9 +36,20 @@ remplirait un Drive gratuit en quelques semaines ; après quoi plus rien
 ne partirait du tout. Leur contenu se protège autrement, et les sujets
 liés ci-dessous expliquent comment.
 
-Le site conserve chez vous **30 archives au maximum et 10 Go au plus** :
-la plus contraignante des deux s'applique, et les plus anciennes sont
-supprimées. Ces deux nombres se règlent dans Configuration > Réglages.
+## Ce qui est conservé
+
+Après chaque envoi, le site éclaircit : il garde **la dernière archive,
+puis une par semaine sur le mois écoulé, puis une par mois au-delà**.
+Une année tient ainsi en moins d'une vingtaine d'archives. Par-dessus
+s'appliquent **30 archives au maximum et 10 Go au plus** : la plus
+contraignante des deux l'emporte, et les plus anciennes partent les
+premières. Ces deux nombres se règlent dans Configuration > Réglages.
+
+La page affiche ce qui est réellement là-bas, relevé à la fin de chaque
+envoi : le nombre d'archives, leur volume et la date de la plus
+ancienne. Une archive d'avant une régénération de la phrase est gardée
+selon son âge, comme les autres — elle ne s'ouvre qu'avec l'ancienne
+phrase.
 
 ## La phrase de passe
 

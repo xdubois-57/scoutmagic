@@ -21,6 +21,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\CommitInfo;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\Health\HostHealth;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Module\ModuleManager;
@@ -58,6 +59,8 @@ class MaintenanceControllerTest extends TestCase
     private Connection $connection;
     /** @var callable(BackupService, ?HostHealth=): MaintenanceController */
     private $rebuildController;
+
+    private BackupService $backupService;
 
     /**
      * Configurable per-test — the "Vérifier maintenant" / dev-branch
@@ -182,7 +185,11 @@ class MaintenanceControllerTest extends TestCase
         // BackupService — the disk-budget refusal below needs one whose
         // quota is already full, and everything else about the page must
         // stay identical for that test to mean anything.
-        $this->rebuildController = function (BackupService $service, ?HostHealth $hostHealth = null) use (
+        $this->rebuildController = function (
+            BackupService $service,
+            ?HostHealth $hostHealth = null,
+            ?RemoteBackupDestination $remoteDestination = null
+        ) use (
             $fileRepository,
             $schedulerService,
             $moduleManager,
@@ -198,11 +205,13 @@ class MaintenanceControllerTest extends TestCase
                 // The health block's crontab line is spelled from the public
                 // directory, the one anchor valid in both hosting layouts.
                 dirname($storagePath) . '/public',
+                remoteBackupDestination: $remoteDestination,
                 hostHealth: $hostHealth
             );
         };
 
         $this->connection = $connection;
+        $this->backupService = $backupService;
         $this->controller = ($this->rebuildController)($backupService);
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -214,6 +223,36 @@ class MaintenanceControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+    }
+
+    /** An off-site destination over this test's database and settings. */
+    private function remoteDestination(): RemoteBackupDestination
+    {
+        RemoteBackupDestination::register($this->settingService);
+        $locations = new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+
+        return new RemoteBackupDestination(
+            $this->settingService,
+            $locations,
+            new \Core\Storage\Location\Backend\StorageBackendFactory($locations, sys_get_temp_dir())
+        );
+    }
+
+    /** A Google Drive folder declared as a storage location, by id. */
+    private function declareRemoteLocation(): int
+    {
+        return (new \Core\Storage\Location\StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->create(
+            \Core\Storage\Location\StorageLocationType::GoogleDrive,
+            'Drive de l\'unité',
+            new \Core\Storage\Location\Config\GoogleDriveLocationConfig('client-1', 'dossier-1', ''),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'r', 'account' => 'unite@example.org'])
+        );
     }
 
     private function csrfToken(): string
@@ -282,7 +321,9 @@ class MaintenanceControllerTest extends TestCase
             'index' => ['maintenance-health'],
             'updatePage' => ['maintenance-update', 'maintenance-auto-update'],
             'manualBackupPage' => ['maintenance-backups'],
-            'automaticBackupPage' => ['maintenance-backups-automatic', 'remote-backup'],
+            // One box since IT-05: « Hors site » is its second half, no
+            // longer a box of its own (see the test just below).
+            'automaticBackupPage' => ['maintenance-backups-automatic'],
             'recentBackupsPage' => ['maintenance-backups-list'],
             'resetPage' => ['maintenance-reset'],
         ];
@@ -354,15 +395,107 @@ class MaintenanceControllerTest extends TestCase
         // Both sides state the independence, because an operator reads
         // whichever box they opened.
         $this->assertStringContainsString('ne gouverne <strong>que</strong> ce qui s\'écrit sur ce serveur', $body);
-        $this->assertStringContainsString(
-            'la fréquence choisie dans
-                    « Sauvegarde automatique » n\'a aucun effet dessus',
+        $this->assertMatchesRegularExpression(
+            '~la fréquence choisie dans\s+« Sur ce serveur » n\'a aucun effet dessus~',
             $body
         );
         $this->assertStringContainsString(
             'fixée à ' . \Core\Maintenance\Task\SendRemoteBackupHandler::INTERVAL_HOURS . ' heures',
             $body
         );
+    }
+
+    /**
+     * **One box, two halves named by the accident they protect from**
+     * (issue #619, IT-05) — and the off-site half keeps the anchor every
+     * round trip through Google and every alert lands on.
+     */
+    public function testTheAutomaticBackupIsOneBoxWithTwoHalvesNamedByTheirAccident(): void
+    {
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertSame(1, substr_count($body, '<div class="card mb-4"'), 'the two boxes were not merged');
+        $this->assertStringNotContainsString('Sauvegarde hors site', $body);
+
+        $local = strpos($body, '<h3 class="h5" id="auto-backup-local-title">Sur ce serveur</h3>');
+        $remote = strpos($body, '<section id="remote-backup" aria-labelledby="remote-backup-title">');
+        $this->assertIsInt($local);
+        $this->assertIsInt($remote);
+        $this->assertLessThan($remote, $local);
+        $this->assertStringContainsString('<div id="remote-backup-body">', $body);
+
+        // The asymmetry is said, not smoothed over.
+        $this->assertStringContainsString('pour revenir en arrière après une fausse', $body);
+        $this->assertStringContainsString('pour le jour où le serveur n\'existe plus', $body);
+
+        // Nothing moved out on the way: the frequency, the destination,
+        // the cadence and the passphrase are all still here.
+        $this->assertStringContainsString('id="auto-backup-frequency"', $body);
+        $this->assertStringContainsString('action="/config/maintenance/remote/destination"', $body);
+        $this->assertStringContainsString(
+            'fixée à ' . \Core\Maintenance\Task\SendRemoteBackupHandler::INTERVAL_HOURS . ' heures',
+            $body
+        );
+        $this->assertStringContainsString('Phrase de passe des sauvegardes distantes', $body);
+    }
+
+    /**
+     * **The retention says its policy, then shows the real state** — a
+     * policy nobody can check at a glance reassures nobody. Before the
+     * first send there is no reading, and the page says so rather than
+     * showing a zero it never measured.
+     */
+    public function testTheOffsiteRetentionShowsItsPolicyAndTheRealState(): void
+    {
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertStringContainsString('la dernière' . "\n", $body);
+        $this->assertMatchesRegularExpression(
+            '~une par semaine sur le mois écoulé, puis une par mois au-delà~',
+            $body
+        );
+        $this->assertStringContainsString('Pas encore de relevé', $body);
+
+        // A destination, chosen before the reading is recorded: choosing
+        // one forgets whatever the previous destination held.
+        $destination = $this->remoteDestination();
+        $locationId = $this->declareRemoteLocation();
+        $destination->choose($locationId);
+        \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
+        (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
+            ['count' => 14, 'bytes' => 3 * 1024 * 1024 * 1024, 'oldest' => '2025-10-31 03:00:00'],
+            new \DateTimeImmutable('2026-09-28 04:12:00'),
+            $locationId
+        );
+        $this->controller = ($this->rebuildController)($this->backupService, null, $destination);
+
+        $body = $this->page('automaticBackupPage');
+        $this->assertStringNotContainsString('Pas encore de relevé', $body);
+        $this->assertMatchesRegularExpression('~<strong>14\s+archives</strong>~', $body);
+        $this->assertStringContainsString('3,0 Go occupés', $body);
+        $this->assertStringContainsString('la plus ancienne du 31/10/2025', $body);
+        $this->assertMatchesRegularExpression('~Relevé à la fin de l\'envoi du\s+28/09/2026 à 04:12~', $body);
+    }
+
+    /**
+     * **A reading is never shown without a destination** (IT-05 review):
+     * the figures describe a folder, and with no destination chosen there
+     * is none they could describe — the page says nothing leaves the
+     * server, and must not beside it show fourteen archives there.
+     */
+    public function testNoReadingIsShownWhileNoDestinationIsChosen(): void
+    {
+        \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
+        (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
+            ['count' => 14, 'bytes' => 1024, 'oldest' => '2025-10-31 03:00:00'],
+            new \DateTimeImmutable('2026-09-28 04:12:00'),
+            1
+        );
+
+        $body = $this->page('automaticBackupPage');
+
+        $this->assertStringNotContainsString('<strong>14', $body);
+        $this->assertStringContainsString('Pas encore de relevé', $body);
     }
 
     /**

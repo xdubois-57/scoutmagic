@@ -58,8 +58,8 @@ indisponible, et l'avertissement dit quoi demander à l'hébergeur.
 
 ## Les sauvegardes automatiques
 
-Le bloc « Sauvegarde automatique » porte la fréquence (quotidienne à
-mensuelle) : le site génère seul une sauvegarde complète. Ces
+La partie « Sur ce serveur » de « Sauvegarde automatique » porte la
+fréquence : le site génère seul une sauvegarde complète. Ces
 sauvegardes-là ne sont pas portables : elles restent sans les clés. Il prend aussi une sauvegarde de sécurité avant chaque mise à
 jour et chaque action de réinitialisation, sans que vous ayez rien à
 faire.

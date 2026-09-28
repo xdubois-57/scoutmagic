@@ -414,7 +414,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // bookkeeping and none of it may reach recordFailure() — and
         // `cancelPending()` is a write to the most contended table on the
         // site.
-        $this->finish($context, $backend, $archivePath, $remoteName);
+        $this->finish($context, $backend, $archivePath, $remoteName, $carried['location_id']);
     }
 
     /**
@@ -495,7 +495,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         TaskContext $context,
         ResumableUploadBackend $backend,
         string $archivePath,
-        string $remoteName
+        string $remoteName,
+        int $locationId
     ): void {
         // The pessimistic row this run wrote before sending: a write to
         // `scheduled_actions`, and therefore a thing that can fail. Left
@@ -542,7 +543,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             );
         });
 
-        $this->purge($context, $backend);
+        $this->purge($context, $backend, $locationId);
 
         $this->quietly(
             $context,
@@ -598,26 +599,52 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * delivered archive as a failed send. One guard, written once, is
      * what stops that from being reinvented slightly wrong each time.
      */
-    private function purge(TaskContext $context, ResumableUploadBackend $backend): void
+    private function purge(TaskContext $context, ResumableUploadBackend $backend, int $locationId): void
     {
+        $remaining = null;
         $this->quietly(
             $context,
-            static function () use ($context, $backend): void {
+            static function () use ($context, $backend, &$remaining): void {
                 $retention = new RemoteRetention($context->settings);
                 $report = $retention->purge($backend, $retention->listArchives($backend));
+                $remaining = $report['remaining'];
                 if ($report['deleted'] > 0 || $report['failed'] > 0) {
                     $context->journal->log(
                         'core',
                         'remote_backup_purged',
                         'info',
                         'Archives distantes supprimées au-delà des bornes de conservation',
-                        $report
+                        [
+                            'deleted' => $report['deleted'],
+                            'failed' => $report['failed'],
+                            'freedBytes' => $report['freedBytes'],
+                        ]
                     );
                 }
             },
             'remote_backup_purge_failed',
             'La purge des archives distantes a échoué'
         );
+
+        // What is left is the destination's real state, which the page
+        // shows without asking the destination anything. Its own guard,
+        // AFTER the purge's journal line: a settings write that fails here
+        // is bookkeeping, and must not turn a purge that deleted archives
+        // into one journaled as failed.
+        if ($remaining !== null) {
+            $this->quietly(
+                $context,
+                static function () use ($context, $remaining, $locationId): void {
+                    // Stamped with the destination this run sent to, not
+                    // the one the site names now: an administrator may
+                    // have re-pointed it while this run was still sending.
+                    (new RemoteRetention($context->settings))
+                        ->recordState($remaining, new \DateTimeImmutable(), $locationId);
+                },
+                'remote_backup_state_failed',
+                'La purge a abouti mais l\'état de la destination n\'a pas pu être enregistré'
+            );
+        }
     }
 
     /**

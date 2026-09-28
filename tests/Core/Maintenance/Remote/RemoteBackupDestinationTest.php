@@ -12,6 +12,7 @@ namespace Tests\Core\Maintenance\Remote;
 use Core\Maintenance\Remote\RemoteBackupConsumer;
 use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemoteBackupException;
+use Core\Maintenance\Remote\RemoteRetention;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\GoogleDriveBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
@@ -202,6 +203,39 @@ final class RemoteBackupDestinationTest extends TestCase
 
         $this->destination->choose($second);
         $this->assertSame([$second], $consumer->locationIdsInUse());
+    }
+
+    /**
+     * **A new destination forgets what the old one held** (issue #619,
+     * IT-05): the recorded count, volume and oldest date describe the
+     * folder they were read from, and would otherwise be shown under the
+     * next destination — or under none — with nothing to overwrite them.
+     * Choosing the same destination again keeps them.
+     */
+    public function testChangingTheDestinationForgetsTheRecordedState(): void
+    {
+        RemoteRetention::register($this->settings);
+        $retention = new RemoteRetention($this->settings);
+        $first = $this->declareDrive();
+        $second = $this->declareDrive('2026-03-01T00:00:00+00:00', 'Autre Drive');
+        $state = ['count' => 3, 'bytes' => 30, 'oldest' => '2026-01-01 03:00:00'];
+
+        $this->destination->choose($first);
+        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'), $first);
+        $this->destination->choose($first);
+        $this->assertNotNull($retention->lastKnownState(), 'choosing the same destination again forgot its state');
+
+        $this->destination->choose($second);
+        $this->assertNull($retention->lastKnownState(), 'the old destination\'s figures survived a new destination');
+        $this->assertSame(
+            '',
+            (string) $this->settings->get(RemoteRetention::STATE_SETTING),
+            'the reading was not cleared'
+        );
+
+        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'), $second);
+        $this->destination->choose(0);
+        $this->assertNull($retention->lastKnownState(), 'figures survived choosing no destination at all');
     }
 
     /**

@@ -64,8 +64,8 @@ supprime. C'est la seule preuve qui vaille — un compte qui répond n'est
 pas un compte qui accepte d'être écrit.
 
 Reste à dire au site que c'est **là** que partent les sauvegardes :
-page **Configuration > Maintenance**, bloc **Sauvegarde hors site**,
-choisissez l'emplacement. Sans cela rien ne quitte le serveur — et la
+page **Configuration > Maintenance > Sauvegarde automatique**, partie
+**Hors site**, choisissez l'emplacement. Sans cela rien ne quitte le serveur — et la
 page le dit.
 
 ## Ce que Google voit, et ne voit pas
