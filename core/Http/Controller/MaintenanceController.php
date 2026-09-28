@@ -432,7 +432,7 @@ class MaintenanceController extends AbstractController
             'remote_backup_keep' => $remoteRetention->keep(),
             // What the last send found on the destination once its purge
             // was done (IT-05) — a recorded reading, not a request.
-            'remote_backup_state' => $this->remoteBackupState($remoteRetention),
+            'remote_backup_destination_state' => $this->remoteBackupState($remoteRetention),
             'remote_backup_max_bytes' => \Core\Storage\ByteFormatter::format($remoteRetention->maxBytes()),
             'remote_backup_interval_hours' => SendRemoteBackupHandler::INTERVAL_HOURS,
             'remote_backup_passphrase_generation' => $remotePassphrase->generation(),

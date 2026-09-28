@@ -96,7 +96,6 @@ class E2eOverlayGestureRatchetTest extends TestCase
             'maintenance-backups-body toBeVisible' => 1,
             'maintenance-health-body toBeVisible' => 1,
             'maintenance-reset-body toBeVisible' => 1,
-            'remote-backup-body toBeVisible' => 1,
         ],
         // The three configuration boxes arrive folded. Two of them are
         // checked again, panel and all, by openCollapse() on the way in;

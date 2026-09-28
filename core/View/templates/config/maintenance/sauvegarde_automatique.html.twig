@@ -235,17 +235,19 @@
                             selon son âge, comme les autres : elle ne s'ouvre qu'avec l'ancienne phrase.
                         </p>
                         <div class="small mb-2" id="remote-backup-state">
-                            {% if remote_backup_state %}
-                                {% if remote_backup_state.count > 0 %}
-                                    <strong>{{ remote_backup_state.count }}
-                                    archive{{ remote_backup_state.count > 1 ? 's' : '' }}</strong>
-                                    chez la destination, {{ remote_backup_state.size }} occupés{% if remote_backup_state.oldest %},
-                                    la plus ancienne du {{ remote_backup_state.oldest|date_fr }}{% endif %}.
+                            {% if remote_backup_destination_state %}
+                                {% if remote_backup_destination_state.count > 0 %}
+                                    <strong>{{ remote_backup_destination_state.count }}
+                                    archive{{ remote_backup_destination_state.count > 1 ? 's' : '' }}</strong>
+                                    chez la destination, {{ remote_backup_destination_state.size }} occupés
+                                    {%- if remote_backup_destination_state.oldest -%}
+                                        , la plus ancienne du {{ remote_backup_destination_state.oldest|date_fr }}
+                                    {%- endif %}.
                                 {% else %}
                                     <strong>Aucune archive</strong> chez la destination.
                                 {% endif %}
                                 <span class="text-body-secondary">Relevé à la fin de l'envoi du
-                                    {{ remote_backup_state.observedAt|datetime_fr }}.</span>
+                                    {{ remote_backup_destination_state.observedAt|datetime_fr }}.</span>
                             {% else %}
                                 <span class="text-body-secondary">
                                     Pas encore de relevé : le nombre d'archives, leur volume et la date de la plus ancienne
