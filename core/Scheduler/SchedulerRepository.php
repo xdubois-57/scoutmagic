@@ -296,21 +296,19 @@ class SchedulerRepository
      *
      * @return array<string, mixed>|null
      */
-    public function findLiveByModuleAndKey(string $moduleId, string $taskKey, ?string $reference): ?array
+    public function findLiveByModuleAndKey(string $moduleId, string $taskKey, string $reference): ?array
     {
-        if ($reference !== null) {
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ?
-                   AND status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 1"
-            );
-            $stmt->execute([$moduleId, $taskKey, $reference]);
-        } else {
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference IS NULL
-                   AND status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 1"
-            );
-            $stmt->execute([$moduleId, $taskKey]);
-        }
+        // `$reference` is REQUIRED, unlike findByModuleAndKey()'s. That one
+        // grew a `reference IS NULL` arm for callers that schedule without a
+        // reference; this question is only ever asked about a chain that has
+        // one, so the arm would be code no caller can reach — and unreachable
+        // code in a supersede path is worse than an asymmetry between two
+        // methods. Add it back the day something needs it.
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ?
+               AND status IN ('pending', 'processing') ORDER BY created_at DESC LIMIT 1"
+        );
+        $stmt->execute([$moduleId, $taskKey, $reference]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         return $row ?: null;

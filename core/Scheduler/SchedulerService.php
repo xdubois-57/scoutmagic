@@ -327,7 +327,7 @@ class SchedulerService
      *
      * @return array<string, mixed>|null
      */
-    public function findLive(string $moduleId, string $taskKey, ?string $reference = null): ?array
+    public function findLive(string $moduleId, string $taskKey, string $reference): ?array
     {
         return $this->repository->findLiveByModuleAndKey($moduleId, $taskKey, $reference);
     }
