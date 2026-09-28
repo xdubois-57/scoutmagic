@@ -32,11 +32,16 @@ class CarpoolViewerResolver
         $yearId = $this->scoutYears->getAuthorizationYear()->id;
         $roleEnum = Role::fromString($role);
 
+        // `ownStaffedSectionIds()` and NOT `getStaffedSections()`: the latter
+        // widens to every section for an admin, which would make this list
+        // mean « may act on » instead of « staffs ». CarpoolViewer wants the
+        // second — `isStaffOf()` is what it feeds, and an admin already sees
+        // everything through `seesEverything()`, so nothing is lost. Raised
+        // in review of #664: checked against the widened list, the carpool
+        // section guard was not checked at all for a chef d'unité.
         $staffed = [];
         if ($this->staffAuthorization !== null && $roleEnum->hasAccess(Role::CHIEF)) {
-            foreach ($this->staffAuthorization->getStaffedSections($email, $role, $yearId) as $section) {
-                $staffed[] = (int) $section['id'];
-            }
+            $staffed = $this->staffAuthorization->ownStaffedSectionIds($email, $yearId);
         }
 
         return new CarpoolViewer($accountId, $email, $roleEnum, $yearId, $staffed);
