@@ -610,6 +610,8 @@ final class UxConventionsTest extends TestCase
         // picker's endpoint) and the places of the events it retained.
         '/covoiturage/organiser/evenements',
         '/covoiturage/organiser/lieux',
+        // JSON: the point of the address being typed (#642).
+        '/covoiturage/organiser/adresse',
         // Redirects: leaving for Meta's consent screen, and Meta's return,
         // which always lands back on « Réseaux sociaux ».
         '/config/reseaux-sociaux/{platform}/connecter',

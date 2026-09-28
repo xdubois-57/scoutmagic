@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Task;
 
 use Core\Geo\GeocodingService;
+use Core\Geo\GeocodingThrottle;
 use Core\Geo\GeoPoint;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -52,8 +53,17 @@ class GeocodeCarpoolsHandler implements TaskHandlerInterface
             return;
         }
 
-        $found = (new GeocodingService((string) ($context->settings->get('base_url') ?? '')))
-            ->geocodeLine($carpool->address);
+        $geocoder = new GeocodingService((string) ($context->settings->get('base_url') ?? ''));
+        // The site-wide one-per-second limiter the form lookup shares. Busy
+        // means another request just left: try again shortly, stamp nothing.
+        [$ran, $found] = (new GeocodingThrottle($pdo))->run(
+            static fn(): ?array => $geocoder->geocodeLine($carpool->address)
+        );
+        if (!$ran) {
+            $this->rearmSoon($pdo);
+
+            return;
+        }
         $carpools->points()->recordGeocoding(
             $carpool->id,
             $found !== null ? new GeoPoint($found['latitude'], $found['longitude']) : null,
@@ -79,12 +89,17 @@ class GeocodeCarpoolsHandler implements TaskHandlerInterface
         }
 
         if ($carpools->countPendingGeocoding() > 0) {
-            SchedulerService::forPdo($pdo)->rearm(
-                'covoiturage',
-                self::TASK_KEY,
-                self::REFERENCE,
-                new \DateTimeImmutable('+' . self::SECONDS_BETWEEN_CARPOOLS . ' seconds')
-            );
+            $this->rearmSoon($pdo);
         }
+    }
+
+    private function rearmSoon(\PDO $pdo): void
+    {
+        SchedulerService::forPdo($pdo)->rearm(
+            'covoiturage',
+            self::TASK_KEY,
+            self::REFERENCE,
+            new \DateTimeImmutable('+' . self::SECONDS_BETWEEN_CARPOOLS . ' seconds')
+        );
     }
 }

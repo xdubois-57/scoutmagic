@@ -273,6 +273,57 @@ class SchedulerRepository
     }
 
     /**
+     * The newest row of this task that is still ALIVE — `pending` or
+     * `processing` — or null.
+     *
+     * {@see findByModuleAndKey()} answers `pending` only, which is right for
+     * a caller asking « is there one waiting in the queue ». It is wrong for
+     * a caller asking « is one of these under way at all », because
+     * {@see claimOverdue()} flips a row to `processing` before its handler
+     * runs: for as long as that handler works, the `pending` question
+     * answers no about a task that plainly exists.
+     *
+     * That gap cost an update (issue #689).
+     * `GitHubWebhookService::supersedeQueuedInstall()` asked the `pending`
+     * question, so a push landing while `Task\InstallUpdateHandler` was
+     * probing GitHub for its artifact replaced nothing: the older install
+     * kept its `pending` history row, the newer one queued itself under the
+     * same reference, and the older commit could install after the newer.
+     *
+     * The same `('pending', 'processing')` set {@see hasLive()} uses, and for
+     * the same reason — this one hands back the row so the caller can tell
+     * the two apart, since a claimed row must not simply be cancelled.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findLiveByModuleAndKey(string $moduleId, string $taskKey, string $reference): ?array
+    {
+        // `$reference` is REQUIRED, unlike findByModuleAndKey()'s. That one
+        // grew a `reference IS NULL` arm for callers that schedule without a
+        // reference; this question is only ever asked about a chain that has
+        // one, so the arm would be code no caller can reach — and unreachable
+        // code in a supersede path is worse than an asymmetry between two
+        // methods. Add it back the day something needs it.
+        // `created_at DESC, id DESC`, and the second key is not decoration:
+        // `created_at` has one-second granularity, so two rows queued in the
+        // same second tie — and a tie resolved by whatever the engine feels
+        // like returning handed back the OLDER one, which is how a test
+        // written for this method caught it. The caller supersedes what this
+        // returns, so picking the older of two live installs would supersede
+        // the wrong one. Same shape as UpdateHistoryRepository::
+        // findInProgress() and findLatestAttempt(), which already tie-break
+        // on the id for the same reason.
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND reference = ?
+               AND status IN ('pending', 'processing') ORDER BY created_at DESC, id DESC LIMIT 1"
+        );
+        $stmt->execute([$moduleId, $taskKey, $reference]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row ?: null;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function findByModuleAndKey(string $moduleId, string $taskKey, ?string $reference): ?array

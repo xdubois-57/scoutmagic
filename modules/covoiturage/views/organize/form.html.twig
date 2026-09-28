@@ -22,8 +22,12 @@
 
   The point: without JavaScript, two plain coordinate fields; with it,
   public/assets/js/covoiturage-organize.js turns them into a map with a pin
-  to drag. Nothing here geocodes on the page: the address is looked up in
-  the background after saving (Task\GeocodeCarpoolsHandler).
+  to drag. When the address field is left, the script asks the site's own
+  route for the address's point (Core\Geo\AddressLocator, issue #642): the
+  map centres on it, a fixed marker shows it, and a pin nobody touched
+  moves there. `point_automatic` tells the server such a pin is not a
+  human's, and `point_address` which address it was found for. Whatever that lookup does not find, the background task still
+  looks for after saving (Task\GeocodeCarpoolsHandler).
 #}
 {% block content %}
 <div class="page-medium">
@@ -108,8 +112,14 @@
         </div>
 
         <fieldset class="mb-3" data-carpool-point
-                  data-manual="{{ point_is_manual ? '1' : '0' }}">
+                  data-manual="{{ point_is_manual ? '1' : '0' }}"
+                  {% if address_lookup %}data-locate-url="/covoiturage/organiser/adresse"{% endif %}>
             <legend class="form-label fs-6">Point sur la carte (facultatif)</legend>
+            <input type="hidden" name="point_automatic" value="{{ values.point_automatic|default('0') }}" data-carpool-point-automatic>
+            <input type="hidden" name="point_address" value="{{ values.point_address|default('') }}" data-carpool-point-address>
+            {# Read back only when the form is shown again after a refusal:
+               a point removed by hand must not be put back by the lookup. #}
+            <input type="hidden" name="point_manual" value="{{ point_is_manual ? '1' : '0' }}" data-carpool-point-manual>
             <div class="row g-2" data-carpool-point-fields>
                 <div class="col-6">
                     {% include 'partials/form_field.html.twig' with {
@@ -146,7 +156,7 @@
             <button type="button" class="btn btn-sm btn-outline-primary d-none" data-carpool-point-place>Placer le point sur la carte</button>
             <p class="form-text mb-0" data-carpool-point-help>
                 {% if point is null %}
-                    Facultatif : sans point, le lien de carte ouvrira simplement l'adresse. Après l'enregistrement, le point est cherché automatiquement depuis l'adresse ; il sert quand l'adresse est imprécise — un pré, une entrée de bois, un gîte isolé.
+                    Facultatif : sans point, le lien de carte ouvrira simplement l'adresse. Le point est cherché automatiquement depuis l'adresse ; déplacez l'épingle quand l'adresse est imprécise — un pré, une entrée de bois, un gîte isolé.
                 {% elseif point_is_manual %}
                     Déplacé à la main : aucune reprise automatique ne le réécrira, même si l'adresse change.
                 {% else %}

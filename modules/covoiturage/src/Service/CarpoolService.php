@@ -200,10 +200,12 @@ class CarpoolService
             $viewer->accountId
         );
         $this->carpools->replaceEvents($id, $data['events']);
-        // A point placed before saving is a human's point; none at all leaves
-        // the address to the geocoding task.
-        if ($data['point'] !== null) {
-            $this->carpools->points()->setManual($id, $data['point'], new \DateTimeImmutable());
+        // A point placed before saving is a human's point — unless the form
+        // says it came from the address and nobody touched it (#642). A pin
+        // removed with « Retirer » is locked as « no point »; none at all
+        // leaves the address to the geocoding task.
+        if ($data['point'] !== null || $data['point_removed']) {
+            $this->savePoint($id, $data['point'], $data['point_automatic']);
         }
 
         return $id;
@@ -234,16 +236,53 @@ class CarpoolService
         $this->carpools->replaceEvents($carpool->id, $data['events']);
 
         $points = $this->carpools->points();
-        if (TextNormalizerService::fold($carpool->address) !== TextNormalizerService::fold($data['address'])) {
+        $addressChanged = TextNormalizerService::fold($carpool->address)
+            !== TextNormalizerService::fold($data['address']);
+        if ($addressChanged) {
             // A different address is a different place on the map; a point
             // a chief placed by hand stays where it is (the core's lock).
             $points->forgetGeocoding($carpool->id);
         }
-        // Moved, typed or removed by hand: locked for ever. A form that did
-        // not carry the point at all changes nothing.
-        if ($data['point_given'] && $data['point']?->line() !== $carpool->point?->line()) {
-            $points->setManual($carpool->id, $data['point'], new \DateTimeImmutable());
+        // Moved, typed or removed by hand: locked for ever. Found from the
+        // address and left alone: automatic, like the task's. A form that
+        // did not carry the point at all changes nothing. After a change of
+        // address, an automatic point the form still posts was found for the
+        // NEW address — validate() drops one whose `point_address` is not
+        // it — and is written back even when it lands on the same
+        // coordinates, or forgetGeocoding() above would leave the row
+        // without it.
+        $foundForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
+        // « Retirer » on a carpool the task has not placed yet: nothing to
+        // compare, but a human's « no point » all the same.
+        $removedByHand = $data['point_removed'] && !$carpool->pointIsManual;
+        if (
+            $data['point_given']
+            && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress || $removedByHand)
+        ) {
+            $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
         }
+    }
+
+    /**
+     * `point_automatic` is the form's word that the pin sits where the
+     * address lookup put it (public/assets/js/covoiturage-organize.js).
+     * Trusting it costs nothing: at worst a chief's point is stored as
+     * automatic, which the next change of address may replace — and
+     * GeoPointStore never lets it overwrite a row a human already locked.
+     */
+    private function savePoint(int $carpoolId, ?GeoPoint $point, bool $automatic): void
+    {
+        $points = $this->carpools->points();
+        if ($automatic) {
+            // No point at all is the background task's to find, never a
+            // human's « no point » locked for ever.
+            if ($point !== null) {
+                $points->recordGeocoding($carpoolId, $point, new \DateTimeImmutable());
+            }
+
+            return;
+        }
+        $points->setManual($carpoolId, $point, new \DateTimeImmutable());
     }
 
     /**
@@ -288,7 +327,8 @@ class CarpoolService
      * creator instead.
      *
      * @return array{address: string, outbound: string, return: ?string,
-     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool}
+     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool, point_automatic: bool,
+     *               point_removed: bool}
      * @throws CarpoolException
      */
     private function validate(array $input, CarpoolViewer $viewer, ?Carpool $existing): array
@@ -357,6 +397,19 @@ class CarpoolService
             isset($input['latitude']) ? (string) $input['latitude'] : null,
             isset($input['longitude']) ? (string) $input['longitude'] : null
         );
+        $automatic = (string) ($input['point_automatic'] ?? '') === '1';
+        if (
+            $automatic && $point !== null
+            && TextNormalizerService::fold((string) ($input['point_address'] ?? ''))
+                !== TextNormalizerService::fold($address)
+        ) {
+            // An untouched pin found for another address — the form was sent
+            // before the lookup of the new one answered. It is not this
+            // address's point: the form is taken as not carrying one, and
+            // the geocoding task finds it.
+            $pointGiven = false;
+            $point = null;
+        }
 
         return [
             'address' => $address,
@@ -369,6 +422,12 @@ class CarpoolService
             ),
             'point' => $point,
             'point_given' => $pointGiven,
+            'point_automatic' => $automatic,
+            // « Retirer » posts empty coordinates and `point_manual`: a
+            // human's decision, locked like a placed point — or the task
+            // would put back the pin the chief just took away.
+            'point_removed' => $pointGiven && $point === null && !$automatic
+                && (string) ($input['point_manual'] ?? '') === '1',
         ];
     }
 

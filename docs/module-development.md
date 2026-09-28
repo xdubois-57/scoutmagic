@@ -551,9 +551,14 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
   and let its `GeoPointException` reach the reader.
 - **Geocode in a scheduled task, one row per run**, re-arming itself while
   rows are pending, and seeded only when something is pending — the shape
-  of `Modules\Camps\Task\GeocodePlacesHandler`. Never on a page load:
+  of `Modules\Camps\Task\GeocodePlacesHandler`, with the call inside
+  `Core\Geo\GeocodingThrottle::run()` (busy: re-arm, stamp nothing). Never
+  on a page load:
   `Core\Geo\GeocodingService` calls a free third-party service allowed one
-  request per second.
+  request per second. A form that must find an address while it is being
+  filled in goes through `Core\Geo\AddressLocator` instead — cached,
+  throttled site-wide and per account (`ARCHITECTURE.md` §8.119) — from a
+  route of your module, never from the browser.
 - **Draw with `public/assets/js/map.js`** (`window.ScoutMagicMap.create()`),
   loaded after `/assets/vendor/leaflet/leaflet.js`, and set `$mapTileOrigin
   = \Core\Geo\MapTiles::ORIGIN` in your wiring block of `public/index.php`
