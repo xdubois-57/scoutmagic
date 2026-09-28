@@ -356,7 +356,12 @@ final class RemoteRetention
 
     /**
      * What the last purge left on the destination, or null before the
-     * first one — or when what was recorded cannot be read back.
+     * first one — or when what was recorded cannot be read back, **or
+     * when it was read from another destination than the one chosen
+     * now**. {@see RemoteBackupDestination::choose()} clears the reading
+     * on a change, but a send that was already running on the old one
+     * can still record its figures afterwards; the destination they were
+     * read from travels with them for that reason.
      *
      * @return array{count: int, bytes: int, oldest: ?string, observedAt: string}|null
      */
@@ -364,11 +369,14 @@ final class RemoteRetention
     {
         $raw = $this->settings->get(self::STATE_SETTING);
         $state = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        $current = (int) ($this->settings->get(RemoteBackupDestination::LOCATION_SETTING) ?: 0);
         if (
             !is_array($state)
             || !is_int($state['count'] ?? null)
             || !is_int($state['bytes'] ?? null)
             || !is_string($state['observedAt'] ?? null)
+            || $current === 0
+            || ($state['locationId'] ?? null) !== $current
         ) {
             return null;
         }
@@ -383,13 +391,15 @@ final class RemoteRetention
     }
 
     /**
-     * Records what a purge left, stamped with when it was seen.
+     * Records what a purge left, stamped with when it was seen and on
+     * which destination.
      *
      * @param array{count: int, bytes: int, oldest: ?string} $state
      */
-    public function recordState(array $state, \DateTimeImmutable $observedAt): void
+    public function recordState(array $state, \DateTimeImmutable $observedAt, int $locationId): void
     {
         $recorded = json_encode([
+            'locationId' => $locationId,
             'count' => $state['count'],
             'bytes' => $state['bytes'],
             'oldest' => $state['oldest'],

@@ -414,7 +414,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // bookkeeping and none of it may reach recordFailure() — and
         // `cancelPending()` is a write to the most contended table on the
         // site.
-        $this->finish($context, $backend, $archivePath, $remoteName);
+        $this->finish($context, $backend, $archivePath, $remoteName, $carried['location_id']);
     }
 
     /**
@@ -495,7 +495,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         TaskContext $context,
         ResumableUploadBackend $backend,
         string $archivePath,
-        string $remoteName
+        string $remoteName,
+        int $locationId
     ): void {
         // The pessimistic row this run wrote before sending: a write to
         // `scheduled_actions`, and therefore a thing that can fail. Left
@@ -542,7 +543,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             );
         });
 
-        $this->purge($context, $backend);
+        $this->purge($context, $backend, $locationId);
 
         $this->quietly(
             $context,
@@ -598,7 +599,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * delivered archive as a failed send. One guard, written once, is
      * what stops that from being reinvented slightly wrong each time.
      */
-    private function purge(TaskContext $context, ResumableUploadBackend $backend): void
+    private function purge(TaskContext $context, ResumableUploadBackend $backend, int $locationId): void
     {
         $remaining = null;
         $this->quietly(
@@ -633,8 +634,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         if ($remaining !== null) {
             $this->quietly(
                 $context,
-                static function () use ($context, $remaining): void {
-                    (new RemoteRetention($context->settings))->recordState($remaining, new \DateTimeImmutable());
+                static function () use ($context, $remaining, $locationId): void {
+                    // Stamped with the destination this run sent to, not
+                    // the one the site names now: an administrator may
+                    // have re-pointed it while this run was still sending.
+                    (new RemoteRetention($context->settings))
+                        ->recordState($remaining, new \DateTimeImmutable(), $locationId);
                 },
                 'remote_backup_state_failed',
                 'La purge a abouti mais l\'état de la destination n\'a pas pu être enregistré'

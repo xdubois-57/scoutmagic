@@ -356,11 +356,31 @@ final class RemoteRetentionTest extends TestCase
 
         $this->assertSame(['count' => 2, 'bytes' => 200, 'oldest' => '2026-07-15 03:00:00'], $report['remaining']);
 
-        $this->retention->recordState($report['remaining'], new \DateTimeImmutable('2026-10-01 04:00:00'));
+        $this->settings->values[\Core\Maintenance\Remote\RemoteBackupDestination::LOCATION_SETTING] = '7';
+        $this->retention->recordState($report['remaining'], new \DateTimeImmutable('2026-10-01 04:00:00'), 7);
         $this->assertSame(
             ['count' => 2, 'bytes' => 200, 'oldest' => '2026-07-15 03:00:00', 'observedAt' => '2026-10-01 04:00:00'],
             $this->retention->lastKnownState()
         );
+    }
+
+    /**
+     * **A reading belongs to the destination it was read from** (IT-05
+     * review): a send still running on the old destination when the site
+     * was re-pointed records its figures after the change, and they must
+     * not be shown as the new destination's.
+     */
+    public function testAReadingFromAnotherDestinationIsNoState(): void
+    {
+        $this->settings->values[\Core\Maintenance\Remote\RemoteBackupDestination::LOCATION_SETTING] = '8';
+
+        $this->retention->recordState(
+            ['count' => 2, 'bytes' => 200, 'oldest' => null],
+            new \DateTimeImmutable('2026-10-01 04:00:00'),
+            7
+        );
+
+        $this->assertNull($this->retention->lastKnownState());
     }
 
     /** Nothing recorded, or something unreadable, is no state at all. */

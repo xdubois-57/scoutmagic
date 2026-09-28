@@ -221,14 +221,19 @@ final class RemoteBackupDestinationTest extends TestCase
         $state = ['count' => 3, 'bytes' => 30, 'oldest' => '2026-01-01 03:00:00'];
 
         $this->destination->choose($first);
-        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'));
+        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'), $first);
         $this->destination->choose($first);
         $this->assertNotNull($retention->lastKnownState(), 'choosing the same destination again forgot its state');
 
         $this->destination->choose($second);
         $this->assertNull($retention->lastKnownState(), 'the old destination\'s figures survived a new destination');
+        $this->assertSame(
+            '',
+            (string) $this->settings->get(RemoteRetention::STATE_SETTING),
+            'the reading was not cleared'
+        );
 
-        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'));
+        $retention->recordState($state, new \DateTimeImmutable('2026-09-28 04:00:00'), $second);
         $this->destination->choose(0);
         $this->assertNull($retention->lastKnownState(), 'figures survived choosing no destination at all');
     }

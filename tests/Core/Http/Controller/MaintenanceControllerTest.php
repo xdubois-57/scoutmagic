@@ -459,11 +459,13 @@ class MaintenanceControllerTest extends TestCase
         // A destination, chosen before the reading is recorded: choosing
         // one forgets whatever the previous destination held.
         $destination = $this->remoteDestination();
-        $destination->choose($this->declareRemoteLocation());
+        $locationId = $this->declareRemoteLocation();
+        $destination->choose($locationId);
         \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
         (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
             ['count' => 14, 'bytes' => 3 * 1024 * 1024 * 1024, 'oldest' => '2025-10-31 03:00:00'],
-            new \DateTimeImmutable('2026-09-28 04:12:00')
+            new \DateTimeImmutable('2026-09-28 04:12:00'),
+            $locationId
         );
         $this->controller = ($this->rebuildController)($this->backupService, null, $destination);
 
@@ -486,7 +488,8 @@ class MaintenanceControllerTest extends TestCase
         \Core\Maintenance\Remote\RemoteRetention::register($this->settingService);
         (new \Core\Maintenance\Remote\RemoteRetention($this->settingService))->recordState(
             ['count' => 14, 'bytes' => 1024, 'oldest' => '2025-10-31 03:00:00'],
-            new \DateTimeImmutable('2026-09-28 04:12:00')
+            new \DateTimeImmutable('2026-09-28 04:12:00'),
+            1
         );
 
         $body = $this->page('automaticBackupPage');
