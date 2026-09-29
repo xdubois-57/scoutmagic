@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Médias sociaux</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1.doc{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 8px;max-width:70ch}
+.meta{font-size:13px;color:#6c757d;margin:0 0 32px}
+.ecran{margin:0 0 40px}
+.ecran>h2{font-size:19px;margin:0 0 6px}
+.ecran>p{font-size:14px;color:#495057;margin:0 0 14px;max-width:70ch}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sommaire{margin:0 0 36px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+input[type=range]{width:100%;accent-color:#0d6efd;height:28px;margin:0}
+</style>
+</head>
+<body>
+<div class="page">
+<h1 class="doc">Médias sociaux : composeur, partage et page publique</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-medias-sociaux.md</code>. Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états d'interaction — et sur rien d'autre. Le produit est en Bootstrap 5 et suit <code>design.md</code> §7 : les styles ci-dessous sont en ligne pour rendre le fichier autonome, ils ne sont pas un modèle à recopier. La carte est simulée par des dégradés ; dans le produit, c'est une vraie photo dessinée dans un canvas.</p>
+<p class="meta">Largeur de référence : 390 px. Aucune dépendance externe, aucun script.</p>
+<ul class="sommaire">
+<li><a href="#ecran-Main">Nouvelle communication</a></li>
+<li><a href="#ecran-Album">Ouverte depuis « Partager » sur un album</a></li>
+<li><a href="#ecran-Confirmation">La confirmation</a></li>
+<li><a href="#ecran-Historique">Médias sociaux — l&#x27;historique</a></li>
+<li><a href="#ecran-Publique">La page publique d&#x27;une communication</a></li>
+</ul>
+<section class="ecran" id="ecran-Main">
+<h2>Nouvelle communication</h2>
+<p>Une communication créée de zéro : pas de lien, une image téléversée ou choisie dans la galerie. La carte est dessinée dans le navigateur, suit le curseur et la frappe en direct, et c&#x27;est elle qui part. Pas de bouton « Enregistrer ».</p>
+<div class="cadre">
+<div style="width: 390px; height: 1470px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529; position: relative;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <a href="#ecran-Historique" style="font-size: 14px;">Médias sociaux</a>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Nouvelle communication</h1>
+    
+  </div>
+
+    <div role="img" aria-label="Aperçu de la carte : Week-end de rentrée" style="width: 358px; height: 358px; border-radius: 8px; overflow: hidden; position: relative; background: #2b3a2e;">
+      <div style="position: absolute; inset: -20px; filter: blur(4px); background:
+        radial-gradient(circle at 28% 38%, #f2c48d 0 9%, transparent 10%),
+        radial-gradient(circle at 44% 36%, #e8b07a 0 8%, transparent 9%),
+        radial-gradient(circle at 62% 40%, #f0c08a 0 9%, transparent 10%),
+        radial-gradient(ellipse at 30% 70%, #c0392b 0 14%, transparent 15%),
+        radial-gradient(ellipse at 47% 72%, #1f5fa8 0 13%, transparent 14%),
+        radial-gradient(ellipse at 65% 71%, #d4a017 0 14%, transparent 15%),
+        linear-gradient(180deg, #8fb6d9 0%, #a9c8a0 45%, #5d7f4a 100%);"></div>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px 14px; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.7) 100%); display: flex; flex-direction: column; gap: 6px;">
+        <span style="color: #ffffff; font-size: 24px; font-weight: 700; line-height: 1.15;">Week-end de rentrée</span>
+        <span style="color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 700;">25sv.be</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12V3"></path><path d="M5.5 6.5L9 3l3.5 3.5"></path><path d="M3 12.5V15h12v-2.5"></path></svg> Téléverser</button>
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit;"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5"></rect><circle cx="6.5" cy="7.5" r="1.3"></circle><path d="M15.5 12l-4-4-6.5 6.5"></path></svg> Galerie</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="flou" style="font-size: 14px; font-weight: 500;">Flou de l'image</label>
+      <input type="range" id="flou" min="0" max="100" value="25" aria-valuetext="Léger">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; color: #5c636a;"><span>Net</span><span>Très flou</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="titre" style="font-size: 14px; font-weight: 500;">Titre sur l'image</label>
+      <input type="text" id="titre" value="Week-end de rentrée" placeholder="" style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="texte" style="font-size: 14px; font-weight: 500;">Texte de la publication</label>
+      <textarea id="texte" rows="4" style="width: 100%; box-sizing: border-box; border: 1px solid #ced4da; border-radius: 6px; padding: 10px; font-size: 15px; font-family: inherit; line-height: 1.45; resize: vertical;">Retour en images sur notre premier week-end de l'année !</textarea>
+    </div>
+
+    <fieldset style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 4px;">
+      <legend style="font-size: 14px; font-weight: 500; padding: 0 4px;">Publier sur</legend>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-fb" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-fb" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Facebook</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">Page « Unité 25 SV »</span>
+        </label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-ig" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-ig" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Instagram</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">@unite25sv</span>
+        </label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-gr" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-gr" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Groupe de discussion</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">Pionniers</span>
+        </label>
+      </div>
+      <a href="#groupes" style="font-size: 14px; min-height: 44px; display: inline-flex; align-items: center;">Choisir les groupes</a>
+    </fieldset>
+
+    <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 20px; border: 0; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 16px; font-weight: 500; font-family: inherit; width: 100%;">Publier</button>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Album">
+<h2>Ouverte depuis « Partager » sur un album</h2>
+<p>Le même composeur, pré-rempli. Aucun champ d&#x27;adresse : une ligne dit ce qu&#x27;on partage. Titre et image verrouillés ; flou et texte libres. En tête, les partages précédents de ce contenu.</p>
+<div class="cadre">
+<div style="width: 390px; height: 1530px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529; position: relative;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <a href="#ecran-Historique" style="font-size: 14px;">Médias sociaux</a>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Nouvelle communication</h1>
+    
+  </div>
+
+  <div style="border: 1px solid #ffe69c; background: #fff3cd; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; color: #664d03;">
+    <strong style="font-size: 14px;">Cet album a déjà été partagé</strong>
+    <span style="font-size: 13px;">Facebook — le 12 septembre, par Xavier Dubois</span>
+    <span style="font-size: 13px;">Groupe Pionniers — le 14 septembre, par Marie Lambert</span>
+    <span style="font-size: 13px;">Lien copié — le 15 septembre, par Xavier Dubois</span>
+  </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #495057;">
+      <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5"></rect><circle cx="6.5" cy="7.5" r="1.3"></circle><path d="M15.5 12l-4-4-6.5 6.5"></path></svg>
+      <span>Partage de l'album <strong>Week-end de rentrée</strong></span>
+    </div>
+
+    <div role="img" aria-label="Aperçu de la carte : Week-end de rentrée" style="width: 358px; height: 358px; border-radius: 8px; overflow: hidden; position: relative; background: #2b3a2e;">
+      <div style="position: absolute; inset: -20px; filter: blur(4px); background:
+        radial-gradient(circle at 28% 38%, #f2c48d 0 9%, transparent 10%),
+        radial-gradient(circle at 44% 36%, #e8b07a 0 8%, transparent 9%),
+        radial-gradient(circle at 62% 40%, #f0c08a 0 9%, transparent 10%),
+        radial-gradient(ellipse at 30% 70%, #c0392b 0 14%, transparent 15%),
+        radial-gradient(ellipse at 47% 72%, #1f5fa8 0 13%, transparent 14%),
+        radial-gradient(ellipse at 65% 71%, #d4a017 0 14%, transparent 15%),
+        linear-gradient(180deg, #8fb6d9 0%, #a9c8a0 45%, #5d7f4a 100%);"></div>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px 14px; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.7) 100%); display: flex; flex-direction: column; gap: 6px;">
+        <span style="color: #ffffff; font-size: 24px; font-weight: 700; line-height: 1.15;">Week-end de rentrée</span>
+        <span style="color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 700;">25sv.be</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="flou" style="font-size: 14px; font-weight: 500;">Flou de l'image</label>
+      <input type="range" id="flou" min="0" max="100" value="25" aria-valuetext="Léger">
+      <div style="display: flex; justify-content: space-between; font-size: 13px; color: #5c636a;"><span>Net</span><span>Très flou</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <span style="display: flex; align-items: center; gap: 6px;"><label for="titre2" style="font-size: 14px; font-weight: 500;">Titre sur l'image</label><span style="color: #6c757d; display: inline-flex;"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 015 0v2"></path></svg></span></span>
+      <input type="text" id="titre2" value="Week-end de rentrée" placeholder="" readonly style="width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef; color: #495057;">
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="texte" style="font-size: 14px; font-weight: 500;">Texte de la publication</label>
+      <textarea id="texte" rows="4" style="width: 100%; box-sizing: border-box; border: 1px solid #ced4da; border-radius: 6px; padding: 10px; font-size: 15px; font-family: inherit; line-height: 1.45; resize: vertical;">Dernier rappel : les photos du week-end sont en ligne pour les parents !</textarea>
+    </div>
+
+    <fieldset style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 4px;">
+      <legend style="font-size: 14px; font-weight: 500; padding: 0 4px;">Publier sur</legend>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-fb" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-fb" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Facebook</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">Page « Unité 25 SV »</span>
+        </label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-ig" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-ig" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Instagram</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">@unite25sv</span>
+        </label>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+        <input type="checkbox" id="d-gr" checked style="width: 20px; height: 20px; margin: 0; flex: 0 0 auto;">
+        <label for="d-gr" style="font-size: 15px; line-height: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+          <span>Groupe de discussion</span>
+          <span style="font-size: 13px; line-height: 18px; color: #5c636a;">Pionniers</span>
+        </label>
+      </div>
+      <a href="#groupes" style="font-size: 14px; min-height: 44px; display: inline-flex; align-items: center;">Choisir les groupes</a>
+    </fieldset>
+
+    <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 20px; border: 0; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 16px; font-weight: 500; font-family: inherit; width: 100%;">Publier</button>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Confirmation">
+<h2>La confirmation</h2>
+<p>Destination par destination, avec « avec le même message » quand le texte est identique. La ligne rouge n&#x27;apparaît que si le curseur est à « Net ».</p>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #f8f9fa; color: #212529; position: relative;">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(33,37,41,0.55);"></div>
+  <div role="dialog" aria-modal="true" aria-labelledby="conf-titre" style="position: relative; margin-top: 140px; background: #ffffff; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+    <h2 id="conf-titre" style="margin: 0; font-size: 18px; font-weight: 600;">Publier cette communication&nbsp;?</h2>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 15px; font-weight: 600;">Facebook</span>
+        <span style="font-size: 13px; color: #664d03; background: #fff3cd; border-radius: 6px; padding: 8px;">Cet album est déjà parti sur Facebook le 12 septembre, <strong>avec le même message</strong>.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 15px; font-weight: 600;">Instagram</span>
+        <span style="font-size: 13px; color: #5c636a;">Jamais partagé ici.</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size: 15px; font-weight: 600;">Groupe Pionniers</span>
+        <span style="font-size: 13px; color: #5c636a;">Déjà parti le 14 septembre, avec un autre message.</span>
+      </div>
+    </div>
+
+    <div style="font-size: 13px; color: #58151c; background: #f8d7da; border-radius: 6px; padding: 8px;">
+      Cette photo de la galerie part sans flou.
+    </div>
+
+    <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 1px solid #6c757d; border-radius: 6px; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit;">Annuler</button>
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; font-family: inherit;">Publier</button>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Historique">
+<h2>Médias sociaux — l&#x27;historique</h2>
+<p>Chaque communication garde son icône de partage : feuille de partage sur mobile, copie du lien ailleurs. Le premier partage, quel qu&#x27;il soit, fige la communication.</p>
+<div class="cadre">
+<div style="width: 390px; height: 900px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529; position: relative;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; flex-grow: 1;">Médias sociaux</h1>
+  </div>
+
+  <a href="#ecran-Main" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; text-decoration: none; align-self: flex-start;">Nouvelle communication</a>
+
+  <h2 style="margin: 0; font-size: 17px; font-weight: 600;">Ce qui est parti</h2>
+
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 10px; align-items: flex-start;">
+      <div aria-hidden="true" style="flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; background: linear-gradient(135deg, #a9c8a0, #c0392b); filter: blur(0.6px);"></div>
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+        <a href="#communication" style="font-size: 15px; font-weight: 600; color: #212529; text-decoration: none;">Week-end de rentrée</a>
+        <span style="font-size: 13px; color: #5c636a;">15 septembre · Xavier Dubois</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px;"><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #e9ecef; color: #41464b;">Facebook</span><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #e9ecef; color: #41464b;">Groupe Pionniers</span><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #cfe2ff; color: #052c65;">Lien copié</span></div>
+      </div>
+      <button type="button" aria-label="Partager Week-end de rentrée" title="Partager" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #ced4da; border-radius: 6px; background: #ffffff; color: #0a58ca;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="15" cy="4.5" r="2.3"></circle><circle cx="5" cy="10" r="2.3"></circle><circle cx="15" cy="15.5" r="2.3"></circle><path d="M7 8.9l6-3.3"></path><path d="M7 11.1l6 3.3"></path></svg></button>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 10px; align-items: flex-start;">
+      <div aria-hidden="true" style="flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; background: linear-gradient(135deg, #f0c08a, #1f5fa8); filter: blur(0.6px);"></div>
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+        <a href="#communication" style="font-size: 15px; font-weight: 600; color: #212529; text-decoration: none;">Souper d'unité : les inscriptions sont ouvertes</a>
+        <span style="font-size: 13px; color: #5c636a;">10 septembre · Marie Lambert</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px;"><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #e9ecef; color: #41464b;">Facebook</span><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #e9ecef; color: #41464b;">Instagram</span><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #cfe2ff; color: #052c65;">Partagé depuis le téléphone</span></div>
+      </div>
+      <button type="button" aria-label="Partager Souper d'unité : les inscriptions sont ouvertes" title="Partager" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #ced4da; border-radius: 6px; background: #ffffff; color: #0a58ca;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="15" cy="4.5" r="2.3"></circle><circle cx="5" cy="10" r="2.3"></circle><circle cx="15" cy="15.5" r="2.3"></circle><path d="M7 8.9l6-3.3"></path><path d="M7 11.1l6 3.3"></path></svg></button>
+    </div>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 10px; align-items: flex-start;">
+      <div aria-hidden="true" style="flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; background: linear-gradient(135deg, #8fb6d9, #d4a017); filter: blur(0.6px);"></div>
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+        <a href="#communication" style="font-size: 15px; font-weight: 600; color: #212529; text-decoration: none;">Rentrée des Baladins</a>
+        <span style="font-size: 13px; color: #5c636a;">2 septembre · Xavier Dubois</span>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px;"><span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #e9ecef; color: #41464b;">Groupe Baladins</span></div>
+      </div>
+      <button type="button" aria-label="Partager Rentrée des Baladins" title="Partager" style="flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid #ced4da; border-radius: 6px; background: #ffffff; color: #0a58ca;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="15" cy="4.5" r="2.3"></circle><circle cx="5" cy="10" r="2.3"></circle><circle cx="15" cy="15.5" r="2.3"></circle><path d="M7 8.9l6-3.3"></path><path d="M7 11.1l6 3.3"></path></svg></button>
+    </div>
+  </div>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">
+    « Lien copié » et « Partagé depuis le téléphone » disent ce que le site sait : le lien est parti
+    de cet écran, pas qu'il a été reçu.
+  </p>
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Publique">
+<h2>La page publique d&#x27;une communication</h2>
+<p>Adresse à jeton, sans connexion. Elle montre ce qui a été publié, et c&#x27;est elle que lisent Facebook, WhatsApp ou Messenger pour leur aperçu.</p>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529; position: relative;">
+  <div style="display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid #dee2e6;">
+    <div aria-hidden="true" style="width: 36px; height: 36px; border-radius: 999px; background: #198754; color: #ffffff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;">25</div>
+    <span style="font-size: 15px; font-weight: 600;">Unité 25 SV</span>
+  </div>
+
+    <div role="img" aria-label="Week-end de rentrée" style="width: 100%; aspect-ratio: 1 / 1; border-radius: 8px; overflow: hidden; position: relative; background: #2b3a2e;">
+      <div style="position: absolute; inset: -20px; filter: blur(4px); background:
+        radial-gradient(circle at 28% 38%, #f2c48d 0 9%, transparent 10%),
+        radial-gradient(circle at 44% 36%, #e8b07a 0 8%, transparent 9%),
+        radial-gradient(circle at 62% 40%, #f0c08a 0 9%, transparent 10%),
+        radial-gradient(ellipse at 30% 70%, #c0392b 0 14%, transparent 15%),
+        radial-gradient(ellipse at 47% 72%, #1f5fa8 0 13%, transparent 14%),
+        radial-gradient(ellipse at 65% 71%, #d4a017 0 14%, transparent 15%),
+        linear-gradient(180deg, #8fb6d9 0%, #a9c8a0 45%, #5d7f4a 100%);"></div>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 16px 14px; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.7) 100%); display: flex; flex-direction: column; gap: 6px;">
+        <span style="color: #ffffff; font-size: 24px; font-weight: 700; line-height: 1.15;">Week-end de rentrée</span>
+        <span style="color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 700;">25sv.be</span>
+      </div>
+    </div>
+
+  <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Week-end de rentrée</h1>
+  <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #212529;">Retour en images sur notre premier week-end de l'année !</p>
+
+  <a href="#album" style="display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 20px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 16px; text-decoration: none;">Voir sur le site</a>
+
+  <p style="margin: 0; font-size: 13px; color: #5c636a;">Les photos de l'album sont réservées aux membres de l'unité : il faut se connecter pour les voir.</p>
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>

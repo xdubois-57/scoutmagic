@@ -30,6 +30,7 @@ trouve être exécutable ailleurs.
 | `maintenance.html` | Maintenance : sous-pages, sauvegardes et chiffrement (#509) | `/config/maintenance` — superadmin, les six sous-pages (Santé de l'hébergement, Mise à jour, Sauvegarde manuelle, Sauvegarde automatique, Sauvegardes récentes, Réinitialisation) et le dialogue du mot de passe au téléchargement | IT-01, IT-02, IT-04, IT-05, IT-06 |
 | `badges.html` | Badges : déménagement, porteurs par année (#367) | Espace chefs d'U — admin, les trois sous-pages du rail : porteurs de l'année en cours, porteurs de l'année précédente, configuration des badges | IT-01, IT-02, IT-03 |
 | `rgpd-acceptations.html` | Acceptation de la politique de protection des données (#626) | `/config/rgpd` — superadmin, les deux sous-pages (Acceptations, Contenu de la politique) ; la carte de `/admin/members/{id}` — admin ; le réglage du délai ; l'e-mail de rappel ; la case de `/login` ; une version archivée à `/rgpd/{version}` | IT-01 à IT-05 |
+| `medias-sociaux.html` | Médias sociaux : composeur unique, carte dans le navigateur, page publique | `/medias-sociaux` — chef : la nouvelle communication, le même composeur ouvert depuis « Partager » sur un album, la confirmation destination par destination, l'historique « Ce qui est parti » ; la page publique à jeton — visiteur anonyme | IT-01, IT-02, IT-04, IT-05 |
 
 ## Le cas du trombinoscope imprimable
 
