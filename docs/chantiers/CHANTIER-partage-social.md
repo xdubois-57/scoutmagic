@@ -1,5 +1,7 @@
 # Chantier — Partage vers Facebook et Instagram
 
+> Plusieurs décisions de ce document sont remplacées par [`CHANTIER-medias-sociaux.md`](CHANTIER-medias-sociaux.md), qui fait foi là où les deux divergent.
+
 Roadmap d'exécution en **5 itérations**, pour un nouveau module. IT-01 et IT-02 ne se touchent
 pas : elles peuvent être menées en parallèle. IT-03 dépend des deux. IT-04 et IT-05 dépendent
 d'IT-03 et sont indépendantes l'une de l'autre : elles aussi peuvent être menées en parallèle.
