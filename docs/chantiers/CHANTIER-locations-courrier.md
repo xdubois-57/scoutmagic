@@ -48,7 +48,7 @@ Une page **Courrier** par réservation qui montre, sans tri manuel, toute la cor
 - Suppression de `RentalCommunicationService::dedicatedMailbox()`, de son second usage dans `RentalBookingMailService` (repli d'adresse de réponse sur la boîte dédiée, ligne ~88) et de la condition d'affichage `isAvailable()`. L'adresse de réponse passe uniquement par `replyAddressFor()`, déjà fourni par `inbound_mail`.
 - La page devient une chronologie de la réservation, reçus et envoyés mêlés par date, chaque message marqué de son sens (« Reçu » / « Envoyé »). Chaque message s'ouvre de la même façon, qu'il vienne de la boîte ou du journal.
 - Sans boîte qui collecte pour les Locations, la page s'affiche quand même (le journal des envois n'en dépend pas), avec une phrase qui explique comment recevoir les réponses des locataires.
-- **« Détacher »**, avec une confirmation (« Ce message ne concerne pas cette réservation ? ») : le message quitte la page, ses documents encore `Non classé` aussi (`onUnlinked()`, comme aujourd'hui), l'adresse apprise par ce message est retirée (étape 5), et **il n'est plus jamais rattaché automatiquement à cette réservation**.
+- **« Détacher »**, avec une confirmation (« Ce message ne concerne pas cette réservation ? ») : le message quitte la page, ses documents encore `Non classé` aussi (`onUnlinked()`, comme aujourd'hui), l'adresse apprise par ce message est retirée (étape 5), et **il n'est plus jamais rattaché automatiquement à cette réservation**. Aujourd'hui `InboundMailService::detach()` supprime seulement le lien, et une réanalyse (`reanalyzeUnlinked()`) peut le recréer : il faut donc **une exclusion enregistrée pour ce message et cette réservation**, consultée par tous les chemins qui rattachent (règles déterministes, IA, réanalyse), sans empêcher un rattachement à une autre réservation. `inbound_message_dismissals` ne convient pas tel quel : il écarte le message pour tout le module.
 - Retrait du texte « Cette page existe parce que les locations disposent d'une boîte dédiée ».
 - Les routes `/mes-locations/courrier/*` qui ne servent plus (rattacher, écarter, reprendre, relancer, proposition) disparaissent avec leurs vues et leurs tests.
 - `docs/rental-guide.md` §11 et l'aide sont réécrits.
@@ -140,7 +140,7 @@ Les pièces jointes du journal des envois du site (étape 2) sont déjà des doc
 - **Le rapprochement par les destinataires** suit la même prudence que par l'expéditeur : un seul cas plausible donne un rattachement, une ambiguïté est tranchée par l'IA, ou ignorée.
 - **Tests exigés**, dans le même changement :
   - page présente avec boîte dédiée, partagée et sans boîte ;
-  - « Détacher » : documents retirés, adresse apprise retirée, message plus jamais rattaché à cette réservation ;
+  - « Détacher » : documents retirés, adresse apprise retirée, message réanalysé après le détachement qui ne revient pas sur cette réservation mais peut aller sur une autre ;
   - journal : un test par type d'envoi, texte chiffré, lien de suivi masqué, échec enregistré, « Renvoyer » avec un lien valide ;
   - sens d'un message selon le dossier ; dossier `\Sent` trouvé seul ; message envoyé non rapproché non stocké ; Camps et Finance jamais interrogés sur un message envoyé ;
   - rapprochement d'un message envoyé : réservation unique, ambiguïté, en-têtes de fil, copie d'un envoi du site non doublée ;
