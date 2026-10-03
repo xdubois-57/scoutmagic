@@ -122,6 +122,21 @@ describe('config-super-admins.js', () => {
             // Issue #744: no badge beside the switch any more.
             expect(row(7).querySelector('.badge')).toBeNull();
         });
+
+        it('still saves a switch that sits outside any table row', async () => {
+            document.body.innerHTML = `
+                <div>
+                    <input class="form-check-input super-admin-active-toggle" type="checkbox"
+                           role="switch" id="super-admin-active-5" data-account-id="5" checked
+                           aria-checked="true">
+                </div>`;
+            await boot();
+            flip(5, false);
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(control(5).checked).toBe(false);
+        });
     });
 
     describe('reactivating', () => {
