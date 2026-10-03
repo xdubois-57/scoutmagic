@@ -98,9 +98,13 @@
                     <h2 class="h5 mb-3">En cours en ce moment</h2>
                     <ul class="list-unstyled mb-0">
                         {% for booking in in_progress %}
-                            <li class="mb-1">
-                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
-                                — jusqu'au {{ booking.departureDate|date_fr }}
+                            <li class="mb-2 text-break">
+                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}" class="link-body-emphasis text-decoration-none">
+                                    {% include '@rental/management/_renter_line.html.twig' with { booking: booking } only %}
+                                </a>
+                                <span class="text-body-secondary small d-block">
+                                    {{ booking.reference }} · jusqu'au {{ booking.departureDate|date_fr }}
+                                </span>
                             </li>
                         {% endfor %}
                     </ul>

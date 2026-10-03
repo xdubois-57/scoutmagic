@@ -395,8 +395,11 @@ class RentalManagementControllerTest extends TestCase
         return $memberId;
     }
 
-    private function createBooking(?int $assetId = null, string $reference = 'LOC-2027-0001'): RentalBooking
-    {
+    private function createBooking(
+        ?int $assetId = null,
+        string $reference = 'LOC-2027-0001',
+        ?string $organisation = null
+    ): RentalBooking {
         $created = $this->bookingRepository->create(
             $assetId ?? $this->assetId,
             $reference,
@@ -409,7 +412,7 @@ class RentalManagementControllerTest extends TestCase
                 'name' => 'Jeanne Martin',
                 'email' => 'jeanne@example.be',
                 'phone' => '+32 495 11 22 33',
-                'organisation' => null,
+                'organisation' => $organisation,
                 'purpose' => null,
                 'comment' => null,
             ],
@@ -1004,6 +1007,26 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString($booking->reference, $body);
         $this->assertStringContainsString('Le locataire a demandé une modification', $body);
+    }
+
+    /**
+     * A manager recognises a booking by the person, not by its code: the
+     * renter's name comes first, with their organisation, and the reference
+     * moves to the second line (#708, IT-06).
+     */
+    public function testTheOverviewListNamesTheRenterBeforeTheReference(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking(organisation: 'Patro Saint-Jean');
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $name = strpos($body, 'Jeanne Martin');
+        $this->assertNotFalse($name);
+        $this->assertStringContainsString('Patro Saint-Jean', $body);
+        $this->assertGreaterThan($name, strpos($body, $booking->reference, $name));
     }
 
     /**

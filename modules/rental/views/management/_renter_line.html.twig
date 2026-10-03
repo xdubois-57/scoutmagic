@@ -1,0 +1,12 @@
+{#
+  The renter as the first line of a booking in a list: their name in bold, then
+  the organisation they act for, when they gave one (#708, IT-06). Both are
+  already on the booking — no query, no extra decryption. Long values wrap;
+  nothing is truncated.
+
+  Shared by « À traiter » (`_attention_row.html.twig`) and « En cours en ce
+  moment » on the asset's overview, so the two lists name people the same way.
+
+  Requires `booking` (Booking\RentalBooking).
+#}
+<span class="fw-semibold">{{ booking.renterName }}</span>{% if booking.renterOrganisation %} <span class="text-body-secondary">— {{ booking.renterOrganisation }}</span>{% endif %}
