@@ -318,14 +318,14 @@ final class BookingMilestones
                 break;
             case self::SIGNED_COPY_RECEIVED:
                 $kind = MilestoneKind::RENTER;
-                $explanation = "Le locataire signe le contrat et en renvoie une copie ; l'étape se coche quand "
-                    . 'cette copie est ajoutée aux documents.';
+                $explanation = 'Le locataire signe le contrat et en dépose une copie — PDF, scan ou photo — sur sa '
+                    . "page de suivi. L'étape se coche à la réception, et redevient à faire si la copie est refusée.";
                 break;
             case self::CONTRACT_COUNTERSIGNED:
                 $kind = MilestoneKind::HERE;
-                $explanation = "L'unité signe à son tour ; l'étape se coche quand le contrat signé par les deux "
-                    . 'parties est ajouté aux documents.';
-                $action = MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS);
+                $explanation = 'Ouvrez la copie reçue, puis validez-la et contresignez-la en un geste, ou '
+                    . 'refusez-la avec un motif envoyé au locataire.';
+                $action = MilestoneAction::command('Vérifier et contresigner', MilestoneAction::COUNTERSIGN);
                 break;
             case self::DEPOSIT_RECEIVED:
             case self::BALANCE_RECEIVED:

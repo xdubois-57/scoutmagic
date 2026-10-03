@@ -1,0 +1,14 @@
+Votre copie signée du contrat n'a pas pu être acceptée
+
+Bonjour {{ renter_name }},
+
+Nous avons bien reçu votre copie signée du contrat pour la location {{ reference }} ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}, mais nous ne pouvons pas l'accepter telle quelle :
+
+{{ refusal_reason }}
+
+Vous pouvez déposer une nouvelle copie depuis votre page de suivi.
+{% if tracking_url %}
+Déposer une nouvelle copie : {{ tracking_url }}
+{% endif %}
+
+{% include 'email/signature.text.twig' %}

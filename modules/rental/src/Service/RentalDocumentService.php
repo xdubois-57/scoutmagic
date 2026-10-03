@@ -52,10 +52,12 @@ use Modules\Rental\Support;
  * come from a form an anonymous visitor filled in, so they are the least
  * trustworthy thing in the document.
  *
- * **Nothing here is downloadable by a renter.** The `is_for_renter` flag
- * means "attach it to an email"; an external renter has no account and the
- * tracking token is not a file credential (§6.24, §6.26). The only recourse
- * for a lost email is a manager resending it.
+ * **Nothing here is downloadable by a renter — but one document.** The
+ * `is_for_renter` flag means "attach it to an email"; an external renter has
+ * no account and the tracking token is not a file credential (§6.24,
+ * §6.26). The one exception is the contract signed by both parties (#708,
+ * IT-16), served by `RentalSignedContractService` to that booking's own
+ * tracking page and to nothing else.
  *
  * Files go through `Core\File\FileRepository` and are served only through
  * `FileAccessGuard`/`file_url()`, never from under `public/`.
@@ -474,6 +476,35 @@ class RentalDocumentService
         );
 
         return $documentId;
+    }
+
+    /**
+     * Files a PDF this module produced elsewhere — the contract signed by
+     * both parties (#708, IT-16) — under `storage/`, like a generated one.
+     *
+     * @throws RentalException
+     */
+    public function attachPdf(
+        RentalBooking $booking,
+        string $pdf,
+        DocumentType $type,
+        string $displayName,
+        bool $isForRenter,
+        ?int $actorMemberId = null
+    ): RentalDocument {
+        $fileId = $this->storePdf($pdf, $displayName, $booking->id);
+        $documentId = $this->documentRepository->create(
+            $booking->id,
+            $fileId,
+            $type,
+            1,
+            $isForRenter,
+            null,
+            $actorMemberId
+        );
+
+        return $this->documentRepository->findById($documentId)
+            ?? throw new RentalException("Le document n'a pas pu être enregistré.");
     }
 
     /**

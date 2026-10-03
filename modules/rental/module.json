@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.35.0",
+  "version": "1.36.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -79,6 +79,30 @@
           "Notre unité"
         ]
       }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/contrat",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "uploadSignedCopy",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/contrat-signe.pdf",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "downloadSignedContract",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
     },
     {
       "path": "/locations/suivi/{id}/{token}/calendrier.ics",
@@ -319,6 +343,72 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "sendDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/contrat-contresigner",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "countersignContract",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/copie-refuser",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "refuseSignedCopy",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/ma-signature",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "mySignature",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Ma signature",
+        "parents": [
+          "Espace membres"
+        ],
+        "ancestors": [
+          {
+            "label": "Gérer mes locations",
+            "path": "/mes-locations"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/ma-signature",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "saveSignature",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/ma-signature/supprimer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "deleteSignature",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/ma-signature/image",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "signatureImage",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -1120,6 +1210,18 @@
       }
     },
     {
+      "id": "rental.signed_contract_received",
+      "label": "Contrat signé reçu",
+      "description": "Le locataire a déposé sa copie signée du contrat sur sa page de suivi : elle attend votre vérification et votre contresignature.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
       "id": "rental.unanswered_request",
       "label": "Demande de location sans réponse",
       "description": "Une demande attend une réponse depuis plusieurs jours.",
@@ -1384,6 +1486,89 @@
           "name": "document_label",
           "label": "Nom du document",
           "example": "contrat de location"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        }
+      ]
+    },
+    {
+      "id": "rental.copy_refused",
+      "label": "Copie signée du contrat refusée",
+      "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif.",
+      "default_subject": "Votre copie signée du contrat n'a pas pu être acceptée",
+      "template": "@rental/email/copy_refused.html.twig",
+      "variables": [
+        {
+          "name": "refusal_reason",
+          "label": "Motif du refus",
+          "example": "La deuxième page n'est pas signée."
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        }
+      ]
+    },
+    {
+      "id": "rental.signed_contract",
+      "label": "Contrat signé par les deux parties",
+      "description": "Envoyé au demandeur avec le contrat contresigné par l'unité en pièce jointe.",
+      "default_subject": "Votre contrat signé par les deux parties",
+      "template": "@rental/email/signed_contract.html.twig",
+      "variables": [
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
         },
         {
           "name": "reference",

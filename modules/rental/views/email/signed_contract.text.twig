@@ -1,0 +1,12 @@
+Votre contrat signé par les deux parties
+
+Bonjour {{ renter_name }},
+
+Nous avons contresigné votre contrat pour la location {{ reference }} ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}. Vous le trouverez en pièce jointe, signé par les deux parties.
+
+Il reste aussi téléchargeable depuis votre page de suivi, qui vous dit ce qui reste à régler avant votre séjour.
+{% if tracking_url %}
+Suivre ma réservation : {{ tracking_url }}
+{% endif %}
+
+{% include 'email/signature.text.twig' %}

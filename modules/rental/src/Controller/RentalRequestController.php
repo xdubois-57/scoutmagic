@@ -103,9 +103,127 @@ class RentalRequestController extends AbstractController
          * leaves the managers to find the request on their pages.
          */
         private ?NotificationService $notificationService = null,
-        private ?ManagerRecipientResolver $recipientResolver = null
+        private ?ManagerRecipientResolver $recipientResolver = null,
+        /**
+         * The contract's two signatures (#708, IT-16): the renter sends
+         * their signed copy from this page and downloads the contract
+         * signed by both parties — the one file this page ever serves.
+         * Null offers neither.
+         */
+        private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
+        private ?\Modules\Rental\Service\RentalDocumentService $documentService = null,
+        private ?\Core\File\UploadHandler $uploadHandler = null
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * POST /locations/suivi/{id}/{token}/contrat — the renter sends their
+     * signed copy of the contract: a PDF, a scan or a photo (#708, IT-16).
+     *
+     * The token is verified exactly as on the GET. The file goes through
+     * `UploadHandler` like any manager's upload — real MIME check, a name
+     * nobody chose, EXIF stripped from a photo, stored outside `public/`
+     * and reachable only by the asset's managers.
+     *
+     * @param array<string, string> $params
+     */
+    public function uploadSignedCopy(Request $request, array $params): Response
+    {
+        $trackingUrl = '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '');
+        if (($guard = $this->guardCsrf($request, $trackingUrl)) !== null) {
+            return $guard;
+        }
+
+        $booking = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        );
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+        $asset = $this->assetRepository->findById($booking->assetId);
+        if ($asset === null || $this->signedContractService === null || $this->uploadHandler === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            // Said before the file is even stored: a copy nobody expects
+            // must not land on disk first.
+            $refusal = $this->signedContractService->whyNoCopy($booking);
+            if ($refusal !== null) {
+                throw new \Modules\Rental\Service\RentalException($refusal);
+            }
+
+            $uploaded = $request->getFile('signed_copy');
+            if ($uploaded === null || (int) ($uploaded['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                throw new \Modules\Rental\Service\RentalException('Choisissez le fichier de votre copie signée.');
+            }
+
+            try {
+                $fileId = $this->uploadHandler->handle(
+                    $uploaded,
+                    \Modules\Rental\Service\RentalDocumentService::STORAGE_SUBDIRECTORY,
+                    \Modules\Rental\Service\RentalSignedContractService::COPY_MIMES,
+                    \Modules\Rental\Service\RentalSignedContractService::MAX_COPY_BYTES,
+                    \Modules\Rental\Service\RentalDocumentService::FILE_ROLE_MIN,
+                    'rental',
+                    null,
+                    \Modules\Rental\Service\RentalDocumentService::OWNER_TYPE,
+                    $booking->id
+                );
+            } catch (\Core\File\UploadException $e) {
+                // French and meant for the visitor (« Le fichier dépasse la
+                // taille maximale autorisée »): the one thing that says
+                // what to do.
+                throw new \Modules\Rental\Service\RentalException($e->getMessage(), 0, $e);
+            }
+
+            $this->signedContractService->receiveCopy($booking, $asset, $fileId);
+            FlashMessage::set(
+                'success',
+                'Votre copie signée est bien reçue. Nous la vérifions et vous renvoyons le contrat signé par les deux parties.'
+            );
+        } catch (\Modules\Rental\Service\RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($trackingUrl . '#contrat');
+    }
+
+    /**
+     * GET /locations/suivi/{id}/{token}/contrat-signe.pdf — the contract
+     * signed by both parties, and nothing else (#708, IT-16).
+     *
+     * **The one file a tracking token ever opens.** It is a capability for
+     * this booking's page, not a file credential: this route serves the
+     * countersigned contract of THIS booking, after the same check as the
+     * page, and there is no id of a document in its address to change. A
+     * wrong token, an unknown booking and a contract not countersigned yet
+     * get the same answer.
+     *
+     * @param array<string, string> $params
+     */
+    public function downloadSignedContract(Request $request, array $params): Response
+    {
+        $booking = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        );
+        $final = $booking !== null ? $this->signedContractService?->finalContract($booking->id) : null;
+        $path = $final !== null ? $this->documentService?->absolutePath($final) : null;
+        if ($booking === null || $path === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response((string) file_get_contents($path)))
+            ->setHeader('Content-Type', 'application/pdf')
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="contrat-signe-' . $booking->reference . '.pdf"'
+            )
+            ->setHeader('Cache-Control', 'private, no-store')
+            ->setHeader('X-Content-Type-Options', 'nosniff');
     }
 
     /**
@@ -390,6 +508,15 @@ class RentalRequestController extends AbstractController
             'ics_available' => $this->icsBuilder !== null && $this->renterFeedBuilder !== null,
             'csrf_token' => CsrfGuard::generateToken(),
             'breadcrumb_current' => $booking->reference,
+            // The contract to sign and send back, and the one signed by
+            // both parties to download (#708, IT-16).
+            'contract' => $this->signedContractService !== null ? [
+                'sent' => $this->signedContractService->sentContract($booking->id),
+                'accepts_copy' => $this->signedContractService->acceptsCopy($booking),
+                'pending' => $this->signedContractService->pendingCopy($booking->id),
+                'refused' => $this->signedContractService->lastRefusedCopy($booking->id),
+                'final' => $this->signedContractService->finalContract($booking->id),
+            ] : null,
         // **Not kept by anything between here and the renter.** This page
         // carries their name, their dates and now their billing
         // coordinates, behind a capability in the URL rather than a

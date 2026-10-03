@@ -108,10 +108,14 @@ class ModuleManifestTest extends TestCase
      * carrying it reads back as `received` — and goes on through the rest
      * of #708's fourth lot: the automatic hold in days, the « Contrat
      * envoyé » status, and steps completed by hand.
+     *
+     * 1.36.0 brings the contract's two signatures (#708, IT-16): a refused
+     * signed copy keeps its reason, and each manager's own signature is
+     * kept encrypted.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.35.0', $this->manifest->version);
+        $this->assertSame('1.36.0', $this->manifest->version);
     }
 
     /**

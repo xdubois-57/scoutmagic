@@ -317,6 +317,94 @@ class RentalBookingMailService
      * of guessing from the sender's address.
      */
     /**
+     * The renter's signed copy was refused (#708, IT-16): the unit's reason,
+     * and the way back to their page to send another.
+     *
+     * @return bool whether it went out
+     */
+    public function sendCopyRefused(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $reason,
+        ?string $trackingToken
+    ): bool {
+        $email = $this->renderFor($booking, $asset, 'rental.copy_refused', [
+            'refusal_reason' => $reason,
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+        ]);
+
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
+                $this->replyAddressFor($booking),
+                [],
+                null,
+                null,
+                ['Message-ID' => $this->messageIdFor($booking)]
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+
+        // The reference, never the reason: it may name the renter.
+        $this->journal->log(
+            'rental',
+            'rental_signed_copy_refused_sent',
+            'info',
+            'Refus de la copie signée envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
+    /**
+     * The contract signed by both parties (#708, IT-16), attached — and,
+     * unlike every other document, also downloadable from the renter's
+     * page, which this e-mail says rather than the opposite.
+     *
+     * @return string The Message-ID, for threading later replies.
+     * @throws \Core\Mail\MailException
+     */
+    public function sendSignedContract(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $absolutePath,
+        string $fileName,
+        ?string $trackingToken
+    ): string {
+        $messageId = $this->messageIdFor($booking);
+        $email = $this->renderFor($booking, $asset, 'rental.signed_contract', [
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+        ]);
+
+        $this->mailService->send(
+            $booking->renterEmail,
+            $email->subject,
+            $email->bodyHtml,
+            $email->bodyText,
+            $this->replyAddressFor($booking),
+            [['path' => $absolutePath, 'name' => $fileName]],
+            null,
+            null,
+            ['Message-ID' => $messageId]
+        );
+
+        $this->journal->log(
+            'rental',
+            'rental_signed_contract_sent',
+            'info',
+            'Contrat signé par les deux parties envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return $messageId;
+    }
+
+    /**
      * The practical-info email, a week before arrival (§6.29).
      *
      * **The only reminder that reaches the renter**, and it goes by email
@@ -547,6 +635,8 @@ class RentalBookingMailService
         'rental.decision',
         'rental.document',
         'rental.practical_info',
+        'rental.copy_refused',
+        'rental.signed_contract',
     ];
 
     /**

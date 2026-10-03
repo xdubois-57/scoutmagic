@@ -186,6 +186,22 @@ class RentalDocumentRepository implements AttachedFileRepository
         $stmt->execute([$sentAt->format('Y-m-d H:i:s'), $id]);
     }
 
+    /**
+     * A renter's signed copy refused, with the reason they are sent (#708,
+     * IT-16). Only a copy not refused already: two managers refusing the
+     * same copy send the renter one reason, not two. Returns whether this
+     * call is the one that refused it.
+     */
+    public function markRefused(int $id, string $reason, \DateTimeImmutable $at): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_documents SET refused_at = ?, refusal_reason = ? WHERE id = ? AND refused_at IS NULL'
+        );
+        $stmt->execute([$at->format('Y-m-d H:i:s'), $reason, $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM rental_documents WHERE id = ?');
@@ -435,7 +451,9 @@ class RentalDocumentRepository implements AttachedFileRepository
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             source: isset($row['source']) && (string) $row['source'] !== ''
                 ? (string) $row['source']
-                : RentalDocument::SOURCE_MANUAL
+                : RentalDocument::SOURCE_MANUAL,
+            refusedAt: DateInput::fromStorage(isset($row['refused_at']) ? (string) $row['refused_at'] : null),
+            refusalReason: isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null
         );
     }
 }

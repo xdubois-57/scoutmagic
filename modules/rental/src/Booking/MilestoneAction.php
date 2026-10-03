@@ -25,6 +25,8 @@ final class MilestoneAction
     public const GENERATE_CONTRACT = 'generate_contract';
     /** Emails the latest version to the renter, with a confirmation. */
     public const SEND_CONTRACT = 'send_contract';
+    /** Opens the renter's copy where it is countersigned or refused. */
+    public const COUNTERSIGN = 'countersign';
 
     private function __construct(
         public readonly string $label,
@@ -35,7 +37,7 @@ final class MilestoneAction
     }
 
     /**
-     * @param self::GENERATE_CONTRACT|self::SEND_CONTRACT $command
+     * @param self::GENERATE_CONTRACT|self::SEND_CONTRACT|self::COUNTERSIGN $command
      */
     public static function command(string $label, string $command): self
     {
