@@ -287,6 +287,13 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
                 $bookingAudit
+            ),
+            // The overview warns when nobody on the asset can be told (#708, IT-05).
+            new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new \Core\Import\MemberYearRepository($this->pdo),
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+                $journal
             )
         );
 
@@ -1597,6 +1604,24 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Les dates ne sont plus bloquées depuis le ' . $lapsed->format('d/m/Y'), $body);
         $this->assertStringNotContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
         $this->assertStringNotContainsString("L'option sur les dates est échue", $body);
+    }
+
+    /**
+     * Nobody on the asset can be told about a request (#708, IT-05): the
+     * overview says the Staff d'U gets them, and how to fix it.
+     */
+    public function testTheOverviewWarnsWhenNoManagerCanBeTold(): void
+    {
+        $this->loginAsManager();
+        // loginAsManager()'s manager has no user account in this suite.
+        $this->assertStringContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
+
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute([
+            $this->encryption->encrypt('manager@test.be', 'user_accounts.email'),
+            $this->encryption->blindIndex('manager@test.be', 'email'),
+        ]);
+
+        $this->assertStringNotContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
     }
 
     public function testAManagerEditsThePriceAndTheRenterSeesTheNewTotal(): void

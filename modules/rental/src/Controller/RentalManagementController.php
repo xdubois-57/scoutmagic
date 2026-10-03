@@ -227,7 +227,12 @@ class RentalManagementController extends AbstractController
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
         private ?SettingService $settingService = null,
         /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
-        private ?RentalMilestoneMarkService $milestoneMarkService = null
+        private ?RentalMilestoneMarkService $milestoneMarkService = null,
+        /**
+         * Whether anybody on the asset can be told about a request (#708,
+         * IT-05) — the overview warns when nobody can. Null says nothing.
+         */
+        private ?\Modules\Rental\Service\ManagerRecipientResolver $recipientResolver = null
     ) {
         parent::__construct($twig);
     }
@@ -647,6 +652,10 @@ class RentalManagementController extends AbstractController
             // the anonymous aggregates a purge left behind — otherwise the
             // year's revenue drops to zero the morning the purge runs.
             'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
+            // Requests and reminders go to the Staff d'U when nobody on the
+            // asset can be told (#708, IT-05): said where it can be fixed.
+            'managers_unreachable' => $this->recipientResolver !== null
+                && !$this->recipientResolver->hasReachableManager($asset->id),
             'nav_page' => 'overview',
         ]);
     }

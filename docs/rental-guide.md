@@ -132,9 +132,15 @@ page de la réservation vous en avertit. Vous recevez un rappel juste
 avant. Une **option**, elle, fait expirer la réservation si elle passe
 sans confirmation.
 
-Vous recevez aussi une notification à chaque nouvelle demande. **Elle ne
-contient aucune donnée du locataire** — juste la référence et un lien vers
-la fiche protégée.
+Vous recevez aussi une notification à chaque nouvelle demande — dans
+l'application, en push et par email, chaque canal se réglant dans vos
+préférences. **Elle ne contient aucune donnée du locataire** — le bien,
+les dates, la référence et un lien vers la fiche protégée.
+
+Elle va aux **gestionnaires déclarés sur le bien qui ont un compte** sur
+le site, comme les rappels. Le Staff d'U n'est prévenu que si aucun
+d'eux ne peut l'être : la page du bien le signale, et la liste des
+gestionnaires dit qui ne peut pas être prévenu, et pourquoi.
 
 ## 6. Suivre une réservation
 
@@ -335,7 +341,9 @@ un acompte ou un solde non reçu, une caution non reçue, un contrat non
 restituer, un document de conformité qui expire.
 
 Ils arrivent dans votre centre de notifications, jamais par email, et
-**aucun ne contient de donnée du locataire**.
+**aucun ne contient de donnée du locataire**. Ils suivent la même règle
+que la nouvelle demande : les gestionnaires du bien qui ont un compte,
+et le Staff d'U quand aucun ne peut être prévenu.
 
 Un seul rappel part vers le locataire : les informations pratiques, une
 semaine avant son séjour.

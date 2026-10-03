@@ -1101,6 +1101,18 @@
   },
   "notifications": [
     {
+      "id": "rental.new_request",
+      "label": "Nouvelle demande de location",
+      "description": "Une demande de location vient d'arriver sur un bien que vous gérez. Elle mène directement à la réservation.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
+    {
       "id": "rental.unanswered_request",
       "label": "Demande de location sans réponse",
       "description": "Une demande attend une réponse depuis plusieurs jours.",
@@ -1346,40 +1358,6 @@
           "name": "tracking_url",
           "label": "Lien de suivi",
           "example": "https://exemple.be/locations/suivi/42/abc"
-        }
-      ]
-    },
-    {
-      "id": "rental.manager_notification",
-      "label": "Avis aux gestionnaires d'une nouvelle demande",
-      "description": "Envoyé aux gestionnaires du bien quand une nouvelle demande de location arrive. Il ne reprend jamais l'identité du demandeur : elle est sur la page de la demande, derrière un vrai contrôle d'accès.",
-      "default_subject": "Nouvelle demande de location",
-      "template": "@rental/email/manager_notification.html.twig",
-      "variables": [
-        {
-          "name": "reference",
-          "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
-        },
-        {
-          "name": "asset_name",
-          "label": "Nom du bien",
-          "example": "Ferme de La Hulpe"
-        },
-        {
-          "name": "arrival_date",
-          "label": "Date d'arrivée",
-          "example": "14/08/2027"
-        },
-        {
-          "name": "departure_date",
-          "label": "Date de départ",
-          "example": "17/08/2027"
-        },
-        {
-          "name": "manage_url",
-          "label": "Lien vers la réservation",
-          "example": "https://exemple.be/mes-locations/ferme/reservations/42"
         }
       ]
     },
