@@ -72,17 +72,36 @@
     var endInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-end'));
     var discretionToggle = /** @type {HTMLInputElement | null} */ (document.getElementById('notification-discretion'));
 
+    // What the server last recorded: a refused save puts all three back,
+    // the discretion switch included, so nothing on screen claims a
+    // setting the server does not have.
+    var saved = {
+        start: startInput ? startInput.value : '',
+        end: endInput ? endInput.value : '',
+        discretion: discretionToggle ? discretionToggle.checked : false
+    };
+
     function saveAccountSettings() {
-        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
-            quiet_hours_start: startInput.value,
-            quiet_hours_end: endInput.value,
+        var sent = {
+            start: startInput.value,
+            end: endInput.value,
             discretion: discretionToggle.checked
+        };
+        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
+            quiet_hours_start: sent.start,
+            quiet_hours_end: sent.end,
+            discretion: sent.discretion
         })
             .then(function (res) {
                 if (res.data?.success) {
+                    saved = sent;
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }
+                startInput.value = saved.start;
+                endInput.value = saved.end;
+                discretionToggle.checked = saved.discretion;
+                syncAriaChecked(discretionToggle);
                 toastFailure(res);
             });
     }

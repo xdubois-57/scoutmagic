@@ -102,6 +102,44 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         });
     });
 
+    it('puts the discretion switch back, aria-checked included, when its save is refused', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox" role="switch" aria-checked="false">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: false }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+
+        const discretion = document.getElementById('notification-discretion');
+        discretion.checked = true;
+        discretion.setAttribute('aria-checked', 'true');
+        discretion.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(discretion.checked).toBe(false));
+        expect(discretion.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('puts a refused quiet hour back on the last recorded one', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+
+        start.value = '22:00';
+        start.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: false }) }));
+        start.value = '23:00';
+        start.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(start.value).toBe('22:00'));
+    });
+
     it('says so with an error toast when the quiet-hours save fails', async () => {
         document.body.innerHTML +=
             '<input id="quiet-hours-start" value="21:00">' +

@@ -530,6 +530,42 @@ describe('sos-admin.js', () => {
             expect(cell.className).toBe(before.className);
         });
 
+        it('never lets an older answer arriving late roll the saved month back', async () => {
+            // Two clicks in flight: the second answers first, then the first.
+            // A third, refused, save must put back the SECOND click's month —
+            // the newest the server confirmed — not the first's.
+            const pending = [];
+            global.fetch = vi.fn((url) => {
+                if (String(url).includes('/admin/sos/transitions')) {
+                    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') });
+                }
+                return new Promise((resolve) => pending.push(resolve));
+            });
+            await boot();
+            const answer = (index, body) =>
+                pending[index]({ ok: true, status: 200, json: () => Promise.resolve(body) });
+            const cell = () => document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+            const afterSecond = { text: cell().textContent, className: cell().className };
+
+            answer(1, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            answer(0, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(3));
+            answer(2, { success: false, error: 'Non.' });
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(cell().textContent).toBe(afterSecond.text);
+            expect(cell().className).toBe(afterSecond.className);
+        });
+
         it('reports an HTTP 500 error page instead of reading it as saved', async () => {
             global.fetch = vi.fn(() => htmlErrorResponse());
             await boot();

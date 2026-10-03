@@ -83,6 +83,8 @@
     var savedStates = copyStates(cellStates);
     /** Which save is the latest: an older answer must not undo a newer tap. */
     var saveSequence = 0;
+    /** The newest save the server has confirmed — the one savedStates holds. */
+    var savedSequence = 0;
     var currentYear = data.year;
     var currentMonth = data.month;
     var monthParam = data.monthParam || '';
@@ -316,10 +318,13 @@
             month: currentMonth,
             cells: cells
         });
-        if (succeeded(res)) {
+        if (succeeded(res) && sequence > savedSequence) {
             // Even an answer overtaken by a newer tap is what the server
             // held at that point: the newer save, if refused, goes back here.
+            // But never behind a NEWER confirmed save that answered first —
+            // that would put back a month older than the server's.
             savedStates = sent;
+            savedSequence = sequence;
         }
         if (sequence !== saveSequence) {
             return;
