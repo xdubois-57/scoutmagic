@@ -137,6 +137,24 @@ class RetroConfigControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * Issue #743: a superadmin with no member behind the account inherits
+     * the Staff d'U's configuration page and its save.
+     */
+    public function testASuperadminWithoutAnyDeskMemberOpensAndSavesTheConfiguration(): void
+    {
+        $memberService = $this->createStub(MemberService::class);
+        $memberService->method('isUnitChief')->willReturn(false);
+        $controller = new RetroConfigController(
+            $this->twig, $this->settingService, new JournalService(new JournalRepository($this->pdo)),
+            $memberService, $this->scoutYearService
+        );
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+
+        $this->assertSame(200, $controller->index(new Request('GET', '/config/retro', [], [], [], []), [])->getStatusCode());
+        $this->assertNotSame(403, $controller->save($this->postRequest(['_csrf_token' => $this->csrfToken()]), [])->getStatusCode());
+    }
+
     public function testSaveValidatesCsrf(): void
     {
         $response = $this->controller()->save($this->postRequest(['_csrf_token' => 'bad']), []);

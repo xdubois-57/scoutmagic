@@ -393,6 +393,29 @@ class RetroBoardControllerTest extends TestCase
         $this->assertStringNotContainsString('Propos injurieux', $response->getBody());
     }
 
+    /**
+     * Issue #743: a superadmin with no member behind the account gets the
+     * chef d'unité's moderation — sees a hidden word and can hide one.
+     */
+    public function testASuperadminWithoutAnyDeskMemberModerates(): void
+    {
+        AuthSession::login(3, 'superadmin@test.be', 'superadmin');
+        $this->boardService->method('isUnitChief')->willReturn(false);
+        [$id, $token] = $this->createBoard();
+        $hidden = $this->commentRepository->create($id, 'good', 'Propos injurieux');
+        $this->commentRepository->setHidden($hidden, true);
+        $visible = $this->commentRepository->create($id, 'good', 'Texte');
+
+        $page = $this->controller->show(new Request('GET', '/r/' . $token, [], [], [], []), ['token' => $token]);
+        $this->assertStringContainsString('Propos injurieux', $page->getBody());
+
+        $hide = $this->controller->hideComment(
+            $this->jsonRequest('/r/' . $token . '/comments/' . $visible . '/hide', ['_csrf_token' => $this->csrfToken()]),
+            ['token' => $token, 'comment_id' => (string) $visible]
+        );
+        $this->assertTrue(json_decode($hide->getBody(), true)['success']);
+    }
+
     public function testHideAndUnhideCommentAsChefDunite(): void
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
