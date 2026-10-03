@@ -1,80 +1,60 @@
 ---
 id: connexion-securisee
-title: « Le site est servi en HTTP »
-summary: Ce que dit cette alerte, et le cas fréquent où elle se trompe sans avoir tort.
+title: « Connexion non sécurisée »
+summary: Ce que dit cette alerte, d'où vient l'observation, et comment elle s'éteint.
 category: Configuration
 role_min: admin
 discovery: off
-question: Pourquoi le site dit-il qu'il est servi en HTTP alors qu'il est en HTTPS ?
+question: Pourquoi le site signale-t-il une connexion non sécurisée ?
 question: Comment faire disparaître l'alerte « connexion non sécurisée » ?
-question: Que faire quand un proxy ou un CDN gère le certificat du site ?
+question: Que régler quand l'hébergeur gère le certificat devant le site ?
 paths: /config/maintenance
 related: alertes-operationnelles, installation-serveur
 ---
 
-Le site surveille comment les visiteurs l'atteignent. Quand une requête
-lui parvient **sans chiffrement**, il prévient les administrateurs : les
-mots de passe et les données des membres circulent alors en clair, et
-n'importe quel réseau traversé peut les lire.
+ScoutMagic doit toujours être servi en HTTPS. Quand un navigateur d'un
+utilisateur connecté charge le site **sans connexion sécurisée**, il le
+signale, et l'alerte « ScoutMagic a récemment été consulté depuis une
+connexion non sécurisée » apparaît dans les Points d'attention, dans les
+notifications et sur la page Santé de l'hébergement.
 
-Cette alerte a deux causes possibles, et elles n'appellent pas du tout le
-même geste.
+Les mots de passe et les données des membres ont alors pu circuler en
+clair, et n'importe quel réseau traversé a pu les lire.
 
-## Premier cas : il n'y a pas de certificat
+## D'où vient l'observation
 
-C'est le cas simple, et le plus grave. Activez le certificat HTTPS chez
-votre hébergeur — c'est gratuit chez la plupart d'entre eux. L'alerte
-s'éteint d'elle-même quand plus aucune requête n'arrive en clair.
+C'est le navigateur qui la fait, pas le serveur. Il sait comment il a
+chargé la page : en HTTPS, ou non. Le site ne déduit plus rien de ce
+qu'il voit lui-même.
 
-## Second cas : quelque chose gère le HTTPS devant le site
+C'est ce qui évite la fausse alerte d'autrefois sur les hébergements qui
+gèrent le certificat **devant** le site (un proxy, un CDN, le panneau de
+l'hébergeur) : le visiteur y est en HTTPS de bout en bout, même si le
+serveur reçoit la requête en interne sans chiffrement. Dans ce cas, il
+n'y a **rien à régler** : la protection des cookies et l'en-tête qui
+impose HTTPS au navigateur sont envoyés de toute façon.
 
-Beaucoup d'hébergements placent un intermédiaire devant l'application :
-un proxy, un répartiteur de charge, un CDN, ou simplement le panneau de
-l'hébergeur. **C'est lui qui porte le certificat.** Il déchiffre la
-requête du visiteur, puis la transmet à l'application en interne, en
-clair.
+## Ce qu'il faut vérifier
 
-Le visiteur est en HTTPS de bout en bout ; l'application ne voit que la
-dernière étape, qui ne l'est pas. Elle signale ce qu'elle observe, et ce
-qu'elle observe est exact.
+- Le certificat HTTPS est-il actif chez votre hébergeur ? C'est gratuit
+  chez la plupart d'entre eux.
+- L'adresse sans HTTPS renvoie-t-elle vers la version sécurisée ? Un
+  ancien lien, un favori ou une adresse tapée à la main peuvent encore
+  pointer vers la version non sécurisée.
+- Le lien d'un e-mail ou d'un document mène-t-il vers une adresse sans
+  HTTPS ?
 
-### Ce qu'il faut faire alors
+## Comment l'alerte s'éteint
 
-Le site sait fonctionner ainsi, mais ne le suppose jamais : il faut l'y
-autoriser. Le réglage est dans le fichier de configuration du site, sur
-votre serveur — celui rempli à l'installation — et y est décrit à
-l'endroit où il se trouve. Activez-le, puis rechargez une page sécurisée.
-L'alerte ne s'éteint pas dans la foulée : voyez plus bas.
+Elle reste active **24 heures** après le dernier accès non sécurisé
+observé, puis s'éteint d'elle-même. Un accès en HTTPS entre-temps ne
+l'efface pas : il faut une journée entière sans nouvel accès non
+sécurisé.
 
-> Il est désactivé par défaut, et ce n'est pas une précaution excessive.
-> Sans un intermédiaire qui garantisse l'information à chaque requête,
-> n'importe quel visiteur pourrait prétendre arriver en HTTPS — le site
-> le croirait, et les protections qui en dépendent tomberaient. Ne
-> l'activez que si un intermédiaire est réellement en place.
-
-## Comment savoir dans quel cas je suis
-
-N'activez pas le réglage pour voir : sans intermédiaire qui garantisse
-l'information, l'activer ouvre la porte décrite ci-dessus — que vous
-naviguiez vous-même en HTTPS n'y change rien.
-
-**Posez la question à votre hébergeur** : quelque chose porte-t-il le
-certificat devant le site ? C'est le seul moyen sûr de trancher.
-
-Ce que montre le navigateur ne suffit pas. Une adresse en HTTP qui
-bascule seule vers la version sécurisée ressemble à la preuve d'un
-intermédiaire ; mais un navigateur qui a déjà vu ce site en HTTPS fait ce
-saut de mémoire, pendant un an, sans que rien ne soit placé devant.
-
-## Vérifier que c'est réglé
-
-Ne guettez pas la disparition de l'alerte : il lui faut environ une
-journée entière sans la moindre requête en clair. Regardez **ce qu'elle
-affiche** sur la page Points d'attention.
-
-- « en clair à l'instant » : le site est encore atteint sans chiffrement.
-- « en clair il y a moins d'une heure », puis un décompte en heures :
-  l'âge grandit, c'est réglé — l'alerte s'éteindra seule.
+Pour suivre la situation, regardez **ce qu'elle affiche** :
+« dernier accès non sécurisé », suivi de son âge — il y a moins d'une
+heure, puis un décompte en heures. Si l'âge grandit, c'est réglé. S'il revient à
+moins d'une heure, quelqu'un atteint encore le site sans chiffrement.
 
 La mesure ne se rafraîchit qu'une fois par quart d'heure : revenez un peu
 plus tard.

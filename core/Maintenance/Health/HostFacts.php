@@ -36,6 +36,10 @@ final class HostFacts
         public readonly string $databaseDriver,
         public readonly string $databaseVersion,
         public readonly bool $storageWritable,
+        /** Core\Http\InsecureBrowserAccess's last observation, null when never. */
+        public readonly ?int $lastInsecureAccessAt,
+        /** When these facts were measured — what « il y a 3 h » counts from. */
+        public readonly int $measuredAt,
     ) {
     }
 }

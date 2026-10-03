@@ -189,6 +189,9 @@ $twig = TwigFactory::create(
     $config->isDebug()
 );
 $twig->addGlobal('csp_nonce', $cspNonce);
+// Gates the secure-context beacon in base.html.twig (#751): an
+// installation that tolerates HTTP has nothing to report.
+$twig->addGlobal('https_required', \Core\Http\RequestScheme::httpsRequired());
 
 // site_name will be set later from settings database
 
@@ -2169,6 +2172,31 @@ if ($settingService->get('mail_transport_relay_flag_pruned') !== '1') {
     // jobs only (`Tests\Architecture\PrunedSettingsAreNoLongerDeclaredTest`
     // holds it now).
     $settingRepo->updateValue(null, 'mail_transport_relay_flag_pruned', '1');
+}
+
+// ————— The retired HTTPS stamp (#751) —————
+//
+// `insecure_request_last_seen` was the last request PHP itself saw in
+// clear, which behind a TLS terminator is every request. The HTTPS alert
+// now reads what the browser observed (`Core\Http\InsecureBrowserAccess`,
+// `last_insecure_browser_access_at`), so the old stamp has no reader, and
+// its value — a false alarm on exactly those hosts — must not be carried
+// over. Same shape and same reason as the blocks around it.
+if ($settingService->get('insecure_request_stamp_pruned') !== '1') {
+    $settingService->register(
+        'insecure_request_stamp_pruned',
+        '0',
+        'boolean',
+        'Nettoyage de l\'ancien horodatage HTTP effectué',
+        'Indique si le réglage retiré « Dernière requête servie sans chiffrement » a été supprimé.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $settingRepo->deleteCoreSettings(['insecure_request_last_seen']);
+    $settingRepo->updateValue(null, 'insecure_request_stamp_pruned', '1');
 }
 
 if ($settingService->get('remote_backup_settings_pruned') !== '1') {
@@ -4175,6 +4203,17 @@ $router->addRoute(
     'identified'
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
+// The fallback of the browser's secure-context signal (#751): sent only by
+// a page loaded outside a secure context that made no request of its own.
+// Literal path (scripts/authz-support.php parses this file); the same
+// value as Core\Http\InsecureBrowserAccess::BEACON_PATH, pinned by a test.
+$router->addRoute(
+    'POST',
+    '/api/connexion-non-securisee',
+    \Core\Http\Controller\SecureContextController::class,
+    'report',
+    'identified'
+);
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 // The answer to « Activer les notifications ? », the invitation the
 // installed application offers once (ARCHITECTURE.md §8.111). The
@@ -6580,6 +6619,13 @@ $frontController->registerController(
 $frontController->registerController(
     PushSubscriptionController::class,
     new PushSubscriptionController($twig, $notificationService, $journalService)
+);
+$frontController->registerController(
+    \Core\Http\Controller\SecureContextController::class,
+    new \Core\Http\Controller\SecureContextController(
+        $twig,
+        new \Core\Http\InsecureBrowserAccess($settingService)
+    )
 );
 
 $frontController->registerController(
@@ -12679,11 +12725,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // Nothing was lost, and a visitor no longer pays for background work that a
 // per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
 
+// The browser's own statement of how it loaded the page (#751). api.js
+// adds Core\Http\InsecureBrowserAccess::HEADER to every same-origin
+// request; only an authenticated session's « not secure » is kept, only
+// while HTTPS is required, and at most once a quarter of an hour. Past
+// send() and session_write_close(), like everything below: the visitor
+// whose request carries it never waits for the write.
+if (\Core\Http\InsecureBrowserAccess::reportsInsecure($_SERVER)) {
+    (new \Core\Http\InsecureBrowserAccess($settingService))->observe(
+        $_SERVER,
+        \Core\Security\AuthSession::isAuthenticated(),
+        time()
+    );
+}
+
 // The two operational checks that CANNOT live in the daily task
 // (Core\Alert, §8.99). CronSilenceCheck cannot, because a cron that has
 // stopped never runs the task that would notice it — an alert about the
-// engine cannot live inside the engine. HttpsCheck cannot, because a
-// scheme belongs to a request and a CLI pass has none.
+// engine cannot live inside the engine. HttpsCheck should not, because
+// its reading changes state at a precise hour (24 h after the last
+// insecure browser access) and the daily task would notice a day late.
 //
 // Placed HERE, past send() and session_write_close(), for the same reason
 // the poor man's cron was removed from this spot and Fréquentation sits
@@ -12694,33 +12755,13 @@ if ($operationalRequestChecks->due()) {
     // Claimed before the run, not after — see markRun()'s docblock.
     $operationalRequestChecks->markRun();
 
-    // Registered here rather than with the other settings above, and for
-    // the reason public/cron.php registers 'cron_last_run' beside the
-    // stamp it writes: it belongs to the one piece of code that reads and
-    // writes it, and inside this throttle it costs an ordinary request
-    // nothing. HttpsCheck stamps it when it observes a request answered
-    // without encryption; nothing else touches it.
-    $settingService->register(
-        \Core\Alert\Check\HttpsCheck::LAST_CLEAR_SETTING,
-        '0',
-        'number',
-        'Dernière requête servie sans chiffrement',
-        'Horodatage de la dernière requête que le site a servie en HTTP, sur lequel repose l\'alerte '
-            . '« Connexion sécurisée ». Géré automatiquement.',
-        null,
-        null,
-        null,
-        false,
-        128
-    );
-
     (new \Core\Alert\OperationalAlertService(
         new \Core\Alert\OperationalAlertRepository($pdo),
         $notificationService,
         $journalService
     ))->run([
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
-        new \Core\Alert\Check\HttpsCheck($_SERVER, $settingService),
+        new \Core\Alert\Check\HttpsCheck(new \Core\Http\InsecureBrowserAccess($settingService)),
     ]);
 }
 

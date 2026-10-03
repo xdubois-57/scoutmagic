@@ -4,9 +4,20 @@
 // so each test resets modules and re-imports.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Each import adds api.js's window listeners again (the secure-context
+// fallback); production loads it once, so every test removes what its own
+// import added.
+let addedListeners = [];
+
 async function loadApi() {
     vi.resetModules();
+    const original = window.addEventListener.bind(window);
+    const spy = vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
+        addedListeners.push([type, listener]);
+        original(type, listener, options);
+    });
     await import('../../public/assets/js/api.js');
+    spy.mockRestore();
     return window.ScoutMagicApi;
 }
 
@@ -16,6 +27,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    addedListeners.forEach(([type, listener]) => window.removeEventListener(type, listener));
+    addedListeners = [];
     vi.restoreAllMocks();
     vi.useRealTimers();
 });
@@ -232,5 +245,149 @@ describe('pollSlot()', () => {
         const api = await loadApi();
 
         expect(() => api.pollSlot().stop()).not.toThrow();
+    });
+});
+
+// #751 — on an insecure page of a signed-in session (the server renders
+// the meta tag), api.js wraps fetch() so every same-origin request says
+// so, and beacons once when the page sent none. A page loaded over HTTPS
+// keeps fetch() untouched.
+describe('secure-context signal', () => {
+    const HEADER = 'X-ScoutMagic-Secure-Context';
+    const REPORT_META = '<meta name="secure-context-report" content="/api/connexion-non-securisee">';
+    let native;
+
+    function setContext(protocol, secure) {
+        vi.spyOn(window, 'location', 'get').mockReturnValue(new URL(protocol + '//unite.example/page'));
+        Object.defineProperty(window, 'isSecureContext', { value: secure, configurable: true });
+    }
+
+    async function load({ withMeta = true } = {}) {
+        if (withMeta) {
+            document.head.innerHTML += REPORT_META;
+        }
+        native = vi.fn(() => Promise.resolve(new Response('{}')));
+        global.fetch = native;
+        window.fetch = native;
+        navigator.sendBeacon = vi.fn(() => true);
+        await loadApi();
+    }
+
+    function sentHeader(callIndex = 0) {
+        const init = native.mock.calls[callIndex][1];
+        return init && init.headers ? new Headers(init.headers).get(HEADER) : null;
+    }
+
+    afterEach(() => {
+        delete window.isSecureContext;
+        delete navigator.sendBeacon;
+    });
+
+    it('leaves fetch() untouched on a page loaded over HTTPS', async () => {
+        setContext('https:', true);
+        await load();
+
+        expect(window.fetch).toBe(native);
+        window.dispatchEvent(new Event('pagehide'));
+        expect(navigator.sendBeacon).not.toHaveBeenCalled();
+    });
+
+    it('marks a same-origin request from a page loaded over http, keeping its own headers', async () => {
+        setContext('http:', false);
+        await load();
+
+        await window.fetch('/api/x', { headers: { Accept: 'application/json' } });
+
+        expect(sentHeader()).toBe('0');
+        expect(new Headers(native.mock.calls[0][1].headers).get('Accept')).toBe('application/json');
+    });
+
+    it('treats an http page as not secure even where the browser calls the context secure', async () => {
+        // http://localhost is a secure context to the browser, and still
+        // not the HTTPS this signal is about.
+        setContext('http:', true);
+        await load();
+
+        await window.fetch('http://unite.example/api/x');
+
+        expect(sentHeader()).toBe('0');
+    });
+
+    it('never adds the signal to a request for another origin', async () => {
+        setContext('http:', false);
+        await load();
+
+        await window.fetch('https://tiles.example.org/1/2/3.png', { headers: { Accept: 'image/png' } });
+
+        expect(sentHeader()).toBeNull();
+        expect(native.mock.calls[0][1]).toEqual({ headers: { Accept: 'image/png' } });
+    });
+
+    it('keeps the headers of a Request object passed without init', async () => {
+        setContext('http:', false);
+        await load();
+
+        await window.fetch(new Request('http://unite.example/api/x', { headers: { 'X-CSRF-Token': 't' } }));
+
+        const headers = new Headers(native.mock.calls[0][1].headers);
+        expect(headers.get('X-CSRF-Token')).toBe('t');
+        expect(headers.get(HEADER)).toBe('0');
+    });
+
+    it('does nothing without the meta tag the server renders for a signed-in session', async () => {
+        setContext('http:', false);
+        await load({ withMeta: false });
+
+        expect(window.fetch).toBe(native);
+        window.dispatchEvent(new Event('pagehide'));
+        expect(navigator.sendBeacon).not.toHaveBeenCalled();
+    });
+
+    describe('fallback beacon', () => {
+        it('is sent once by an insecure page that made no request', async () => {
+            setContext('http:', false);
+            await load();
+
+            window.dispatchEvent(new Event('pagehide'));
+            window.dispatchEvent(new Event('pagehide'));
+
+            expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
+            const [url, body] = navigator.sendBeacon.mock.calls[0];
+            expect(url).toBe('/api/connexion-non-securisee');
+            expect(body.get('_csrf_token')).toBe('tok-123');
+        });
+
+        it('is sent a few seconds after load when the page stays open', async () => {
+            vi.useFakeTimers();
+            setContext('http:', false);
+            await load();
+
+            window.dispatchEvent(new Event('load'));
+            vi.advanceTimersByTime(4999);
+            expect(navigator.sendBeacon).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(1);
+
+            expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
+        });
+
+        it('is not sent when a same-origin request already carried the signal', async () => {
+            setContext('http:', false);
+            await load();
+
+            await window.fetch('/api/x');
+            window.dispatchEvent(new Event('pagehide'));
+
+            expect(navigator.sendBeacon).not.toHaveBeenCalled();
+        });
+
+        it('is still sent when the only request went to another origin', async () => {
+            setContext('http:', false);
+            await load();
+
+            await window.fetch('https://tiles.example.org/1.png');
+            window.dispatchEvent(new Event('pagehide'));
+
+            expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
+        });
     });
 });

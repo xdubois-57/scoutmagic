@@ -27,6 +27,7 @@ use Core\Support\Collector\OpcacheCollector;
 use Core\Support\Collector\PhpInfoCollector;
 use Core\Support\Collector\RequestTimelinesCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
+use Core\Support\Collector\SecureConnectionCollector;
 use Core\Support\Collector\StatisticsCollector;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -88,6 +89,7 @@ final class SupportPackageFactory
             new CommandsCollector(),
             new BackgroundExecutionCollector(),
             new CronCadenceCollector(),
+            new SecureConnectionCollector(),
             self::outboundMailCollector($context),
             self::storageLocationsCollector($context),
             new WebServerCollector(),
@@ -125,6 +127,7 @@ final class SupportPackageFactory
             'commands',
             'background_execution',
             'cron_cadence',
+            'secure_connection',
             'outbound_mail',
             'storage_locations',
             'webserver',

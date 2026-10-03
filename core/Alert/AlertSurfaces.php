@@ -54,10 +54,9 @@ final class AlertSurfaces
      * backup age and the cron stamp live, so a reader arrives at the thing
      * the alert is about. Two are not:
      *
-     * - « Le site est servi en HTTP » (issue #352) has two causes calling
-     *   for opposite gestures, and the maintenance page only restates the
-     *   reading the reader has just read. It needs the help topic that can
-     *   tell the two apart.
+     * - « Connexion non sécurisée » (issues #352, #751): the maintenance
+     *   page only restates the reading the reader has just read; the help
+     *   topic says what to check and how the alert clears.
      * - « Espace disque » (issue #649). The disk figure left the maintenance
      *   page for Configuration › Stockage, and this page kept sending the
      *   reader to where it used to be — « la page Maintenance en dit le

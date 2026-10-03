@@ -303,6 +303,25 @@ class SupportControllerTest extends TestCase
         return $token;
     }
 
+    /**
+     * #751: the « connexion non sécurisée » state goes into the diagnostic
+     * package (SecureConnectionCollector), never onto this page — even
+     * while it is active.
+     */
+    public function testTheDiagnosticPageDoesNotShowTheInsecureAccessState(): void
+    {
+        $observedAt = time() - 2 * 3600;
+        (new \Core\Http\InsecureBrowserAccess($this->settings))->record($observedAt);
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('accès non sécurisé', $body);
+        $this->assertStringNotContainsString('Accès non sécurisé', $body);
+        $this->assertStringNotContainsString(\Core\Alert\Check\HttpsCheck::TITLE, $body);
+        $this->assertStringNotContainsString(date('Y-m-d H:i', $observedAt), $body);
+        $this->assertStringNotContainsString(date('d/m/Y à H:i', $observedAt), $body);
+    }
+
     // ── The measurement window (CHANTIER-performance §6) ────────────────
 
     public function testThePageOffersToMeasureAndSaysWhatItRecordsAndWhatItCannot(): void
