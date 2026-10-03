@@ -149,7 +149,6 @@ final class BookingJourney
 
         if ($this->next->key === 'decision') {
             return match ($this->status) {
-                BookingStatus::REVIEWING => "Cette demande est en cours d'examen : elle attend votre décision.",
                 BookingStatus::INFO_REQUESTED => 'Une précision a été demandée au locataire : '
                     . 'la décision attend sa réponse.',
                 BookingStatus::PROPOSED => 'Une proposition attend la réponse du locataire.',

@@ -147,8 +147,10 @@ est tracée dans l'historique.
 
 On y trouve aussi :
 
-- **États** : reçue, en cours d'examen, information demandée, proposée,
-  confirmée, refusée, annulée, expirée, clôturée.
+- **États** : reçue, information demandée, proposée, confirmée, refusée,
+  annulée, expirée, clôturée. Il n'y a pas d'état « en examen » : une
+  demande attend votre décision (« reçue ») ou la réponse du locataire, et
+  « Remettre en attente » la ramène à « reçue ».
 - **Option** : vous posez une option avec une échéance, pour laisser au
   locataire le temps de décider sans que les dates partent ailleurs.
 - **Commentaires internes** : chiffrés, visibles des seuls gestionnaires,
@@ -271,9 +273,9 @@ de précision. Un refus et une annulation n'en portent pas : il n'y a plus
 rien à y faire, et un lien qui circule est un lien qui se retrouve
 transféré.
 
-Les changements qui ne sont *pas* des décisions n'envoient rien : passer une
-demande « en cours d'examen » parce que vous l'ouvrez, ou une option qui
-expire toute seule à quatre heures du matin.
+Les changements qui ne sont *pas* des décisions n'envoient rien : remettre
+une demande en attente, ou une option qui expire toute seule à quatre
+heures du matin.
 
 ## 11. Les emails du locataire
 

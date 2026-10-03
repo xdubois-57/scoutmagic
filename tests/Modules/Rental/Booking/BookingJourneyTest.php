@@ -446,7 +446,6 @@ class BookingJourneyTest extends TestCase
     {
         return [
             'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre décision.'],
-            'en examen' => [BookingStatus::REVIEWING, "Cette demande est en cours d'examen : elle attend votre décision."],
             'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la décision attend sa réponse.'],
             'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],

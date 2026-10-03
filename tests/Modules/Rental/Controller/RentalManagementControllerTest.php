@@ -1144,7 +1144,7 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(1, 'nobody@test.be', 'identified');
 
         $actions = [
-            ['/mes-locations/statut', 'changeStatus', ['status' => 'reviewing']],
+            ['/mes-locations/statut', 'changeStatus', ['status' => 'info_requested']],
             ['/mes-locations/option', 'placeOption', ['until' => '2027-06-01T18:00']],
             ['/mes-locations/commentaire', 'addComment', ['body' => 'Interne']],
             ['/mes-locations/ligne', 'priceLine', ['line_action' => 'recalculate']],
@@ -1189,7 +1189,7 @@ class RentalManagementControllerTest extends TestCase
             '_csrf_token' => 'forged',
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
@@ -1223,7 +1223,7 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $foreign->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(404, $response->getStatusCode());
@@ -1260,11 +1260,11 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame(BookingStatus::REVIEWING, $this->bookingRepository->findById($booking->id)?->status);
+        $this->assertSame(BookingStatus::INFO_REQUESTED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /**
@@ -1326,7 +1326,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertStringNotContainsString(
@@ -1430,16 +1430,22 @@ class RentalManagementControllerTest extends TestCase
 
     public function testBookkeepingWritesToNobody(): void
     {
-        // A manager opening a request moves it to « en cours d'examen ».
+        // Putting a request back on hold is the unit's own bookkeeping.
         // That is not news, and an email saying so would train the renter
         // to ignore the ones that are.
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'info_requested',
+        ]);
+        $this->renterEmails = [];
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'received',
         ]);
 
         $this->assertSame([], $this->renterEmails);
@@ -1625,7 +1631,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
@@ -1638,7 +1644,7 @@ class RentalManagementControllerTest extends TestCase
         // the status change is rendered under its French label, with the
         // move it made, by the same partial Camps uses.
         $this->assertStringContainsString('Statut', $body);
-        $this->assertStringContainsString('En cours d', $body);
+        $this->assertStringContainsString('Informations demand', $body);
         $this->assertStringContainsString('audit-rental_booking-' . $booking->id, $body);
     }
 

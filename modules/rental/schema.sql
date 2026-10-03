@@ -404,8 +404,9 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     renter_comment_encrypted BLOB NULL,
 
     -- ── Lifecycle (§6.15) ────────────────────────────────────────────
-    -- 'received' | 'reviewing' | 'info_requested' | 'proposed' | 'confirmed'
-    -- | 'refused' | 'cancelled' | 'expired' | 'closed'.
+    -- 'received' | 'info_requested' | 'proposed' | 'confirmed'
+    -- | 'refused' | 'cancelled' | 'expired' | 'closed'. A row still carrying
+    -- the retired 'reviewing' reads back as 'received' (#708, IT-11).
     -- "In progress" is deliberately NOT a stored status: it is derived from
     -- the dates, so it can never disagree with the calendar.
     status VARCHAR(30) NOT NULL DEFAULT 'received',

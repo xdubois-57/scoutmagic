@@ -2691,8 +2691,7 @@ class RentalManagementController extends AbstractController
      * guessing, and guessing here ends with a second phone call.
      *
      * A null decision means nothing was decided that the renter should
-     * hear about (a booking moved to « en cours d'examen », a hold that
-     * lapsed) — see RenterDecision::forStatus(). Nothing is sent and
+     * hear about (a booking put back on hold, a hold that lapsed) — see RenterDecision::forStatus(). Nothing is sent and
      * nothing is added to the flash.
      *
      * Never throws. A decision is already recorded by the time this runs,

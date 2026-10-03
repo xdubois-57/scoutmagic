@@ -1074,17 +1074,30 @@ class RentalBookingServiceTest extends TestCase
         $booking = $this->submit()['booking'];
         $this->assertNull($booking->finalAt);
 
-        $this->repository->setStatus($booking->id, BookingStatus::REVIEWING, $this->now());
+        $this->repository->setStatus($booking->id, BookingStatus::INFO_REQUESTED, $this->now());
         $this->assertNull($this->repository->findById($booking->id)?->finalAt);
 
         $this->repository->setStatus($booking->id, BookingStatus::CLOSED, $this->now());
         $this->assertNotNull($this->repository->findById($booking->id)?->finalAt);
     }
 
+    /**
+     * « En cours d'examen » is gone (#708, IT-11). A row still carrying it
+     * must read back — as « Demande reçue », the state it really was: the
+     * request waits on the unit's decision.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusReadsAsReceived(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->repository->findById($booking->id)?->status);
+    }
+
     public function testStatusHelpersAgreeWithTheSpecsLifecycle(): void
     {
         $this->assertTrue(BookingStatus::RECEIVED->needsAttention());
-        $this->assertTrue(BookingStatus::REVIEWING->needsAttention());
+        $this->assertTrue(BookingStatus::INFO_REQUESTED->needsAttention());
         $this->assertFalse(BookingStatus::CONFIRMED->needsAttention());
 
         $this->assertTrue(BookingStatus::CONFIRMED->occupiesTheAsset());
