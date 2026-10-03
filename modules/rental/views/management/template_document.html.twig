@@ -1,0 +1,154 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ document_type.label }} — Gabarits — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  One template of the asset — the contract or the invoice — on its own page
+  (#708, IT-10), on the model of a booking's document page:
+  the editor, and the keywords this document can use shown OPEN beside it,
+  which is the page's reason to exist.
+
+  The editor is the site's standard rich text field
+  (partials/rich_text_form_field.html.twig) — nobody should be asked to type
+  HTML to word a contract.
+
+  What used to make that impossible was the placeholders: a contenteditable
+  surface splits a run of text across elements as it is edited, so
+  `{{ '{{ prix_total }}' }}` could silently become
+  `{{ '{{ pri<b>x</b>_total }}' }}` — still readable to a human, no longer a
+  keyword to the substituter, and only noticed once a contract had gone out
+  with visible braces in it. The field solves that rather than avoiding it:
+  each placeholder is one indivisible `contenteditable="false"` chip the
+  browser cannot split, and there is a menu to insert them.
+
+  Everything typed here is sanitized server-side before it is stored
+  (EditableContentService, SECURITY.md §7). Saving goes back to the list.
+
+  Requires `asset`, `document_type`, `body`, `is_standard`, `standard`,
+  `unknown_keywords`, `keywords` and `vat_note`.
+#}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with {
+            title: document_type.label,
+            subtitle: 'Gabarit — ' ~ asset.name,
+        } only %}
+
+        <div class="alert alert-info">
+            Ce gabarit sert de point de départ. À la première génération, chaque réservation en
+            prend <strong>sa propre copie</strong> : le modifier ensuite ne touche aucune
+            réservation existante. Tant que vous n'écrivez rien, c'est le <strong>modèle
+            standard</strong> fourni par ScoutMagic qui est utilisé.
+        </div>
+
+        {% if unknown_keywords is not empty %}
+            <output class="alert alert-warning d-block">
+                Mots-clés non reconnus, qui apparaîtront tels quels dans le document :
+                {% for keyword in unknown_keywords %}
+                    <code>{{ '{{ ' ~ keyword ~ ' }}' }}</code>{{ not loop.last ? ', ' : '' }}
+                {% endfor %}
+            </output>
+        {% endif %}
+
+        {% if standard %}
+            {% if is_standard %}
+                {#
+                  The default in force: the editor below is pre-filled with
+                  the standard body and that is also what generation uses
+                  until an edit is saved (RentalDocumentService::templateOrStandard).
+                #}
+                <div class="alert alert-light border">
+                    <p class="mb-0 small">
+                        Ce gabarit est actuellement le <strong>modèle standard</strong> fourni par
+                        ScoutMagic pour la location d'un bien scout en Belgique (inspiré des modèles
+                        Atouts Camps)&nbsp;: un point de départ à relire et à adapter à vos
+                        conditions, pas un avis juridique. Tant que vous ne le modifiez pas, c'est
+                        ce texte qui sert à générer le document.
+                    </p>
+                </div>
+            {% else %}
+                <div class="alert alert-light border">
+                    <p class="mb-2 small">
+                        Ce gabarit a été personnalisé. Vous pouvez le réinitialiser au modèle standard
+                        fourni par ScoutMagic — le texte ci-dessous sera alors entièrement remplacé.
+                    </p>
+                    <details>
+                        <summary class="small">Voir le modèle standard avant de réinitialiser</summary>
+                        <div class="border rounded-3 p-3 mt-2 bg-body">{{ standard|raw }}</div>
+                    </details>
+                    <form method="post" action="/mes-locations/gabarit" class="mt-2"
+                          data-confirm="Réinitialiser au modèle standard ? Le texte que vous avez écrit sera perdu.">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="document_type" value="{{ document_type.value }}">
+                        <input type="hidden" name="body" value="{{ standard }}">
+                        {% if document_type.value == 'invoice' %}
+                            <input type="hidden" name="vat_exemption_note" value="{{ vat_note }}">
+                        {% endif %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            Réinitialiser au modèle standard
+                        </button>
+                    </form>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <div class="row g-4">
+            <div class="col-12 col-xl-8">
+                <form method="post" action="/mes-locations/gabarit">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="document_type" value="{{ document_type.value }}">
+
+                    {% include 'partials/rich_text_form_field.html.twig' with {
+                        field_id: 'body-' ~ document_type.value,
+                        field_name: 'body',
+                        value: body,
+                        label: 'Texte du gabarit',
+                        help: 'Mettez en forme le texte comme ailleurs sur le site. Les champs
+                               insérés — en bleu — sont remplacés par les valeurs de la réservation
+                               au moment où le document est généré.',
+                        placeholders: keywords,
+                        rows_height: '28rem',
+                    } %}
+
+                    {% if document_type.value == 'invoice' %}
+                        {# The help text is plain prose here: the shared partial
+                           escapes it, so the emphasis and the <code> span are
+                           carried by the wording instead of by markup. #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'vat-note', field_name: 'vat_exemption_note',
+                            label: 'Phrase à imprimer à la place d\'une ligne de TVA',
+                            maxlength: 255, value: vat_note,
+                            placeholder: 'Non assujetti à la TVA — article 44 du Code de la TVA',
+                            help: 'ScoutMagic ne calcule jamais de TVA : le prix affiché est
+                                   celui que le locataire paie, point. Une unité scoute n\'est en principe pas
+                                   assujettie, mais une facture belge sans TVA doit dire pourquoi — c\'est cette
+                                   phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
+                                   unité n\'émet pas de facture ou n\'a pas besoin de cette mention. Elle est
+                                   aussi disponible comme champ {{ mention_tva }}.',
+                        } only %}
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-primary">Enregistrer</button>
+                        <a href="/mes-locations/{{ asset.slug }}/gabarits" class="btn btn-outline-secondary">Annuler</a>
+                    </div>
+                </form>
+            </div>
+            <div class="col-12 col-xl-4">
+                {% include '@rental/management/_keywords.html.twig' with {keywords_open: true} %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block stylesheets %}
+{# The keyword chips and the editing surface are styled by components.css,
+   which base.html.twig deliberately does not load. #}
+<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
+{% endblock %}
