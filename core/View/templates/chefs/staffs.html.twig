@@ -45,6 +45,32 @@
             </div>
         {% endif %}
 
+        {# The section's own text (#725), between the photo and the staff:
+           the same for every year until edited. Editable by whoever
+           animates the section — edit mode or not — and absent, not an
+           empty frame, for a reader when nothing is written. #}
+        {% if section_text_key and (can_edit_section or section_text|striptags|trim != '') %}
+            <div class="mb-3 d-flex align-items-start gap-2 section-text">
+                <div class="flex-grow-1">
+                    {% include 'partials/rich_text_field.html.twig' with {
+                        content_key: section_text_key,
+                        content_value: section_text,
+                    } only %}
+                    {% if can_edit_section %}
+                        {# Hidden by CSS as soon as the preview holds
+                           anything — after an in-place save too. #}
+                        <p class="text-body-secondary small mb-0 section-text-empty">Présentez le staff ou ajoutez des informations utiles à la section.</p>
+                    {% endif %}
+                </div>
+                {% if can_edit_section %}
+                    {% include 'partials/rich_text_edit_button.html.twig' with {
+                        content_key: section_text_key,
+                        save_url: '/chefs/staffs/text',
+                    } only %}
+                {% endif %}
+            </div>
+        {% endif %}
+
         <div class="d-flex flex-column gap-2">
             {% for member in staff %}
                 <div class="card">
@@ -287,6 +313,9 @@
                 {% endblock %}
             {% endembed %}
         {% endif %}
+        {% if can_edit_section and section_text_key %}
+            {% include 'partials/rich_text_editor.html.twig' %}
+        {% endif %}
     {% else %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucune section disponible. Les sections apparaîtront après le premier import Desk.',
@@ -316,5 +345,8 @@
 <script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
 <script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
 <script src="{{ asset('/assets/js/staffs.js') }}" defer></script>
+{% endif %}
+{% if can_edit_section is defined and can_edit_section and section_text_key|default(null) %}
+<script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
 {% endif %}
 {% endblock %}
