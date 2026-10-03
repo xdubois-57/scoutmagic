@@ -18,6 +18,7 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Core\Service\TextNormalizerService;
 use Core\View\EditableContentService;
 use Modules\Leadership\FormationStep;
 use Modules\Leadership\LeadershipRules;
@@ -259,7 +260,7 @@ class LeadershipController extends AbstractController
 
         return \Core\Http\SpreadsheetResponse::download(
             $spreadsheet,
-            'encadrement-' . strtolower(self::slug($title)) . '-' . $context['scout_year_label'] . '.xlsx'
+            'encadrement-' . self::slug($title) . '-' . $context['scout_year_label'] . '.xlsx'
         );
     }
 
@@ -350,9 +351,7 @@ class LeadershipController extends AbstractController
 
     private static function slug(string $title): string
     {
-        $ascii = iconv('UTF-8', 'ASCII//TRANSLIT', $title);
-
-        return trim((string) preg_replace('/[^A-Za-z0-9]+/', '-', $ascii !== false ? $ascii : $title), '-');
+        return trim((string) preg_replace('/[^a-z0-9]+/', '-', TextNormalizerService::fold($title)), '-');
     }
 
     /**
