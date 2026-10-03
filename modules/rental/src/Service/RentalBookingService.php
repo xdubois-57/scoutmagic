@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
@@ -414,8 +415,13 @@ class RentalBookingService implements OccupancyProvider
         \DateTimeImmutable $now,
         string $arrivalDate
     ): ?\DateTimeImmutable {
-        $arrival = \DateTimeImmutable::createFromFormat('!Y-m-d', $arrivalDate, $now->getTimezone());
-        if ($arrival !== false && $arrival < $until) {
+        // Midnight of the arrival day on $now's own clock, whatever the
+        // default zone: DateInput checks the shape, $now carries the zone.
+        $day = DateInput::iso($arrivalDate);
+        $arrival = $day?->setTimezone($now->getTimezone())
+            ->setDate((int) $day->format('Y'), (int) $day->format('n'), (int) $day->format('j'))
+            ->setTime(0, 0);
+        if ($arrival !== null && $arrival < $until) {
             $until = $arrival;
         }
 
