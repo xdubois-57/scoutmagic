@@ -20,6 +20,39 @@
 // as `group`; the server moves whatever arrived from elsewhere and closes
 // the gap it left. A list without the attribute behaves exactly as before.
 (function () {
+    /**
+     * Writes one changed value into a row's `data-item-field` elements.
+     *
+     * @param {Element} row
+     * @param {string} field
+     * @param {string} value
+     */
+    function writeItemField(row, field, value) {
+        row.querySelectorAll('[data-item-field="' + field + '"]').forEach(function (node) {
+            node.textContent = value ? value + ' · ' : '';
+        });
+    }
+
+    /**
+     * The chrome that depends on a list's content: the « empty »
+     * sentence, and which move buttons are disabled.
+     *
+     * @param {HTMLElement} list
+     */
+    function refreshList(list) {
+        var items = Array.from(list.querySelectorAll('.list-editor-item'));
+        var empty = /** @type {HTMLElement|null} */ (list.querySelector('.list-editor-empty'));
+        if (empty) {
+            empty.classList.toggle('d-none', items.length > 0);
+        }
+        items.forEach(function (item, index) {
+            var upBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-up'));
+            var downBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-down'));
+            if (upBtn) upBtn.disabled = (index === 0);
+            if (downBtn) downBtn.disabled = (index === items.length - 1);
+        });
+    }
+
     // Requests go through the shared window.ScoutMagicApi.postJson envelope
     // ({ok, status, data} — never a rejection); each call site below reads
     // `res.data || {}` and branches on data.success as before.
@@ -69,7 +102,7 @@
             if (group) {
                 body.group = container.dataset.groupKey || '';
             }
-            window.ScoutMagicApi.postJson(reorderUrl, body).then(function (res) {
+            void window.ScoutMagicApi.postJson(reorderUrl, body).then(function (res) {
                 var data = res.data || {};
                 if (!data.success) {
                     window.ScoutMagicToast.show(data.error || 'Erreur lors de la réorganisation.', { variant: 'error' });
@@ -98,31 +131,8 @@
                 var row = itemsEl.querySelector('.list-editor-item[data-id="' + id + '"]');
                 if (!row) return;
                 Object.keys(items[id]).forEach(function (field) {
-                    row.querySelectorAll('[data-item-field="' + field + '"]').forEach(function (node) {
-                        var value = items[id][field];
-                        node.textContent = value ? value + ' · ' : '';
-                    });
+                    writeItemField(row, field, items[id][field]);
                 });
-            });
-        }
-
-        /**
-         * The chrome that depends on a list's content: the « empty »
-         * sentence, and which move buttons are disabled.
-         *
-         * @param {HTMLElement} list
-         */
-        function refreshList(list) {
-            var items = Array.from(list.querySelectorAll('.list-editor-item'));
-            var empty = /** @type {HTMLElement|null} */ (list.querySelector('.list-editor-empty'));
-            if (empty) {
-                empty.classList.toggle('d-none', items.length > 0);
-            }
-            items.forEach(function (item, index) {
-                var upBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-up'));
-                var downBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-down'));
-                if (upBtn) upBtn.disabled = (index === 0);
-                if (downBtn) downBtn.disabled = (index === items.length - 1);
             });
         }
 

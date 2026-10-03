@@ -70,8 +70,11 @@
         var itemSelector = options.itemSelector;
         var horizontal = options.axis === 'x';
         var draggingClass = options.draggingClass || 'opacity-50';
+        if (options.group && !groups[options.group]) {
+            groups[options.group] = { dragged: null, source: null, origin: null, dropped: false, members: [] };
+        }
         var state = options.group
-            ? (groups[options.group] = groups[options.group] || { dragged: null, source: null, origin: null, dropped: false, members: [] })
+            ? groups[options.group]
             : { dragged: null, source: null, origin: null, dropped: false, members: [container] };
         if (options.group) {
             state.members.push(container);
