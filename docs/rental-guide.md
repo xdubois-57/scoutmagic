@@ -216,7 +216,10 @@ le renvoyez.
   recule vous est signalé plutôt que deviné — c'est un compteur remplacé,
   un chiffre transposé, ou un relevé pris au mauvais endroit.
 - **État des lieux** : la liste est figée dans la réservation à la
-  confirmation, intitulés compris. « Personne n'a regardé » et « quelqu'un
+  confirmation, intitulés, ordre, sorte et nombre attendu compris. Un
+  élément est une **quantité** (« 40 chaises ») ou un **oui / non** écrit
+  comme ce qui doit être vrai (« cuisine propre ») ; le modèle se prépare
+  sur la page « Gabarits » du bien, où l'on réordonne en faisant glisser. « Personne n'a regardé » et « quelqu'un
   a regardé, c'était bon » sont deux états distincts.
 - **Dégâts** : constatés, décrits, photographiés. **Rien n'est facturé
   automatiquement** : vous choisissez explicitement de facturer, de retenir
