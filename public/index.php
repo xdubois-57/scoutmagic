@@ -9696,147 +9696,88 @@ if ($isEnabled('groups')) {
         $groupsGroupRepo
     );
 
-    // GroupController and PostController are the two that carry groups'
-    // optional "ce message parle de la réunion de samedi" link, and
-    // calendar's lookup does not exist yet: its block runs later in this
-    // file, because it needs the retro lookup whose block runs after this
-    // one. So their wiring lives in this closure and is called twice —
-    // once here with no event service, which is also exactly what a
-    // calendar-disabled install keeps for good (ARCHITECTURE.md §7.5's
-    // "works with the other module switched off"), and once more from the
-    // calendar block at the end of this file, with the real lookup.
-    //
-    // One construction site rather than two copies: a constructor
-    // argument added to either controller can no longer be added to the
-    // early wiring and forgotten in the late one, which would have
-    // broken calendar-enabled installs only.
-    $groupsRegisterEventAwareControllers = function (
-        ?\Modules\Groups\Service\PostEventService $eventService
-    ) use (
-        $frontController,
-        $twig,
-        $groupsGroupRepo,
+    // GroupController, PostController and ReportController share one
+    // GroupFeedService: the reports page renders the same post cards as
+    // the feed, so a second instance would be a second set of defaults to
+    // keep in step. One construction site for the three of them, here,
+    // after every collaborator they need exists.
+    $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         $groupsAuthorResolver,
         $groupsPostService,
         $groupsPostMediaService,
         $groupsPostLinkRepo,
-        $groupsPostLinkService,
         $groupsReplyRepo,
         $groupsReplyPresenter,
-        $groupsReplyService,
         $groupsReactionService,
         $groupsReportService,
         $groupsReadStateService,
-        $groupsPollService,
-        $groupsListService,
-        $groupsAccessService,
-        $groupsService,
-        $groupsContextFactory,
-        $sectionService,
-        $groupsSectionGroupSync,
-        $groupsModeratorBinding,
-        $groupsMembershipService,
-        $settingService,
-        $groupsNotificationService,
-        $groupsSeenByService,
-        $groupsMentionService,
-        $groupsIdentityService,
-        $groupsRecipientResolver
-    ): void {
-        $feedService = new \Modules\Groups\Service\GroupFeedService(
-            $groupsPostRepo,
-            $groupsAuthorResolver,
-            $groupsPostService,
+        $groupsPollService
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\GroupController::class,
+        new \Modules\Groups\Controller\GroupController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsListService,
+            $groupsAccessService,
+            $groupsService,
+            $groupsContextFactory,
+            $sectionService,
+            $groupsFeedService,
             $groupsPostMediaService,
-            $groupsPostLinkRepo,
-            $groupsReplyRepo,
-            $groupsReplyPresenter,
-            $groupsReactionService,
-            $groupsReportService,
+            $groupsPostRepo,
+            $groupsSectionGroupSync,
+            $groupsModeratorBinding,
+            $groupsMembershipService,
+            $settingService,
             $groupsReadStateService,
-            $eventService,
-            $groupsPollService
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\GroupController::class,
-            new \Modules\Groups\Controller\GroupController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsListService,
-                $groupsAccessService,
-                $groupsService,
-                $groupsContextFactory,
-                $sectionService,
-                $feedService,
-                $groupsPostMediaService,
-                $groupsPostRepo,
-                $groupsSectionGroupSync,
-                $groupsModeratorBinding,
-                $groupsMembershipService,
-                $settingService,
-                $groupsReadStateService,
-                $eventService,
-                $groupsIdentityService,
-                $groupsReportService,
-                $groupsPostService,
-                $groupsRecipientResolver
-            )
-        );
-        // The moderator's reports page renders the same post cards as the
-        // feed, so it needs the same feed service — which is why it is
-        // registered here rather than above: the one built inside this
-        // closure is the only one that knows about the calendar module
-        // (§7.5), and a card rendered without it silently loses its
-        // event line.
-        $frontController->registerController(
-            \Modules\Groups\Controller\ReportController::class,
-            new \Modules\Groups\Controller\ReportController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsPostRepo,
-                $groupsReplyRepo,
-                $groupsAccessService,
-                $groupsReportService,
-                $groupsContextFactory,
-                $groupsNotificationService,
-                $groupsRecipientResolver,
-                $feedService,
-                $groupsPostService
-            )
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\PostController::class,
-            new \Modules\Groups\Controller\PostController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsPostRepo,
-                $groupsAccessService,
-                $feedService,
-                $groupsPostService,
-                $groupsContextFactory,
-                $groupsPostMediaService,
-                $groupsPostLinkService,
-                $groupsReplyService,
-                $groupsReportService,
-                $groupsNotificationService,
-                $groupsSeenByService,
-                $groupsMentionService,
-                $eventService,
-                $groupsPollService,
-                $groupsIdentityService
-            )
-        );
-    };
-    // Called exactly once now: the calendar's single block above already
-    // assigned $calendarEventLookupForOthers, so the "register event-less,
-    // re-register after retro" dance this closure existed for is gone —
-    // it stays as the one construction site for the three controllers
-    // that share the feed service.
-    $groupsRegisterEventAwareControllers(
-        $calendarEventLookupForOthers !== null
-            ? new \Modules\Groups\Service\PostEventService($calendarEventLookupForOthers)
-            : null
+            $groupsIdentityService,
+            $groupsReportService,
+            $groupsPostService,
+            $groupsRecipientResolver
+        )
+    );
+    // Registered here rather than with the other two only because it is
+    // the third consumer of the same feed service, not a different kind
+    // of page: the reports screen is the feed, filtered to what a
+    // moderator has to look at.
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReportController::class,
+        new \Modules\Groups\Controller\ReportController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsReplyRepo,
+            $groupsAccessService,
+            $groupsReportService,
+            $groupsContextFactory,
+            $groupsNotificationService,
+            $groupsRecipientResolver,
+            $groupsFeedService,
+            $groupsPostService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\PostController::class,
+        new \Modules\Groups\Controller\PostController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsAccessService,
+            $groupsFeedService,
+            $groupsPostService,
+            $groupsContextFactory,
+            $groupsPostMediaService,
+            $groupsPostLinkService,
+            $groupsReplyService,
+            $groupsReportService,
+            $groupsNotificationService,
+            $groupsSeenByService,
+            $groupsMentionService,
+            $groupsPollService,
+            $groupsIdentityService
+        )
     );
 
     // The home page's group-activity hook (§7.4) — resolved per request
