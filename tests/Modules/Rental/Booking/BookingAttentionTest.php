@@ -329,4 +329,27 @@ class BookingAttentionTest extends TestCase
         $this->assertSame(StepActor::RENTER, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_ACCEPTED]);
         $this->assertSame(StepActor::UNIT, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_SENT]);
     }
+
+    /**
+     * « Contrat envoyé » waits on the renter (#708, IT-13): the booking is
+     * on the list only once the contract is late, by the contract
+     * reminder's own delay.
+     */
+    public function testAContractSentIsOnTheListOnlyOnceTheRenterIsLate(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT);
+        $next = $this->nextOf($booking, [
+            BookingMilestones::CONTRACT_SENT => true,
+            BookingMilestones::CONTRACT_ACCEPTED => false,
+        ]);
+        $this->assertSame(BookingMilestones::CONTRACT_ACCEPTED, $next?->key);
+        $deadline = ReminderPlanner::renterDeadline($next->key, $booking, [], ReminderSchedule::shipped());
+
+        // Stay on 17 July; the contract is chased 14 days before.
+        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-07-02')));
+        $this->assertSame(
+            [AttentionReason::RENTER_LATE],
+            BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-07-03'))?->reasons
+        );
+    }
 }

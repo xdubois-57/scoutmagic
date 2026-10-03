@@ -148,13 +148,13 @@ final class BookingJourney
                 : "Rien n'attend de vous sur cette réservation.";
         }
 
-        if ($this->next->key === 'decision') {
-            return match ($this->status) {
-                BookingStatus::INFO_REQUESTED => 'Une précision a été demandée au locataire : '
-                    . 'la décision attend sa réponse.',
-                BookingStatus::PROPOSED => 'Une proposition attend la réponse du locataire.',
-                default => 'Cette demande attend votre décision.',
-            };
+        // While the renter has a question or a proposal to answer, that is
+        // what holds the booking up, whatever the next line says.
+        if ($this->status === BookingStatus::INFO_REQUESTED) {
+            return 'Une précision a été demandée au locataire : la réponse attend la sienne.';
+        }
+        if ($this->status === BookingStatus::PROPOSED) {
+            return 'Une proposition attend la réponse du locataire.';
         }
 
         $waiting = match ($this->next->key) {
@@ -169,8 +169,14 @@ final class BookingJourney
         }
 
         return match ($this->next->key) {
-            BookingMilestones::CONTRACT_SENT => 'Le contrat reste à envoyer.',
-            'confirmed' => 'La réservation reste à confirmer.',
+            BookingMilestones::CONTRACT_SENT => $this->status === BookingStatus::RECEIVED
+                ? 'Cette demande attend votre réponse : envoyez le contrat.'
+                : 'Le contrat reste à envoyer.',
+            'confirmed' => match ($this->status) {
+                BookingStatus::RECEIVED => 'Cette demande attend votre réponse : confirmez la réservation.',
+                BookingStatus::CONTRACT_SENT => "L'accord est complet : la réservation reste à confirmer.",
+                default => 'La réservation reste à confirmer.',
+            },
             BookingMilestones::ARRIVAL_INVENTORY => "L'état des lieux d'entrée reste à faire.",
             BookingMilestones::METER_READINGS => 'Les relevés de compteurs restent à faire.',
             BookingMilestones::DEPARTURE_INVENTORY => "L'état des lieux de sortie reste à faire.",
@@ -226,7 +232,10 @@ final class BookingJourney
         $others = [];
 
         foreach (BookingTransition::allowedFrom($this->status) as $to) {
-            if ($to !== $forward) {
+            // Confirming is never one decision among others (#708, IT-13):
+            // it is the last line of the agreement, offered there once the
+            // agreement is complete.
+            if ($to !== $forward && $to !== BookingStatus::CONFIRMED) {
                 $others[] = MilestoneAction::transition($to, $this->status);
             }
         }

@@ -1403,6 +1403,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
@@ -1665,6 +1666,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
@@ -1959,6 +1961,13 @@ class RentalManagementControllerTest extends TestCase
 
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_sent'));
+
+        // The unit's answer (#708, IT-13): « Contrat envoyé », and the dates
+        // held while the renter signs — no decision email on top of it.
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $fresh?->status);
+        $this->assertNotNull($fresh?->holdUntil);
+        $this->assertSame([], $this->renterEmails);
     }
 
     /**
@@ -2097,7 +2106,12 @@ class RentalManagementControllerTest extends TestCase
      * request for a contract, which is where the checklist alone used to
      * point.
      */
-    public function testAnUndecidedRequestLeadsWithItsDecision(): void
+    /**
+     * The unit's answer is its contract (#708, IT-13): a received request
+     * leads with sending it, the other answers stay behind « Autres
+     * décisions », and confirming is not among them.
+     */
+    public function testAReceivedRequestLeadsWithTheContract(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2105,9 +2119,28 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre décision.', $nextStep);
-        $this->assertStringContainsString('value="confirmed"', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre réponse : envoyez le contrat.', $nextStep);
+        $this->assertStringContainsString('Préparer le contrat', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
+        $this->assertStringNotContainsString('value="confirmed"', $nextStep);
+    }
+
+    /** Confirming is refused while the agreement is not complete, and says what is missing. */
+    public function testAConfirmationWaitsForTheAgreement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Contrat envoyé »', $flash['message'] ?? '');
     }
 
     /**
@@ -2119,6 +2152,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
@@ -2520,11 +2554,26 @@ class RentalManagementControllerTest extends TestCase
 
     private function confirm(RentalBooking $booking): void
     {
+        $this->completeTheAgreement($booking);
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'status' => 'confirmed',
         ]);
+    }
+
+    /**
+     * The agreement complete, as the site derives it: the contract sent and
+     * its signed copy back (#708, IT-13) — what a confirmation now waits for.
+     */
+    private function completeTheAgreement(RentalBooking $booking): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO rental_documents (booking_id, file_id, document_type, version, is_for_renter, sent_at)
+             VALUES (?, 1, ?, 1, 1, ?)'
+        );
+        $insert->execute([$booking->id, 'contract', '2027-01-02 10:00:00']);
+        $insert->execute([$booking->id, 'signed_contract', null]);
     }
 
     private function markStep(RentalBooking $booking, string $key, bool $done = true): Response
@@ -2550,7 +2599,7 @@ class RentalManagementControllerTest extends TestCase
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         preg_match_all('#<li class="step-item[^"]*"\s+data-milestone="([a-z_]+)" data-kind="([a-z]+)".*?</li>#s', $body, $steps, PREG_SET_ORDER);
-        $this->assertGreaterThanOrEqual(15, count($steps), 'the journey renders every step');
+        $this->assertGreaterThanOrEqual(14, count($steps), 'the journey renders every step');
 
         $marked = [];
         foreach ($steps as [$markup, $key, $kind]) {
@@ -2645,6 +2694,11 @@ class RentalManagementControllerTest extends TestCase
             $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
             foreach (\Modules\Rental\Booking\BookingTransition::allowedFrom($booking->status) as $to) {
+                // Confirming is offered by its own line once the agreement
+                // is complete, never as one decision among others (#708, IT-13).
+                if ($to === BookingStatus::CONFIRMED) {
+                    continue;
+                }
                 $this->assertSame(
                     1,
                     substr_count($body, 'name="status" value="' . $to->value . '"'),
@@ -3215,6 +3269,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés', 0);
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,

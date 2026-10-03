@@ -202,6 +202,106 @@ class RentalOperationsServiceTest extends TestCase
 
     // ── Lifecycle transitions ───────────────────────────────────────────
 
+    // ── « Contrat envoyé » (#708, IT-13) ────────────────────────────────
+
+    public function testSendingTheContractAnswersAnyStateStillWaitingOnTheUnit(): void
+    {
+        foreach ([BookingStatus::RECEIVED, BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED] as $i => $from) {
+            $booking = $this->createBooking('LOC-2027-010' . $i);
+            $this->bookingRepository->setStatus($booking->id, $from, $this->now());
+
+            $this->service->contractSent($this->reload($booking), 1, $this->now());
+
+            $this->assertSame(BookingStatus::CONTRACT_SENT, $this->reload($booking)->status, $from->value);
+        }
+    }
+
+    public function testSendingItAgainOrAfterConfirmationNeverMovesTheStatusBack(): void
+    {
+        $sent = $this->createBooking('LOC-2027-0201');
+        $this->bookingRepository->setStatus($sent->id, BookingStatus::CONTRACT_SENT, $this->now());
+        $this->service->contractSent($this->reload($sent), 1, $this->now());
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->reload($sent)->status);
+
+        $confirmed = $this->createBooking('LOC-2027-0202', '2027-08-01', '2027-08-04');
+        $this->bookingRepository->setStatus($confirmed->id, BookingStatus::CONFIRMED, $this->now());
+        $this->service->contractSent($this->reload($confirmed), 1, $this->now());
+        $this->assertSame(BookingStatus::CONFIRMED, $this->reload($confirmed)->status);
+        $this->assertNull($this->reload($confirmed)->holdUntil);
+    }
+
+    public function testTheContractEmailIsTheOnlyMessageNoDecisionEmail(): void
+    {
+        $this->assertNull(\Modules\Rental\Booking\RenterDecision::forStatus(BookingStatus::CONTRACT_SENT));
+        $this->assertFalse(BookingStatus::CONTRACT_SENT->needsAttention());
+    }
+
+    public function testALongerHoldIsKeptAShorterOneIsLengthenedAndNoneIsCreated(): void
+    {
+        // Sent on 1 February, stay on 1 July: the 15-day floor is 16 February.
+        $longer = $this->createBooking('LOC-2027-0301');
+        $this->bookingRepository->setHold($longer->id, new \DateTimeImmutable('2027-03-15 10:00:00'), HoldOrigin::MANAGER);
+        $this->service->contractSent($this->reload($longer), 1, $this->now());
+        $this->assertSame('2027-03-15 10:00:00', $this->reload($longer)->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertSame(HoldOrigin::MANAGER, $this->reload($longer)->holdOrigin);
+
+        $shorter = $this->createBooking('LOC-2027-0302', '2027-08-01', '2027-08-04');
+        $this->bookingRepository->setHold($shorter->id, new \DateTimeImmutable('2027-02-05 10:00:00'), HoldOrigin::MANAGER);
+        $this->service->contractSent($this->reload($shorter), 1, $this->now());
+        $this->assertSame('2027-02-16 10:00:00', $this->reload($shorter)->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertSame(HoldOrigin::MANAGER, $this->reload($shorter)->holdOrigin, 'an option stays an option');
+
+        $none = $this->createBooking('LOC-2027-0303', '2027-09-01', '2027-09-04');
+        $this->service->contractSent($this->reload($none), 1, $this->now());
+        $this->assertSame('2027-02-16 10:00:00', $this->reload($none)->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertSame(HoldOrigin::AUTOMATIC, $this->reload($none)->holdOrigin);
+    }
+
+    public function testTheContractHoldNeverRunsPastTheStartOfTheStay(): void
+    {
+        $soon = $this->createBooking('LOC-2027-0401', '2027-02-08', '2027-02-10');
+
+        $this->service->contractSent($soon, 1, $this->now());
+
+        $this->assertSame('2027-02-08 00:00:00', $this->reload($soon)->holdUntil?->format('Y-m-d H:i:s'));
+    }
+
+    /** Confirmation refused while a step of the agreement is missing, accepted once done. */
+    public function testConfirmationWaitsForTheAgreement(): void
+    {
+        $booking = $this->createBooking();
+        $missing = \Modules\Rental\Booking\BookingMilestones::for(
+            $booking,
+            $this->now(),
+            [\Modules\Rental\Booking\BookingMilestones::CONTRACT_SENT => false]
+        );
+
+        try {
+            $this->service->confirm($booking, $this->asset(), 1, $this->now(), $missing);
+            $this->fail('confirmed without a contract sent');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('« Contrat envoyé »', $e->getMessage());
+        }
+
+        $done = \Modules\Rental\Booking\BookingMilestones::for(
+            $booking,
+            $this->now(),
+            [\Modules\Rental\Booking\BookingMilestones::CONTRACT_SENT => true]
+        );
+        $this->service->confirm($this->reload($booking), $this->asset(), 1, $this->now(), $done);
+        $this->assertSame(BookingStatus::CONFIRMED, $this->reload($booking)->status);
+    }
+
+    /** A step « sans objet » blocks nothing: an asset with no contract. */
+    public function testAStepWithoutObjectDoesNotBlockConfirmation(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->service->confirm($booking, $this->asset(), 1, $this->now(), \Modules\Rental\Booking\BookingMilestones::for($booking, $this->now()));
+
+        $this->assertSame(BookingStatus::CONFIRMED, $this->reload($booking)->status);
+    }
+
     public function testAValidTransitionMovesTheBooking(): void
     {
         $booking = $this->createBooking();

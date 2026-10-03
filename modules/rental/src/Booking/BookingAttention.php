@@ -137,7 +137,6 @@ final class BookingAttention
         return match ($step->key) {
             BookingMilestones::CONTRACT_SENT => 'envoyer le contrat',
             'confirmed' => 'confirmer la réservation',
-            'decision' => 'répondre à la demande',
             BookingMilestones::ARRIVAL_INVENTORY => "l'état des lieux d'entrée",
             BookingMilestones::METER_READINGS => 'relever les compteurs',
             BookingMilestones::DEPARTURE_INVENTORY => "l'état des lieux de sortie",

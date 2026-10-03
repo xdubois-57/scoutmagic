@@ -1634,7 +1634,14 @@ class RentalManagementController extends AbstractController
                 $document->originalName ?? 'document.pdf',
                 $document->hasBeenSent()
             );
-            $this->documentService->markSent($document->id, new \DateTimeImmutable());
+            $now = new \DateTimeImmutable();
+            $this->documentService->markSent($document->id, $now);
+
+            // The contract is the unit's answer (#708, IT-13): « Contrat
+            // envoyé », and the dates held while the renter signs.
+            if ($document->type === DocumentType::CONTRACT) {
+                $this->operationsService->contractSent($booking, $this->actorMemberId(), $now, $this->contractHoldMinDays());
+            }
 
             FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');
         });
@@ -2407,7 +2414,21 @@ class RentalManagementController extends AbstractController
             $word = Support::optionalString($request->getBody('message'));
 
             if ($target === BookingStatus::CONFIRMED) {
-                $this->operationsService->confirm($booking, $asset, $this->actorMemberId(), $now);
+                // The journey the page shows: confirming waits for the
+                // agreement to be complete (#708, IT-13).
+                $this->operationsService->confirm(
+                    $booking,
+                    $asset,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->milestonesOf(
+                        $booking,
+                        $asset,
+                        $this->documentService?->forBooking($booking->id),
+                        $this->paymentStatus($booking, $asset),
+                        $now
+                    )
+                );
                 FlashMessage::set(
                     'success',
                     'Réservation confirmée.'
@@ -2982,6 +3003,19 @@ class RentalManagementController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /**
+     * How long, at least, the dates stay held once the contract is out
+     * (#708, IT-13): the `contract_hold_min_days` setting, 15 by default.
+     */
+    private function contractHoldMinDays(): int
+    {
+        $stored = $this->settingService?->get('contract_hold_min_days', 'rental');
+
+        return is_string($stored) && is_numeric(trim($stored))
+            ? max(0, (int) trim($stored))
+            : RentalOperationsService::DEFAULT_CONTRACT_HOLD_MIN_DAYS;
     }
 
     /**

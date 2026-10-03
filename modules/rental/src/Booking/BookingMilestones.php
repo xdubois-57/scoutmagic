@@ -62,7 +62,6 @@ final class BookingMilestones
     public const ACTORS = [
         'request_received' => StepActor::RENTER,
         'hold' => StepActor::UNIT,
-        'decision' => StepActor::UNIT,
         self::CONTRACT_SENT => StepActor::UNIT,
         self::CONTRACT_ACCEPTED => StepActor::RENTER,
         self::DEPOSIT_RECEIVED => StepActor::RENTER,
@@ -76,6 +75,29 @@ final class BookingMilestones
         self::SECURITY_DEPOSIT_RETURNED => StepActor::UNIT,
         'closed' => StepActor::UNIT,
     ];
+
+    /**
+     * The applicable steps before « Réservation confirmée » still to do
+     * (#708, IT-13) — what stands between a booking and its confirmation.
+     * A step « sans objet » blocks nothing, and a state never does.
+     *
+     * @param list<BookingMilestone> $milestones
+     * @return list<BookingMilestone>
+     */
+    public static function missingBeforeConfirmation(array $milestones): array
+    {
+        $missing = [];
+        foreach ($milestones as $milestone) {
+            if ($milestone->key === 'confirmed') {
+                return $missing;
+            }
+            if ($milestone->isOutstanding()) {
+                $missing[] = $milestone;
+            }
+        }
+
+        return $missing;
+    }
 
     /**
      * @param array<string, bool> $extras
@@ -134,27 +156,10 @@ final class BookingMilestones
                 : null
         );
 
-        // The line the chantier's phase 1 names and this list never had:
-        // "décision à prendre". « Demande reçue » ticks when the request
-        // ARRIVES, so a request nobody has looked at showed a phase with
-        // nothing outstanding in it, and the page's « action suivante »
-        // went straight past the decision to ask for a contract.
-        //
-        // Done exactly when confirming is no longer on the table — the same
-        // table `BookingTransition` already keeps, rather than a second
-        // list of "deliberating" statuses that would drift from it. A
-        // proposal sent is not a decision taken: the renter may still
-        // refuse it, and confirming remains allowed.
-        $milestones[] = new BookingMilestone(
-            'decision',
-            'Décision prise sur la demande',
-            !BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
-            true,
-            BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED)
-                ? null
-                : $booking->status->label()
-        );
-
+        // No « Décision prise sur la demande » line any more (#708, IT-13):
+        // the unit's answer to a request is sending its contract, which is
+        // the first line of L'accord — and « Réservation confirmée » closes
+        // that stretch rather than duplicating it here.
         $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_SENT, 'Contrat envoyé', $details);
         $milestones[] = self::extra(
             $extras,
@@ -205,7 +210,7 @@ final class BookingMilestones
         // What each line asks and how it gets ticked is decided once, over
         // the finished list, so that the facts above stay the only thing
         // each constructor call is about.
-        return array_map(
+        $shaped = array_map(
             static fn(BookingMilestone $m): BookingMilestone => self::shaped(
                 $m,
                 $booking->status,
@@ -213,6 +218,33 @@ final class BookingMilestones
                 $booking->holdOrigin
             ),
             $milestones
+        );
+
+        // Confirming is the end of the agreement, not a shortcut past it
+        // (#708, IT-13): while a step before it is missing, the line offers
+        // no button and says what is missing instead.
+        $missing = self::missingBeforeConfirmation($shaped);
+        if ($missing === []) {
+            return $shaped;
+        }
+
+        return array_map(
+            static fn(BookingMilestone $m): BookingMilestone => $m->key !== 'confirmed' ? $m : new BookingMilestone(
+                $m->key,
+                $m->label,
+                $m->isDone,
+                $m->isApplicable,
+                $m->detail,
+                $m->kind,
+                'Se confirme quand l\'accord est complet. Il manque : '
+                    . implode(', ', array_map(static fn(BookingMilestone $x): string => '« ' . $x->label . ' »', $missing))
+                    . '.',
+                null,
+                $m->isState,
+                $m->warning,
+                $m->actor
+            ),
+            $shaped
         );
     }
 
@@ -245,16 +277,11 @@ final class BookingMilestones
                     : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '
                         . 'se libèrent et la demande reste en attente.';
                 break;
-            case 'decision':
-                $kind = MilestoneKind::HERE;
-                $explanation = 'Répondez au locataire : confirmez la réservation, faites-lui une proposition, '
-                    . 'demandez-lui une précision, ou refusez.';
-                $action = self::forward($status, BookingStatus::CONFIRMED);
-                break;
             case self::CONTRACT_SENT:
                 $kind = MilestoneKind::HERE;
-                $explanation = 'Le contrat reprend les conditions du bien et le prix convenu ; il se prépare et '
-                    . "s'envoie depuis la page Documents.";
+                $explanation = "Le contrat est la réponse de l'unité à la demande : il reprend les conditions du "
+                    . "bien et le prix convenu, se prépare et s'envoie depuis la page Documents. L'envoyer "
+                    . 'passe la réservation à « Contrat envoyé ».';
                 $action = MilestoneAction::openBox('Préparer le contrat', BookingBox::DOCUMENTS);
                 break;
             case self::CONTRACT_ACCEPTED:
@@ -268,7 +295,10 @@ final class BookingMilestones
                 $explanation = 'Se coche dès que le paiement est pointé dans les Finances.';
                 break;
             case 'confirmed':
-                $explanation = 'Se coche quand la réservation est confirmée.';
+                // The last line of the agreement, the unit's (#708, IT-13).
+                $kind = MilestoneKind::HERE;
+                $explanation = "L'accord est complet : confirmez la réservation.";
+                $action = self::forward($status, BookingStatus::CONFIRMED);
                 break;
             case self::ARRIVAL_INVENTORY:
             case self::DEPARTURE_INVENTORY:

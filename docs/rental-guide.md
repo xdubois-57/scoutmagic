@@ -156,8 +156,13 @@ est tracée dans l'historique.
 
 On y trouve aussi :
 
-- **États** : reçue, information demandée, proposée, confirmée, refusée,
-  annulée, expirée, clôturée. Il n'y a pas d'état « en examen » : une
+- **États** : reçue, information demandée, proposée, contrat envoyé,
+  confirmée, refusée, annulée, expirée, clôturée. « Contrat envoyé » se
+  pose tout seul quand le contrat part : c'est votre réponse à la
+  demande, et les dates restent bloquées au moins 15 jours pendant la
+  signature. On ne confirme qu'au bout de l'accord — contrat, conditions
+  acceptées, acompte —, chaque étape faite par le site ou cochée à la
+  main. Il n'y a pas d'état « en examen » : une
   demande attend votre décision (« reçue ») ou la réponse du locataire, et
   « Remettre en attente » la ramène à « reçue ».
 - **Option** : vous posez une option avec une échéance, pour laisser au

@@ -50,6 +50,12 @@ use Modules\Rental\Support;
 class RentalOperationsService
 {
     /**
+     * How long, at least, the dates stay held once the contract has gone
+     * out (#708, IT-13) — the `contract_hold_min_days` setting's default.
+     */
+    public const DEFAULT_CONTRACT_HOLD_MIN_DAYS = 15;
+
+    /**
      * How long each billing field may be, in characters.
      *
      * Generous on purpose: a Belgian invoice address fits in a fraction of
@@ -181,6 +187,77 @@ class RentalOperationsService
     }
 
     /**
+     * The contract went out to the renter (#708, IT-13).
+     *
+     * - **The status becomes « Contrat envoyé »** from any state still
+     *   waiting for the unit's answer — received, information requested,
+     *   proposal sent. Never backwards: a confirmed or final booking stays
+     *   where it is, and a resend leaves « Contrat envoyé » as it was. No
+     *   decision email: the one carrying the contract says it all.
+     * - **The dates stay held while the renter signs**: the hold is
+     *   lengthened to last at least `$minHoldDays` from now, capped at the
+     *   start of the stay. A longer hold is left alone; its origin does not
+     *   change, and a new one, when none ran, is automatic.
+     */
+    public function contractSent(
+        RentalBooking $booking,
+        ?int $actorMemberId,
+        \DateTimeImmutable $now,
+        int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
+    ): void {
+        $current = $this->bookingRepository->findById($booking->id) ?? $booking;
+        if ($current->status->isFinal() || $current->status->firmlyOccupiesTheAsset()) {
+            return;
+        }
+
+        $answering = [BookingStatus::RECEIVED, BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED];
+        if (in_array($current->status, $answering, true)
+            && $this->bookingRepository->compareAndSetStatus(
+                $current->id,
+                $current->status,
+                BookingStatus::CONTRACT_SENT,
+                $now
+            )
+        ) {
+            $this->recordStatusChange($current, BookingStatus::CONTRACT_SENT, $actorMemberId);
+        }
+
+        $this->holdAtLeast($current, $now->modify('+' . max(0, $minHoldDays) . ' days'), $now, $actorMemberId);
+    }
+
+    /**
+     * Lengthens the hold to `$until` at least, capped at the start of the
+     * stay. Never shortens one, never changes the origin of one that runs.
+     */
+    private function holdAtLeast(
+        RentalBooking $booking,
+        \DateTimeImmutable $until,
+        \DateTimeImmutable $now,
+        ?int $actorMemberId
+    ): void {
+        $until = RentalBookingService::capAtArrival($until, $now, $booking->arrivalDate);
+        if ($until === null) {
+            return;
+        }
+
+        $running = $booking->holdIsActive($now);
+        if ($running && $booking->holdUntil !== null && $booking->holdUntil >= $until) {
+            return;
+        }
+
+        $origin = $running && $booking->holdOrigin !== null ? $booking->holdOrigin : HoldOrigin::AUTOMATIC;
+        $this->bookingRepository->setHold($booking->id, $until, $origin);
+        $this->bookingAudit->record(
+            $booking->id,
+            BookingAudit::HOLD_PLACED,
+            $running ? $booking->holdUntil?->format('d/m/Y H:i') : null,
+            $until->format('d/m/Y H:i'),
+            'Blocage prolongé à l\'envoi du contrat',
+            $actorMemberId
+        );
+    }
+
+    /**
      * Confirms a booking, re-checking availability **inside the same
      * transaction** as the write (iteration 5's acceptance criterion).
      *
@@ -199,15 +276,31 @@ class RentalOperationsService
      * own dates, and counting them would make every confirmation fail.
      *
      * @throws RentalException
+     *
+     * `$milestones` is the booking's journey as its page shows it (#708,
+     * IT-13). Given, the agreement must be complete: every applicable step
+     * before « Réservation confirmée » done, by the site or ticked by hand.
+     * Every screen passes it; only fixtures building data omit it.
+     *
+     * @param list<\Modules\Rental\Booking\BookingMilestone>|null $milestones
      */
     public function confirm(
         RentalBooking $booking,
         RentalAsset $asset,
         ?int $actorMemberId,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?array $milestones = null
     ): void {
         if (!BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED)) {
             throw new RentalException(BookingTransition::refusalReason($booking->status, BookingStatus::CONFIRMED));
+        }
+
+        $missing = $milestones !== null ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones) : [];
+        if ($missing !== []) {
+            throw new RentalException(
+                'La réservation ne peut être confirmée qu\'au bout de l\'accord. Il manque : '
+                . implode(', ', array_map(static fn($m): string => '« ' . $m->label . ' »', $missing)) . '.'
+            );
         }
 
         $billingUnit = $this->pricingService->loadSettings($asset->id)->billingUnit;

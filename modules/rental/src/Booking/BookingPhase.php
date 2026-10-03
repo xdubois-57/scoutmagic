@@ -77,7 +77,7 @@ enum BookingPhase: string
     public static function of(string $milestoneKey): ?self
     {
         return match ($milestoneKey) {
-            'request_received', 'hold', 'decision' => self::REQUEST,
+            'request_received', 'hold' => self::REQUEST,
             BookingMilestones::CONTRACT_SENT,
             BookingMilestones::CONTRACT_ACCEPTED,
             BookingMilestones::DEPOSIT_RECEIVED,
