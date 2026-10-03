@@ -428,6 +428,18 @@ describe('list-editor.js: a list that changes without reloading (#708, IT-10)', 
         await vi.waitFor(() => expect(container.querySelectorAll('.list-editor-item')).toHaveLength(2));
     });
 
+    it('keeps the form as typed when the request itself fails', async () => {
+        const container = buildInPlaceEditor();
+        await boot();
+        window.ScoutMagicApi.postJson = vi.fn(() => Promise.reject(new Error('boom')));
+
+        container.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+        await vi.waitFor(() => expect(container.querySelector('[type="submit"]').disabled).toBe(false));
+        expect(container.querySelectorAll('.list-editor-item')).toHaveLength(2);
+        expect(container.querySelector('input[name="label"]').value).toBe('Eau');
+    });
+
     it('removes a deleted row in place, and says the list is empty once it is', async () => {
         const container = buildInPlaceEditor([1]);
         await boot();

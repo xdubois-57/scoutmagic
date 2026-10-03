@@ -192,6 +192,10 @@
                     addForm.dispatchEvent(new Event('list-editor:added'));
                     /** @type {HTMLElement|null} */ (addForm.querySelector('input:not([type="hidden"]), select'))?.focus();
                     if (data.message) window.ScoutMagicToast.show(data.message, { variant: 'success' });
+                }).catch(function () {
+                    // Nothing reached the server: the form stays as typed.
+                    if (submit) submit.disabled = false;
+                    window.ScoutMagicToast.show("Erreur réseau : rien n'a été ajouté.", { variant: 'error' });
                 });
             });
         }

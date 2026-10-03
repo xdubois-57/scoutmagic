@@ -66,6 +66,8 @@ export function wireInventoryTemplate(root) {
             if (!data.success) {
                 window.ScoutMagicToast.show(data.error || "L'élément n'a pas pu être enregistré.", { variant: 'error' });
             }
+        }).catch(function () {
+            window.ScoutMagicToast.show("Erreur réseau : l'élément n'a pas été enregistré.", { variant: 'error' });
         });
     });
 

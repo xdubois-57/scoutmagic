@@ -81,6 +81,18 @@ describe('rental-inventory-template.js', () => {
             .toBe("Le nombre attendu doit être un nombre entier d'au moins 1."));
     });
 
+    it('says so when the request itself fails', async () => {
+        await boot();
+        window.ScoutMagicApi.postJson = vi.fn(() => Promise.reject(new Error('boom')));
+        const count = document.querySelector('[data-inventory-field="expected_count"]');
+
+        count.value = '42';
+        count.dispatchEvent(new Event('change', { bubbles: true }));
+
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')?.textContent)
+            .toBe("Erreur réseau : l'élément n'a pas été enregistré."));
+    });
+
     it('the add form shows the count only for a quantity, and again after a reset', async () => {
         await boot();
         const form = document.querySelector('.inventory-add-form');
