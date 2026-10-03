@@ -106,6 +106,10 @@ La documentation détaillée est volontairement séparée de ce README :
   intégration continue, contrôles de qualité et processus de release.
 - [Développement de modules](docs/module-development.md) — création et
   intégration d'un module ScoutMagic.
+- [Guide de location](docs/rental-guide.md) — gestion des biens proposés à la
+  location.
+- [Configuration du courrier entrant](docs/inbound-mail-setup.md) — connexion
+  d'une boîte mail en lecture seule.
 
 Les règles destinées aux contributeurs et aux agents de développement se
 trouvent également dans [AGENTS.md](AGENTS.md).
