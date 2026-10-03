@@ -603,6 +603,73 @@ class TextPageConfigControllerTest extends TestCase
         $this->assertNotContains('text_page_moved', $this->journalTypes());
     }
 
+    // ── a drag into another section (issue #752) ──────────────────────
+
+    public function testADragIntoAnotherSectionMovesThePageAndJournalsItAtSecurityLevel(): void
+    {
+        $members = $this->pages->create('Charte', 'La charte', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $public = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        $response = $this->postJson(
+            '/config/pages-de-texte/ordre',
+            ['ids' => [$members->id, $public->id], 'group' => MenuBuilder::MENU_NOTRE_UNITE],
+            'reorder'
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['success']);
+        $moved = $this->pages->findById($members->id);
+        $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $moved?->menuId);
+        $this->assertSame(0, $moved?->sortOrder);
+        $this->assertSame(1, $this->pages->findById($public->id)?->sortOrder);
+        $this->assertSame(
+            MenuBuilder::roleMinFor(MenuBuilder::MENU_NOTRE_UNITE),
+            $moved?->roleMin(),
+            'its audience follows the section at once'
+        );
+
+        $moves = array_values(array_filter(
+            $this->journalRows(),
+            fn(array $row): bool => $row['event_type'] === 'text_page_moved'
+        ));
+        $this->assertCount(1, $moves);
+        $this->assertSame('security', $moves[0]['level']);
+        $context = json_decode((string) $moves[0]['context'], true);
+        $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $context['from_menu']);
+        $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $context['to_menu']);
+        $this->assertSame(['group_label' => ''], $body['items'][(string) $members->id]);
+    }
+
+    public function testADragWithinItsOwnSectionJournalsNothing(): void
+    {
+        $a = $this->pages->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $b = $this->pages->create('B', 'B', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        $this->postJson(
+            '/config/pages-de-texte/ordre',
+            ['ids' => [$b->id, $a->id], 'group' => MenuBuilder::MENU_NOTRE_UNITE],
+            'reorder'
+        );
+
+        $this->assertSame(0, $this->pages->findById($b->id)?->sortOrder);
+        $this->assertNotContains('text_page_moved', $this->journalTypes());
+    }
+
+    public function testADragIntoAnUnknownSectionIsRefusedAndMovesNothing(): void
+    {
+        $page = $this->pages->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        $response = $this->postJson(
+            '/config/pages-de-texte/ordre',
+            ['ids' => [$page->id], 'group' => 'nulle_part'],
+            'reorder'
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $this->pages->findById($page->id)?->menuId);
+        $this->assertNotContains('text_page_moved', $this->journalTypes());
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function journalRows(): array
     {

@@ -97,7 +97,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         buildEditor({ items: [1, 2, 3] });
         await boot();
 
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
 
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['2', '1', '3']);
@@ -108,7 +108,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('moving the last item down is a no-op — there is no next sibling', async () => {
         buildEditor({ items: [1, 2, 3] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[2].querySelector('.list-editor-move-down').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[2].querySelector('.list-editor-move-down').dispatchEvent(new Event('click', { bubbles: true }));
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['1', '2', '3']);
     });
@@ -116,7 +116,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('moving the first item up is a no-op — there is no previous sibling', async () => {
         buildEditor({ items: [1, 2, 3] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[0].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[0].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['1', '2', '3']);
     });
@@ -124,7 +124,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it("a real move persists the new order via POST, with string (not parseInt'd) ids", async () => {
         buildEditor({ items: ['finance', 'gallery', 'news'] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
 
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/reorder', expect.objectContaining({
             method: 'POST',
@@ -135,7 +135,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('does nothing (no persist, no throw) when no reorder URL is configured', async () => {
         buildEditor({ items: [1, 2], reorderUrl: '' });
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         await Promise.resolve();
         expect(fetch).not.toHaveBeenCalled();
     });
@@ -144,7 +144,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         buildEditor({ items: [1, 2] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Verrou déjà pris.' }));
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         await vi.waitFor(() => expect(lastToastText()).toBe('Verrou déjà pris.'));
     });
 });

@@ -182,6 +182,51 @@ class TextPageRepository
         }
     }
 
+    /**
+     * Makes `$orderedIds` the content of `$menuId`, in that order — moving
+     * into it the pages listed in `$moved` (id => their column in the new
+     * menu) — then closes the gaps their departure left in each menu of
+     * `$sourceMenus`. One transaction: a page half moved, in its new menu
+     * at its old rank or in neither, cannot survive a failure.
+     *
+     * The caller validates every placement first ({@see
+     * TextPageService::placeInMenu()}); this writes what it is given.
+     *
+     * @param array<int, int> $orderedIds
+     * @param array<int, ?string> $moved page id => menu_group in $menuId
+     * @param array<int, string> $sourceMenus
+     */
+    public function placeInMenu(string $menuId, array $orderedIds, array $moved, array $sourceMenus): void
+    {
+        $now = self::now();
+        $move = $this->pdo->prepare(
+            'UPDATE text_pages SET menu_id = ?, menu_group = ?, sort_order = ?, updated_at = ? WHERE id = ?'
+        );
+        $rank = $this->pdo->prepare('UPDATE text_pages SET sort_order = ?, updated_at = ? WHERE id = ?');
+        $remaining = $this->pdo->prepare('SELECT id FROM text_pages WHERE menu_id = ? ORDER BY sort_order, id');
+
+        $this->pdo->beginTransaction();
+        try {
+            foreach (array_values($orderedIds) as $position => $id) {
+                if (array_key_exists($id, $moved)) {
+                    $move->execute([$menuId, $moved[$id], $position, $now, $id]);
+                } else {
+                    $rank->execute([$position, $now, $id]);
+                }
+            }
+            foreach (array_unique($sourceMenus) as $sourceMenu) {
+                $remaining->execute([$sourceMenu]);
+                foreach (array_map('intval', $remaining->fetchAll(\PDO::FETCH_COLUMN)) as $position => $id) {
+                    $rank->execute([$position, $now, $id]);
+                }
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
     /** The highest order currently used in a menu, so a new page lands last. */
     public function maxSortOrder(string $menuId): int
     {
