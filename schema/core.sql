@@ -1050,6 +1050,25 @@ CREATE TABLE member_badges (
     CONSTRAINT fk_mb_assigned_by FOREIGN KEY (assigned_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- A totem a staff member carries in ONE section for ONE scout year — the
+-- Louveteaux' « Akela » (issue #722). Stored apart from the Desk totem
+-- (`member_years.totem_encrypted`) so the import, which rewrites that one,
+-- never touches it; keyed on the member-year, so a new year starts with
+-- none and nothing is carried over. Encrypted at rest like the Desk totem:
+-- it names a person as their section knows them.
+CREATE TABLE member_section_totems (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_year_id INT UNSIGNED NOT NULL,
+    section_id INT UNSIGNED NOT NULL,
+    totem_encrypted BLOB NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by INT UNSIGNED NULL,
+    UNIQUE INDEX idx_mst_member_section (member_year_id, section_id),
+    CONSTRAINT fk_mst_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mst_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mst_updated_by FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE module_registry (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     module_id VARCHAR(100) NOT NULL UNIQUE,

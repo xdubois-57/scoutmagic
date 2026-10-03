@@ -46,11 +46,13 @@
     var fileInput = /** @type {HTMLInputElement|null} */ (document.getElementById('section-document-file-input'));
     /** @type {NodeListOf<HTMLElement>} */
     var badgePickers = document.querySelectorAll('.badge-picker');
+    /** @type {NodeListOf<HTMLInputElement>} */
+    var sectionTotemInputs = document.querySelectorAll('.section-totem-input');
 
     // A no-op on every other page of the site, and on this one whenever the
     // chief cannot edit the section (the template renders none of these
     // controls then).
-    if (!documentFields.length && !fileInput && !badgePickers.length) {
+    if (!documentFields.length && !fileInput && !badgePickers.length && !sectionTotemInputs.length) {
         return;
     }
 
@@ -91,6 +93,32 @@
                 if (!res.data?.success) {
                     toastError(res, 'Erreur.');
                 }
+            });
+        });
+    });
+
+    // --- Section totem (« Akela », issue #722): saved on blur ---
+    // An autosave, so its result is a toast (design.md §7.13). A refused
+    // totem keeps what was typed, as every free-text field of the site
+    // does; a field left unchanged sends nothing.
+    sectionTotemInputs.forEach(function (input) {
+        var saved = input.value;
+        input.addEventListener('blur', function () {
+            var value = input.value.trim();
+            if (value === saved.trim()) {
+                return;
+            }
+            api.postJson('/chefs/staffs/totem-de-section', {
+                member_year_id: Number.parseInt(input.dataset.memberYearId || '', 10),
+                section_id: Number.parseInt(input.dataset.sectionId || '', 10),
+                totem: value
+            }).then(function (res) {
+                if (res.data?.success) {
+                    saved = value;
+                    window.ScoutMagicToast.show(value === '' ? 'Totem de section retiré.' : 'Enregistré.', { variant: 'success' });
+                    return;
+                }
+                toastError(res, 'Erreur.');
             });
         });
     });
