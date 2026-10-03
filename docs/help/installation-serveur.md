@@ -73,6 +73,20 @@ Lors de la toute première installation, le bouton « Installer » reste
 bloqué tant qu'il n'est pas passé au vert. Sur un site déjà
 configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 
+## Les mises à jour automatiques
+
+Après l'installation, la page « Configuration › Maintenance » permet
+d'activer les mises à jour automatiques et de générer le secret utilisé
+pour authentifier GitHub. Dans les paramètres du dépôt GitHub, ajoutez
+alors un webhook avec l'URL `https://votre-domaine.be/api/webhook/github`,
+le type de contenu `application/json`, le secret affiché par ScoutMagic et
+l'événement **Releases** uniquement.
+
+Le webhook avertit immédiatement le site lorsqu'une nouvelle release est
+publiée. Le canal stable dispose aussi d'une vérification quotidienne de
+secours si une livraison du webhook est manquée ; le détail du mécanisme
+est documenté dans `ARCHITECTURE.md` §8.17.
+
 ## Le compte administrateur, pendant l'installation seulement
 
 L'assistant crée le premier compte, pour se connecter sans attendre un

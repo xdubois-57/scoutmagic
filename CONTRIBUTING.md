@@ -30,12 +30,12 @@ Thank you for considering contributing to this project.
 3. If your change adds or reworks a page an end user sees, ship its help topic in the same change — a `{id}.md` under the module's `help/` directory, or `docs/help/` for a core page. Write it to the editorial charter in `design.md` §7.11 (vouvoiement, the §7.1 lexicon, ~400 words, at most one `> ` callout) and declare the page in the topic's `paths`; `tests/Core/Help/` fails otherwise. See `docs/module-development.md` § Help topics.
 4. Ensure all PHP tests pass: `vendor/bin/phpunit`
 5. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
-6. If you touched `public/assets/js/`, ensure JavaScript static analysis passes: `npm ci` then `npm run typecheck` — the JavaScript equivalent of PHPStan above (see README.md § Analyse statique JavaScript).
-7. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see README.md § Développement).
-8. If you touched the application's boot path, routing, or the shared layout (`public/index.php`, `core/Http/`, `core/View/templates/base.html.twig`, `schema/core.sql`, …), run the end-to-end test: `npm run e2e:install` once, then `npm run e2e` — see README.md § Tests de bout en bout. It is the only check that proves the application still starts; CI runs it as a blocking check and `scripts/release.sh` as a release gate either way. If you changed the scout-year transition workflow described on `/admin/scout-year`, update `tests/e2e/specs/scout-year-transition.spec.js` in the same change — that page is the test's specification.
+6. If you touched `public/assets/js/`, ensure JavaScript static analysis passes: `npm ci` then `npm run typecheck` — the JavaScript equivalent of PHPStan above (see [docs/quality-pipeline.md](docs/quality-pipeline.md) § Static analysis).
+7. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see [docs/quality-pipeline.md](docs/quality-pipeline.md) § JavaScript — Vitest).
+8. If you touched the application's boot path, routing, or the shared layout (`public/index.php`, `core/Http/`, `core/View/templates/base.html.twig`, `schema/core.sql`, …), run the end-to-end test: `npm run e2e:install` once, then `npm run e2e` — see [docs/quality-pipeline.md](docs/quality-pipeline.md) § End-to-end — Playwright. It is the only check that proves the application still starts; CI runs it as a blocking check and the release workflow runs the full tier on every tag. If you changed the scout-year transition workflow described on `/admin/scout-year`, update `tests/e2e/specs/scout-year-transition.spec.js` in the same change — that page is the test's specification.
 9. If you found a real problem and deliberately decided not to fix it in this change — a review finding you verified but judged out of scope, a limitation you hit while implementing, a decision that is the maintainer's to make — open a GitHub issue for it and link it from the PR. It must say on its first line whether it is a **bug** or an **enhancement** (and, for a defect, carry `bug:confirmed`; an enhancement carries no `bug:*` label, and neither carries the older `bug` label, which the maintainer applies by hand, nor any `triage:*` label, which `issue-triage.yml` sets when it runs on the issue you just opened), and it must contain everything needed to make the fix without the PR thread: symptom, reproduction, mechanism with the code quoted inline, options, and the test that will pin the fix. See AGENTS.md § A problem you decide not to fix now becomes a GitHub issue. A PR thread is not a backlog. **One exception: a deferred security vulnerability — or a finding whose security status you are not sure of — is never a public issue** — report it privately per [SECURITY.md](SECURITY.md) § Reporting a vulnerability, since everything the issue would have to contain is what an exploit needs.
 10. Open a PR against `main` and fill in the PR template checklist.
-11. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/the JavaScript static analysis/Vitest/the end-to-end browser test/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
+11. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/the JavaScript static analysis/Vitest/the end-to-end browser test/`composer audit`/CodeQL — see [docs/quality-pipeline.md](docs/quality-pipeline.md) § Continuous integration. Its Quality Gate must pass before merge.
 
 ## License and attribution
 
@@ -54,13 +54,60 @@ Report security vulnerabilities privately — not via public issues. Contact the
 
 ## Development setup
 
+Development requires PHP >= 8.4. The JavaScript tooling requires Node.js >= 22 and npm; neither
+Node nor npm is required on the hosting server.
+
 ```bash
 composer install
 cp config/app.php.dist config/app.php
 composer serve
 
-npm ci               # only needed for JS static analysis and the Node-based tests (Vitest, Playwright) — see README.md
+npm ci               # only needed for JS static analysis and the Node-based tests (Vitest, Playwright)
 npm run e2e:install  # only needed once, before your first `npm run e2e`
 ```
 
-(`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)
+`composer serve` runs `php -S` with raised upload limits because the built-in server ignores
+`public/.user.ini`. If your IDE runs its own built-in PHP server instead, add
+`-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options,
+or uploads over 8M will return 413.
+
+### Database-backed PHP tests
+
+`vendor/bin/phpunit` runs the whole configured suite. Most tests labelled `database` use the
+in-memory SQLite helper, but the tests that exercise the production database engine read
+`TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_NAME`, `TEST_DB_USER` and `TEST_DB_PASSWORD`.
+When those variables promise a server, a refused connection is a failed run rather than a skip.
+`TEST_DB_PASSWORD` must not be empty because the setup-controller tests replay the real
+installation form, where the database password is required.
+
+### End-to-end and dynamic tests
+
+`npm run e2e` provisions a disposable ScoutMagic installation and database, applies the real
+schema, activates every shipped module, serves the real `public/index.php`, drives headless
+Chromium, and removes the temporary installation afterwards. It never reads or modifies a local
+ScoutMagic installation. Mail scenarios use the application's real mail stack; only the last
+transport hop is redirected to `scripts/e2e-maildrop.php`.
+
+The harness first uses `E2E_DB_*`, then `TEST_DB_*`, then the usual local MySQL defaults. If no
+server is reachable and Docker is available, it starts a disposable MySQL 8 container. An
+environment that already provides a compatible Chromium but cannot use Playwright's managed
+download can set `E2E_CHROMIUM_EXECUTABLE=/path/to/chromium`. On failure, Playwright diagnostics
+live under `tests/e2e/test-results/` and `tests/e2e/playwright-report/`.
+
+For the dynamic scan, pull the ZAP image once and then run the profile you need:
+
+```bash
+docker pull ghcr.io/zaproxy/zaproxy:stable
+./scripts/dast.sh --profile=passive
+```
+
+The `deep` and `audit` profiles are active scans: they send attack payloads while authenticated
+against the disposable installation. Read `tests/dast/zap-active.yaml` before adding a route that
+resets, restores, imports, reconfigures, changes credentials or roles, or contacts an external
+service. The exclusions in that file are what keep the scan from destroying its own state or
+reaching real third parties.
+
+For what each layer proves, the two E2E tiers, CI behaviour and the four DAST profiles, see
+[docs/quality-pipeline.md](docs/quality-pipeline.md). For the architecture of the E2E/DAST harness,
+including module activation, TLS termination, proxy coverage and the maildrop, see
+[ARCHITECTURE.md](ARCHITECTURE.md) §15 and [SECURITY.md](SECURITY.md) for the security model.

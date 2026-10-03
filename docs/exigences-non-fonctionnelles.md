@@ -251,11 +251,11 @@ nobody connected to retention.
 
 | Item | Requirement |
 |---|---|
-| PHP | **>= 8.4** (`README.md` § Prérequis) |
+| PHP | **>= 8.4** (`ARCHITECTURE.md` §1) |
 | MySQL | **>= 8.0**; the reference production installation is **MariaDB 10.11** and both engines are supported (`AGENTS.md` § Database) |
 | PHP extensions | `openssl`, `pdo_mysql`, `zip` (with libzip crypto support for encrypted archives — `BackupService::supportsZipEncryption()` degrades cleanly without it), `mbstring`, `sodium` when available |
 | Server-side runtime | No shell, no `mysqldump` binary, no Composer, no Node on the hosting server |
-| Cron | `php public/cron.php` every minute (`README.md` § La tâche cron) |
+| Cron | `php public/cron.php` every minute (`docs/help/installation-serveur.md`) |
 
 ### Supported browsers
 
@@ -273,7 +273,7 @@ because they are the ones with a number: touch targets meet the 24×24 CSS
 pixel minimum AA requires, with 44 px as a comfort goal for small controls
 (`design.md` §7.2), and every interactive control has an accessible name —
 which is what the end-to-end suite asserts by reaching elements through
-`getByRole`/`getByLabel` (`README.md` § Tests de bout en bout).
+`getByRole`/`getByLabel` (`docs/quality-pipeline.md` § End-to-end — Playwright).
 
 Nothing measures this automatically yet. Adding `axe-core` to the existing
 Playwright suite is the natural next step and is deliberately not in this
