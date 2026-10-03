@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
@@ -35,12 +36,13 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
 class RentalBookingService implements OccupancyProvider
 {
     /**
-     * How long the automatic hold lasts by default (specifications.md §22.5). Short on
-     * purpose: it is told to the renter as "we have 48 hours to reply", and
-     * a long automatic hold would silently make an asset look busy for
-     * requests nobody has looked at.
+     * How long the automatic hold lasts by default, in days (#708, IT-01):
+     * long enough for a volunteer team to answer, and never past the start
+     * of the stay (`automaticHoldUntil()`). It still lapses — a request
+     * nobody answers must not keep its dates for ever — and then the
+     * request simply goes back to waiting.
      */
-    public const DEFAULT_AUTOMATIC_HOLD_HOURS = 48;
+    public const DEFAULT_AUTOMATIC_HOLD_DAYS = 30;
 
     public function __construct(
         private RentalBookingRepository $bookingRepository,
@@ -93,7 +95,7 @@ class RentalBookingService implements OccupancyProvider
         ?PriceQuote $estimatedPrice,
         array $acceptances,
         \DateTimeImmutable $now,
-        int $automaticHoldHours = self::DEFAULT_AUTOMATIC_HOLD_HOURS
+        int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
@@ -139,6 +141,8 @@ class RentalBookingService implements OccupancyProvider
                 . 'confidentialité.');
         }
 
+        $holdUntil = self::automaticHoldUntil($now, $arrivalDate, $automaticHoldDays);
+
         /** @return array{id: int, tracking_token: string} */
         $write = fn(string $reference): array => $this->bookingRepository->create(
             $assetId,
@@ -157,8 +161,8 @@ class RentalBookingService implements OccupancyProvider
                 'comment' => $renter['comment'] ?? null,
             ],
             $estimatedPrice,
-            $automaticHoldHours > 0 ? $now->modify('+' . $automaticHoldHours . ' hours') : null,
-            $automaticHoldHours > 0 ? HoldOrigin::AUTOMATIC : null,
+            $holdUntil,
+            $holdUntil !== null ? HoldOrigin::AUTOMATIC : null,
             $acceptances['conditions_version'],
             self::hashAcceptedText($acceptances['conditions_text'] ?? ''),
             $acceptances['privacy_version'],
@@ -384,6 +388,46 @@ class RentalBookingService implements OccupancyProvider
         return $token;
     }
 
+    /**
+     * When a request's automatic hold ends: `$days` after it arrived, but
+     * **never past the start of the stay** (#708, IT-01) — a request
+     * received on 1 October for a stay on the 10th must not be told « nous
+     * bloquons ces dates jusqu'au 31 octobre ». Null when the hold is off
+     * (0 days) or the stay has already begun.
+     *
+     * Pure: also what the contract's minimum hold is capped by (IT-13).
+     */
+    public static function automaticHoldUntil(\DateTimeImmutable $now, string $arrivalDate, int $days): ?\DateTimeImmutable
+    {
+        if ($days <= 0) {
+            return null;
+        }
+
+        return self::capAtArrival($now->modify('+' . $days . ' days'), $now, $arrivalDate);
+    }
+
+    /**
+     * `$until`, or the start of the stay if that comes first; null when the
+     * stay has already started, since there is nothing left to hold.
+     */
+    public static function capAtArrival(
+        \DateTimeImmutable $until,
+        \DateTimeImmutable $now,
+        string $arrivalDate
+    ): ?\DateTimeImmutable {
+        // Midnight of the arrival day on $now's own clock, whatever the
+        // default zone: DateInput checks the shape, $now carries the zone.
+        $day = DateInput::iso($arrivalDate);
+        $arrival = $day?->setTimezone($now->getTimezone())
+            ->setDate((int) $day->format('Y'), (int) $day->format('n'), (int) $day->format('j'))
+            ->setTime(0, 0);
+        if ($arrival !== null && $arrival < $until) {
+            $until = $arrival;
+        }
+
+        return $until > $now ? $until : null;
+    }
+
     // ── Hold expiry (specifications.md §22.5) ─────────────────────────────────────────────
 
     /**
@@ -430,7 +474,9 @@ class RentalBookingService implements OccupancyProvider
                 continue;
             }
 
-            $this->bookingRepository->clearHold($booking->id);
+            // The request goes back to waiting; the lapse is remembered so the
+            // booking page can warn that the dates are free again.
+            $this->bookingRepository->releaseLapsedHold($booking->id);
             $released++;
         }
 

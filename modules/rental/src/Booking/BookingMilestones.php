@@ -90,13 +90,24 @@ final class BookingMilestones
 
         // The two holds are one line, because to the manager they are one
         // fact — "the dates are held until X" — and the wording is what
-        // says which kind it is (specifications.md §22.5).
+        // says which kind it is (specifications.md §22.5). A STATE, never a
+        // task (#708, IT-01): ticked while a hold runs, a warning once an
+        // automatic one ran out on a request still waiting, and never
+        // « L'action suivante ».
+        $lapsedSince = $abandoned ? null : $booking->holdLapsedSince($now);
         $milestones[] = new BookingMilestone(
             'hold',
             $booking->holdOrigin?->managerLabel() ?? 'Dates bloquées',
             $booking->holdIsActive($now),
-            $booking->holdUntil !== null && !$abandoned,
-            $booking->holdUntil?->format('d/m/Y à H\hi')
+            ($booking->holdIsActive($now) || $lapsedSince !== null) && !$abandoned,
+            $booking->holdIsActive($now) && $booking->holdUntil !== null
+                ? "jusqu'au " . $booking->holdUntil->format('d/m/Y à H\hi')
+                : null,
+            isState: true,
+            warning: $lapsedSince !== null
+                ? 'Les dates ne sont plus bloquées depuis le ' . $lapsedSince->format('d/m/Y à H\hi')
+                    . ' : un autre visiteur peut les demander. Confirmez, ou posez une option pour les garder.'
+                : null
         );
 
         // The line the chantier's phase 1 names and this list never had:
@@ -171,7 +182,12 @@ final class BookingMilestones
         // the finished list, so that the facts above stay the only thing
         // each constructor call is about.
         return array_map(
-            static fn(BookingMilestone $m): BookingMilestone => self::shaped($m, $booking->status, $offsite),
+            static fn(BookingMilestone $m): BookingMilestone => self::shaped(
+                $m,
+                $booking->status,
+                $offsite,
+                $booking->holdOrigin
+            ),
             $milestones
         );
     }
@@ -185,17 +201,25 @@ final class BookingMilestones
      *
      * @param list<string> $offsite
      */
-    private static function shaped(BookingMilestone $m, BookingStatus $status, array $offsite): BookingMilestone
-    {
+    private static function shaped(
+        BookingMilestone $m,
+        BookingStatus $status,
+        array $offsite,
+        ?HoldOrigin $holdOrigin = null
+    ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
         $action = null;
 
         switch ($m->key) {
             case 'hold':
-                $kind = MilestoneKind::HERE;
-                $explanation = "Une option bloque les dates jusqu'à son échéance ; passée, la demande expire et "
-                    . 'les dates se libèrent. Le formulaire est sous cette étape.';
+                $kind = MilestoneKind::DERIVED;
+                // What happens at the deadline depends on who set it.
+                $explanation = $holdOrigin === HoldOrigin::MANAGER
+                    ? "Une option bloque les dates jusqu'à son échéance ; passée sans confirmation, la "
+                        . 'réservation expire et les dates se libèrent.'
+                    : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '
+                        . 'se libèrent et la demande reste en attente.';
                 break;
             case 'decision':
                 $kind = MilestoneKind::HERE;
@@ -264,7 +288,9 @@ final class BookingMilestones
             $m->detail,
             $kind,
             $explanation,
-            $action
+            $action,
+            $m->isState,
+            $m->warning
         );
     }
 

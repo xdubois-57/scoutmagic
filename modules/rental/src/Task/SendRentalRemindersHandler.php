@@ -176,7 +176,20 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             // (§6.29). Without them every asset runs on the shipped
             // values, which is what this pass did before they existed.
             new \Modules\Rental\Repository\RentalAssetReminderRepository($pdo),
-            $context->settings
+            $context->settings,
+            // Who hears about an asset, with the Staff d'U as the fallback
+            // (#708, IT-05) — the same rule as a new request.
+            new \Modules\Rental\Service\ManagerRecipientResolver(
+                new RentalAssetManagerRepository($pdo),
+                new MemberYearRepository($pdo),
+                $context->userAccounts,
+                $context->journal,
+                \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+                    new \Core\Member\Repository\SectionRepository($context->connection),
+                    new \Core\Member\SectionMembershipRepository($pdo),
+                    new \Core\Config\ScoutYearService($pdo)
+                )
+            )
         );
     }
 

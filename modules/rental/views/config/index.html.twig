@@ -183,6 +183,14 @@
                         Staff d'U est gestionnaire de tous les biens sans devoir être ajouté ici.
                     </p>
 
+                    {% if managers_unreachable|default(false) %}
+                        <output class="alert alert-warning small d-block" data-managers-unreachable>
+                            Aucun gestionnaire de ce bien ne peut être prévenu : les demandes et les rappels
+                            de ce bien sont envoyés au Staff d'U. Désignez quelqu'un qui a un compte sur le
+                            site, ou demandez à un gestionnaire de s'en créer un.
+                        </output>
+                    {% endif %}
+
                     {% if managers is empty %}
                         {% include 'partials/empty_state.html.twig' with {
                             message: 'Aucun gestionnaire désigné. Seul le Staff d\'U gère ce bien.',
@@ -199,6 +207,13 @@
                                     {% if row.manager.isRenterContact %}
                                         <span class="badge bg-body-tertiary border text-body-secondary">
                                             Contact du locataire
+                                        </span>
+                                    {% endif %}
+                                    {% set unreachable = unreachable_managers[row.manager.memberId]|default(null) %}
+                                    {% if unreachable %}
+                                        <span class="small text-warning-emphasis w-100" data-manager-unreachable>
+                                            <i class="bi bi-bell-slash me-1" aria-hidden="true"></i>Ne peut pas être
+                                            prévenu des demandes : {{ unreachable }}.
                                         </span>
                                     {% endif %}
                                 </li>

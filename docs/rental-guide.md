@@ -124,14 +124,23 @@ le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
 nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
 immédiatement.
 
-Les dates sont **bloquées** pendant un délai réglable, le temps que vous
+Les dates sont **bloquées** pendant un délai réglable — 30 jours par
+défaut, jamais au-delà du début du séjour —, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
-attente, les dates redeviennent simplement libres pour les autres. Vous
-recevez un rappel juste avant.
+attente, les dates redeviennent simplement libres pour les autres, et la
+page de la réservation vous en avertit. Vous recevez un rappel juste
+avant. Une **option**, elle, fait expirer la réservation si elle passe
+sans confirmation.
 
-Vous recevez aussi une notification à chaque nouvelle demande. **Elle ne
-contient aucune donnée du locataire** — juste la référence et un lien vers
-la fiche protégée.
+Vous recevez aussi une notification à chaque nouvelle demande — dans
+l'application, en push et par email, chaque canal se réglant dans vos
+préférences. **Elle ne contient aucune donnée du locataire** — le bien,
+les dates, la référence et un lien vers la fiche protégée.
+
+Elle va aux **gestionnaires déclarés sur le bien qui ont un compte** sur
+le site, comme les rappels. Le Staff d'U n'est prévenu que si aucun
+d'eux ne peut l'être : la page du bien le signale, et la liste des
+gestionnaires dit qui ne peut pas être prévenu, et pourquoi.
 
 ## 6. Suivre une réservation
 
@@ -147,8 +156,10 @@ est tracée dans l'historique.
 
 On y trouve aussi :
 
-- **États** : reçue, en cours d'examen, information demandée, proposée,
-  confirmée, refusée, annulée, expirée, clôturée.
+- **États** : reçue, information demandée, proposée, confirmée, refusée,
+  annulée, expirée, clôturée. Il n'y a pas d'état « en examen » : une
+  demande attend votre décision (« reçue ») ou la réponse du locataire, et
+  « Remettre en attente » la ramène à « reçue ».
 - **Option** : vous posez une option avec une échéance, pour laisser au
   locataire le temps de décider sans que les dates partent ailleurs.
 - **Commentaires internes** : chiffrés, visibles des seuls gestionnaires,
@@ -271,9 +282,9 @@ de précision. Un refus et une annulation n'en portent pas : il n'y a plus
 rien à y faire, et un lien qui circule est un lien qui se retrouve
 transféré.
 
-Les changements qui ne sont *pas* des décisions n'envoient rien : passer une
-demande « en cours d'examen » parce que vous l'ouvrez, ou une option qui
-expire toute seule à quatre heures du matin.
+Les changements qui ne sont *pas* des décisions n'envoient rien : remettre
+une demande en attente, ou une option qui expire toute seule à quatre
+heures du matin.
 
 ## 11. Les emails du locataire
 
@@ -330,7 +341,9 @@ un acompte ou un solde non reçu, une caution non reçue, un contrat non
 restituer, un document de conformité qui expire.
 
 Ils arrivent dans votre centre de notifications, jamais par email, et
-**aucun ne contient de donnée du locataire**.
+**aucun ne contient de donnée du locataire**. Ils suivent la même règle
+que la nouvelle demande : les gestionnaires du bien qui ont un compte,
+et le Staff d'U quand aucun ne peut être prévenu.
 
 Un seul rappel part vers le locataire : les informations pratiques, une
 semaine avant son séjour.

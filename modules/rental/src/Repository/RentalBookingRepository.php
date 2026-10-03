@@ -427,7 +427,8 @@ class RentalBookingRepository
     public function clearHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, updated_at = ? WHERE id = ?'
+            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL, updated_at = ?
+             WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
     }
@@ -444,10 +445,27 @@ class RentalBookingRepository
         $stmt->execute([$status->value, $status->isFinal() ? $timestamp : null, $timestamp, $id]);
     }
 
-    public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
+    /**
+     * An automatic hold ran out while the request still waits (#708,
+     * IT-01): the dates are released like with `clearHold()`, and its
+     * deadline is kept so the booking page can say since when.
+     */
+    public function releaseLapsedHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, updated_at = ? WHERE id = ?'
+            'UPDATE rental_bookings
+             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL, updated_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+    }
+
+    public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
+    {
+        // A new hold, or none: either way the old lapse is no longer news.
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL, updated_at = ?
+             WHERE id = ?'
         );
         $stmt->execute([
             $until?->format('Y-m-d H:i:s'),
@@ -1213,6 +1231,9 @@ class RentalBookingRepository
             privacyHash: $row['privacy_hash'] !== null ? (string) $row['privacy_hash'] : null,
             privacyAcknowledgedAt: DateInput::fromStorage(
                 $row['privacy_acknowledged_at'] === null ? null : (string) $row['privacy_acknowledged_at']
+            ),
+            holdLapsedAt: DateInput::fromStorage(
+                ($row['hold_lapsed_at'] ?? null) === null ? null : (string) $row['hold_lapsed_at']
             )
         );
     }

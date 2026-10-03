@@ -90,6 +90,12 @@ class RentalRequestControllerTest extends TestCase
     /** @var list<array{to: string, subject: string, html: string, text: string, headers: array<string, string>}> */
     private array $sentMail = [];
 
+    /** @var list<array{typeId: string, recipients: array<int, array{userAccountId: int, memberId: ?int}>, payload: array<string, mixed>}> */
+    private array $notifications = [];
+
+    /** @var list<int> the Staff d'U member ids the fallback finds */
+    private array $unitStaff = [];
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -195,7 +201,6 @@ class RentalRequestControllerTest extends TestCase
                 $journalService
             ),
             new RentalManagerService($this->managerRepository, $memberService, $journalService),
-            $memberService,
             $scoutYearService,
             $this->editableContentService,
             new HumanCheckService(
@@ -212,7 +217,16 @@ class RentalRequestControllerTest extends TestCase
             // and null without the `calendar` module — only the generator
             // is borrowed, no calendar row is ever involved.
             new \Modules\Calendar\Service\IcsBuilder(),
-            new \Modules\Rental\Calendar\RenterFeedBuilder('https://unite.test')
+            new \Modules\Rental\Calendar\RenterFeedBuilder('https://unite.test'),
+            // « Nouvelle demande de location » (#708, IT-05), recorded.
+            $this->recordingNotificationService(),
+            new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new \Core\Import\MemberYearRepository($this->pdo),
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+                $journalService,
+                fn(): array => $this->unitStaff
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -285,6 +299,30 @@ class RentalRequestControllerTest extends TestCase
         }
 
         return $assetId;
+    }
+
+    private function recordingNotificationService(): \Core\Notification\NotificationService
+    {
+        $service = $this->createStub(\Core\Notification\NotificationService::class);
+        $service->method('dispatch')->willReturnCallback(
+            function (string $typeId, array $recipients, array $payload): void {
+                $this->notifications[] = ['typeId' => $typeId, 'recipients' => $recipients, 'payload' => $payload];
+            }
+        );
+
+        return $service;
+    }
+
+    /** An account for this address, so a notification can reach it. */
+    private function addAccount(string $email): int
+    {
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([
+                $this->encryption->encrypt($email, 'user_accounts.email'),
+                $this->encryption->blindIndex(strtolower($email), 'email'),
+            ]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     private function addManager(int $assetId, string $email, bool $isRenterContact = false): int
@@ -967,83 +1005,76 @@ class RentalRequestControllerTest extends TestCase
         $this->assertArrayHasKey('Message-ID', $renterMail['headers']);
     }
 
-    public function testEveryManagerOfTheAssetIsNotifiedAndNobodyElseIs(): void
+    // ── « Nouvelle demande de location » (#708, IT-05) ─────────────────
+
+    public function testEveryReachableManagerOfTheAssetIsNotifiedAndNobodyElseIs(): void
     {
         $assetId = $this->createAsset();
+        $first = $this->addAccount('gestionnaire1@test.be');
         $this->addManager($assetId, 'gestionnaire1@test.be');
+        $second = $this->addAccount('gestionnaire2@test.be');
         $this->addManager($assetId, 'gestionnaire2@test.be');
 
         $otherAssetId = $this->assetRepository->create('Local', 'Autre', 'autre', null, 1, null, null, null, true);
+        $this->addAccount('pas-concerne@test.be');
         $this->addManager($otherAssetId, 'pas-concerne@test.be');
+        $this->addAccount('staffdu@test.be');
+        $this->unitStaff = [$this->addManager($otherAssetId, 'staffdu@test.be')];
 
         $this->submit($this->validBody());
 
-        $recipients = array_column($this->sentMail, 'to');
-        $this->assertContains('gestionnaire1@test.be', $recipients);
-        $this->assertContains('gestionnaire2@test.be', $recipients);
-        $this->assertNotContains('pas-concerne@test.be', $recipients);
+        $this->assertCount(1, $this->notifications);
+        $this->assertSame('rental.new_request', $this->notifications[0]['typeId']);
+        $accounts = array_column($this->notifications[0]['recipients'], 'userAccountId');
+        sort($accounts);
+        $this->assertSame([$first, $second], $accounts);
     }
 
-    public function testTheManagersNotificationCarriesNoRenterIdentity(): void
+    public function testWithNoReachableManagerTheStaffIsNotifiedInstead(): void
     {
-        // §15 of the conventions: an inbox is not a place to scatter copies
-        // of personal data. A manager is one click from the page that shows
-        // it behind a real permission check.
         $assetId = $this->createAsset();
-        $this->addManager($assetId, 'gestionnaire@test.be');
+        // A manager who never logged in: nobody on the asset can be told.
+        $this->addManager($assetId, 'jamais.connecte@test.be');
+        $staffAccount = $this->addAccount('staffdu@test.be');
+        $otherAssetId = $this->assetRepository->create('Local', 'Autre', 'autre', null, 1, null, null, null, true);
+        $this->unitStaff = [$this->addManager($otherAssetId, 'staffdu@test.be')];
+
         $this->submit($this->validBody());
 
-        $managerMail = $this->mailTo('gestionnaire@test.be');
-        $this->assertNotNull($managerMail);
+        $this->assertSame([$staffAccount], array_column($this->notifications[0]['recipients'] ?? [], 'userAccountId'));
+    }
 
-        foreach (['Jeanne Martin', 'jeanne.martin@example.be', '+32 495 11 22 33', 'Nous arriverons vers 18h.'] as $secret) {
-            $this->assertStringNotContainsString($secret, $managerMail['html']);
-            $this->assertStringNotContainsString($secret, $managerMail['text']);
-            $this->assertStringNotContainsString($secret, $managerMail['subject']);
+    /**
+     * No renter identity — the asset and the dates say what it is — and a
+     * link to the booking itself, behind a real permission check.
+     */
+    public function testTheNotificationCarriesNoRenterIdentityAndLinksToTheBooking(): void
+    {
+        $assetId = $this->createAsset();
+        $this->addAccount('gestionnaire@test.be');
+        $this->addManager($assetId, 'gestionnaire@test.be');
+
+        $this->submit($this->validBody());
+
+        $payload = $this->notifications[0]['payload'] ?? [];
+        $this->assertSame('/mes-locations/local-saint-georges/reservations/1', $payload['url'] ?? null);
+        $this->assertStringContainsString('Local Saint-Georges', (string) ($payload['title'] ?? ''));
+        $text = (string) json_encode($payload, JSON_UNESCAPED_UNICODE);
+        foreach (['Jeanne Martin', 'jeanne.martin@example.be', '+32 495 11 22 33', 'Nous arriverons vers 18h.', '/locations/suivi/'] as $secret) {
+            $this->assertStringNotContainsString($secret, $text);
         }
     }
 
-    public function testTheManagersNotificationNeverCarriesTheTrackingLink(): void
+    /** The direct email is gone: only the renter is mailed. */
+    public function testNoManagerIsMailedDirectlyAnyMore(): void
     {
         $assetId = $this->createAsset();
+        $this->addAccount('gestionnaire@test.be');
         $this->addManager($assetId, 'gestionnaire@test.be');
+
         $this->submit($this->validBody());
 
-        $managerMail = $this->mailTo('gestionnaire@test.be');
-        $this->assertNotNull($managerMail);
-        // Possession of the link IS the authorisation — forwarding it around
-        // by email would hand a renter's page to whoever the mail reaches.
-        $this->assertStringNotContainsString('/locations/suivi/', $managerMail['html']);
-        $this->assertStringNotContainsString('/locations/suivi/', $managerMail['text']);
-    }
-
-    public function testTheManagersNotificationLinksToTheBookingItself(): void
-    {
-        // The module's front door made a manager opening this on a phone
-        // land on a list and hunt for the request again. Deep-linking is
-        // safe precisely because the page behind it is behind a real
-        // permission check — which is also why the mail carries no renter
-        // identity of its own.
-        $assetId = $this->createAsset();
-        $this->addManager($assetId, 'gestionnaire@test.be');
-        $this->submit($this->validBody());
-
-        $managerMail = $this->mailTo('gestionnaire@test.be');
-        $this->assertNotNull($managerMail);
-        $this->assertStringContainsString('/mes-locations/local-saint-georges/reservations/1', $managerMail['html']);
-        $this->assertStringContainsString('/mes-locations/local-saint-georges/reservations/1', $managerMail['text']);
-    }
-
-    public function testEachManagerIsMailedSeparatelySoTheirAddressesStayPrivate(): void
-    {
-        $assetId = $this->createAsset();
-        $this->addManager($assetId, 'gestionnaire1@test.be');
-        $this->addManager($assetId, 'gestionnaire2@test.be');
-        $this->submit($this->validBody());
-
-        $first = $this->mailTo('gestionnaire1@test.be');
-        $this->assertNotNull($first);
-        $this->assertStringNotContainsString('gestionnaire2@test.be', (string) json_encode($first));
+        $this->assertSame(['jeanne.martin@example.be'], array_values(array_unique(array_column($this->sentMail, 'to'))));
     }
 
     public function testAnAssetWithNoManagerStillAcceptsTheRequest(): void
