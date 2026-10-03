@@ -67,6 +67,7 @@ class ReenrollmentConfigControllerTest extends TestCase
     private ReenrollmentCampaignService $campaign;
     private ReenrollmentConfigController $controller;
     private int $currentYearId;
+    private \Twig\Environment $twig;
 
     protected function setUp(): void
     {
@@ -126,7 +127,7 @@ class ReenrollmentConfigControllerTest extends TestCase
             $passageService
         );
 
-        $twig = TwigFactory::create(
+        $this->twig = $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
             ['registration' => dirname(__DIR__, 4) . '/modules/registration/views']
@@ -643,6 +644,54 @@ class ReenrollmentConfigControllerTest extends TestCase
     private function todaysCampaignKey(): string
     {
         return (new \DateTimeImmutable())->format('Y') . '-12-31';
+    }
+
+    // ── the RBAC boundary of the preview route ───────────────────────
+
+    /**
+     * Dispatched through the router with the role_min the manifest itself
+     * declares, so the guard under test is the one that ships: allowed at
+     * admin, refused one level below.
+     */
+    public function testThePreviewRouteIsAllowedAtAdminAndRefusedToAChief(): void
+    {
+        AuthSession::login(1, 'chef@example.be', 'admin');
+        $allowed = $this->dispatchPreview();
+        $this->assertSame(200, $allowed->getStatusCode(), $allowed->getBody());
+        $this->assertTrue(json_decode($allowed->getBody(), true)['success']);
+
+        AuthSession::login(2, 'animateur@example.be', 'chief');
+        $this->assertSame(403, $this->dispatchPreview()->getStatusCode());
+    }
+
+    private function dispatchPreview(): \Core\Http\Response
+    {
+        $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/modules/registration/module.json'), true);
+        $route = null;
+        foreach ($manifest['routes'] as $candidate) {
+            if ($candidate['path'] === '/config/reinscription/apercu') {
+                $route = $candidate;
+            }
+        }
+        $this->assertNotNull($route, 'the manifest declares the preview route');
+
+        $router = new \Core\Http\Router();
+        $router->addRoute($route['method'], $route['path'], $route['controller'], $route['action'], $route['role_min']);
+        $configFile = sys_get_temp_dir() . '/test_reenrollment_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $fc = new \Core\Http\FrontController($router, $this->twig, new \Core\Config\AppConfig($configFile));
+        $fc->registerController(ReenrollmentConfigController::class, $this->controller);
+
+        $token = CsrfGuard::generateToken();
+        return $fc->handle(new \Tests\RequestWithInput(
+            'POST',
+            '/config/reinscription/apercu',
+            [],
+            [],
+            ['HTTP_X_CSRF_TOKEN' => $token],
+            [],
+            (string) json_encode(['_csrf_token' => $token])
+        ));
     }
 
     /**
