@@ -165,7 +165,7 @@ export function wireBlockCalendar(root) {
     /** @param {string} day */
     const isBlocked = function (day) {
         const cell = cellFor(day);
-        return Boolean(cell && cell.dataset.unitBlock === '1');
+        return cell?.dataset.unitBlock === '1';
     };
 
     /** @param {EventTarget|null} target */
@@ -183,7 +183,7 @@ export function wireBlockCalendar(root) {
         root.querySelectorAll('.is-gesture').forEach(function (cell) {
             cell.classList.remove('is-gesture');
         });
-        if (!gesture || !gesture.selecting) {
+        if (!gesture?.selecting) {
             return;
         }
         gestureDays(gesture.start, gesture.current, month, today).forEach(function (day) {
@@ -237,10 +237,10 @@ export function wireBlockCalendar(root) {
         }
 
         window.ScoutMagicApi.postJson(url, body).then(function (res) {
-            if (!res.ok || !res.data || res.data.success !== true) {
+            if (!res.ok || res.data?.success !== true) {
                 mark(changing, mode !== 'block');
                 window.ScoutMagicToast.show(
-                    res.data && res.data.error ? res.data.error : 'Les dates n\'ont pas pu être enregistrées.',
+                    res.data?.error || 'Les dates n\'ont pas pu être enregistrées.',
                     { variant: 'error' }
                 );
 
@@ -270,6 +270,10 @@ export function wireBlockCalendar(root) {
                     },
                 },
             });
+        }).catch(function () {
+            // Nothing reached the server: the days go back to what they were.
+            mark(changing, mode !== 'block');
+            window.ScoutMagicToast.show('Erreur réseau : les dates n\'ont pas été enregistrées.', { variant: 'error' });
         });
     };
 
@@ -306,7 +310,7 @@ export function wireBlockCalendar(root) {
     });
 
     root.addEventListener('pointermove', function (event) {
-        if (!gesture || event.pointerId !== gesture.pointerId) {
+        if (event.pointerId !== gesture?.pointerId) {
             return;
         }
 
@@ -340,13 +344,13 @@ export function wireBlockCalendar(root) {
     // Once a selection has started the finger must not scroll the page —
     // and only a non-passive touchmove can say so.
     root.addEventListener('touchmove', function (event) {
-        if (gesture && gesture.selecting) {
+        if (gesture?.selecting) {
             event.preventDefault();
         }
     }, { passive: false });
 
     root.addEventListener('pointerup', function (event) {
-        if (!gesture || event.pointerId !== gesture.pointerId) {
+        if (event.pointerId !== gesture?.pointerId) {
             return;
         }
         const finished = gesture;

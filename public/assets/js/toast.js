@@ -69,7 +69,7 @@
         flex.appendChild(body);
         /** @type {HTMLButtonElement|null} */
         var actionButton = null;
-        if (opts.action && opts.action.label) {
+        if (opts.action?.label) {
             actionButton = document.createElement('button');
             actionButton.type = 'button';
             actionButton.className = 'btn btn-sm btn-light my-auto me-2';

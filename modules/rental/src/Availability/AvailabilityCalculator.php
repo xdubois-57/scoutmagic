@@ -497,7 +497,10 @@ class AvailabilityCalculator
         $remaining = $this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $bufferNights);
 
         if ($remaining <= 0) {
-            if ($billingUnit->isNightBased() && $this->isArrivalDay($day, $totalUnits, $occupancies, $billingUnit, $bufferNights)) {
+            if (
+                $billingUnit->isNightBased()
+                && $this->isArrivalDay($day, $totalUnits, $occupancies, $billingUnit, $bufferNights)
+            ) {
                 // Selectable, but only to END a stay on it — leaving the
                 // morning others arrive. The server re-validates the range in
                 // nights either way; this is a hint for the picker, never a

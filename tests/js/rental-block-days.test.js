@@ -138,6 +138,18 @@ describe('wireBlockCalendar', () => {
         expect(cell('2027-07-11').dataset.unitBlock).toBeUndefined();
     });
 
+    it('puts the grid back when the request never reaches the server', async () => {
+        postJson.mockRejectedValue(new TypeError('Failed to fetch'));
+        render();
+        cell('2027-07-11').click();
+
+        await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(
+            'Erreur réseau : les dates n\'ont pas été enregistrées.',
+            { variant: 'error' }
+        ));
+        expect(cell('2027-07-11').dataset.unitBlock).toBeUndefined();
+    });
+
     it('treats a mouse drag as one gesture, sent once at release', () => {
         const root = render();
         document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));

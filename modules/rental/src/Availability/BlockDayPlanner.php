@@ -150,6 +150,8 @@ final class BlockDayPlanner
 
     private static function shift(string $day, int $by): string
     {
-        return DateInput::requireFromStorage($day, 'block day')->modify(($by >= 0 ? '+' : '') . $by . ' day')->format('Y-m-d');
+        return DateInput::requireFromStorage($day, 'block day')
+            ->modify(($by >= 0 ? '+' : '') . $by . ' day')
+            ->format('Y-m-d');
     }
 }
