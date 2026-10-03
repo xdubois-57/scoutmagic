@@ -5,7 +5,8 @@
 
 // Staffs page (core/View/templates/chefs/staffs.html.twig), the three
 // things a section chief can change there without a submit button: the
-// per-document title/description auto-save on blur, the advisory
+// per-document title/description auto-save on blur (confirmed with a
+// toast, design.md §7.13, issue #739), the advisory
 // oversize-upload warning, and the per-member badge picker.
 // Extracted from the template's inline <script> so the Vitest suite can
 // exercise the production code directly (tests/js/staffs.test.js).
@@ -88,9 +89,13 @@
                 title: titleInput.value,
                 description: descriptionInput.value
             }).then(function (res) {
-                if (!res.data?.success) {
-                    toastError(res, 'Erreur.');
+                if (res.data?.success) {
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    return;
                 }
+                // The text stays as typed: putting the old one back would
+                // throw away what the chief just wrote.
+                toastError(res, 'Erreur.');
             });
         });
     });

@@ -124,13 +124,14 @@ describe('registration-departures.js', () => {
             expect(staffNote('33').style.display).toBe('');
         });
 
-        it('says nothing on success — this is a list gone down one row at a time', async () => {
+        it('confirms a recorded departure with a toast', async () => {
             await boot();
             box('31').checked = true;
             box('31').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            expect(box('31').checked).toBe(true);
         });
 
         it('PUTS THE BOX BACK when the server refuses — the screen never claims an unrecorded departure', async () => {
@@ -182,6 +183,8 @@ describe('registration-departures.js', () => {
                 url: '/departs/32',
                 body: { comment: 'Part en secondaire', _csrf_token: 'tok-123' },
             });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
         });
 
         it('saves an emptied comment — clearing one is a change like any other', async () => {

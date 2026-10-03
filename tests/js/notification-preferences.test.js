@@ -45,6 +45,8 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
 
         await vi.waitFor(() => expect(toggle.checked).toBe(false));
         expect(toggle.getAttribute('aria-checked')).toBe('false');
+        expect(document.querySelector('.toast-body').textContent).toBe("Erreur lors de l'enregistrement.");
+        expect(document.querySelector('.toast').className).toContain('text-bg-danger');
     });
 
     it('reverts .checked AND aria-checked together when the request itself fails', async () => {
@@ -57,6 +59,7 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
 
         await vi.waitFor(() => expect(toggle.checked).toBe(false));
         expect(toggle.getAttribute('aria-checked')).toBe('false');
+        expect(document.querySelector('.toast-body').textContent).toBe('Erreur réseau.');
     });
 
     it('leaves .checked and aria-checked untouched when the save succeeds', async () => {
@@ -72,6 +75,8 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         await new Promise((resolve) => setTimeout(resolve, 0)); // let the response chain settle
         expect(toggle.checked).toBe(true);
         expect(toggle.getAttribute('aria-checked')).toBe('true');
+        expect(document.querySelector('.toast-body').textContent).toBe('Enregistré.');
+        expect(document.querySelector('.toast').className).toContain('text-bg-success');
     });
 
     it('confirms a successful quiet-hours save with an "Enregistré." toast (replacing the inline notice)', async () => {
@@ -97,7 +102,45 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         });
     });
 
-    it('shows no toast when the quiet-hours save fails', async () => {
+    it('puts the discretion switch back, aria-checked included, when its save is refused', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox" role="switch" aria-checked="false">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: false }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+
+        const discretion = document.getElementById('notification-discretion');
+        discretion.checked = true;
+        discretion.setAttribute('aria-checked', 'true');
+        discretion.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(discretion.checked).toBe(false));
+        expect(discretion.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('puts a refused quiet hour back on the last recorded one', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+
+        start.value = '22:00';
+        start.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: false }) }));
+        start.value = '23:00';
+        start.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(start.value).toBe('22:00'));
+    });
+
+    it('says so with an error toast when the quiet-hours save fails', async () => {
         document.body.innerHTML +=
             '<input id="quiet-hours-start" value="21:00">' +
             '<input id="quiet-hours-end" value="07:00">' +
@@ -107,8 +150,8 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
 
         document.getElementById('quiet-hours-start').dispatchEvent(new Event('change'));
 
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-        await new Promise((resolve) => setTimeout(resolve, 0)); // let the response chain settle
-        expect(document.querySelector('.toast-body')).toBeNull();
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
+        expect(document.querySelector('.toast-body').textContent).toBe("Erreur lors de l'enregistrement.");
+        expect(document.querySelector('.toast').className).toContain('text-bg-danger');
     });
 });

@@ -171,6 +171,49 @@ describe('rgpd-config.js: which controls each generation mode shows', () => {
 
         expect(fetchedUrls()).toEqual(['/config/rgpd/save']);
         expect(bodyOf(0)).toMatchObject({ mode: 'custom', content: '<p>Texte actuel.</p>' });
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+    });
+
+    it('switching back to default persists the default text and confirms it with a toast', async () => {
+        await boot('custom');
+        const def = /** @type {HTMLInputElement} */ (document.querySelector('input[value="default"]'));
+        def.checked = true;
+        def.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(fetchedUrls()).toEqual(['/config/rgpd/reset', '/config/rgpd/save']);
+        expect(bodyOf(1)).toMatchObject({ mode: 'default', content: '<p>Texte par défaut.</p>' });
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+    });
+
+    it('a refused switch puts the radio AND the text back, and says why', async () => {
+        global.fetch = vi.fn((url) => jsonResponse(String(url).includes('/save')
+            ? { success: false, error: 'Mode invalide.' }
+            : { success: true, content: '<p>Texte par défaut.</p>' }));
+        await boot('custom');
+        const def = /** @type {HTMLInputElement} */ (document.querySelector('input[value="default"]'));
+        def.checked = true;
+        def.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mode invalide.', { variant: 'error' });
+        expect(/** @type {HTMLInputElement} */ (document.querySelector('input[value="custom"]')).checked).toBe(true);
+        expect(def.checked).toBe(false);
+        expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe('<p>Texte actuel.</p>');
+        expect(document.getElementById('edit-content-btn').style.display).toBe('inline-block');
+    });
+
+    it('a refused reset on the way to AI puts the radio back, and says so', async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+        await boot('default');
+        const ai = /** @type {HTMLInputElement} */ (document.querySelector('input[value="ai"]'));
+        ai.checked = true;
+        ai.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith("Erreur lors de l'enregistrement.", { variant: 'error' });
+        expect(/** @type {HTMLInputElement} */ (document.querySelector('input[value="default"]')).checked).toBe(true);
+        expect(document.getElementById('ai-prompt-card').style.display).toBe('none');
     });
 
     it('switching to AI with an empty prompt resets but never generates', async () => {
