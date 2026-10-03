@@ -59,6 +59,7 @@ class LeadershipRbacTest extends TestCase
     private \PDO $pdo;
     private Environment $twig;
     private int $scoutYearId;
+    private ?RecordingMassMailDraft $draft;
 
     protected function setUp(): void
     {
@@ -72,6 +73,7 @@ class LeadershipRbacTest extends TestCase
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->twig = $this->buildTwig();
+        $this->draft = new RecordingMassMailDraft();
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -93,6 +95,7 @@ class LeadershipRbacTest extends TestCase
             'training' => ['/admin/leadership/training', 'LeadershipController', 'training'],
             'obligations' => ['/admin/leadership/obligations', 'LeadershipController', 'obligations'],
             'stewards' => ['/admin/leadership/stewards', 'LeadershipController', 'stewards'],
+            'configuration' => ['/admin/leadership/configuration', 'LeadershipController', 'configuration'],
         ];
     }
 
@@ -126,10 +129,24 @@ class LeadershipRbacTest extends TestCase
     {
         AuthSession::login(2, 'animateur@test.be', 'chief');
 
-        $response = $this->frontController('/admin/leadership/training/mapping', 'FormationMappingController', 'save', 'POST')
-            ->handle(new Request('POST', '/admin/leadership/training/mapping', [], [], [], []));
+        $response = $this->frontController('/admin/leadership/configuration/mapping', 'FormationMappingController', 'save', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/configuration/mapping', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /** The export and the draft carry the same people as the pages: admin, never chief (#727). */
+    public function testTheExportAndTheDraftAreAdminOnlyToo(): void
+    {
+        AuthSession::login(2, 'animateur@test.be', 'chief');
+
+        $export = $this->frontController('/admin/leadership/{page}/export', 'LeadershipController', 'export')
+            ->handle(new Request('GET', '/admin/leadership/training/export', [], [], [], []));
+        $draft = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/draft', [], ['list' => 'obligations-candidates'], [], []));
+
+        $this->assertSame(403, $export->getStatusCode());
+        $this->assertSame(403, $draft->getStatusCode());
     }
 
     /**
@@ -225,52 +242,86 @@ class LeadershipRbacTest extends TestCase
         $this->assertStringNotContainsString('CQA ou extrait', $body);
     }
 
-    public function testTheMappingBlockOpensWhenTheRedirectSaysSo(): void
+    /** The vocabulary mapping left the Formations page for Configuration (#727). */
+    public function testTheTrainingPageNoLongerCarriesTheMappingBlock(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedFormationLevels();
 
-        $shut = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
             ->handle(new Request('GET', '/admin/leadership/training', [], [], [], []))
-            ->getBody();
-        $open = (string) $this->frontController('/admin/leadership/training', 'LeadershipController', 'training')
-            ->handle(new Request('GET', '/admin/leadership/training', ['mapping' => '1'], [], [], []))
-            ->getBody();
+            ->getBody());
 
-        $this->assertStringContainsString('<div class="collapse mt-3" id="formation-mapping">', $shut);
-        $this->assertStringContainsString('<div class="collapse show mt-3" id="formation-mapping">', $open);
-        $this->assertStringContainsString('aria-expanded="true"', $open);
+        $this->assertStringNotContainsString('formation-mapping', $body);
+        $this->assertStringNotContainsString('leadership-mapping-select', $body);
+        // Said where the count it shortens is read, with the way to fix it.
+        $this->assertStringContainsString("1 niveau de formation n'est pas reconnu.", $body);
+        $this->assertStringContainsString('Le nombre de brevetés peut être incomplet.', $body);
+        $this->assertStringContainsString('<a href="/admin/leadership/configuration" class="alert-link">Configurer les niveaux de formation</a>', $body);
     }
 
     /**
-     * The mapping block, all the way through `training()` and out of the
-     * template — the two lists it renders are the same row with a
-     * different verb (`partials/_mapping_list.html.twig`), and nothing
-     * before this test rendered either of them.
+     * The Configuration page: « À configurer » first, then the decisions,
+     * each a compact line — the select and the trash side by side, no
+     * « Modifier », no « Rattachée à ».
      */
-    public function testTheMappingBlockRendersBothListsThroughTheSharedRow(): void
+    public function testTheConfigurationPageSeparatesWhatToConfigureFromWhatIsDecided(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
         $this->seedFormationLevels();
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController(
-            '/admin/leadership/training',
+            '/admin/leadership/configuration',
             'LeadershipController',
-            'training'
-        )->handle(new Request('GET', '/admin/leadership/training', ['mapping' => '1'], [], [], []))->getBody());
+            'configuration'
+        )->handle(new Request('GET', '/admin/leadership/configuration', [], [], [], []))->getBody());
 
-        // Not recognised: offered a placeholder and a « Rattacher » button,
-        // and nothing to remove — there is no decision to undo yet.
-        $this->assertStringContainsString('<code>Zorglub</code>', $body);
-        $this->assertStringContainsString('1 personne avec cette valeur', $body);
+        $unresolved = strpos($body, 'id="leadership-mapping-unresolved"');
+        $decided = strpos($body, 'id="leadership-mapping-decided"');
+        $this->assertNotFalse($unresolved);
+        $this->assertNotFalse($decided);
+        $zorglub = strpos($body, '<code>Zorglub</code>');
+        $maison = strpos($body, '<code>Wording maison</code>');
+        $this->assertTrue($unresolved < $zorglub && $zorglub < $decided, 'Zorglub is still to configure');
+        $this->assertGreaterThan($decided, $maison, 'Wording maison is already decided');
+
+        $this->assertStringContainsString('1 personne cette année', $body);
         $this->assertStringContainsString('Choisir une étape…', $body);
-        $this->assertStringContainsString('Rattacher', $body);
+        $this->assertStringContainsString('title="Supprimer le rattachement" aria-label="Supprimer le rattachement de « Wording maison »"', $body);
+        $this->assertStringNotContainsString('Rattachée à', $body);
+        $this->assertStringNotContainsString('Modifier', $body);
+        $this->assertStringContainsString('leadership-configuration.js', $body);
+    }
 
-        // Already decided: the stored step comes back selected, the verb is
-        // « Modifier », and the decision can be removed.
-        $this->assertStringContainsString('<code>Wording maison</code>', $body);
-        $this->assertStringContainsString('Rattachée à', $body);
-        $this->assertStringContainsString('Modifier', $body);
-        $this->assertStringContainsString('Supprimer le rattachement de Wording maison', $body);
+    /**
+     * The five pages carry the same rail, the current one marked active
+     * with aria-current (#727) — and the breadcrumbs stay.
+     */
+    #[DataProvider('routeProvider')]
+    public function testEveryPageCarriesTheEncadrementRailWithItselfActive(string $path, string $controller, string $action): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->twig = $this->buildTwig($path);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->frontController($path, $controller, $action)
+            ->handle(new Request('GET', $path, [], [], [], []))
+            ->getBody());
+
+        foreach ([
+            '/admin/leadership' => 'Tableau de bord',
+            '/admin/leadership/training' => 'Formations',
+            '/admin/leadership/obligations' => 'Obligations',
+            '/admin/leadership/stewards' => 'Intendants',
+            '/admin/leadership/configuration' => 'Configuration',
+        ] as $url => $label) {
+            $this->assertMatchesRegularExpression(
+                '#<a href="' . preg_quote($url, '#') . '" class="[^"]*nav-link[^"]*" data-id="[^"]*" data-selected="'
+                    . ($url === $path ? 'true" aria-current="page"' : 'false" ') . '>.*?<span>' . $label . '</span>#',
+                $body,
+                "{$label} on {$path}"
+            );
+        }
+        $this->assertSame(1, substr_count($body, 'aria-current="page"'));
     }
 
     /**
@@ -298,7 +349,7 @@ class LeadershipRbacTest extends TestCase
 
         $this->assertStringContainsString('1 animateur a un niveau de formation à préciser', $body);
         $this->assertStringContainsString("Il n'est pas compté dans le ratio ONE", $body);
-        $this->assertStringContainsString('/admin/leadership/training?mapping=1#formation-mapping', $body);
+        $this->assertStringContainsString('/admin/leadership/configuration', $body);
     }
 
     /**
@@ -474,7 +525,7 @@ class LeadershipRbacTest extends TestCase
         );
     }
 
-    public function testAnAddressDeskHoldsBecomesAMailtoAndCanBeCopied(): void
+    public function testAnAddressAndANumberDeskHoldsAreLinksAndTheListOffersADraft(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');
         $this->seedCandidateAndSteward();
@@ -488,8 +539,11 @@ class LeadershipRbacTest extends TestCase
         );
 
         $this->assertStringContainsString('mailto:candidat@example.org', $body);
-        $this->assertStringContainsString('data-email="candidat@example.org"', $body);
-        $this->assertStringContainsString('data-copy-emails="obligations-candidates"', $body);
+        $this->assertStringContainsString('<a href="tel:0470123456">0470 12 34 56</a>', $body);
+        $this->assertStringContainsString('<input type="hidden" name="list" value="obligations-candidates">', $body);
+        $this->assertStringContainsString("Créer un brouillon d'e-mail", $body);
+        $this->assertStringNotContainsString('Copier les adresses', $body);
+        $this->assertStringContainsString('href="/admin/leadership/obligations/export"', $body);
     }
 
     public function testTheListSaysHowManyPeopleItCannotReach(): void
@@ -508,8 +562,94 @@ class LeadershipRbacTest extends TestCase
         // Said out loud: a list of sixteen people written to twelve of them
         // reads as sixteen people prevented, and nobody notices the four.
         $this->assertStringContainsString('1 personne sans adresse dans Desk', $body);
-        // And with nothing to copy, the button is not offered at all.
-        $this->assertStringNotContainsString('data-copy-emails="stewards-registrations"', $body);
+        // And with nobody to write to, no draft is offered at all.
+        $this->assertStringNotContainsString('value="stewards-registrations"', $body);
+    }
+
+    /**
+     * The draft is built from the list computed again on the server — only
+     * the people with an address, nothing sent, the visitor sent to the
+     * composer (#727).
+     */
+    public function testTheDraftHoldsTheListsAddressesAndLandsOnTheComposer(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+        $token = \Core\Security\CsrfGuard::generateToken();
+
+        $response = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/draft', [], ['list' => 'obligations-candidates', '_csrf_token' => $token], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail/draft/9', $response->getHeaders()['Location'] ?? null);
+        $this->assertCount(1, $this->draft->calls);
+        $this->assertSame('Encadrement — Candidats au dernier import', $this->draft->calls[0]['label']);
+        $this->assertSame(
+            [['email' => 'candidat@example.org', 'values' => ['Nom' => 'Prénom1 Nom1', 'Section' => 'Louveteaux']]],
+            $this->draft->calls[0]['rows']
+        );
+    }
+
+    public function testAnUnknownListIsNotADraft(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $token = \Core\Security\CsrfGuard::generateToken();
+
+        $response = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/draft', [], ['list' => 'tout-le-monde', '_csrf_token' => $token], [], []));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->draft->calls);
+    }
+
+    /** Without mass_mail, the lists offer no draft button at all. */
+    public function testWithoutMassMailNoDraftIsOffered(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+        $this->draft = null;
+
+        $body = (string) $this->frontController('/admin/leadership/obligations', 'LeadershipController', 'obligations')
+            ->handle(new Request('GET', '/admin/leadership/obligations', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString("Créer un brouillon d'e-mail", $body);
+    }
+
+    /** One spreadsheet per page, its lists' people with their phone. */
+    public function testTheExportIsASpreadsheetOfThePagesLists(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+
+        ob_start();
+        $response = $this->frontController('/admin/leadership/{page}/export', 'LeadershipController', 'export')
+            ->handle(new Request('GET', '/admin/leadership/obligations/export', [], [], [], []));
+        $response->send();
+        $bytes = (string) ob_get_clean();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('encadrement-obligations-', (string) ($response->getHeaders()['Content-Disposition'] ?? ''));
+        $file = tempnam(sys_get_temp_dir(), 'leadership-xlsx-');
+        file_put_contents((string) $file, $bytes);
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load((string) $file)->getActiveSheet()->toArray();
+        @unlink((string) $file);
+
+        $this->assertSame(['Liste', 'Nom', 'Totem', 'Section', 'Détail', 'Remarque', 'E-mail', 'Téléphone', 'Échéance'], $sheet[0]);
+        $this->assertSame('Candidats au dernier import', $sheet[1][0]);
+        $this->assertSame('Prénom1 Nom1', $sheet[1][1]);
+        $this->assertSame('candidat@example.org', $sheet[1][6]);
+        $this->assertSame('0470 12 34 56', $sheet[1][7]);
+    }
+
+    public function testAnUnknownPageHasNoExport(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $response = $this->frontController('/admin/leadership/{page}/export', 'LeadershipController', 'export')
+            ->handle(new Request('GET', '/admin/leadership/configuration/export', [], [], [], []));
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     // --- fixtures -------------------------------------------------------
@@ -540,18 +680,18 @@ class LeadershipRbacTest extends TestCase
         // purpose: that is what makes the « sans adresse dans Desk » count
         // a real assertion rather than a branch nothing exercises.
         $rows = [
-            [1, $candidateFunction, $birthDate, 'candidat@example.org'],
-            [2, $stewardFunction, null, null],
+            [1, $candidateFunction, $birthDate, 'candidat@example.org', '0470 12 34 56'],
+            [2, $stewardFunction, null, null, null],
         ];
 
-        foreach ($rows as [$index, $functionId, $birth, $email]) {
+        foreach ($rows as [$index, $functionId, $birth, $email, $mobile]) {
             $stmt = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
             $stmt->execute(['D' . $index]);
             $memberId = (int) $this->pdo->lastInsertId();
 
             $stmt = $this->pdo->prepare(
-                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, email_encrypted)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, email_encrypted, mobile_encrypted)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $memberId,
@@ -560,6 +700,7 @@ class LeadershipRbacTest extends TestCase
                 $encryption->encrypt('Nom' . $index, 'member_years.last_name'),
                 $birth === null ? null : $encryption->encrypt($birth, 'member_years.birth_date'),
                 $email === null ? null : $encryption->encrypt($email, 'member_years.email'),
+                $mobile === null ? null : $encryption->encrypt($mobile, 'member_years.mobile'),
             ]);
             $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -623,11 +764,12 @@ class LeadershipRbacTest extends TestCase
                 $settingService,
                 new MemberYearRepository($this->pdo)
             ),
-            new EditableContentService(new EditableContentRepository($this->pdo))
+            new EditableContentService(new EditableContentRepository($this->pdo)),
+            $this->draft
         );
     }
 
-    private function buildTwig(): Environment
+    private function buildTwig(string $currentPath = '/'): Environment
     {
         $twig = TestTwig::create(['leadership']);
 
@@ -641,9 +783,31 @@ class LeadershipRbacTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
-        $twig->addGlobal('current_path', '/');
+        $twig->addGlobal('current_path', $currentPath);
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
         return $twig;
+    }
+}
+
+/** Records the drafts asked for, and answers a composer URL. */
+final class RecordingMassMailDraft implements \Modules\MassMail\Api\MassMailDraftInterface
+{
+    /** @var list<array{label: string, rows: list<array{email: string, values: array<string, string>}>}> */
+    public array $calls = [];
+
+    public function createMergeDraft(
+        string $label,
+        string $subject,
+        array $columns,
+        array $rows,
+        string $actorRole,
+        string $actorEmail,
+        ?int $actorAccountId,
+        ?string $bodyHtml = null
+    ): string {
+        $this->calls[] = ['label' => $label, 'rows' => $rows];
+
+        return '/mass-mail/draft/9';
     }
 }

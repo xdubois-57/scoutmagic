@@ -1,0 +1,73 @@
+{% extends 'base.html.twig' %}
+{% block title %}Configuration — Encadrement — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Configuration',
+            subtitle: "Les niveaux de formation tels que Desk les exporte, et l'étape du parcours à laquelle chacun correspond.",
+        } only %}
+
+        {% include '@leadership/partials/_nav.html.twig' %}
+
+        <p class="small text-body-secondary">
+            Desk exporte le libellé de la fédération, qui change d'un export à l'autre. Le site en reconnaît les
+            formulations courantes ; rattachez ici celles qu'il ne reconnaît pas. Un niveau non reconnu n'est
+            jamais compté comme un brevet : le nombre de brevetés reste un minimum, jamais une surestimation.
+            Chaque choix est enregistré dès qu'il est fait.
+        </p>
+
+        {% set _unresolved_rows = unresolved_levels|map(level => {
+            raw_value: level.raw_value,
+            holders: level.holders,
+            selected: null,
+        }) %}
+        {% set _decided_rows = decided_levels|map(level => {
+            raw_value: level.raw_value,
+            holders: level.holders,
+            selected: level.step,
+        }) %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">À configurer</h2>
+                <p class="small text-body-secondary mb-2">Les valeurs encodées cette année que le site ne reconnaît pas.</p>
+                {% include '@leadership/partials/_mapping_list.html.twig' with {
+                    list_id: 'leadership-mapping-unresolved',
+                    rows: _unresolved_rows,
+                    steps: assignable_steps,
+                } only %}
+                <p class="small text-body-secondary mb-0 leadership-mapping-empty{{ _unresolved_rows|length > 0 ? ' d-none' : '' }}"
+                   data-empty-for="leadership-mapping-unresolved">
+                    Toutes les valeurs encodées cette année sont reconnues.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-1">Correspondances existantes</h2>
+                <p class="small text-body-secondary mb-2">Les rattachements déjà enregistrés.</p>
+                {% include '@leadership/partials/_mapping_list.html.twig' with {
+                    list_id: 'leadership-mapping-decided',
+                    rows: _decided_rows,
+                    steps: assignable_steps,
+                } only %}
+                <p class="small text-body-secondary mb-0 leadership-mapping-empty{{ _decided_rows|length > 0 ? ' d-none' : '' }}"
+                   data-empty-for="leadership-mapping-decided">
+                    Aucun rattachement enregistré pour le moment.
+                </p>
+            </div>
+        </div>
+
+        {% include '@leadership/partials/_validity_footer.html.twig' with {
+            scout_year_label: scout_year_label,
+            last_import_at: last_import_at,
+            rules_version: rules_version,
+            rules_verified_on: rules_verified_on,
+        } only %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/leadership-configuration.js') }}" defer></script>
+{% endblock %}

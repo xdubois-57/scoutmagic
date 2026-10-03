@@ -55,16 +55,23 @@ class ModuleManifestTest extends TestCase
         }
     }
 
-    /** The module's one write is a POST; every read is a GET. */
-    public function testTheOnlyWriteRouteIsAPost(): void
+    /**
+     * Two POSTs: the vocabulary mapping (the module's only stored write)
+     * and the mail-merge draft, which writes in mass_mail and sends
+     * nothing (#727). Every read is a GET.
+     */
+    public function testTheWriteRoutesArePosts(): void
     {
-        $writes = array_values(array_filter(
-            $this->manifest->routes,
-            static fn (array $route): bool => $route['method'] === 'POST'
-        ));
+        $writes = array_map(
+            static fn (array $route): string => $route['path'],
+            array_values(array_filter(
+                $this->manifest->routes,
+                static fn (array $route): bool => $route['method'] === 'POST'
+            ))
+        );
+        sort($writes);
 
-        $this->assertCount(1, $writes);
-        $this->assertSame('/admin/leadership/training/mapping', $writes[0]['path']);
+        $this->assertSame(['/admin/leadership/configuration/mapping', '/admin/leadership/draft'], $writes);
     }
 
     /** Exactly one menu entry: the overview. The three sub-pages hang off it. */

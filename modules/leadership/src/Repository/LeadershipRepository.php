@@ -48,6 +48,8 @@ class LeadershipRepository
                     my.totem_encrypted,
                     my.birth_date_encrypted,
                     my.email_encrypted,
+                    my.mobile_encrypted,
+                    my.phone_encrypted,
                     my.scout_year_offset,
                     my.formation_level,
                     f.label                     AS function_label,
@@ -87,6 +89,8 @@ class LeadershipRepository
                 sectionId: $r['section_id'] !== null ? (int) $r['section_id'] : null,
                 sectionName: $this->sectionLabel($r['section_name'], $r['section_desk_code']),
                 functionStartDate: $r['start_date'] !== null ? (string) $r['start_date'] : null,
+                phone: $this->decrypt($r['mobile_encrypted'], 'member_years.mobile')
+                    ?: $this->decrypt($r['phone_encrypted'], 'member_years.phone'),
             );
         }
 

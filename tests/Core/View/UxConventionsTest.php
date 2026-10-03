@@ -622,6 +622,8 @@ final class UxConventionsTest extends TestCase
         '/partage/album/{id}/apercu',
         '/partage/actualite/{id}/apercu',
         '/communications/{id}/apercu',
+        // XLSX download of one Encadrement page's lists (#727), never a page.
+        '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.

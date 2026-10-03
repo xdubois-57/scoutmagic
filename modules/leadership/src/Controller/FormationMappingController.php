@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Leadership\Controller;
 
 use Core\Http\Controller\AbstractController;
-use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -20,29 +19,14 @@ use Twig\Environment;
 
 /**
  * The module's only write: attaching a raw Desk formation level to a
- * normalised step, from the collapsible block at the bottom of the
- * Formations page.
+ * normalised step, from the Configuration sub-page (#727).
  *
- * There is no configuration page for this, deliberately. The mapping only
- * matters because of the numbers it changes, so it is edited where those
- * numbers are — a chief who has just read "le calcul peut être incomplet"
- * scrolls down and fixes it, instead of being sent to a settings screen
- * where the sentence that sent them there is no longer visible.
+ * JSON, one select at a time: a change is saved the moment it is made and
+ * the page says so with a toast, so there is no form, no redirect and no
+ * flash message to land back on. An empty step removes the decision.
  */
 class FormationMappingController extends AbstractController
 {
-    /**
-     * Back to the block the visitor was working in, open.
-     *
-     * The mapping block is collapsed by default and sits at the bottom of
-     * a long page, so a bare redirect to the page landed the visitor at
-     * the top with the block shut — their rattachement had worked and
-     * nothing on screen said so. The fragment scrolls, and `mapping=1`
-     * is what makes the block render already open: a collapse cannot be
-     * opened by a fragment, which never reaches the server at all.
-     */
-    private const REDIRECT_TO = '/admin/leadership/training?mapping=1#formation-mapping';
-
     public function __construct(
         protected Environment $twig,
         private FormationLevelMappingRepository $repository,
@@ -51,23 +35,25 @@ class FormationMappingController extends AbstractController
     }
 
     /**
-     * POST /admin/leadership/training/mapping
+     * POST /admin/leadership/configuration/mapping — {raw_value, step}.
      *
      * @param array<string, string> $params
      */
     public function save(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::REDIRECT_TO)) !== null) {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
             return $guard;
         }
 
-        $rawValue = trim((string) $request->getBody('raw_value', ''));
-        $stepValue = (string) $request->getBody('step', '');
+        $rawValue = trim((string) ($data['raw_value'] ?? ''));
+        $stepValue = (string) ($data['step'] ?? '');
 
         if ($rawValue === '') {
-            FlashMessage::set('error', 'Aucune valeur à rattacher.');
-
-            return $this->redirect(self::REDIRECT_TO);
+            return $this->json(['success' => false, 'error' => 'Aucune valeur à rattacher.'], 422);
         }
 
         // An empty step is "forget this decision", which is how a mistake is
@@ -76,9 +62,8 @@ class FormationMappingController extends AbstractController
         if ($stepValue === '') {
             $this->repository->delete($rawValue);
             $this->journal('leadership_formation_mapping_removed');
-            FlashMessage::set('success', 'Rattachement supprimé.');
 
-            return $this->redirect(self::REDIRECT_TO);
+            return $this->json(['success' => true]);
         }
 
         $step = FormationStep::tryFrom($stepValue);
@@ -88,16 +73,13 @@ class FormationMappingController extends AbstractController
         // Checking membership of assignable() rather than trusting
         // tryFrom() is what keeps a hand-crafted POST from storing it.
         if ($step === null || !in_array($step, FormationStep::assignable(), true)) {
-            FlashMessage::set('error', 'Étape de formation inconnue.');
-
-            return $this->redirect(self::REDIRECT_TO);
+            return $this->json(['success' => false, 'error' => 'Étape de formation inconnue.'], 422);
         }
 
         $this->repository->save($rawValue, $step);
         $this->journal('leadership_formation_mapping_saved');
-        FlashMessage::set('success', 'Niveau de formation rattaché.');
 
-        return $this->redirect(self::REDIRECT_TO);
+        return $this->json(['success' => true]);
     }
 
     /**
