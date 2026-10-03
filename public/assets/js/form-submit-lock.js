@@ -42,12 +42,27 @@
     var DEFAULT_LABEL = 'Envoi en cours…';
 
     /**
+     * What each locked button held before it said « Envoi en cours… »,
+     * as NODES. See lock() for why not as markup.
+     *
+     * @type {WeakMap<Element, ChildNode[]>}
+     */
+    var idleNodes = new WeakMap();
+
+    /**
+     * Every control that can send this form. `(HTMLButtonElement|
+     * HTMLInputElement)[]` rather than buttons alone, because the
+     * selector's last clause matches `input[type="submit"]` — same shape
+     * as offline-nav.js's own submit-control query.
+     *
      * @param {HTMLFormElement} form
-     * @returns {HTMLButtonElement[]}
+     * @returns {(HTMLButtonElement|HTMLInputElement)[]}
      */
     function submitButtons(form) {
-        return Array.from(
-            form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')
+        return /** @type {(HTMLButtonElement|HTMLInputElement)[]} */ (
+            Array.from(
+                form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')
+            )
         );
     }
 
@@ -72,28 +87,52 @@
         var label = form.dataset.submitLockLabel || DEFAULT_LABEL;
 
         submitButtons(form).forEach(function (button) {
-            // The original markup, kept so `pageshow` can put it back
-            // rather than guess at it.
-            if (!button.hasAttribute('data-submit-lock-idle')) {
-                button.setAttribute('data-submit-lock-idle', button.innerHTML);
+            // The original CHILD NODES, kept so `pageshow` can put them
+            // back — not their markup. Saving `innerHTML` and assigning it
+            // again is a « DOM text reinterpreted as HTML » sink, which
+            // CodeQL flagged at HIGH on this very file: the round trip
+            // re-parses as markup whatever the button happened to contain,
+            // and a button renders content a template produced from
+            // user-controlled data (AGENTS.md § CodeQL: a value is not safe
+            // because it came from your own template). Moving the nodes
+            // aside parses nothing at all.
+            if (!idleNodes.has(button)) {
+                idleNodes.set(button, Array.from(button.childNodes));
             }
             button.disabled = true;
-            button.innerHTML =
-                '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
-                + '<span></span>';
-            // textContent on the span rather than in the string above:
-            // the label comes from a data attribute, so it is author
-            // input, and building markup out of it is how an innerHTML
-            // sink is born.
-            var text = button.querySelector('span:last-child');
-            if (text !== null) {
-                text.textContent = label;
-            }
+
+            var spinner = document.createElement('span');
+            spinner.className = 'spinner-border spinner-border-sm me-1';
+            spinner.setAttribute('aria-hidden', 'true');
+
+            var text = document.createElement('span');
+            // textContent, never markup: the label comes from a data
+            // attribute, which is author input.
+            text.textContent = label;
+
+            button.replaceChildren(spinner, text);
         });
 
-        fileInputs(form).forEach(function (input) {
-            input.disabled = true;
-        });
+        // DEFERRED, and this is load-bearing: do not inline it.
+        //
+        // The browser builds the form's entry list — the actual multipart
+        // body — AFTER the `submit` event finishes dispatching, and skips
+        // every control that is disabled at that moment. Disabling the
+        // file input here, synchronously, therefore drops the chosen file
+        // from the very request this lock exists to protect.
+        //
+        // Measured rather than reasoned: driven through Chromium against
+        // a real multipart POST, the body contained no `name="photo"`
+        // part at all with the disable inline, and contained the file
+        // again with this setTimeout. A jsdom test cannot see it — jsdom
+        // does not implement entry-list construction — which is why the
+        // test beside this one asserts the input is still enabled while
+        // the handler runs.
+        setTimeout(function () {
+            fileInputs(form).forEach(function (input) {
+                input.disabled = true;
+            });
+        }, 0);
     }
 
     /**
@@ -105,10 +144,10 @@
         form.removeAttribute('aria-busy');
 
         submitButtons(form).forEach(function (button) {
-            var idle = button.getAttribute('data-submit-lock-idle');
-            if (idle !== null) {
-                button.innerHTML = idle;
-                button.removeAttribute('data-submit-lock-idle');
+            var idle = idleNodes.get(button);
+            if (idle !== undefined) {
+                button.replaceChildren.apply(button, idle);
+                idleNodes.delete(button);
             }
             button.disabled = false;
         });
@@ -160,8 +199,24 @@
     // `persisted` is the history cache; Safari also fires this on an
     // ordinary load, where there is nothing locked to undo.
     window.addEventListener('pageshow', function () {
-        Array.from(document.querySelectorAll('form[' + LOCKED + ']')).forEach(function (form) {
-            unlock(/** @type {HTMLFormElement} */ (form));
+        Array.from(document.querySelectorAll('form[' + LOCKED + ']')).forEach(function (element) {
+            var form = /** @type {HTMLFormElement} */ (element);
+            var buttons = submitButtons(form);
+
+            // Only the instance that LOCKED a form can put its buttons
+            // back: the nodes they held live in this copy's own WeakMap.
+            // A page carrying a second copy of this script would
+            // otherwise have its first listener clear the marker and
+            // leave every button reading « Envoi en cours… » for good,
+            // because the next listener then finds no form to unlock.
+            // So an instance that does not recognise a form leaves it
+            // alone, marker included, for the one that does.
+            var mine = buttons.length === 0 || buttons.some(function (button) {
+                return idleNodes.has(button);
+            });
+            if (mine) {
+                unlock(form);
+            }
         });
     });
 

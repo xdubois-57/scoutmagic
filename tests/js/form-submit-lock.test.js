@@ -79,13 +79,29 @@ describe('form-submit-lock.js', () => {
         expect(form('photo-form').getAttribute('aria-busy')).toBe('true');
     });
 
-    it('locks the file input too, so the file cannot change mid-flight', async () => {
+    /**
+     * The file input is locked, but NOT while the handler runs — and that
+     * ordering is the whole of it.
+     *
+     * The browser builds the multipart body after the `submit` event
+     * finishes dispatching, skipping every control disabled at that
+     * moment, so disabling it synchronously drops the chosen file from
+     * the request. Measured in Chromium: the body carried no `name="photo"`
+     * part at all. jsdom implements none of that, so what this test can
+     * hold is the ordering that makes it safe — enabled during dispatch,
+     * disabled on the next turn.
+     */
+    it('leaves the file input enabled during dispatch and locks it just after', async () => {
         await load();
+        const input = /** @type {HTMLInputElement} */ (document.getElementById('photo-file'));
 
         submit('photo-form');
 
-        expect(/** @type {HTMLInputElement} */ (document.getElementById('photo-file')).disabled)
-            .toBe(true);
+        expect(input.disabled).toBe(false);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(input.disabled).toBe(true);
     });
 
     it('lets the first submit through and refuses the second', async () => {
@@ -137,6 +153,8 @@ describe('form-submit-lock.js', () => {
         // press again — the "jamais bloqué définitivement" of issue #756.
         await load();
         submit('photo-form');
+        // Past the deferred file-input lock, so this really undoes it.
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         window.dispatchEvent(new Event('pageshow'));
 
@@ -148,6 +166,45 @@ describe('form-submit-lock.js', () => {
             .toBe(false);
         // And it can be sent again, which is what "retry" means here.
         expect(submit('photo-form')).toBe(true);
+    });
+
+    /**
+     * Two copies of this script on one page, where the one that did NOT
+     * lock the form is listening first.
+     *
+     * The nodes a locked button held live in the WeakMap of the copy that
+     * locked it. A copy that does not recognise a form must therefore
+     * leave it alone, marker included — otherwise the first `pageshow`
+     * listener clears a marker it cannot act on, the owning listener then
+     * finds no form left to unlock, and every button stays reading
+     * « Envoi en cours… » for the life of the page.
+     *
+     * The ordering is built deliberately: the first copy is loaded while
+     * one document is in place, the document is then replaced, and the
+     * second copy binds and locks the new form. The first copy's listener
+     * is registered first and owns nothing. This is the same shape as
+     * this file's own cross-test pollution, which is how it was found.
+     */
+    it('leaves a form it did not lock to the copy that did', async () => {
+        // Copy one, against a document that is about to be replaced.
+        vi.resetModules();
+        document.body.innerHTML = '<form id="gone" data-submit-lock><button type="submit">X</button></form>';
+        await import('../../public/assets/js/form-submit-lock.js');
+
+        // Copy two, which binds and locks the form that is really there.
+        vi.resetModules();
+        document.body.innerHTML = PAGE;
+        await import('../../public/assets/js/form-submit-lock.js');
+        submit('photo-form');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(button('photo-form').textContent).toContain('Envoi en cours…');
+
+        window.dispatchEvent(new Event('pageshow'));
+
+        const btn = button('photo-form');
+        expect(btn.textContent).toBe('Envoyer');
+        expect(btn.disabled).toBe(false);
+        expect(form('photo-form').hasAttribute('aria-busy')).toBe(false);
     });
 
     it('binds a form added to the page after it loaded, and only once', async () => {

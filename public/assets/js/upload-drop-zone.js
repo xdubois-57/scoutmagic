@@ -91,6 +91,22 @@
         }
 
         var url = URL.createObjectURL(file);
+
+        // Checked AT THE SINK, which is where AGENTS.md § CodeQL says to
+        // check: the only value this `img.src` may ever carry is a blob
+        // URL the browser just minted for a File the visitor picked. The
+        // guard is what makes that an invariant rather than a reading of
+        // the three lines above, and it is why CodeQL flagged this
+        // assignment HIGH — an `src` is a navigable sink, and « it came
+        // from our own code » is not an argument that survives the next
+        // caller. A browser that answered anything else gets the text
+        // fallback, same as an undecodable image.
+        if (url.indexOf('blob:') !== 0) {
+            URL.revokeObjectURL(url);
+
+            return null;
+        }
+
         var held = heldUrls.get(zone) || [];
         held.push(url);
         heldUrls.set(zone, held);

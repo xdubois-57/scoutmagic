@@ -286,6 +286,37 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
             .toBe('un.jpg, deux.pdf, trois.png');
     });
 
+    /**
+     * The guard at the sink. `img.src` is a navigable sink, and CodeQL
+     * flagged this assignment HIGH for it — « it came from our own code »
+     * is not an argument that survives the next caller, so the only value
+     * this ever carries is checked to be a browser-minted blob URL
+     * (AGENTS.md § CodeQL: validate at the sink, not at the call sites).
+     *
+     * Unfalsifiable without this: jsdom's own stub always answers
+     * `blob:…`, so the guard never rejected anything and dropping it left
+     * every other test in this file green.
+     */
+    it('refuses a preview URL that is not a blob, and gives it back', async () => {
+        await load();
+        const handed = [];
+        URL.createObjectURL = () => {
+            const url = 'javascript:alert(1)';
+            handed.push(url);
+            objectUrls.created.push(url);
+
+            return url;
+        };
+
+        pick([image('piegee.jpg')]);
+
+        expect(thumbnails()).toHaveLength(0);
+        // The name still names the file; only the picture is refused.
+        expect(document.getElementById('photo-drop-zone-selection').textContent)
+            .toBe('piegee.jpg');
+        expect(objectUrls.revoked).toEqual(handed);
+    });
+
     it('draws nothing on a zone that did not ask for a preview', async () => {
         // The document zones are the majority, and they must come out of
         // this change untouched.
