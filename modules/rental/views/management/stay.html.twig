@@ -135,7 +135,19 @@
                             <tbody>
                                 {% for item in inventory %}
                                     <tr>
-                                        <td>{{ item.label }}</td>
+                                        <td>
+                                            {{ item.label }}
+                                            {# What is expected, copied with the label at
+                                               confirmation (#708, IT-10): a count, or « Oui »
+                                               for an item that is observed rather than counted.
+                                               A row frozen before the sorts existed says nothing. #}
+                                            {% set expected = item.kind.expectation(item.expected_count) %}
+                                            {% if expected %}
+                                                <span class="d-block small text-body-secondary">
+                                                    {{ item.kind.label }} — attendu : {{ expected }}
+                                                </span>
+                                            {% endif %}
+                                        </td>
                                         {% for phase in phases %}
                                             {% set state = phase.value == 'arrival' ? item.arrival_state : item.departure_state %}
                                             {% set note = phase.value == 'arrival' ? item.arrival_note : item.departure_note %}

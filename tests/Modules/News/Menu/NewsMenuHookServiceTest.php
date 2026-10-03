@@ -49,7 +49,7 @@ class NewsMenuHookServiceTest extends TestCase
         $articleId = $this->articles->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
         $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, $issuesTicket
+            null, null, false, 'chief', null, null, $issuesTicket
         );
     }
 

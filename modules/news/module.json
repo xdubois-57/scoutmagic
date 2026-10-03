@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles publics, avec formulaire d'inscription et paiement.",
-  "version": "1.7.5",
+  "version": "1.8.0",
   "enabled_by_default": true,
   "routes": [
     {

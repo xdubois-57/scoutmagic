@@ -15,6 +15,7 @@ use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterConsumption;
 use Modules\Rental\Stay\MeterKind;
@@ -191,29 +192,96 @@ class RentalStayService
     // ── Inventory (§6.23) ───────────────────────────────────────────────
 
     /**
+     * Adds an item at the end of the asset's checklist (#708, IT-10).
+     *
      * @throws RentalException
      */
-    public function addInventoryItem(int $assetId, string $label, int $sortOrder = 0): int
-    {
+    public function addInventoryItem(
+        int $assetId,
+        string $label,
+        InventoryKind $kind = InventoryKind::QUANTITY,
+        ?int $expectedCount = null
+    ): int {
         $label = trim($label);
         if ($label === '') {
             throw new RentalException("Un élément d'inventaire a besoin d'un libellé.");
         }
 
-        return $this->stayRepository->createInventoryItem($assetId, $label, $sortOrder);
+        return $this->stayRepository->createInventoryItem(
+            $assetId,
+            mb_substr($label, 0, 160),
+            $kind,
+            self::expectedCountFor($kind, $expectedCount)
+        );
     }
 
     /**
-     * @return array<int, array{id: int, label: string, sort_order: int}>
+     * @return array<int, array{id: int, label: string, kind: InventoryKind, expected_count: ?int, sort_order: int}>
      */
     public function inventoryTemplateFor(int $assetId): array
     {
         return $this->stayRepository->findInventoryItems($assetId);
     }
 
-    public function removeInventoryItem(int $itemId): void
+    /**
+     * @return array{id: int, label: string, kind: InventoryKind, expected_count: ?int, sort_order: int}|null
+     */
+    public function inventoryItem(int $assetId, int $itemId): ?array
     {
+        return $this->stayRepository->findInventoryItem($assetId, $itemId);
+    }
+
+    /**
+     * Changes an item's sort or expected count, in place on the Gabarits
+     * page (#708, IT-10). Copies already frozen in a booking do not move.
+     *
+     * @throws RentalException
+     */
+    public function updateInventoryItem(int $assetId, int $itemId, InventoryKind $kind, ?int $expectedCount): void
+    {
+        if ($this->stayRepository->findInventoryItem($assetId, $itemId) === null) {
+            throw new RentalException("Cet élément n'existe pas dans le modèle de ce bien.");
+        }
+
+        $this->stayRepository->updateInventoryItemKind($itemId, $kind, self::expectedCountFor($kind, $expectedCount));
+    }
+
+    /**
+     * The order a manager dragged the checklist into — the order copied
+     * into each booking at confirmation.
+     *
+     * @param int[] $itemIds
+     */
+    public function reorderInventory(int $assetId, array $itemIds): void
+    {
+        $this->stayRepository->reorderInventoryItems($assetId, $itemIds);
+    }
+
+    /**
+     * @throws RentalException
+     */
+    public function removeInventoryItem(int $assetId, int $itemId): void
+    {
+        // The asset check is the guard that matters: an item id alone must
+        // not let a manager of one asset empty another's checklist.
+        if ($this->stayRepository->findInventoryItem($assetId, $itemId) === null) {
+            throw new RentalException("Cet élément n'existe pas dans le modèle de ce bien.");
+        }
+
         $this->stayRepository->deactivateInventoryItem($itemId);
+    }
+
+    /**
+     * @throws RentalException
+     */
+    private static function expectedCountFor(InventoryKind $kind, ?int $expectedCount): ?int
+    {
+        $count = $kind->normaliseCount($expectedCount);
+        if ($count !== null && ($count < 1 || $count > 65535)) {
+            throw new RentalException('Le nombre attendu doit être un nombre entier d\'au moins 1.');
+        }
+
+        return $count;
     }
 
     /**
@@ -235,6 +303,8 @@ class RentalStayService
      *     array{
      *         id: int,
      *         label: string,
+     *         kind: InventoryKind,
+     *         expected_count: ?int,
      *         sort_order: int,
      *         arrival_state: InventoryState,
      *         departure_state: InventoryState,

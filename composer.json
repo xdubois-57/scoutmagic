@@ -69,6 +69,7 @@
         }
     },
     "scripts": {
+        "dev-config": "php scripts/dev-config.php",
         "serve": "php -d upload_max_filesize=100M -d post_max_size=110M -S localhost:8000 -t public",
         "pre-autoload-dump": "Aws\\Script\\Composer\\Composer::removeUnusedServices"
     },
