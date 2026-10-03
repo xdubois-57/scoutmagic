@@ -817,9 +817,7 @@ class RentalRequestController extends AbstractController
 
     private static function frenchDate(string $isoDate): string
     {
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $isoDate);
-
-        return $date !== false ? $date->format('d/m/Y') : $isoDate;
+        return DateInput::iso($isoDate)?->format('d/m/Y') ?? $isoDate;
     }
 
     /**
