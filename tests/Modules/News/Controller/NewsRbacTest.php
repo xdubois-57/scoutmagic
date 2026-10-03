@@ -94,7 +94,7 @@ class NewsRbacTest extends TestCase
         // resolve — a form that delivers no ticket has no door to hold and
         // ScanController answers 404 rather than 403, which would make the
         // guard test say nothing.
-        $this->formId = $formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'intendant', false, null, true);
+        $this->formId = $formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'intendant', null, null, true);
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));

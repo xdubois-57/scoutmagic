@@ -58,7 +58,7 @@ class TicketQrControllerTest extends TestCase
         $articleId = (new ArticleRepository($this->pdo))->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $accountId);
         $formId = (new FormRepository($this->pdo))->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, true
+            null, null, false, 'chief', null, null, true
         );
         $responseId = $this->responses->create($formId, null, null, 'a@test.com', [], null, null);
         $this->reference = $this->tickets->issueFor($this->responses->findById($responseId));
