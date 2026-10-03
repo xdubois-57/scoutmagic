@@ -3238,9 +3238,11 @@ membres ne voient jamais l'historique.
 
 - **La liste**, dans l'ordre de la page publique, se réordonne au
   glisser-déposer (des flèches sur un écran étroit). Chaque ligne montre
-  le titre, la visibilité, le type, la taille, la date et l'adresse à
-  partager ; sous un document remplacé au moins une fois, ses versions
-  précédentes, repliées, chacune téléchargeable.
+  le titre, la visibilité, la date du fichier lui-même (une modification
+  du titre ou de la visibilité ne la change pas), un bouton qui copie
+  l'adresse à partager, et le tag rouge « Expiré » le cas échéant ; sous
+  un document remplacé au moins une fois, ses versions précédentes,
+  repliées, chacune téléchargeable (#731).
 - **Un seul formulaire** pour ajouter comme pour modifier : titre,
   description facultative, visibilité, fichier (obligatoire à l'ajout,
   facultatif ensuite). L'avertissement sur le remplacement n'apparaît
@@ -3252,6 +3254,14 @@ membres ne voient jamais l'historique.
 - **Journal** : ajout, modification, remplacement de fichier,
   suppression d'une version, suppression — identifiants seulement,
   jamais un titre.
+- **Validité** (#731) : chaque document a une date d'expiration, deux ans
+  après sa création par défaut, modifiable dans le formulaire ; la
+  repousser suffit à confirmer qu'il reste valable. Remplacer le fichier
+  repart sur deux ans, sauf si la même modification fixe une date ; une
+  modification des seules informations ne la touche pas. Expiré, le
+  document reste en ligne et accessible ; un point d'attention agrégé
+  (« 3 documents sont expirés ») renvoie vers la liste et disparaît quand
+  il n'en reste aucun.
 
 
 ## 47. Réseaux sociaux (module social)
