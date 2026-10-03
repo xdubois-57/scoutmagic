@@ -225,7 +225,7 @@ class RetroChiefControllerTest extends TestCase
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->index(new Request('GET', '/retro', [], [], [], []), [])->getBody());
 
-        foreach (['Voir le board', 'Configurer', 'Réouvrir', 'Archiver'] as $action) {
+        foreach (['Voir le tableau', 'Configurer', 'Réouvrir', 'Archiver'] as $action) {
             $this->assertMatchesRegularExpression(
                 '#title="' . $action . '" aria-label="' . $action . '[^"]*« Camp de Pâques »"> <i class="bi [^"]+" aria-hidden="true"></i> </(a|button)>#',
                 $body,
