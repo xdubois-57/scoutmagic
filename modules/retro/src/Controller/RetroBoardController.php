@@ -179,7 +179,39 @@ class RetroBoardController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'public_url' => $baseUrl . $this->boardService->publicUrl($board),
             'remaining_budget' => $remainingBudget,
-        ]);
+        ] + $this->staffBreadcrumb($board, $viewerRole));
+    }
+
+    /**
+     * « Espace animateurs / Rétrospectives / <nom> / Board » for whoever
+     * reaches the Rétrospectives list (issue #736). The board is public by
+     * its link, so a visitor below that floor keeps the route's own
+     * « Notre unité » trail and is never handed a link to a page that
+     * would refuse them. The name leads to the configuration when the
+     * viewer may open it, and to the board otherwise.
+     *
+     * @return array<string, mixed>
+     */
+    private function staffBreadcrumb(Board $board, Role $viewerRole): array
+    {
+        if (!$viewerRole->hasAccess(Role::INTENDANT)) {
+            return [];
+        }
+
+        $configureRole = (string) ($this->settingService->get('retro_role_min_create_board', 'retro') ?: 'intendant');
+        $nameUrl = $viewerRole->hasAccess(Role::fromString($configureRole))
+            ? '/retro/' . $board->id . '/edit'
+            : $this->boardService->publicUrl($board);
+
+        return [
+            'route_breadcrumb' => ['label' => 'Board', 'parents' => ['Espace animateurs']],
+            'route_breadcrumb_ancestors' => [],
+            'breadcrumb_trail' => [
+                ['label' => 'Rétrospectives', 'url' => '/retro'],
+                ['label' => $board->title, 'url' => $nameUrl],
+            ],
+            'breadcrumb_current' => 'Board',
+        ];
     }
 
     /**
