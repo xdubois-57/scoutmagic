@@ -10631,15 +10631,14 @@ if ($isEnabled('covoiturage')) {
 }
 
 // Social networks (ARCHITECTURE.md §8.122): the unit's own Facebook Page
-// and Instagram account. The Api is built for the modules that will
-// publish through it (news and gallery, docs/chantiers/
-// CHANTIER-partage-social.md) — null when the module is disabled, per
-// §7.5, and nothing consumes it yet.
+// and Instagram account, its discussion groups, and the one composer they
+// are all published from. The Api is consumed by the gallery's album form
+// and the news editor, which ask it whether to offer « Partager » — null
+// when the module is disabled, per §7.5.
 $socialSharingForOthers = null;
 if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
-    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService($socialConnectionRepo);
 
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
@@ -10675,16 +10674,31 @@ if ($isEnabled('social')) {
         $settingService,
         $journalService
     );
+    // The discussion groups as a destination, or null with the groups
+    // module off: one instance, shared by what offers the destinations and
+    // by the Api that answers « is there anywhere to publish ».
+    $socialGroupPublishing = $groupsPublisherForOthers === null
+        ? null
+        : new \Modules\Social\Service\GroupPublishingService(
+            $groupsPublisherForOthers,
+            $socialPublicationRepo,
+            $journalService
+        );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,
         $socialPublicationRepo,
         $socialConnectionRepo,
         $settingService,
-        $groupsPublisherForOthers === null ? null : new \Modules\Social\Service\GroupPublishingService(
-            $groupsPublisherForOthers,
-            $socialPublicationRepo,
-            $journalService
-        )
+        $socialGroupPublishing
+    );
+    // The Api the gallery and the news module ask « is there anywhere to
+    // publish »: the unit's Meta accounts, AND this person's discussion
+    // groups, so a unit with no Meta account still gets a « Partager »
+    // button (IT-01). Built here rather than above because the groups
+    // destination is what it needs.
+    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService(
+        $socialConnectionRepo,
+        $socialGroupPublishing
     );
     $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
@@ -10696,17 +10710,10 @@ if ($isEnabled('social')) {
         $galleryPhotoPickerForOthers,
         $linkedMemberIds
     );
-    $frontController->registerController(
-        \Modules\Social\Controller\ShareController::class,
-        new \Modules\Social\Controller\ShareController(
-            $twig,
-            $socialShareSources,
-            $socialDestinationStates,
-            $socialCardService
-        )
-    );
-    // « Communications »: a free communication, and the history of
-    // everything that left (§8.122).
+    // « Médias sociaux »: the one composer everything is published
+    // through, and the history of everything that left (§8.122). The two
+    // dedicated share pages it replaces are gone
+    // (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01).
     $frontController->registerController(
         \Modules\Social\Controller\CommunicationController::class,
         new \Modules\Social\Controller\CommunicationController(
@@ -10723,8 +10730,21 @@ if ($isEnabled('social')) {
             $linkedMemberIds
         )
     );
-    $galleryAlbumActions?->register(new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers));
-    $newsArticleActions?->register(new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers));
+    // « Partager » on an album and in an article's editor (§7.6). The
+    // viewer travels with the provider: actionsFor() is handed an id and
+    // nothing else, by design, and whether there is anywhere to publish
+    // depends on the person.
+    $socialShareViewer = new \Modules\Social\Service\ShareViewer(
+        \Core\Security\AuthSession::getEmail(),
+        \Core\Security\AuthSession::getRole(),
+        \Core\Security\AuthSession::getUserAccountId()
+    );
+    $galleryAlbumActions?->register(
+        new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers, $socialShareViewer)
+    );
+    $newsArticleActions?->register(
+        new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers, $socialShareViewer)
+    );
     $schedulerService->seed(
         'social',
         \Modules\Social\Task\PurgeCardsHandler::TASK_KEY,

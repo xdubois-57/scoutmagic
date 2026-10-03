@@ -52,6 +52,10 @@ final class CommunicationControllerTest extends TestCase
 {
     private const PHOTO = 5;
 
+    /** The album « Partager » opens the composer from, in this class. */
+    public const ALBUM_ID = 42;
+    public const ALBUM_TITLE = 'Week-end de rentrée';
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -128,7 +132,7 @@ final class CommunicationControllerTest extends TestCase
             self::assertSame('chief', $route['role_min'], $route['path']);
             $cases[$route['method'] . ' ' . $route['path']] = [$route['method'], $route['path'], $route['action']];
         }
-        self::assertCount(10, $cases);
+        self::assertCount(11, $cases);
 
         return $cases;
     }
@@ -181,6 +185,173 @@ final class CommunicationControllerTest extends TestCase
         $this->assertSame(200, $this->controller()->edit($this->get(), ['id' => (string) $id])->getStatusCode());
     }
 
+    // ————— One composer, opened from a source (#706, IT-01) —————
+
+    /**
+     * « Partager » on an album opens the composer already filled: the
+     * album's title and image, a line saying what is being shared, and
+     * nothing to type but the text.
+     */
+    public function testTheComposerOpensPrefilledFromAnAlbum(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        // Escaped, because Twig escapes: `{{ source_label }}` renders
+        // « l'album » with its apostrophe as `&#039;`.
+        $this->assertStringContainsString('Partage de l&#039;album', $html);
+        $this->assertStringContainsString(self::ALBUM_TITLE, $html);
+        // The pair travels in the form, not in the address.
+        $this->assertStringContainsString('name="source_kind" value="album"', $html);
+        $this->assertStringContainsString('name="source_id" value="' . self::ALBUM_ID . '"', $html);
+    }
+
+    /**
+     * An album's cover is the album's to change, so the composer offers
+     * neither button — and the title it shows cannot be typed over.
+     */
+    public function testASourcesImageAndTitleAreNotThisPagesToChange(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        $this->assertStringNotContainsString('value="gallery"', $html);
+        $this->assertStringNotContainsString('value="upload"', $html);
+        $this->assertStringNotContainsString('name="title"', $html);
+        $this->assertStringContainsString('readonly', $html);
+    }
+
+    /** An album nobody can share answers 404, like asking for it directly. */
+    public function testASourceThatIsNotThereIsNotFound(): void
+    {
+        $this->loginAuthor();
+
+        $this->assertSame(404, $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => '9999'])->getStatusCode());
+        // An unknown kind is not a source either.
+        $this->assertSame(404, $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'trombinoscope', 'id' => '1'])->getStatusCode());
+    }
+
+    /**
+     * Opening the composer writes nothing. A click on « Partager » is not
+     * a decision to publish, and a row per click would leave a trail of
+     * empty communications behind every look at the page.
+     */
+    public function testOpeningTheComposerCreatesNoRow(): void
+    {
+        $this->loginAuthor();
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();
+
+        $this->controller()->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID]);
+        $this->controller()->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID]);
+
+        $this->assertSame($before, (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn());
+    }
+
+    /**
+     * The source a form carries is described again before anything is
+     * written: a forged album id answers 404, and no row is left behind.
+     */
+    public function testAForgedSourceIsRefusedAndWritesNothing(): void
+    {
+        $this->loginAuthor();
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();
+
+        $response = $this->controller()->store(
+            $this->post(['source_kind' => 'album', 'source_id' => '9999', 'body' => 'Texte', 'action' => 'publish']),
+            []
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame($before, (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn());
+        $this->assertSame([], $this->meta->requests);
+    }
+
+    /**
+     * Publishing a source-backed communication records the pair, keeps no
+     * copy of the album's title, and records the publication against the
+     * COMMUNICATION — which is what lets the same album be shared again
+     * later with another message.
+     */
+    public function testPublishingFromASourceRecordsThePairAndNotACopy(): void
+    {
+        $this->loginAuthor();
+
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        $row = $this->pdo->query(
+            'SELECT source_kind, source_id, title FROM social_communications ORDER BY id DESC LIMIT 1'
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('album', $row['source_kind']);
+        $this->assertSame(self::ALBUM_ID, (int) $row['source_id']);
+        // No copy of the album's title: the card reads it from the album,
+        // so a second answer here could only ever disagree with it.
+        $this->assertSame('', (string) $row['title']);
+        $this->assertNotNull($this->request('/photos'));
+    }
+
+    /**
+     * What just left is on the history, so that is where publishing goes
+     * — the composer has nothing more to say.
+     */
+    public function testPublishingReturnsToTheHistory(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['facebook']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame('/medias-sociaux', $response->getHeaders()['Location'] ?? '');
+    }
+
+    /** « Publier » saves; there is nothing else to press. */
+    public function testThereIsNoSaveButton(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()->create($this->get(), [])->getBody();
+
+        $this->assertStringNotContainsString('value="save"', $html);
+        $this->assertStringNotContainsString('Enregistrer', $html);
+    }
+
+    /**
+     * An album deleted since does not take its communication's page down:
+     * it opens, says what happened, and refuses to publish — a chief who
+     * opens it is owed an explanation, not a missing page.
+     */
+    public function testACommunicationWhoseSourceVanishedSaysSoRatherThan404(): void
+    {
+        $id = $this->communications->create('', 'Texte', $this->author, new \DateTimeImmutable(), 'album', 4321);
+        $this->loginAuthor();
+
+        $response = $this->controller()->edit($this->get(), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        // On the consequence rather than the cause, and apostrophe-free so
+        // Twig's escaping is not what the assertion turns on.
+        $this->assertStringContainsString('ne peut plus être publiée', $response->getBody());
+    }
+
     // ————— The page —————
 
     public function testAnExistingCommunicationIsNotTitledNew(): void
@@ -202,7 +373,7 @@ final class CommunicationControllerTest extends TestCase
 
         $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-confirm="Publier maintenant \?#', $html);
         $this->assertDoesNotMatchRegularExpression('#value="save"[^>]*data-confirm#', $html);
-        $this->assertStringNotContainsString('<form method="post" action="/communications" enctype="multipart/form-data" data-confirm', $html);
+        $this->assertStringNotContainsString('<form method="post" action="/medias-sociaux" enctype="multipart/form-data" data-confirm', $html);
     }
 
     public function testTheNewPageFollowsTheMockupsOrder(): void
@@ -237,7 +408,7 @@ final class CommunicationControllerTest extends TestCase
         $communication = $this->communications->find(1);
         $this->assertSame('Week-end d\'unité', $communication?->title);
         $this->assertSame($this->author, $communication->createdBy);
-        $this->assertSame('/communications/1/photo', $response->getHeaders()['Location'] ?? '');
+        $this->assertSame('/medias-sociaux/1/photo', $response->getHeaders()['Location'] ?? '');
 
         $html = $this->controller()->picker($this->get(), ['id' => '1'])->getBody();
         $this->assertStringContainsString('<button type="submit" name="media_id" value="' . self::PHOTO . '"', $html);
@@ -272,7 +443,7 @@ final class CommunicationControllerTest extends TestCase
         $this->assertNull($communication?->galleryMediaId);
         $this->assertNotNull($communication->fileId);
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
-        $this->assertStringContainsString('src="/communications/' . $id . '/apercu"', $html);
+        $this->assertStringContainsString('src="/medias-sociaux/' . $id . '/apercu"', $html);
         $this->assertStringNotContainsString('elle est floutée', $html);
         $this->assertSame(200, $this->controller()->preview($this->get(), ['id' => (string) $id])->getStatusCode());
     }
@@ -354,7 +525,7 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('Non demandé', $html);
         $this->assertStringContainsString('data-platform="instagram" data-state="failed"', $html);
         $this->assertStringContainsString('Proportions refusées', $html);
-        $this->assertStringContainsString('href="/communications/reessayer/communication/' . $failed . '/instagram"', $html);
+        $this->assertStringContainsString('href="/medias-sociaux/reessayer/communication/' . $failed . '/instagram"', $html);
         $this->assertStringContainsString('aria-label="Réessayer la publication sur Instagram"', $html);
     }
 
@@ -409,9 +580,9 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('href="/groups/3#post-101"', $html);
         $this->assertStringContainsString('data-platform="group:4" data-state="failed"', $html);
         $this->assertStringContainsString('Staff d&#039;unité', $html);
-        $this->assertStringContainsString('href="/communications/reessayer/communication/' . $id . '/group:4"', $html);
+        $this->assertStringContainsString('href="/medias-sociaux/reessayer/communication/' . $id . '/group:4"', $html);
         // The link as a browser follows it, through the real router.
-        $routed = $this->route('GET', '/communications/reessayer/{kind}/{id}/{platform}', 'confirmRetry', [], 'communication/' . $id . '/group:4');
+        $routed = $this->route('GET', '/medias-sociaux/reessayer/{kind}/{id}/{platform}', 'confirmRetry', [], 'communication/' . $id . '/group:4');
         $this->assertSame(200, $routed->getStatusCode());
 
         unset($this->groups->refusals[4]);
@@ -505,11 +676,43 @@ final class CommunicationControllerTest extends TestCase
 
         $front = new FrontController($router, $this->twig(), new AppConfig($configFile));
         $front->registerController(CommunicationController::class, $this->controller());
+        // `{kind}` means two different things across these routes: what a
+        // composer was opened FROM (an album), and what a retry belongs to
+        // (the communication). Substituting one value everywhere drove the
+        // from-source route into a 404 and read as a product fault.
+        $kind = str_contains($path, '/nouvelle/') ? 'album' : 'communication';
         $concrete = $tail !== null
-            ? '/communications/reessayer/' . $tail
-            : strtr($path, ['{kind}' => 'communication', '{id}' => (string) $id, '{platform}' => 'instagram']);
+            ? '/medias-sociaux/reessayer/' . $tail
+            : strtr($path, [
+                '{kind}' => $kind,
+                '{id}' => (string) ($kind === 'album' ? self::ALBUM_ID : $id),
+                '{platform}' => 'instagram',
+            ]);
 
         return $front->handle(new Request($method, $concrete, [], $body, [], []));
+    }
+
+    /**
+     * The gallery as this class needs it: one album, described to whoever
+     * asks. WHOSE album it is, is the gallery's own rule and
+     * FakeAlbumSource's subject — here it would only stand between these
+     * tests and the composer they are about.
+     */
+    private static function albumSource(): \Modules\Gallery\Api\AlbumShareSourceInterface
+    {
+        return new class implements \Modules\Gallery\Api\AlbumShareSourceInterface {
+            public function describe(int $albumId, string $role, string $email): ?\Modules\Gallery\Api\SharedAlbum
+            {
+                return $albumId === CommunicationControllerTest::ALBUM_ID
+                    ? new \Modules\Gallery\Api\SharedAlbum(
+                        CommunicationControllerTest::ALBUM_ID,
+                        CommunicationControllerTest::ALBUM_TITLE,
+                        \Tests\Modules\Social\SocialTestHelper::groupPhoto(),
+                        '/gallery/' . CommunicationControllerTest::ALBUM_ID
+                    )
+                    : null;
+            }
+        };
     }
 
     private function controller(): CommunicationController
@@ -532,7 +735,15 @@ final class CommunicationControllerTest extends TestCase
         return new CommunicationController(
             $this->twig(),
             $this->communications,
-            new ShareSourceResolver($settings, $reader, null, null, $this->communications, $this->picker, []),
+            new ShareSourceResolver(
+                $settings,
+                $reader,
+                self::albumSource(),
+                null,
+                $this->communications,
+                $this->picker,
+                []
+            ),
             new DestinationStates(
                 $publishing,
                 $this->publications,
@@ -560,7 +771,7 @@ final class CommunicationControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
-        $twig->addGlobal('current_path', '/communications');
+        $twig->addGlobal('current_path', '/medias-sociaux');
 
         return $twig;
     }
@@ -578,12 +789,12 @@ final class CommunicationControllerTest extends TestCase
      */
     private function post(array $body): Request
     {
-        return new Request('POST', '/communications/x', [], $body + ['_csrf_token' => $this->csrf()], [], []);
+        return new Request('POST', '/medias-sociaux/x', [], $body + ['_csrf_token' => $this->csrf()], [], []);
     }
 
     private function get(): Request
     {
-        return new Request('GET', '/communications/x', [], [], [], []);
+        return new Request('GET', '/medias-sociaux/x', [], [], [], []);
     }
 
     /**

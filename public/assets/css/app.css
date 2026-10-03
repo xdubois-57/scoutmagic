@@ -951,3 +951,12 @@ body:has(> #cookie-banner) {
 .min-w-0 {
     min-width: 0;
 }
+
+/* An action another module contributes as an icon alone — « Partager » on
+   an album form and in the news editor (ARCHITECTURE.md §7.6). Bootstrap's
+   own button padding leaves a target of about 32 pixels, which design.md
+   §7.2 does not accept for something a finger has to hit. */
+.contributed-action-icon {
+    min-width: 44px;
+    min-height: 44px;
+}

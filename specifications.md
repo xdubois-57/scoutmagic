@@ -3343,17 +3343,33 @@ parce qu'Instagram ne publie pas de lien.
 ### 47.6 Partager un album ou une actualité
 
 **Le bouton.** « Partager » apparaît sur la page de modification d'un
-album et dans l'éditeur d'une actualité, **seulement quand au moins un
-compte est connecté** et en état de marche. Il mène à une page de
-confirmation, `/partage/album/{id}` ou `/partage/actualite/{id}`.
+album et dans l'éditeur d'une actualité, **dès qu'une destination est
+possible pour la personne qui regarde** : un compte Meta relié et en état
+de marche, **ou** un groupe de discussion où elle a le droit de publier.
+C'est l'icône de partage seule, avec « Partager » pour nom accessible et
+pour infobulle, sur une cible tactile de 44 × 44 pixels.
+
+Quand aucune destination n'est possible, le bouton est **absent** et la
+page le dit en une ligne — un bouton qui disparaît sans un mot ressemble
+à une panne — avec un lien vers la configuration des médias sociaux pour
+qui peut l'ouvrir, et sans lien pour les autres : un lien qui mène à un
+refus est pire que pas de lien.
+
+Il ouvre **le composeur**, déjà rempli, à `/medias-sociaux/nouvelle/album/{id}`
+ou `/medias-sociaux/nouvelle/article/{id}`. Il n'y a plus de page de
+partage dédiée.
 
 **Qui.** Un animateur (`chief`) ou plus, et seulement sur ce qu'il peut
 déjà modifier : un album qu'il gère, une actualité qu'il peut modifier.
 Pour tout autre album ou actualité, la page répond « introuvable ». Un
 album délégué (à un camp, par exemple) ou en cours de déplacement ne se
-partage pas.
+partage pas. La même question est posée **à chaque usage** : à l'ouverture
+du composeur, à l'enregistrement, à chaque aperçu et à chaque publication.
 
-**La page de confirmation** montre, dans cet ordre :
+**Ce que le composeur montre**, dans cet ordre :
+
+- **une ligne qui dit ce qu'on partage** : « Partage de l'album *titre* » ;
+- **aucun champ d'adresse**, jamais : le lien est celui de la source ;
 
 - **l'image exacte qui sera publiée** — pour un album, sa photo de
   couverture floutée (§ 47.5) avec son titre et l'adresse du site ; pour
@@ -3373,8 +3389,22 @@ partage pas.
   vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
   l'adresse est écrite sur l'image — elle n'est pas cliquable sur
   Instagram ;
-- « Annuler », qui revient à l'album ou à l'actualité, et « Publier »,
-  avec son mot et son icône.
+- « Voir l'historique » et « Publier », avec son mot et son icône. Il n'y
+  a pas de « Enregistrer » : « Publier » enregistre tout, et ramène à
+  l'historique.
+
+**Le titre et l'image venus d'une source sont verrouillés** — ils se
+changent sur l'album ou l'actualité — et « Téléverser » comme
+« Galerie » disparaissent : la couverture d'un album appartient à l'album.
+Le texte reste libre. Rien de la source n'est recopié dans la
+communication, qui la nomme seulement : il n'y a donc jamais deux réponses
+possibles à « qu'y a-t-il sur cette carte ». Si la source disparaît, la
+page ne répond pas « introuvable » : elle s'ouvre en disant que ce qui
+était partagé n'existe plus et qu'elle ne peut plus être publiée.
+
+**Un clic sur « Partager » ne crée rien.** Ce n'est pas une décision de
+publier : la source voyage dans le formulaire, et le serveur la redécrit,
+par le module propriétaire, avant d'écrire quoi que ce soit.
 
 **Ce qui part.** Un album part en publication d'image sur la Page et sur
 Instagram. Une actualité part **en lien** sur la Page — Facebook en
@@ -3394,13 +3424,17 @@ et ce qui a échoué.
 **Le journal** inscrit chaque publication réussie ou échouée : l'album ou
 l'actualité, la plateforme, qui a publié — ni la légende, ni aucun jeton.
 
-### 47.7 L'écran Communications
+### 47.7 L'écran Médias sociaux
 
-« Communications », dans l'espace animateurs (`chief` et plus), a deux
-pages.
+« Médias sociaux », dans l'espace animateurs (`chief` et plus), à
+`/medias-sociaux`, est la page d'où part tout ce que l'unité publie au
+dehors. Son titre est « Médias sociaux » et la liste en dessous
+« Ce qui est parti ».
 
-**« Nouvelle communication »** publie ce qui n'est ni un album ni une
-actualité. Une vraie page, dans cet ordre :
+**Un seul composeur**, et deux façons d'y arriver : « Nouvelle
+communication », pour ce qui n'est ni un album ni une actualité, ou le
+bouton « Partager » du § 47.6, qui l'ouvre pré-rempli. Une vraie page,
+dans cet ordre :
 
 1. **l'image en grand**, telle qu'elle sera publiée, titre et adresse
    compris ; sans image, la page dit qu'aucune publication ne part sans
@@ -3413,6 +3447,12 @@ actualité. Une vraie page, dans cet ordre :
 4. **le texte de la publication** (2 200 caractères) ;
 5. **les destinations**, avec leur état comme au § 47.6, l'avertissement
    que c'est public et hors du site, puis « Publier ».
+
+Les points 2 et 3 n'apparaissent pas quand l'image vient d'une source
+(§ 47.6). **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
+tout, un aller-retour vers la galerie ou un téléversement garde le
+brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
+« Publier ». Après « Publier », retour à l'historique.
 
 Une communication appartient à son auteur et aux administrateurs ; pour
 tout autre animateur, elle est « introuvable ». **Dès qu'une destination

@@ -35,8 +35,8 @@ final class ModuleManifestTest extends TestCase
             if ($route['path'] === '/partage/carte/{token}') {
                 continue;
             }
-            if (str_starts_with($route['path'], '/partage/') || str_starts_with($route['path'], '/communications')) {
-                // Sharing and free communications: a chief at the floor,
+            if (str_starts_with($route['path'], '/medias-sociaux')) {
+                // The composer and the history: a chief at the floor,
                 // narrowed by the gallery's and the news module's own rule,
                 // or the communication's author (ShareSourceResolver).
                 $this->assertSame('chief', $route['role_min'], $route['path']);
@@ -64,6 +64,34 @@ final class ModuleManifestTest extends TestCase
         $this->assertSame(['GET', '/partage/carte/{token}'], [$public[0]['method'], $public[0]['path']]);
     }
 
+    /**
+     * The schema gained `source_kind` / `source_id` for IT-01, and a module
+     * schema only reaches an existing installation when the manifest's
+     * version goes up with it (docs/chantiers/CHANTIER-medias-sociaux.md).
+     * This pin is meant to break: raise it when the schema changes again.
+     */
+    public function testTheVersionRisesWithTheSchema(): void
+    {
+        $this->assertSame('1.1.0', $this->manifest['version']);
+    }
+
+    /**
+     * There is one composer, reached from « Partager » as well as from
+     * « Nouvelle communication »: the two dedicated share pages are gone,
+     * and a route that brought one back would be the regression.
+     */
+    public function testThereIsNoDedicatedSharePageAnyMore(): void
+    {
+        $paths = array_column($this->manifest['routes'], 'path');
+
+        $this->assertContains('/medias-sociaux/nouvelle/{kind}/{id}', $paths);
+        foreach ($paths as $path) {
+            $this->assertStringStartsNotWith('/partage/album', $path);
+            $this->assertStringStartsNotWith('/partage/actualite', $path);
+            $this->assertStringStartsNotWith('/communications', $path);
+        }
+    }
+
     public function testTheBlurSettingIsNotEditable(): void
     {
         $byKey = array_column($this->manifest['settings'], null, 'key');
@@ -76,8 +104,8 @@ final class ModuleManifestTest extends TestCase
     {
         foreach ($this->manifest['routes'] as $route) {
             $reads = in_array($route['action'], [
-                'index', 'connect', 'callback', 'show', 'showAlbum', 'showArticle', 'previewAlbum', 'previewArticle',
-                'history', 'create', 'edit', 'preview', 'picker', 'confirmRetry',
+                'index', 'connect', 'callback', 'show',
+                'history', 'create', 'createFromSource', 'edit', 'preview', 'picker', 'confirmRetry',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }
