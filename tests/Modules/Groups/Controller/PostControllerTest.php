@@ -1470,6 +1470,53 @@ class PostControllerTest extends TestCase
         $this->assertStringNotContainsString('bi-calendar-event', $body);
     }
 
+    // --- the card's own layout ------------------------------------------
+
+    /**
+     * Photos above the text when a message carries both (issue #710).
+     *
+     * One assertion on one observable rather than two string offsets
+     * compared: `preg_match_all` over the two markers gives the sequence
+     * the reader actually sees, so a card that renders the text first,
+     * one that renders either marker twice, and one that has stopped
+     * rendering a marker at all each produce a different array — and none
+     * of them can pass half-way.
+     *
+     * The order is pinned here rather than on the template file because
+     * every context that shows a message renders this same partial: the
+     * feed, a group's search results and the moderator's reports page all
+     * include partials/post_card.html.twig, which is why issue #710's
+     * « vérifier les autres endroits » is answered by one include.
+     */
+    public function testACardRendersThePhotosAboveTheText(): void
+    {
+        $photo = new DelegatedMedia(1, 'photo', 'done', 0, 'photo.jpg', '2026-01-01 10:00:00');
+        $manager = $this->createStub(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        $manager->method('addMedia')->willReturn($photo);
+        $manager->method('listMedia')->willReturn([$photo]);
+
+        $this->withMediaFiles(1);
+        $this->withCsrf(['body' => 'La cordée de samedi']);
+        $controller = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager);
+
+        $controller->create($this->request(), $this->params());
+        $body = $controller
+            ->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        // `groups-media-grid-1`, not `groups-media-grid`: the grid's
+        // class list holds both, and the shorter marker matches twice.
+        preg_match_all('/groups-media-grid-\d|groups-post-body/', $body, $matches);
+
+        $this->assertSame(
+            ['groups-media-grid-1', 'groups-post-body'],
+            $matches[0],
+            'a message carrying both a photo and some text no longer renders the photo first — '
+            . 'issue #710, which also fails this way if either block stopped rendering at all.'
+        );
+    }
+
     // --- mentions -------------------------------------------------------
 
     private function mentionSearchRequest(string $q): Request
