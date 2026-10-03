@@ -156,7 +156,7 @@
         submitButtons(form).forEach(function (button) {
             var idle = idleNodes.get(button);
             if (idle !== undefined) {
-                button.replaceChildren.apply(button, idle);
+                button.replaceChildren(...idle);
                 idleNodes.delete(button);
             }
             button.disabled = false;
