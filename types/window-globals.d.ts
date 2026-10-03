@@ -129,6 +129,8 @@ interface Window {
                 // Lists bound with the same group accept each other's
                 // items (opt-in, issue #752).
                 group?: string;
+                // A grouped list that lends its items but takes none.
+                receive?: boolean;
                 onReorder?: (move?: { item: HTMLElement; from: HTMLElement; to: HTMLElement }) => void;
             }
         ) => void;
