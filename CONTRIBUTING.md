@@ -54,6 +54,9 @@ Report security vulnerabilities privately — not via public issues. Contact the
 
 ## Development setup
 
+Development requires PHP >= 8.4. The JavaScript tooling requires Node.js >= 22 and npm; neither
+Node nor npm is required on the hosting server.
+
 ```bash
 composer install
 cp config/app.php.dist config/app.php
