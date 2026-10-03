@@ -197,6 +197,7 @@ class TrainingService
                 totem: $row->totem,
                 fullName: $row->fullName(),
                 email: $row->email,
+                phone: $row->phone,
                 sectionName: $row->sectionName,
                 detail: $row->functionLabel,
                 note: "Première année d'animation dans l'unité : le parcours peut commencer maintenant.",
@@ -294,6 +295,7 @@ class TrainingService
                     totem: $row->totem,
                     fullName: $row->fullName(),
                     email: $row->email,
+                    phone: $row->phone,
                     sectionName: $row->sectionName,
                     detail: $row->functionLabel,
                     note: $next === null

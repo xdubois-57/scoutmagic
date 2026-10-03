@@ -12055,13 +12055,17 @@ if ($isEnabled('leadership')) {
             $leadershipObligationsService,
             new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
             $scoutYearResolver,
-            $editableContentService
+            $editableContentService,
+            // Null when mass_mail is off: the lists then offer no draft.
+            $massMailDraftForOthers
         )
     );
 
     $attentionProviders[] = new \Modules\Leadership\Service\LeadershipAttentionProvider(
         $leadershipRepository,
-        new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService)
+        new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
+        $leadershipMappingRepository,
+        $leadershipResolver
     );
 
     $frontController->registerController(

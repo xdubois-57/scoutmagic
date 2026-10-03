@@ -59,34 +59,44 @@ class FormationMappingControllerTest extends TestCase
         $token = CsrfGuard::generateToken();
         $body['_csrf_token'] = $validCsrf ? $token : 'invalide';
 
-        return new Request('POST', '/admin/leadership/training/mapping', [], $body, [], []);
+        return new \Tests\RequestWithInput(
+            'POST',
+            '/admin/leadership/configuration/mapping',
+            [],
+            [],
+            [],
+            [],
+            (string) json_encode($body)
+        );
     }
 
-    public function testSavesAMapping(): void
+    public function testSavesAMappingAndAnswersJson(): void
     {
         $response = $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 't2']), []);
 
-        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['success' => true], json_decode($response->getBody(), true));
         $this->assertSame([['raw_value' => 'Zorglub', 'step' => 't2']], $this->repository->findAllRows());
     }
 
     /**
-     * Back where the visitor was, with the block still open.
-     *
-     * The mapping block is collapsed by default and sits at the bottom of
-     * a long page, so redirecting to the bare page landed a chef d'unité
-     * at the top with the block shut: their rattachement had worked, and
-     * nothing on screen said so. The fragment scrolls; `mapping=1` is
-     * what opens the block, because a fragment never reaches the server.
+     * No redirect and no flash message any more (#727): the page saves
+     * each select by itself and says so with a toast.
      */
-    public function testTheRedirectLandsBackInsideTheOpenMappingBlock(): void
+    public function testThereIsNoRedirectNorFlashMessage(): void
     {
         $response = $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 't2']), []);
 
-        $this->assertSame(
-            '/admin/leadership/training?mapping=1#formation-mapping',
-            $response->getHeaders()['Location'] ?? null
-        );
+        $this->assertArrayNotHasKey('Location', $response->getHeaders());
+        $this->assertArrayNotHasKey('_flash_message', $_SESSION);
+    }
+
+    public function testARefusalSaysWhyInJson(): void
+    {
+        $response = $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 'pas-une-etape']), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Étape de formation inconnue.', json_decode($response->getBody(), true)['error']);
     }
 
     public function testAnEmptyStepRemovesTheMapping(): void
@@ -130,7 +140,7 @@ class FormationMappingControllerTest extends TestCase
             []
         );
 
-        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(403, $response->getStatusCode());
         $this->assertSame([], $this->repository->findAllRows());
     }
 

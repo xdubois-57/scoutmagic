@@ -3281,7 +3281,7 @@ The encoded fee category against the number of people at the same address, and t
 
 **« Ignorer ce foyer » is the answer to shared custody**, and deliberately not a merge/split of households — a data model nobody could keep true. The reason is free text about a family's arrangements, so it is BLOB + encrypted in `Repository\IgnoredHouseholdRepository` and **never journaled**: the journal records that a household was set aside, not which one nor why. The decision carries a `composition_hash` of the member ids it was taken about, so an arrival or a departure brings the household back rather than leaving it silently excluded on the strength of a judgement about different people.
 
-**« Copier pour Desk » is volontairement bête**: a plain text block assembled server-side (`Service\DeskClipboardText`, where the names are already decrypted), carried in a JSON island and copied by `public/assets/js/fees-copy.js` — the `leadership-copy-emails.js` shape, fallback included.
+**« Copier pour Desk » is volontairement bête**: a plain text block assembled server-side (`Service\DeskClipboardText`, where the names are already decrypted), carried in a JSON island and copied by `public/assets/js/fees-copy.js` — with a pre-selected prompt as the fallback where the clipboard API is absent.
 
 **Four views, four real URLs** (`?vue=`), drawn through the site's own chip picker (§8.30) rather than a fifth tab style: the page works with no JavaScript and a treasurer keeps it open beside Desk. The date of the import it reads is on the page, because nothing on it is fresher than that.
 
