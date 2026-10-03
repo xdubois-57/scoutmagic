@@ -201,7 +201,7 @@ class DocumentsAdminController extends AbstractController
     }
 
     /**
-     * @param array{title: string, description: string, visibility: string} $values
+     * @param array{title: string, description: string, visibility: string, expires_on: string} $values
      */
     private function renderForm(?Document $document, array $values, ?string $error = null): Response
     {
