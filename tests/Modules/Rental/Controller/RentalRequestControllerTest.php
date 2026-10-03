@@ -1118,6 +1118,36 @@ class RentalRequestControllerTest extends TestCase
         }
     }
 
+    /**
+     * « Demande de modification reçue » (#708, IT-20): the managers are
+     * told, it leads to the booking's « Modifications » page, and it names
+     * the asset, the reference and what is asked — never the renter.
+     */
+    public function testARentersChangeRequestNotifiesTheManagers(): void
+    {
+        $assetId = $this->createAsset();
+        $manager = $this->addAccount('gestionnaire@test.be');
+        $this->addManager($assetId, 'gestionnaire@test.be');
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->notifications = [];
+
+        $this->postToTracking('requestChange', $bookingId, $token, [
+            'persons' => '30',
+            'message' => 'Nous serons plus nombreux.',
+        ]);
+
+        $this->assertCount(1, $this->notifications);
+        $this->assertSame('rental.change_request', $this->notifications[0]['typeId']);
+        $this->assertSame([$manager], array_column($this->notifications[0]['recipients'], 'userAccountId'));
+        $payload = $this->notifications[0]['payload'];
+        $this->assertSame('/mes-locations/local-saint-georges/reservations/' . $bookingId . '/modifications', $payload['url'] ?? null);
+        $this->assertStringContainsString('participants', (string) ($payload['body'] ?? ''));
+        $text = (string) json_encode($payload, JSON_UNESCAPED_UNICODE);
+        foreach (['Jeanne Martin', 'jeanne.martin@example.be', 'Nous serons plus nombreux.'] as $secret) {
+            $this->assertStringNotContainsString($secret, $text);
+        }
+    }
+
     /** The direct email is gone: only the renter is mailed. */
     public function testNoManagerIsMailedDirectlyAnyMore(): void
     {

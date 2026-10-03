@@ -65,6 +65,9 @@ class RentalRequestController extends AbstractController
     /** The notification a new request raises (#708, IT-05). */
     public const NEW_REQUEST_NOTIFICATION = 'rental.new_request';
 
+    /** The notification a renter's change request raises (#708, IT-20). */
+    public const CHANGE_REQUEST_NOTIFICATION = 'rental.change_request';
+
     public function __construct(
         Environment $twig,
         private RentalAssetRepository $assetRepository,
@@ -778,6 +781,7 @@ class RentalRequestController extends AbstractController
                 null,
                 $message
             );
+            $this->notifyChangeRequest($booking, $asset, $kind);
 
             FlashMessage::set(
                 'success',
@@ -789,6 +793,36 @@ class RentalRequestController extends AbstractController
         }
 
         return $this->backToTracking($params);
+    }
+
+    /**
+     * « Demande de modification reçue » (#708, IT-20): the managers learnt
+     * of a request only by opening « À traiter ». The asset, the reference
+     * and what is asked — never the renter's identity — and it leads to the
+     * booking's « Modifications » page.
+     */
+    private function notifyChangeRequest(RentalBooking $booking, RentalAsset $asset, ChangeRequestKind $kind): void
+    {
+        if ($this->notificationService === null || $this->recipientResolver === null) {
+            return;
+        }
+
+        try {
+            $recipients = $this->recipientResolver->recipientsFor($asset->id, 'demande de modification');
+            if ($recipients === []) {
+                return;
+            }
+
+            $this->notificationService->dispatch(self::CHANGE_REQUEST_NOTIFICATION, $recipients, [
+                'title' => 'Demande de modification — ' . $asset->name,
+                'body' => $booking->reference . ' : ' . $kind->label() . '.',
+                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id
+                    . '/modifications',
+            ]);
+        } catch (\Throwable) {
+            // The request is recorded either way, and « À traiter » shows
+            // it; a failed notification is not the renter's problem.
+        }
     }
 
     /**

@@ -7,13 +7,13 @@ role_min: identified
 question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
-paths: /mes-locations/*/reservations/*
+paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/modifications
 related: locations-parcours, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
-Une réservation tient en quatre pages, reliées par les pastilles sous
-son titre : **Tableau de bord**, **Finances**, **Documents** et
-**Courrier**. La pastille « Courrier » n'apparaît que si une boîte
+Une réservation tient en plusieurs pages, reliées par les onglets sous
+son titre : **Tableau de bord**, **Modifications**, **Finances**,
+**Documents** et **Courrier**. La pastille « Courrier » n'apparaît que si une boîte
 e-mail est dédiée aux locations, et une seule.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
@@ -48,14 +48,18 @@ et l'ancien cesse de fonctionner sur-le-champ.
 
 ### 3. « Le dossier »
 
-Les demandes et propositions, les commentaires internes et
-l'historique, repliés. Chaque ligne porte le chiffre qui répond à la
-question pour laquelle on l'aurait ouverte — le nombre de demandes
-encore en attente, de commentaires, de modifications — et s'ouvre d'un
-clic. Une boîte ouverte le reste pendant que vous y travaillez. Le
+Les commentaires internes et l'historique, repliés. Chaque ligne porte
+le chiffre qui répond à la question pour laquelle on l'aurait ouverte —
+le nombre de commentaires, de modifications — et s'ouvre d'un clic. Une boîte ouverte le reste pendant que vous y travaillez. Le
 séjour a sa propre page, et sa ligne y conduit.
 
 ## Les autres pages
+
+« Modifications » réunit les demandes de modification du locataire et
+vos propositions : les accepter, les refuser, proposer d'autres dates.
+Le nombre de celles qui attendent une réponse s'affiche à côté de son
+nom, « Modifications (1) », et une demande du locataire vous est
+notifiée.
 
 Le prix et les paiements sont sur « Finances », le contrat, la facture
 et les fichiers sur « Documents », les e-mails sur « Courrier » ;
