@@ -18,7 +18,10 @@ declare(strict_types=1);
  * sentence in CONTRIBUTING.md that somebody forgets to follow.
  *
  * Never overwrites an existing config/app.php: that file is the
- * developer's own, and may hold values they set on purpose.
+ * developer's own, and may hold values they set on purpose. When it still
+ * requires HTTPS — a file that predates the key keeps the production
+ * default — the command fails and says which line to add, rather than
+ * reporting success on a checkout whose cookies `composer serve` drops.
  *
  * Usage: php scripts/dev-config.php [install root, default: this checkout]
  */
@@ -34,7 +37,13 @@ function devConfigSeed(string $root): array
     $configPath = $root . '/config/app.php';
 
     if (is_file($configPath)) {
-        return [0, "config/app.php existe déjà : laissé tel quel.\n"];
+        $existing = (static fn(string $path): mixed => require $path)($configPath);
+        if (is_array($existing) && ($existing['https_required'] ?? true) === false) {
+            return [0, "config/app.php existe déjà : laissé tel quel.\n"];
+        }
+
+        return [1, "config/app.php existe déjà et exige HTTPS : laissé tel quel. Pour servir en HTTP local, "
+            . "ajoutez-y 'https_required' => false.\n"];
     }
 
     $dist = is_file($distPath) ? file_get_contents($distPath) : false;
@@ -54,7 +63,9 @@ function devConfigSeed(string $root): array
         return [1, "config/app.php.dist ne déclare plus 'https_required' => true : script à mettre à jour.\n"];
     }
 
-    file_put_contents($configPath, $config);
+    if (@file_put_contents($configPath, $config) === false) {
+        return [1, "Impossible d'écrire {$configPath}.\n"];
+    }
 
     return [0, "config/app.php créé pour le développement local (HTTP toléré).\n"];
 }

@@ -87,13 +87,47 @@ class HttpOnlyEnvironmentsDeclareTheExceptionTest extends TestCase
     public function testTheDevelopmentConfigScriptNeverOverwritesAnExistingConfig(): void
     {
         $this->runDevConfig();
-        file_put_contents($this->tempDir . '/config/app.php', "<?php\n\nreturn ['https_required' => true];\n");
+        $kept = "<?php\n\nreturn ['https_required' => false, 'debug' => true];\n";
+        file_put_contents($this->tempDir . '/config/app.php', $kept);
 
+        [$exitCode, $message] = devConfigSeed($this->tempDir);
+
+        $this->assertSame(0, $exitCode, $message);
+        $this->assertStringEqualsFile($this->tempDir . '/config/app.php', $kept);
+    }
+
+    /**
+     * An existing file that still requires HTTPS — explicitly, or by
+     * predating the key — is kept, but the command fails and names the
+     * line to add instead of reporting a usable development setup.
+     */
+    public function testAnExistingConfigThatStillRequiresHttpsFailsWithTheLineToAdd(): void
+    {
         $this->runDevConfig();
+        foreach (["['https_required' => true]", "['debug' => true]"] as $body) {
+            $kept = "<?php\n\nreturn {$body};\n";
+            file_put_contents($this->tempDir . '/config/app.php', $kept);
 
-        /** @var array<string, mixed> $config */
-        $config = require $this->tempDir . '/config/app.php';
-        $this->assertTrue($config['https_required']);
+            [$exitCode, $message] = devConfigSeed($this->tempDir);
+
+            $this->assertSame(1, $exitCode, $body);
+            $this->assertStringContainsString("'https_required' => false", $message);
+            $this->assertStringEqualsFile($this->tempDir . '/config/app.php', $kept);
+        }
+    }
+
+    public function testAFailedWriteIsReportedAsAFailure(): void
+    {
+        require_once $this->repoRoot . '/scripts/dev-config.php';
+        $this->tempDir = sys_get_temp_dir() . '/sm-dev-config-' . bin2hex(random_bytes(4));
+        mkdir($this->tempDir . '/config/app.php', 0700, true);
+        copy($this->repoRoot . '/config/app.php.dist', $this->tempDir . '/config/app.php.dist');
+
+        [$exitCode, $message] = devConfigSeed($this->tempDir);
+        rmdir($this->tempDir . '/config/app.php');
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString("Impossible d'écrire", $message);
     }
 
     public function testComposerExposesTheDevelopmentConfigScript(): void
