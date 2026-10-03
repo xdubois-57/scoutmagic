@@ -135,7 +135,9 @@ final class BookingAttention
     private static function unitTask(BookingMilestone $step): string
     {
         return match ($step->key) {
+            BookingMilestones::CONTRACT_GENERATED => 'générer le contrat',
             BookingMilestones::CONTRACT_SENT => 'envoyer le contrat',
+            BookingMilestones::CONTRACT_COUNTERSIGNED => 'contresigner le contrat',
             'confirmed' => 'confirmer la réservation',
             BookingMilestones::ARRIVAL_INVENTORY => "l'état des lieux d'entrée",
             BookingMilestones::METER_READINGS => 'relever les compteurs',
@@ -151,7 +153,7 @@ final class BookingAttention
     private static function renterWait(BookingMilestone $step): string
     {
         return match ($step->key) {
-            BookingMilestones::CONTRACT_ACCEPTED => 'contrat accepté',
+            BookingMilestones::SIGNED_COPY_RECEIVED => 'contrat signé',
             BookingMilestones::DEPOSIT_RECEIVED => 'acompte',
             BookingMilestones::BALANCE_RECEIVED => 'solde',
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution',

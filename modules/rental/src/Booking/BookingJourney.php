@@ -158,7 +158,7 @@ final class BookingJourney
         }
 
         $waiting = match ($this->next->key) {
-            BookingMilestones::CONTRACT_ACCEPTED => "En attente de l'acceptation du contrat par le locataire",
+            BookingMilestones::SIGNED_COPY_RECEIVED => 'En attente du contrat signé par le locataire',
             BookingMilestones::DEPOSIT_RECEIVED => "En attente de l'acompte",
             BookingMilestones::BALANCE_RECEIVED => 'En attente du solde',
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'En attente de la caution',
@@ -169,9 +169,13 @@ final class BookingJourney
         }
 
         return match ($this->next->key) {
+            BookingMilestones::CONTRACT_GENERATED => $this->status === BookingStatus::RECEIVED
+                ? 'Cette demande attend votre réponse : générez le contrat.'
+                : 'Le contrat reste à générer.',
             BookingMilestones::CONTRACT_SENT => $this->status === BookingStatus::RECEIVED
-                ? 'Cette demande attend votre réponse : envoyez le contrat.'
+                ? 'Cette demande attend votre réponse : relisez le contrat, puis envoyez-le.'
                 : 'Le contrat reste à envoyer.',
+            BookingMilestones::CONTRACT_COUNTERSIGNED => 'Le contrat signé par le locataire reste à contresigner.',
             'confirmed' => match ($this->status) {
                 BookingStatus::RECEIVED => 'Cette demande attend votre réponse : confirmez la réservation.',
                 BookingStatus::CONTRACT_SENT => "L'accord est complet : la réservation reste à confirmer.",
@@ -212,7 +216,7 @@ final class BookingJourney
             BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED
                 => MilestoneAction::openBox('Voir les paiements', BookingBox::PAYMENT),
-            BookingMilestones::CONTRACT_ACCEPTED
+            BookingMilestones::SIGNED_COPY_RECEIVED
                 => MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS),
             default => null,
         };

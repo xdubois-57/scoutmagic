@@ -24,8 +24,8 @@
   own — the fold's header is the heading, and it is where the figure that
   says whether this box wants opening lives.
 
-  Requires `asset`, `booking`, `documents` and `uploadable_types`; optional
-  `landlord`, the resolved Document\Landlord.
+  Requires `asset`, `booking`, `booking_url`, `documents` and
+  `uploadable_types`; optional `landlord`, the resolved Document\Landlord.
 #}
 <div class="card-body pt-0">
         {#
@@ -57,25 +57,22 @@
             Le locataire ne télécharge rien depuis le site : ses documents lui parviennent
             uniquement par email. En cas d'email perdu, renvoyez-le.
         </p>
+        {#
+          The contract is generated and sent from its own steps on the
+          dashboard (#708, IT-16), where the manager already is; this page
+          still lists it with every other document, and resends a version
+          that has gone.
+        #}
         <p class="text-body-secondary small">
-            Le texte se rédige dans
-            <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a>. Pour cette
+            Le contrat se génère et s'envoie depuis le <a href="{{ booking_url }}">tableau de bord</a>, à
+            son étape. Le texte se rédige dans
+            <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a> ; pour cette
             réservation seulement, ajustez
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/contract">le
-            texte du contrat</a> ou
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice">celui
-            de la facture</a> avant de générer.
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice">le
+            texte de la facture</a> avant de la générer.
         </p>
 
         <div class="d-flex flex-wrap gap-2 mb-3">
-            <form method="post" action="/mes-locations/document-generer" class="d-inline">
-                {{ csrf_field()|raw }}
-                <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                <input type="hidden" name="document_type" value="contract">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer le contrat</button>
-            </form>
             <form method="post" action="/mes-locations/document-generer" class="d-inline">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">

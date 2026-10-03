@@ -1098,7 +1098,7 @@ class RentalManagementControllerTest extends TestCase
 
     /**
      * A confirmed booking with a step of the unit's left — here the
-     * contract to send — stays on « À traiter », and the line names the step
+     * contract to generate — stays on « À traiter », and the line names the step
      * (#708, IT-12). It used to vanish the moment it was confirmed.
      */
     public function testAConfirmedBookingWithAUnitStepLeftIsOnTheList(): void
@@ -1111,7 +1111,7 @@ class RentalManagementControllerTest extends TestCase
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
-        $this->assertStringContainsString('À faire : envoyer le contrat', $body);
+        $this->assertStringContainsString('À faire : générer le contrat', $body);
         $this->assertStringNotContainsString('Aucune demande en attente.', $body);
     }
 
@@ -1971,6 +1971,72 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * The contract is generated, read, then sent from its own steps on the
+     * dashboard (#708, IT-16) — two gestures, so the PDF can be read before
+     * it leaves — and the send says, before anything goes, to whom and how
+     * long the dates stay held.
+     */
+    public function testTheContractIsGeneratedThenSentFromTheDashboard(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'dashboard',
+            'document_type' => 'contract',
+        ]);
+        $this->assertStringEndsWith(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id,
+            (string) $response->getHeaders()['Location']
+        );
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $nextStep = self::panel($body, 'next-step');
+        $this->assertStringContainsString('data-contract-command="send"', $nextStep);
+        $this->assertStringContainsString('à jeanne@example.be ?', html_entity_decode($nextStep));
+        $this->assertStringContainsString("Les dates restent bloquées jusqu'au", html_entity_decode($nextStep));
+
+        $generated = self::step($body, 'contract_generated');
+        $this->assertStringContainsString('Relire « Contrat v1 »', html_entity_decode($generated));
+        $this->assertStringContainsString('Générer à nouveau', $generated);
+        $this->assertStringContainsString('Ajuster le', $generated);
+
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'dashboard',
+            'document_id' => (string) $document->id,
+        ]);
+
+        // Once it has gone its text is locked: nothing to regenerate or
+        // adjust, only the version that left to read again.
+        $sent = self::step($this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'contract_generated');
+        $this->assertStringContainsString('Relire « Contrat v1 »', html_entity_decode($sent));
+        $this->assertStringNotContainsString('Générer à nouveau', $sent);
+        $this->assertStringNotContainsString('Ajuster le', $sent);
+    }
+
+    /**
+     * Documents still lists the contract and resends it, but no longer
+     * generates it, nor links to its text (#708, IT-16).
+     */
+    public function testTheDocumentsPageNoLongerGeneratesTheContract(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString('Générer le contrat', $body);
+        $this->assertStringNotContainsString('/document/contract"', $body);
+        $this->assertStringContainsString('Générer la facture', $body);
+    }
+
+    /**
      * A milestone belonging to something this installation cannot do at
      * all still renders greyed — that is what the applicability flag is
      * for, and ticking every box unconditionally would be the opposite
@@ -2119,8 +2185,10 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre réponse : envoyez le contrat.', $nextStep);
-        $this->assertStringContainsString('Préparer le contrat', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre réponse : générez le contrat.', $nextStep);
+        // Generated right there, from the dashboard (#708, IT-16).
+        $this->assertStringContainsString('data-contract-command="generate"', $nextStep);
+        $this->assertStringContainsString('Générer le contrat', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
         $this->assertStringNotContainsString('value="confirmed"', $nextStep);
     }

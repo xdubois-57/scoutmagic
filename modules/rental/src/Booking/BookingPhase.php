@@ -78,8 +78,10 @@ enum BookingPhase: string
     {
         return match ($milestoneKey) {
             'request_received', 'hold' => self::REQUEST,
+            BookingMilestones::CONTRACT_GENERATED,
             BookingMilestones::CONTRACT_SENT,
-            BookingMilestones::CONTRACT_ACCEPTED,
+            BookingMilestones::SIGNED_COPY_RECEIVED,
+            BookingMilestones::CONTRACT_COUNTERSIGNED,
             BookingMilestones::DEPOSIT_RECEIVED,
             'confirmed' => self::AGREEMENT,
             BookingMilestones::BALANCE_RECEIVED,

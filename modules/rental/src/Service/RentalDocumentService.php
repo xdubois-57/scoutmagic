@@ -19,6 +19,7 @@ use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\Landlord;
@@ -85,8 +86,35 @@ class RentalDocumentService
         private HtmlSanitizer $sanitizer,
         private SettingService $settingService,
         private JournalService $journal,
-        private string $storagePath
+        private string $storagePath,
+        /**
+         * The archive of the conditions (issue #494), so a contract names
+         * the version the renter accepted with the request (#708, IT-16).
+         * Nullable where nothing is generated; without it the contract
+         * says « — » rather than point at a text nobody accepted.
+         */
+        private ?RentalConditionsService $conditions = null
     ) {
+    }
+
+    /**
+     * The archived conditions the renter accepted with the request — the
+     * very text, checked against the fingerprint stored with the booking.
+     * Null when none was accepted, or when that version is not in the
+     * archive: pointing at some other text would be worse than nothing.
+     */
+    public function acceptedConditions(RentalBooking $booking): ?ConditionsVersion
+    {
+        if ($this->conditions === null
+            || $booking->conditionsVersion === null
+            || $booking->conditionsHash === null
+        ) {
+            return null;
+        }
+
+        $version = $this->conditions->find($booking->assetId, $booking->conditionsVersion);
+
+        return $version !== null && hash_equals($version->hash, $booking->conditionsHash) ? $version : null;
     }
 
     // ── Level 1: the asset's template (§6.25) ───────────────────────────
@@ -342,17 +370,25 @@ class RentalDocumentService
         $version = $this->documentRepository->claimNextVersion($booking->id, $type);
         $fileName = RentalDocument::fileNameFor($type, $booking->reference, $version);
 
+        $header = [
+            'Bien : ' . $asset->name,
+            'Séjour : du '
+                . self::frenchDate($booking->arrivalDate)
+                . ' au '
+                . self::frenchDate($booking->departureDate),
+        ];
+        // In the frame rather than only as a keyword: a unit whose own
+        // template predates the keyword still sends a contract that names
+        // the conditions its renter accepted — never today's (#708, IT-16).
+        if ($type === DocumentType::CONTRACT && ($values['conditions_acceptees'] ?? null) !== null) {
+            $header[] = 'Conditions de location acceptées : ' . $values['conditions_acceptees'];
+        }
+
         $pdf = $this->pdfService->generate(
             $type->label() . ' — ' . $booking->reference,
             $rendered,
             (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
-            [
-                'Bien : ' . $asset->name,
-                'Séjour : du '
-                    . self::frenchDate($booking->arrivalDate)
-                    . ' au '
-                    . self::frenchDate($booking->departureDate),
-            ],
+            $header,
             $type === DocumentType::INVOICE ? $this->vatNote($asset) : null
         );
 
@@ -619,7 +655,28 @@ class RentalDocumentService
             'unite' => (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
             'mention_tva' => $this->vatNote($asset),
+            'conditions_acceptees' => $this->acceptedConditionsLine($booking, $asset),
         ];
+    }
+
+    /**
+     * « version du 12/09/2027, https://…/locations/salle/conditions/a1b2c3d4e5f6 »
+     * — the version the renter accepted and the permanent address of THAT
+     * text, the same one every email to them ends with.
+     */
+    private function acceptedConditionsLine(RentalBooking $booking, RentalAsset $asset): ?string
+    {
+        $version = $this->acceptedConditions($booking);
+        if ($version === null) {
+            return null;
+        }
+
+        $line = 'version du ' . $version->createdAt->format('d/m/Y');
+        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
+
+        return $baseUrl === ''
+            ? $line
+            : $line . ', ' . $baseUrl . '/locations/' . $asset->slug . '/conditions/' . $version->version;
     }
 
     /**

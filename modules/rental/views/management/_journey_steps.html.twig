@@ -27,8 +27,8 @@
   invalid markup in the file that holds it.
 
   Requires `phase` (a Booking\JourneyPhase), `next_key` (the key of the
-  step heading the journey, or null), `asset`, `booking`, `booking_url`
-  and `renter_decisions`.
+  step heading the journey, or null), `asset`, `booking`, `booking_url`,
+  `renter_decisions` and `contract_step` (#708, IT-16).
 #}
 <ol class="list-unstyled step-list mb-0">
 {% for milestone in phase.milestones %}
@@ -138,13 +138,20 @@
           its way up there already.
         #}
         {% if state == 'todo' and not future and milestone.kind.value == 'here' and not is_next
-            and milestone.action and milestone.action.box %}
+            and milestone.action and (milestone.action.box or milestone.action.command) %}
             <div class="mt-2">
                 {% include '@rental/management/_milestone_action.html.twig' with {
                     action: milestone.action, small: true,
                     asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                    contract_step: contract_step,
                 } only %}
             </div>
+        {% endif %}
+
+        {% if milestone.key == 'contract_generated' and not future and state != 'na' %}
+            {% include '@rental/management/_contract_step.html.twig' with {
+                contract_step: contract_step, asset: asset, booking: booking, state: state,
+            } only %}
         {% endif %}
 
     </div>

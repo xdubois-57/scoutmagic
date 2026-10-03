@@ -33,8 +33,10 @@ final class BookingMilestones
      *   keyed by the constants below. A key absent from this map is "not
      *   applicable yet" and is rendered greyed rather than unticked.
      */
+    public const CONTRACT_GENERATED = 'contract_generated';
     public const CONTRACT_SENT = 'contract_sent';
-    public const CONTRACT_ACCEPTED = 'contract_accepted';
+    public const SIGNED_COPY_RECEIVED = 'signed_copy_received';
+    public const CONTRACT_COUNTERSIGNED = 'contract_countersigned';
     public const DEPOSIT_RECEIVED = 'deposit_received';
     public const BALANCE_RECEIVED = 'balance_received';
     public const SECURITY_DEPOSIT_RECEIVED = 'security_deposit_received';
@@ -70,8 +72,10 @@ final class BookingMilestones
     public const ACTORS = [
         'request_received' => StepActor::RENTER,
         'hold' => StepActor::UNIT,
+        self::CONTRACT_GENERATED => StepActor::UNIT,
         self::CONTRACT_SENT => StepActor::UNIT,
-        self::CONTRACT_ACCEPTED => StepActor::RENTER,
+        self::SIGNED_COPY_RECEIVED => StepActor::RENTER,
+        self::CONTRACT_COUNTERSIGNED => StepActor::UNIT,
         self::DEPOSIT_RECEIVED => StepActor::RENTER,
         'confirmed' => StepActor::UNIT,
         self::BALANCE_RECEIVED => StepActor::RENTER,
@@ -132,6 +136,7 @@ final class BookingMilestones
                 true,
                 true,
                 $booking->receivedAt->format('d/m/Y')
+                    . (isset($details['request_received']) ? ' — ' . $details['request_received'] : '')
             ),
         ];
 
@@ -168,15 +173,22 @@ final class BookingMilestones
         );
 
         // No « Décision prise sur la demande » line any more (#708, IT-13):
-        // the unit's answer to a request is sending its contract, which is
-        // the first line of L'accord — and « Réservation confirmée » closes
-        // that stretch rather than duplicating it here.
+        // the unit's answer to a request is its contract, which opens
+        // L'accord — and « Réservation confirmée » closes that stretch
+        // rather than duplicating it here.
+        //
+        // Two signatures, four lines (#708, IT-16): the unit generates and
+        // sends, the renter signs and sends a copy back, the unit
+        // countersigns. The conditions are not one of them — the renter
+        // accepted those with the request, and « Demande reçue » says so.
+        $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_GENERATED, 'Contrat généré', $details);
         $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_SENT, 'Contrat envoyé', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::SIGNED_COPY_RECEIVED, 'Contrat signé reçu', $details);
         $milestones[] = self::extra(
             $extras,
             $abandoned,
-            self::CONTRACT_ACCEPTED,
-            'Conditions et contrat acceptés',
+            self::CONTRACT_COUNTERSIGNED,
+            'Contrat contresigné',
             $details
         );
         $milestones[] = self::extra($extras, $abandoned, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);
@@ -291,17 +303,29 @@ final class BookingMilestones
                     : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '
                         . 'se libèrent et la demande reste en attente.';
                 break;
+            case self::CONTRACT_GENERATED:
+                $kind = MilestoneKind::HERE;
+                $explanation = "Le contrat est la réponse de l'unité à la demande : il reprend le prix convenu et "
+                    . 'renvoie aux conditions que le locataire a acceptées. Générez-le, relisez le PDF, puis '
+                    . 'envoyez-le.';
+                $action = MilestoneAction::command('Générer le contrat', MilestoneAction::GENERATE_CONTRACT);
+                break;
             case self::CONTRACT_SENT:
                 $kind = MilestoneKind::HERE;
-                $explanation = "Le contrat est la réponse de l'unité à la demande : il reprend les conditions du "
-                    . "bien et le prix convenu, se prépare et s'envoie depuis la page Documents. L'envoyer "
-                    . 'passe la réservation à « Contrat envoyé ».';
-                $action = MilestoneAction::openBox('Préparer le contrat', BookingBox::DOCUMENTS);
+                $explanation = 'Le contrat part sans signature. L\'envoyer passe la réservation à « Contrat '
+                    . 'envoyé » et garde les dates bloquées le temps que le locataire le signe.';
+                $action = MilestoneAction::command('Envoyer le contrat', MilestoneAction::SEND_CONTRACT);
                 break;
-            case self::CONTRACT_ACCEPTED:
+            case self::SIGNED_COPY_RECEIVED:
                 $kind = MilestoneKind::RENTER;
-                $explanation = "Le locataire accepte depuis sa page de suivi ; l'étape se coche quand la copie "
-                    . 'signée est ajoutée aux documents.';
+                $explanation = "Le locataire signe le contrat et en renvoie une copie ; l'étape se coche quand "
+                    . 'cette copie est ajoutée aux documents.';
+                break;
+            case self::CONTRACT_COUNTERSIGNED:
+                $kind = MilestoneKind::HERE;
+                $explanation = "L'unité signe à son tour ; l'étape se coche quand le contrat signé par les deux "
+                    . 'parties est ajouté aux documents.';
+                $action = MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS);
                 break;
             case self::DEPOSIT_RECEIVED:
             case self::BALANCE_RECEIVED:

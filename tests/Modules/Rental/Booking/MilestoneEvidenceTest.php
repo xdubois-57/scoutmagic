@@ -8,6 +8,7 @@ use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
@@ -162,14 +163,14 @@ class MilestoneEvidenceTest extends TestCase
         );
 
         $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
-        $this->assertSame('04/03/2027', $evidence->details[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame('v1 le 04/03/2027', $evidence->details[BookingMilestones::CONTRACT_SENT]);
     }
 
     /**
-     * Generating the contract is not sending it — the line is about what
-     * left for the renter.
+     * Generating the contract is its own line (#708, IT-16), and it is not
+     * sending it — the next line is about what left for the renter.
      */
-    public function testAGeneratedButUnsentContractLeavesTheLineOutstanding(): void
+    public function testAGeneratedButUnsentContractTicksOnlyTheGeneratedLine(): void
     {
         $evidence = MilestoneEvidence::collect(
             $this->booking(),
@@ -180,29 +181,58 @@ class MilestoneEvidenceTest extends TestCase
             null
         );
 
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED]);
+        $this->assertSame('v1 du 01/02/2027', $evidence->details[BookingMilestones::CONTRACT_GENERATED]);
         $this->assertArrayHasKey(BookingMilestones::CONTRACT_SENT, $evidence->done);
         $this->assertFalse($evidence->done[BookingMilestones::CONTRACT_SENT]);
     }
 
-    public function testTheAcceptedLineWaitsForTheSignedContractAndMeanwhileShowsTheConditions(): void
+    /**
+     * The conditions are accepted with the request, never with the
+     * contract (#708, IT-16): a fact « Demande reçue » shows, naming the
+     * archived version when it is found.
+     */
+    public function testTheAcceptedConditionsAreAFactOfTheRequest(): void
+    {
+        $booking = $this->booking(new \DateTimeImmutable('2027-01-01 10:00:00'));
+
+        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null, null);
+        $this->assertSame('conditions acceptées le 01/01/2027', $evidence->details['request_received']);
+
+        $version = new ConditionsVersion(3, 'a1b2c3d4e5f6', str_repeat('a', 64), '<p>…</p>', new \DateTimeImmutable('2026-09-12'));
+        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null, null, true, [], null, $version);
+        $this->assertSame('conditions acceptées, version du 12/09/2026', $evidence->details['request_received']);
+
+        $line = BookingMilestones::for($booking, new \DateTimeImmutable('2027-02-01'), $evidence->done, $evidence->details)[0];
+        $this->assertSame('request_received', $line->key);
+        $this->assertStringEndsWith(' — conditions acceptées, version du 12/09/2026', (string) $line->detail);
+    }
+
+    /** The renter's copy alone is half the agreement: the unit still signs. */
+    public function testTheRentersSignedCopyTicksItsLineAndLeavesTheCountersignature(): void
     {
         $evidence = MilestoneEvidence::collect(
-            $this->booking(new \DateTimeImmutable('2027-01-01 10:00:00')),
-            [$this->document(DocumentType::CONTRACT, new \DateTimeImmutable('2027-03-04 08:00:00'))],
+            $this->booking(),
+            [
+                $this->document(DocumentType::CONTRACT, new \DateTimeImmutable('2027-03-04 08:00:00')),
+                $this->document(DocumentType::SIGNED_COPY, null, '2027-03-11 12:00:00', 2),
+            ],
             $this->payment(),
             null,
             null,
             null
         );
 
-        $this->assertFalse($evidence->done[BookingMilestones::CONTRACT_ACCEPTED]);
-        $this->assertSame(
-            'conditions acceptées le 01/01/2027',
-            $evidence->details[BookingMilestones::CONTRACT_ACCEPTED]
-        );
+        $this->assertTrue($evidence->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertSame('11/03/2027', $evidence->details[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertFalse($evidence->done[BookingMilestones::CONTRACT_COUNTERSIGNED]);
     }
 
-    public function testASignedContractOnFileTicksTheAcceptedLine(): void
+    /**
+     * A contract signed by both parties filed by hand — countersigned on
+     * paper, scanned whole — is the renter's signature too.
+     */
+    public function testAContractSignedByBothPartiesTicksBothSignatureLines(): void
     {
         $evidence = MilestoneEvidence::collect(
             $this->booking(),
@@ -216,8 +246,9 @@ class MilestoneEvidenceTest extends TestCase
             null
         );
 
-        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_ACCEPTED]);
-        $this->assertSame('11/03/2027', $evidence->details[BookingMilestones::CONTRACT_ACCEPTED]);
+        $this->assertTrue($evidence->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_COUNTERSIGNED]);
+        $this->assertSame('11/03/2027', $evidence->details[BookingMilestones::CONTRACT_COUNTERSIGNED]);
     }
 
     /**
@@ -228,8 +259,14 @@ class MilestoneEvidenceTest extends TestCase
     {
         $evidence = MilestoneEvidence::collect($this->booking(), null, $this->payment(), null, null, null);
 
-        $this->assertArrayNotHasKey(BookingMilestones::CONTRACT_SENT, $evidence->done);
-        $this->assertArrayNotHasKey(BookingMilestones::CONTRACT_ACCEPTED, $evidence->done);
+        foreach ([
+            BookingMilestones::CONTRACT_GENERATED,
+            BookingMilestones::CONTRACT_SENT,
+            BookingMilestones::SIGNED_COPY_RECEIVED,
+            BookingMilestones::CONTRACT_COUNTERSIGNED,
+        ] as $key) {
+            $this->assertArrayNotHasKey($key, $evidence->done, $key);
+        }
     }
 
     // ── Money ───────────────────────────────────────────────────────────
@@ -586,7 +623,7 @@ class MilestoneEvidenceTest extends TestCase
 
         $this->assertTrue($byKey[BookingMilestones::CONTRACT_SENT]->isApplicable);
         $this->assertTrue($byKey[BookingMilestones::CONTRACT_SENT]->isDone);
-        $this->assertSame('04/03/2027', $byKey[BookingMilestones::CONTRACT_SENT]->detail);
+        $this->assertSame('v1 le 04/03/2027', $byKey[BookingMilestones::CONTRACT_SENT]->detail);
         // Untouched by this evidence, and still greyed rather than unticked.
         $this->assertFalse($byKey[BookingMilestones::METER_READINGS]->isApplicable);
     }

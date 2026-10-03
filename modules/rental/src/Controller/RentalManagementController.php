@@ -846,7 +846,8 @@ class RentalManagementController extends AbstractController
         RentalAsset $asset,
         ?array $documents,
         array $payment,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
         // Null, not [], when the stay module is unavailable: the checklist
         // reads the difference between "no inventory on this asset" and
@@ -878,7 +879,8 @@ class RentalManagementController extends AbstractController
             // could walk, so its walk-throughs are ticked by hand.
             $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
             $marks,
-            $now
+            $now,
+            $acceptedConditions
         );
 
         return BookingMilestones::for(
@@ -1403,6 +1405,7 @@ class RentalManagementController extends AbstractController
     private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
     {
         $payment = $this->paymentStatus($booking, $asset);
+        $documents = $this->documentService?->forBooking($booking->id);
         // The checklist is derived from what the booking's own records say
         // — the contract that was sent, the deposit that arrived, the
         // inventory that was finished — never from a stored flag, so
@@ -1410,9 +1413,10 @@ class RentalManagementController extends AbstractController
         $milestones = $this->milestonesOf(
             $booking,
             $asset,
-            $this->documentService?->forBooking($booking->id),
+            $documents,
             $payment,
-            $now
+            $now,
+            $this->documentService?->acceptedConditions($booking)
         );
         $transitions = BookingTransition::allowedFrom($booking->status);
 
@@ -1442,6 +1446,57 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+            'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
+        ];
+    }
+
+    /**
+     * What the contract's two steps on the dashboard need (#708, IT-16):
+     * the version a send would mail, whether it already went, the address
+     * it goes to and how long the dates stay held once it has — said in
+     * the confirmation before anything leaves — and the landlord whose
+     * missing address would print « — » on it.
+     *
+     * @param \Modules\Rental\Document\RentalDocument[]|null $documents
+     * @return array<string, mixed>|null null when documents are unavailable
+     */
+    private function contractStep(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?array $documents,
+        \DateTimeImmutable $now
+    ): ?array {
+        if ($this->documentService === null || $documents === null) {
+            return null;
+        }
+
+        $latest = null;
+        foreach ($documents as $document) {
+            if ($document->type === DocumentType::CONTRACT && ($latest === null || $document->version > $latest->version)) {
+                $latest = $document;
+            }
+        }
+
+        // What `RentalOperationsService::contractSent()` will make of the
+        // hold: lengthened to the floor, never shortened, and nothing to
+        // say once the booking firmly occupies the asset.
+        $holdUntil = null;
+        if (!$booking->status->isFinal() && !$booking->status->firmlyOccupiesTheAsset()) {
+            $floor = RentalBookingService::capAtArrival(
+                $now->modify('+' . $this->contractHoldMinDays() . ' days'),
+                $now,
+                $booking->arrivalDate
+            );
+            $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
+            $holdUntil = $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
+        }
+
+        return [
+            'latest' => $latest,
+            'is_locked' => $this->documentService->textIsLocked($booking, DocumentType::CONTRACT),
+            'renter_email' => $booking->renterEmail,
+            'hold_until' => $holdUntil,
+            'landlord' => $this->documentService->landlordFor($asset),
         ];
     }
 

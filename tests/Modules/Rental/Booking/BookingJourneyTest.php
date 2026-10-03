@@ -16,6 +16,7 @@ use Modules\Rental\Booking\BookingPhase;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\HoldOrigin;
+use Modules\Rental\Booking\MilestoneAction;
 use Modules\Rental\Booking\MilestoneKind;
 use Modules\Rental\Booking\RentalBooking;
 use PHPUnit\Framework\TestCase;
@@ -116,8 +117,10 @@ class BookingJourneyTest extends TestCase
     {
         $extras = [];
         foreach ([
+            BookingMilestones::CONTRACT_GENERATED,
             BookingMilestones::CONTRACT_SENT,
-            BookingMilestones::CONTRACT_ACCEPTED,
+            BookingMilestones::SIGNED_COPY_RECEIVED,
+            BookingMilestones::CONTRACT_COUNTERSIGNED,
             BookingMilestones::DEPOSIT_RECEIVED,
             BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
@@ -178,15 +181,28 @@ class BookingJourneyTest extends TestCase
 
     /**
      * The unit's answer to a request is its contract (#708, IT-13): the
-     * next step of a received request is « Contrat envoyé », and there is
-     * no « Décision prise sur la demande » line any more.
+     * next step of a received request is « Contrat généré », the first
+     * line of L'accord (IT-16), and there is no « Décision prise sur la
+     * demande » line any more.
      */
     public function testAReceivedRequestAsksForTheContractFirst(): void
     {
-        $journey = $this->journey(BookingStatus::RECEIVED, [BookingMilestones::CONTRACT_SENT => false]);
+        $journey = $this->journey(BookingStatus::RECEIVED, [
+            BookingMilestones::CONTRACT_GENERATED => false,
+            BookingMilestones::CONTRACT_SENT => false,
+        ]);
 
-        $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
-        $this->assertSame('Cette demande attend votre réponse : envoyez le contrat.', $journey->headline());
+        $this->assertSame(BookingMilestones::CONTRACT_GENERATED, $journey->next()?->key);
+        $this->assertSame('Cette demande attend votre réponse : générez le contrat.', $journey->headline());
+        $this->assertSame(MilestoneAction::GENERATE_CONTRACT, $journey->primaryAction()?->command);
+
+        // Generated, it is sending that answers — after reading the PDF.
+        $generated = $this->journey(BookingStatus::RECEIVED, [
+            BookingMilestones::CONTRACT_GENERATED => true,
+            BookingMilestones::CONTRACT_SENT => false,
+        ]);
+        $this->assertSame(BookingMilestones::CONTRACT_SENT, $generated->next()?->key);
+        $this->assertSame(MilestoneAction::SEND_CONTRACT, $generated->primaryAction()?->command);
         $this->assertNotContains('decision', array_map(
             static fn(BookingMilestone $m): string => $m->key,
             $this->milestones(BookingStatus::RECEIVED)
@@ -211,8 +227,10 @@ class BookingJourneyTest extends TestCase
     {
         $agreement = array_values(array_filter(
             $this->milestones(BookingStatus::CONTRACT_SENT, [
+                BookingMilestones::CONTRACT_GENERATED => true,
                 BookingMilestones::CONTRACT_SENT => true,
-                BookingMilestones::CONTRACT_ACCEPTED => false,
+                BookingMilestones::SIGNED_COPY_RECEIVED => false,
+                BookingMilestones::CONTRACT_COUNTERSIGNED => false,
                 BookingMilestones::DEPOSIT_RECEIVED => false,
             ]),
             static fn(BookingMilestone $m): bool => BookingPhase::of($m->key) === BookingPhase::AGREEMENT
@@ -221,12 +239,17 @@ class BookingJourneyTest extends TestCase
 
         $this->assertSame('confirmed', $confirmed->key);
         $this->assertNull($confirmed->action);
-        $this->assertStringContainsString('« Conditions et contrat acceptés », « Acompte reçu »', (string) $confirmed->explanation);
+        $this->assertStringContainsString(
+            '« Contrat signé reçu », « Contrat contresigné », « Acompte reçu »',
+            (string) $confirmed->explanation
+        );
 
         $ready = array_values(array_filter(
             $this->milestones(BookingStatus::CONTRACT_SENT, [
+                BookingMilestones::CONTRACT_GENERATED => true,
                 BookingMilestones::CONTRACT_SENT => true,
-                BookingMilestones::CONTRACT_ACCEPTED => true,
+                BookingMilestones::SIGNED_COPY_RECEIVED => true,
+                BookingMilestones::CONTRACT_COUNTERSIGNED => true,
                 BookingMilestones::DEPOSIT_RECEIVED => true,
             ]),
             static fn(BookingMilestone $m): bool => $m->key === 'confirmed'
@@ -260,8 +283,8 @@ class BookingJourneyTest extends TestCase
         );
 
         $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
-        // Its action is the way to the box it is settled in.
-        $this->assertSame(BookingBox::DOCUMENTS, $journey->primaryAction()?->box);
+        // Its action is the step's own command, carried out right there.
+        $this->assertSame(MilestoneAction::SEND_CONTRACT, $journey->primaryAction()?->command);
     }
 
     /**
@@ -285,12 +308,14 @@ class BookingJourneyTest extends TestCase
         $skipped = array_values(array_filter(
             $milestones,
             static fn(BookingMilestone $m): bool => in_array($m->key, [
+                BookingMilestones::CONTRACT_GENERATED,
                 BookingMilestones::CONTRACT_SENT,
-                BookingMilestones::CONTRACT_ACCEPTED,
+                BookingMilestones::SIGNED_COPY_RECEIVED,
+                BookingMilestones::CONTRACT_COUNTERSIGNED,
                 BookingMilestones::DEPOSIT_RECEIVED,
             ], true)
         ));
-        $this->assertCount(3, $skipped, 'The lines to be stepped over must be on the list at all.');
+        $this->assertCount(5, $skipped, 'The lines to be stepped over must be on the list at all.');
         foreach ($skipped as $milestone) {
             $this->assertFalse($milestone->isApplicable, $milestone->key);
             $this->assertFalse($milestone->isDone, $milestone->key);
@@ -418,8 +443,8 @@ class BookingJourneyTest extends TestCase
         $agreement = $this->phase($journey, BookingPhase::AGREEMENT);
 
         // Contract sent (done), deposit (not), confirmed (applicable, not
-        // done) — « Conditions et contrat acceptés » is absent from the
-        // extras map and therefore not applicable at all.
+        // done) — the other contract lines are absent from the extras map
+        // and therefore not applicable at all.
         $this->assertSame('1 sur 3', $agreement->summary());
         $this->assertFalse($agreement->isDone());
     }
@@ -475,9 +500,9 @@ class BookingJourneyTest extends TestCase
     public function testAConfirmedBookingLocksNoStretch(): void
     {
         foreach ([BookingStatus::CONFIRMED, BookingStatus::CLOSED] as $status) {
-            $journey = $this->journey($status, [BookingMilestones::CONTRACT_ACCEPTED => false]);
+            $journey = $this->journey($status, [BookingMilestones::SIGNED_COPY_RECEIVED => false]);
 
-            $this->assertSame(BookingMilestones::CONTRACT_ACCEPTED, $journey->next()?->key, $status->value);
+            $this->assertSame(BookingMilestones::SIGNED_COPY_RECEIVED, $journey->next()?->key, $status->value);
             foreach ($journey->phases() as $phase) {
                 $this->assertFalse($phase->isFuture, "{$status->value}: {$phase->key()} is locked");
             }
@@ -635,7 +660,8 @@ class BookingJourneyTest extends TestCase
     public function testEachStepSaysHowItGetsTicked(): void
     {
         $extras = array_fill_keys([
-            BookingMilestones::CONTRACT_SENT, BookingMilestones::CONTRACT_ACCEPTED,
+            BookingMilestones::CONTRACT_GENERATED, BookingMilestones::CONTRACT_SENT,
+            BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED,
             BookingMilestones::DEPOSIT_RECEIVED, BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS,
             BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::FINAL_SETTLEMENT,
@@ -647,8 +673,10 @@ class BookingJourneyTest extends TestCase
         }
 
         $this->assertSame(MilestoneKind::DERIVED, $kinds['request_received']);
+        $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_GENERATED]);
         $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_SENT]);
-        $this->assertSame(MilestoneKind::RENTER, $kinds[BookingMilestones::CONTRACT_ACCEPTED]);
+        $this->assertSame(MilestoneKind::RENTER, $kinds[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_COUNTERSIGNED]);
         $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::DEPOSIT_RECEIVED]);
         $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::BALANCE_RECEIVED]);
         // With the stay page recording the inventory, it is done there.

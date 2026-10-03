@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 use Core\Service\DateInput;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
@@ -85,6 +86,8 @@ final class MilestoneEvidence
      *   the lines a manager ticked by hand, keyed by milestone
      * @param ?\DateTimeImmutable $today what a due date is measured against;
      *   null leaves the payment lines without one
+     * @param ?ConditionsVersion $acceptedConditions the archived version of the
+     *   conditions the renter accepted with the request, when it is found
      */
     public static function collect(
         RentalBooking $booking,
@@ -95,11 +98,21 @@ final class MilestoneEvidence
         ?Settlement $settlement,
         bool $assetKeepsInventory = true,
         array $marks = [],
-        ?\DateTimeImmutable $today = null
+        ?\DateTimeImmutable $today = null,
+        ?ConditionsVersion $acceptedConditions = null
     ): self {
         $done = [];
         $details = [];
         $offsite = [];
+
+        // The conditions are accepted with the request, never with the
+        // contract (#708, IT-16): a fact of « Demande reçue », with the
+        // version the renter actually saw.
+        if ($booking->conditionsAcceptedAt !== null) {
+            $details['request_received'] = $acceptedConditions !== null
+                ? 'conditions acceptées, version du ' . $acceptedConditions->createdAt->format('d/m/Y')
+                : 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y');
+        }
 
         $record = static function (string $key, bool $isDone, ?string $detail = null) use (&$done, &$details): void {
             $done[$key] = $isDone;
@@ -109,26 +122,38 @@ final class MilestoneEvidence
         };
 
         if ($documents !== null) {
+            $generated = self::latestOfType($documents, DocumentType::CONTRACT);
+            $record(
+                BookingMilestones::CONTRACT_GENERATED,
+                $generated !== null,
+                $generated !== null
+                    ? 'v' . $generated->version . ' du ' . $generated->createdAt->format('d/m/Y')
+                    : null
+            );
+
             $sentContract = self::lastSent($documents, DocumentType::CONTRACT);
             $record(
                 BookingMilestones::CONTRACT_SENT,
                 $sentContract !== null,
-                $sentContract?->sentAt?->format('d/m/Y')
+                $sentContract !== null
+                    ? 'v' . $sentContract->version . ' le ' . $sentContract->sentAt?->format('d/m/Y')
+                    : null
             );
 
-            // "Accepté" is the signed copy coming back, not the manager
-            // pressing send: the conditions the renter ticked on the public
-            // form are the other half of the same line, and they are what
-            // the detail shows while the contract itself is still out.
-            $signed = self::firstOfType($documents, DocumentType::SIGNED_CONTRACT);
+            // The two signatures (#708, IT-16). A contract signed by both
+            // parties is the renter's signature too: one filed by hand —
+            // countersigned on paper, scanned whole — ticks both lines.
+            $countersigned = self::firstOfType($documents, DocumentType::SIGNED_CONTRACT);
+            $copy = self::firstOfType($documents, DocumentType::SIGNED_COPY) ?? $countersigned;
             $record(
-                BookingMilestones::CONTRACT_ACCEPTED,
-                $signed !== null,
-                $signed !== null
-                    ? $signed->createdAt->format('d/m/Y')
-                    : ($booking->conditionsAcceptedAt !== null
-                        ? 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y')
-                        : null)
+                BookingMilestones::SIGNED_COPY_RECEIVED,
+                $copy !== null,
+                $copy?->createdAt->format('d/m/Y')
+            );
+            $record(
+                BookingMilestones::CONTRACT_COUNTERSIGNED,
+                $countersigned !== null,
+                $countersigned?->createdAt->format('d/m/Y')
             );
         }
 
@@ -268,6 +293,23 @@ final class MilestoneEvidence
                 continue;
             }
             if ($found === null || $document->sentAt > $found->sentAt) {
+                $found = $document;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * The highest version of a generated type: the one that would be sent.
+     *
+     * @param RentalDocument[] $documents
+     */
+    private static function latestOfType(array $documents, DocumentType $type): ?RentalDocument
+    {
+        $found = null;
+        foreach ($documents as $document) {
+            if ($document->type === $type && ($found === null || $document->version > $found->version)) {
                 $found = $document;
             }
         }

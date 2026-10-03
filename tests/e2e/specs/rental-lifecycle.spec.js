@@ -207,66 +207,69 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await page.waitForURL(/\/reservations\/\d+$/, { waitUntil: 'load' });
 
         // The unit's answer to a request is its contract (#708, IT-13): the
-        // journey puts forward preparing it, and confirming is not on offer
-        // until the agreement is complete.
-        await expect(page.getByRole('link', { name: 'Préparer le contrat' }).first()).toBeVisible();
+        // journey puts forward generating it — from the dashboard itself
+        // (IT-16) — and confirming is not on offer until the agreement is
+        // complete.
+        await expect(page.getByRole('button', { name: 'Générer le contrat' }).first()).toBeVisible();
         await expect(page.getByRole('button', { name: 'Confirmer la réservation' })).toHaveCount(0);
-        // Applicable and unticked: there is a contract to send, and the
-        // conditions the renter ticked on the public form are what stands in
-        // for the signed copy until one comes back.
+        await expect(milestone(page, 'Contrat généré')).toContainText(TODO);
         await expect(milestone(page, 'Contrat envoyé')).toContainText(TODO);
-        await expect(milestone(page, 'Conditions et contrat acceptés')).toContainText(TODO);
-        await expect(milestone(page, 'Conditions et contrat acceptés'))
-            .toContainText(/conditions acceptées le \d{2}\/\d{2}\/\d{4}/);
+        await expect(milestone(page, 'Contrat signé reçu')).toContainText(TODO);
+        // The conditions were accepted with the request, and that is where
+        // the journey says so — never as a step of the contract (IT-16).
+        await expect(milestone(page, 'Demande reçue')).toContainText(/conditions acceptées/);
 
-        // ── The contract: generated, then sent ───────────────────────────
-        // « Documents » is a page of the booking's own (issue #462), reached
-        // by its chip in the booking's rail — the one that replaced the
-        // asset's. Its box arrives open; `openCard` asserts that rather
-        // than assuming it, and the fold lives outside the
-        // `data-booking-panel` wrapper, so the presses below, each of which
-        // re-renders the panel, must all leave it open.
-        const dashboard = page.url();
-        await page.locator('#rental-booking-picker').getByRole('link', { name: 'Documents' }).click();
-        await page.waitForURL(/\/reservations\/\d+\/documents$/, { waitUntil: 'load' });
-        await openCard(page, 'dossier-documents');
-
+        // ── The contract: generated, read, then sent ─────────────────────
         // A marker on the live document. If any of the presses below makes
         // the browser navigate, the document is replaced and the marker goes
         // with it — the only way to tell "the panel was re-rendered" from
         // "the page was reloaded" from the outside.
+        const dashboard = page.url();
         await page.evaluate(() => { window.__notReloaded = true; });
 
-        await page.getByRole('button', { name: 'Générer le contrat' }).click();
-        // Generating is not sending, and the checklist has to say so: the
-        // line reads the document's `sent_at`, never its existence.
+        await page.getByRole('button', { name: 'Générer le contrat' }).first().click();
+        // Generating is not sending: the journey now puts forward the send,
+        // a second gesture so the PDF can be read before it leaves.
         //
         // Headroom over the expect default because this one press renders a
         // PDF: dompdf loads its fonts on the first document of the run, and
         // the work happens inside the request the panel refresh waits on.
-        // Named by the regular expression rather than by « Envoyer » alone,
-        // and that is the whole point of the change it follows: the action
-        // is an icon now, and its accessible name NAMES ITS DOCUMENT —
-        // « Supprimer » five times down a column tells a screen-reader user
-        // nothing about which row they are on. Anchored at the start
-        // because getByRole's string matching is a case-insensitive
-        // substring, so a plain « Envoyer » also names « Renvoyer ».
-        const send = page.getByRole('button', { name: /^Envoyer «/ });
-
+        const send = page.getByRole('button', { name: 'Envoyer le contrat' }).first();
         await expect(send).toBeVisible({ timeout: scaled(45_000) });
+        await expect(milestone(page, 'Contrat généré')).toContainText(DONE);
+        await expect(milestone(page, 'Contrat envoyé')).toContainText(TODO);
 
-        // The dialog this raises — sending freezes the document's text — is
-        // answered by autoConfirm() at the top of the scenario.
+        // The dialog this raises — to whom it goes, the text then locked,
+        // the dates held — is answered by autoConfirm() at the top of the
+        // scenario.
         await send.click();
-        // The row now offers « Renvoyer » — the document knows it has gone
-        // out, which is the fact the dashboard's milestone reads below.
-        await expect(page.getByRole('button', { name: /^Renvoyer «/ })).toBeVisible();
+        await expect(milestone(page, 'Contrat envoyé')).toContainText(DONE);
+        // The date the line carries is the send date. Matched as a shape
+        // rather than as today's date written out here: the assertion is
+        // that the line became concrete, and a spec that computed the same
+        // string a second way would only ever agree with itself.
+        await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
+        expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
 
         // ── The signed copy coming back ──────────────────────────────────
-        // A photograph of a signed contract, which is what a renter actually
-        // returns and what the panel's own accept list is sized for. The
-        // upload goes out as the `FormData` rental-booking.js builds, so
-        // this also pins the one form on this page carrying a file.
+        // « Documents » is a page of the booking's own (issue #462), reached
+        // by its chip in the booking's rail. Its box arrives open; `openCard`
+        // asserts that rather than assuming it.
+        await page.locator('#rental-booking-picker').getByRole('link', { name: 'Documents' }).click();
+        await page.waitForURL(/\/reservations\/\d+\/documents$/, { waitUntil: 'load' });
+        await openCard(page, 'dossier-documents');
+        await page.evaluate(() => { window.__notReloaded = true; });
+
+        // The contract is listed with every other document, and resent
+        // from here — never generated here any more (IT-16).
+        await expect(page.getByRole('button', { name: /^Renvoyer «/ })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Générer le contrat' })).toHaveCount(0);
+
+        // A photograph of a contract signed by both parties — countersigned
+        // on paper — which is what the panel's own accept list is sized
+        // for. The upload goes out as the `FormData` rental-booking.js
+        // builds, so this also pins the one form on this page carrying a
+        // file.
         const upload = page.locator('form[action="/mes-locations/document-ajouter"]');
         await page.locator('#document-file').setInputFiles({
             name: 'contrat-signe.png',
@@ -283,27 +286,15 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // both live inside it.
         await upload.getByRole('button', { name: 'Ajouter', exact: true }).click();
         await expect(page.locator('[data-booking-panel="documents-figure"]')).toContainText('2 documents');
-
-        // Three presses, three panel swaps, and the document was never
-        // replaced.
         expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
 
         // ── The checklist those presses moved ────────────────────────────
         // On the dashboard, which a fresh load renders from the same
-        // records the Documents page just wrote.
+        // records the Documents page just wrote. Signed by both parties is
+        // the renter's signature too.
         await page.goto(dashboard, { waitUntil: 'load' });
-        await expect(milestone(page, 'Contrat envoyé')).toContainText(DONE);
-        // The date the line carries is the send date. Matched as a shape
-        // rather than as today's date written out here: the assertion is
-        // that the line became concrete, and a spec that computed the same
-        // string a second way would only ever agree with itself.
-        await expect(milestone(page, 'Contrat envoyé')).toContainText(/\d{2}\/\d{2}\/\d{4}/);
-        await expect(milestone(page, 'Conditions et contrat acceptés')).toContainText(DONE);
-        // The detail is the signed copy's own date now — the acknowledgement
-        // it replaced is gone from the line.
-        await expect(milestone(page, 'Conditions et contrat acceptés'))
-            .not.toContainText('conditions acceptées le');
-
+        await expect(milestone(page, 'Contrat signé reçu')).toContainText(DONE);
+        await expect(milestone(page, 'Contrat contresigné')).toContainText(DONE);
 
         // ── The agreement complete: now it can be confirmed ──────────────
         // The action the journey puts forward once the contract is out and

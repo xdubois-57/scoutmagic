@@ -38,13 +38,19 @@ c'est l'unité : son nom et son adresse postale (Paramètres, cœur du
 site). Si les locaux appartiennent à une ASBL distincte, renseignez son
 nom, son adresse et son numéro d'entreprise dans Paramètres › Locations.
 Un bien qui appartient à quelqu'un d'autre a son propre bailleur, dans la
-section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, la
-page « Documents » vous prévient avant la génération.
+section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, le
+site vous prévient avant la génération.
 
 ## Générer, puis envoyer
 
+**Le contrat se génère et s'envoie depuis le tableau de bord**, à son
+étape : générez, relisez le PDF, puis envoyez. La facture se génère ici.
+Cette page liste le contrat avec les autres documents et le renvoie.
+
 Générer produit un PDF. Chaque génération crée une version de plus **sans
-écraser la précédente** : une version déjà signée reste intacte.
+écraser la précédente** : une version déjà signée reste intacte. Le
+contrat renvoie à la version des conditions que le locataire a acceptée
+avec sa demande, jamais à celle en vigueur.
 
 > **« Envoyer » verrouille.** Tant que rien n'est parti, le texte reste
 > modifiable ; une fois envoyé, il passe en lecture seule. Le locataire en a

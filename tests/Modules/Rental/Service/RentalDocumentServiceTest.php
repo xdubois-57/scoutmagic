@@ -895,6 +895,85 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * The contract names the conditions the renter accepted WITH THE
+     * REQUEST, never today's (#708, IT-16): in a keyword for the unit's
+     * own wording, and in the frame of the PDF for a template written
+     * before that keyword existed.
+     */
+    public function testTheContractNamesTheVersionOfTheConditionsTheRenterAccepted(): void
+    {
+        $versions = new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo);
+        $hash = hash('sha256', '<p>Conditions de septembre</p>');
+        $accepted = $versions->archive(
+            $this->assetId,
+            $hash,
+            '<p>Conditions de septembre</p>',
+            new \DateTimeImmutable('2026-09-12 10:00:00'),
+            null
+        );
+        $booking = $this->createBooking();
+        $this->pdo->prepare('UPDATE rental_bookings SET conditions_version = ?, conditions_hash = ? WHERE id = ?')
+            ->execute([$accepted->version, $hash, $booking->id]);
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+
+        $service = $this->serviceWithConditions($versions);
+
+        $this->assertSame($accepted->version, $service->acceptedConditions($booking)?->version);
+        $values = $service->valuesFor($booking, $this->asset(), $this->settings());
+        $this->assertStringStartsWith('version du 12/09/2026', (string) $values['conditions_acceptees']);
+
+        $document = $service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf($document->id));
+        $this->assertStringContainsString('Conditions de location acceptées : version du 12/09/2026', $text);
+    }
+
+    /**
+     * A booking whose fingerprint matches no archived text names none: a
+     * link to some other wording would be worse than a dash.
+     */
+    public function testAContractNamesNoConditionsItCannotProve(): void
+    {
+        $versions = new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo);
+        $accepted = $versions->archive(
+            $this->assetId,
+            hash('sha256', 'a'),
+            '<p>a</p>',
+            new \DateTimeImmutable('2026-09-12 10:00:00'),
+            null
+        );
+        $booking = $this->createBooking();
+        $this->pdo->prepare('UPDATE rental_bookings SET conditions_version = ?, conditions_hash = ? WHERE id = ?')
+            ->execute([$accepted->version, hash('sha256', 'b'), $booking->id]);
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+
+        $service = $this->serviceWithConditions($versions);
+
+        $this->assertNull($service->acceptedConditions($booking));
+        $this->assertNull($service->valuesFor($booking, $this->asset(), $this->settings())['conditions_acceptees']);
+    }
+
+    private function serviceWithConditions(
+        \Modules\Rental\Repository\RentalConditionsVersionRepository $versions
+    ): RentalDocumentService {
+        return new RentalDocumentService(
+            $this->documentRepository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $this->fileRepository,
+            new \Core\File\AttachedFileRemover($this->fileRepository, $this->storagePath),
+            new DocumentPdfService(),
+            new HtmlSanitizer(),
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->storagePath,
+            new \Modules\Rental\Service\RentalConditionsService($versions, $this->editableContentService)
+        );
+    }
+
+    /**
      * The module's landlord replaces the unit whole — name, address and
      * enterprise number together — because the case it exists for is a
      * separate non-profit owning the hall, and the unit's address under the

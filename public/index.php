@@ -11785,7 +11785,10 @@ if ($isEnabled('rental')) {
         new \Core\Security\HtmlSanitizer(),
         $settingService,
         $journalService,
-        $storagePath
+        $storagePath,
+        // A contract names the version of the conditions its renter
+        // accepted with the request (#708, IT-16).
+        $rentalConditionsService
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
         $mailService,
