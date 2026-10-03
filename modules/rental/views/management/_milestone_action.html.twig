@@ -1,7 +1,8 @@
 {#
   One action of the journey (Booking\MilestoneAction): a status transition,
-  pressed right here; the way to the box where the thing is done; or one of
-  the contract's commands (`_contract_command.html.twig`, #708 IT-16).
+  pressed right here; the way to the box where the thing is done, or to a
+  page of the file (#708 IT-19); or one of the contract's commands
+  (`_contract_command.html.twig`, #708 IT-16).
 
   A transition the renter hears about asks first, and the dialog carries
   the free-text box the manager's word goes in (base.html.twig's
@@ -42,4 +43,6 @@
     } only %}
 {% elseif action.box %}
     <a class="{{ button_class }}" href="{{ action.box.href(booking_url) }}">{{ action.label }}</a>
+{% elseif action.page %}
+    <a class="{{ button_class }}" href="{{ action.page.url(booking_url) }}">{{ action.label }}</a>
 {% endif %}

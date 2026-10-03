@@ -30,6 +30,15 @@ namespace Modules\Rental\Booking;
  *   milestone a step with its nature (D6). A stretch the state machine
  *   does not allow yet — anything after the request, before a booking is
  *   confirmed — stays visible but inert (D5).
+ *
+ * Since #708 (IT-19) the page shows the two halves as two cards,
+ * « Prochaine action » and « Cycle de vie ». That separates the display,
+ * never the calculation: both still read this one object.
+ *
+ * What only the controller knows comes in through `of()`'s optional
+ * arguments — a renter's pending change request, which comes before
+ * everything else; an unanswered proposal of the unit; a renter late on
+ * their step (IT-12); dates no longer held (IT-01).
  */
 final class BookingJourney
 {
@@ -39,15 +48,36 @@ final class BookingJourney
     private function __construct(
         private readonly array $phases,
         private readonly ?BookingMilestone $next,
-        private readonly BookingStatus $status
+        private readonly BookingStatus $status,
+        private readonly ?string $changeRequested = null,
+        private readonly bool $proposalWaiting = false,
+        private readonly ?\DateTimeImmutable $holdUntil = null,
+        private readonly ?\DateTimeImmutable $lateSince = null,
+        private readonly ?\DateTimeImmutable $holdLapsedSince = null
     ) {
     }
 
     /**
      * @param list<BookingMilestone> $milestones from `BookingMilestones::for()`
+     * @param ?string $changeRequested what the renter's pending change
+     *   request asks — « du 14/11/2027 au 16/11/2027 » (#708, IT-20)
+     * @param bool $proposalWaiting a proposal of the unit the renter has
+     *   not answered yet
+     * @param ?\DateTimeImmutable $holdUntil until when the dates are held
+     * @param ?\DateTimeImmutable $lateSince when the renter was expected by,
+     *   for a step of theirs now late (IT-12)
+     * @param ?\DateTimeImmutable $holdLapsedSince since when the dates are
+     *   no longer held, on a request still waiting (IT-01)
      */
-    public static function of(array $milestones, BookingStatus $status): self
-    {
+    public static function of(
+        array $milestones,
+        BookingStatus $status,
+        ?string $changeRequested = null,
+        bool $proposalWaiting = false,
+        ?\DateTimeImmutable $holdUntil = null,
+        ?\DateTimeImmutable $lateSince = null,
+        ?\DateTimeImmutable $holdLapsedSince = null
+    ): self {
         /** @var array<string, list<BookingMilestone>> $grouped */
         $grouped = [];
         foreach (BookingPhase::cases() as $phase) {
@@ -101,7 +131,16 @@ final class BookingJourney
             }
         }
 
-        return new self($phases, $next, $status);
+        return new self(
+            $phases,
+            $next,
+            $status,
+            $changeRequested,
+            $proposalWaiting,
+            $holdUntil,
+            $lateSince,
+            $holdLapsedSince
+        );
     }
 
     /**
@@ -126,11 +165,14 @@ final class BookingJourney
     }
 
     /**
-     * The sentence at the top of the journey: what holds the booking up.
+     * The sentence at the top of « Prochaine action »: what holds the
+     * booking up (#708, IT-19).
      *
-     * One per situation, and each names the thing itself rather than the
-     * stretch it sits in — « Avant le séjour » says where the booking is,
-     * never what it is waiting for.
+     * In this order: a final status, which nothing changes; a change the
+     * renter asked for, which comes before everything else; a question or
+     * a proposal the renter owes an answer to; then the next step, one
+     * sentence each — `BookingJourneyTest` walks every step key and every
+     * status.
      */
     public function headline(): string
     {
@@ -142,59 +184,103 @@ final class BookingJourney
             };
         }
 
+        if ($this->changeRequested !== null) {
+            return 'Le locataire demande une modification : ' . $this->changeRequested . '.';
+        }
+
         if ($this->next === null) {
             return $this->status === BookingStatus::CLOSED
                 ? 'Cette location est clôturée : il ne reste rien à faire.'
                 : "Rien n'attend de vous sur cette réservation.";
         }
 
-        // While the renter has a question or a proposal to answer, that is
-        // what holds the booking up, whatever the next line says.
         if ($this->status === BookingStatus::INFO_REQUESTED) {
             return 'Une précision a été demandée au locataire : la suite attend sa réponse.';
         }
-        if ($this->status === BookingStatus::PROPOSED) {
+        if ($this->status === BookingStatus::PROPOSED || $this->proposalWaiting) {
             return 'Une proposition attend la réponse du locataire.';
         }
 
-        $waiting = match ($this->next->key) {
-            BookingMilestones::SIGNED_COPY_RECEIVED => 'En attente du contrat signé par le locataire',
-            BookingMilestones::DEPOSIT_RECEIVED => "En attente de l'acompte",
-            BookingMilestones::BALANCE_RECEIVED => 'En attente du solde',
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'En attente de la caution',
-            default => null,
-        };
-        if ($waiting !== null) {
-            return $waiting . ($this->next->detail !== null ? ' : ' . $this->next->detail : '') . '.';
-        }
+        return self::stepSentence($this->next, $this->holdUntil, $this->status);
+    }
 
-        return match ($this->next->key) {
-            BookingMilestones::CONTRACT_GENERATED => $this->status === BookingStatus::RECEIVED
-                ? 'Cette demande attend votre réponse : générez le contrat.'
-                : 'Le contrat reste à générer.',
-            BookingMilestones::CONTRACT_SENT => $this->status === BookingStatus::RECEIVED
-                ? 'Cette demande attend votre réponse : relisez le contrat, puis envoyez-le.'
-                : 'Le contrat reste à envoyer.',
-            BookingMilestones::CONTRACT_COUNTERSIGNED => 'Le contrat signé par le locataire reste à contresigner.',
-            'confirmed' => match ($this->status) {
-                BookingStatus::RECEIVED => 'Cette demande attend votre réponse : confirmez la réservation.',
-                BookingStatus::CONTRACT_SENT => "L'accord est complet : la réservation reste à confirmer.",
-                default => 'La réservation reste à confirmer.',
-            },
+    /**
+     * The sentence for a step put forward — one per key, never a default.
+     *
+     * @throws \LogicException for a step nobody wrote one for —
+     *   `BookingJourneyTest` fails first
+     */
+    public static function stepSentence(
+        BookingMilestone $next,
+        ?\DateTimeImmutable $holdUntil = null,
+        ?BookingStatus $status = null
+    ): string {
+        $detail = $next->detail !== null ? ' : ' . $next->detail : '';
+
+        return match ($next->key) {
+            'request_received', 'hold' => 'La demande attend votre réponse.',
+            BookingMilestones::CONTRACT_GENERATED => 'Le contrat reste à générer.',
+            BookingMilestones::CONTRACT_SENT => 'Le contrat reste à envoyer.',
+            BookingMilestones::SIGNED_COPY_RECEIVED => 'Le contrat attend la signature du locataire'
+                . ($holdUntil !== null ? ' : les dates sont bloquées jusqu\'au ' . $holdUntil->format('d/m/Y') : '') . '.',
+            BookingMilestones::CONTRACT_COUNTERSIGNED => 'Une copie signée attend votre vérification.',
+            BookingMilestones::DEPOSIT_RECEIVED => "En attente de l'acompte" . $detail . '.',
+            // A request nobody answered yet, on an asset with no contract:
+            // the confirmation is the answer.
+            'confirmed' => $status === BookingStatus::RECEIVED
+                ? 'La demande attend votre réponse : la réservation peut être confirmée.'
+                : 'Tout est prêt : la réservation peut être confirmée.',
+            BookingMilestones::BALANCE_RECEIVED => 'En attente du solde' . $detail . '.',
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'En attente de la caution' . $detail . '.',
             BookingMilestones::ARRIVAL_INVENTORY => "L'état des lieux d'entrée reste à faire.",
             BookingMilestones::DEPARTURE_INVENTORY => "L'état des lieux de sortie reste à faire.",
-            BookingMilestones::FINAL_SETTLEMENT => 'Le décompte final reste à régler.',
+            BookingMilestones::FINAL_SETTLEMENT => 'Le décompte final reste à établir, et la facture à générer.',
             BookingMilestones::SECURITY_DEPOSIT_RETURNED => 'La caution reste à restituer.',
             'closed' => 'Tout est réglé : la location peut être clôturée.',
-            default => $this->next->label . ' : reste à faire.',
+            default => throw new \LogicException("No headline for the step '{$next->key}'."),
         };
     }
 
     /**
-     * The one action put forward (D7): the step's own when it has one, else
-     * the way to where its answer will show — the payments for a payment,
-     * the documents for a signed copy. Null when there is nothing to press
-     * at all: a line ticked by hand has its box in the step itself.
+     * « En retard : acompte attendu depuis le 03/10/2027. » — a step of the
+     * renter's past its date (#708, IT-12), or null.
+     */
+    public function lateLine(): ?string
+    {
+        if ($this->lateSince === null || $this->next === null || $this->changeRequested !== null) {
+            return null;
+        }
+
+        $what = match ($this->next->key) {
+            BookingMilestones::SIGNED_COPY_RECEIVED => 'copie signée du contrat attendue',
+            BookingMilestones::DEPOSIT_RECEIVED => 'acompte attendu',
+            BookingMilestones::BALANCE_RECEIVED => 'solde attendu',
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution attendue',
+            default => null,
+        };
+
+        return $what === null ? null : 'En retard : ' . $what . ' depuis le ' . $this->lateSince->format('d/m/Y') . '.';
+    }
+
+    /**
+     * A second line when the dates are no longer protected while the
+     * booking is not confirmed (#708, IT-01), or null.
+     */
+    public function holdLine(): ?string
+    {
+        return $this->holdLapsedSince === null
+            ? null
+            : 'Les dates ne sont plus bloquées depuis le ' . $this->holdLapsedSince->format('d/m/Y')
+                . ' : une autre demande peut les prendre.';
+    }
+
+    /**
+     * The one action put forward (D7), and only when the next move is the
+     * unit's (#708, IT-19): answering a change the renter asked for, else
+     * the step's own action. While the renter is the one expected — a
+     * copy to sign, a payment to make — nothing is put forward: the
+     * heading says what is awaited, and ticking it by hand stays in the
+     * step (IT-14).
      *
      * Never a refusal nor a cancellation: `BookingMilestones` only ever
      * gives a step a forward transition, and `BookingJourneyTest` holds that
@@ -202,23 +288,15 @@ final class BookingJourney
      */
     public function primaryAction(): ?MilestoneAction
     {
-        if ($this->next === null) {
+        if ($this->changeRequested !== null) {
+            return MilestoneAction::openPage('Répondre à la demande', BookingPage::CHANGES);
+        }
+
+        if ($this->next === null || $this->next->actor === StepActor::RENTER) {
             return null;
         }
 
-        if ($this->next->action !== null) {
-            return $this->next->action;
-        }
-
-        return match ($this->next->key) {
-            BookingMilestones::DEPOSIT_RECEIVED,
-            BookingMilestones::BALANCE_RECEIVED,
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED
-                => MilestoneAction::openBox('Voir les paiements', BookingBox::PAYMENT),
-            BookingMilestones::SIGNED_COPY_RECEIVED
-                => MilestoneAction::openBox('Voir les documents', BookingBox::DOCUMENTS),
-            default => null,
-        };
+        return $this->next->action;
     }
 
     /**

@@ -1590,7 +1590,7 @@ class RentalManagementController extends AbstractController
             // The checklist staged into the five stretches, with the heading
             // that says what holds the booking up — one derivation, one
             // component (Booking\BookingJourney, issue #462).
-            'journey' => BookingJourney::of($milestones, $booking->status),
+            'journey' => $this->journeyOf($booking, $asset, $milestones, $payment, $now),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
@@ -1613,6 +1613,64 @@ class RentalManagementController extends AbstractController
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
         ];
+    }
+
+    /**
+     * The journey with what only this controller knows (#708, IT-19): a
+     * change the renter asked for, which comes before everything else; a
+     * proposal of the unit awaiting the renter; a step of the renter's now
+     * late (IT-12); dates no longer held on a request still waiting
+     * (IT-01).
+     *
+     * @param list<\Modules\Rental\Booking\BookingMilestone> $milestones
+     * @param array<string, mixed> $payment
+     */
+    private function journeyOf(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        array $milestones,
+        array $payment,
+        \DateTimeImmutable $now
+    ): BookingJourney {
+        $asked = null;
+        $proposalWaiting = false;
+        foreach ($this->changeRequestRepository->findForBooking($booking->id) as $change) {
+            if (!$change->isPending()) {
+                continue;
+            }
+            if ($change->origin === \Modules\Rental\Booking\ChangeRequestOrigin::RENTER) {
+                $asked ??= $change->summary();
+            } else {
+                $proposalWaiting = true;
+            }
+        }
+
+        $next = BookingJourney::of($milestones, $booking->status)->next();
+        $lateSince = null;
+        if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+            $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                $next->key,
+                $booking,
+                $payment,
+                ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                )
+            );
+            if ($deadline !== null && $deadline->isLate($now)) {
+                $lateSince = $deadline->expected;
+            }
+        }
+
+        return BookingJourney::of(
+            $milestones,
+            $booking->status,
+            $asked,
+            $proposalWaiting,
+            $booking->holdIsActive($now) ? $booking->holdUntil : null,
+            $lateSince,
+            $booking->holdLapsedSince($now)
+        );
     }
 
     /**

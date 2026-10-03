@@ -25,13 +25,13 @@ d'Ariane en haut de la page : chacune de ses étapes est un lien.
 
 Il se lit de haut en bas, en trois temps.
 
-### 1. « Où en est cette réservation »
+### 1. « Prochaine action » et « Cycle de vie »
 
-En tête, une phrase dit ce qui bloque, et **un seul bouton** propose
-l'action qui fait avancer la réservation ; les autres décisions sont
-derrière « Autres décisions ». Dessous, le parcours en cinq phases,
-la phase en cours dépliée. Le sujet « Le parcours d'une réservation »
-le décrit étape par étape.
+« Prochaine action » dit ce qui bloque et, quand c'est à l'unité d'agir,
+propose **un seul bouton** pour faire avancer la réservation ; les
+autres décisions sont derrière « Autres décisions ». « Cycle de vie »
+montre le parcours en cinq phases, la phase en cours dépliée. Le sujet
+« Le parcours d'une réservation » le décrit étape par étape.
 
 Une demande bloque ses dates automatiquement, au plus 30 jours et
 jamais au-delà du début du séjour ; passé ce délai, elles se libèrent,

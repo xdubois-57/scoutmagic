@@ -14,13 +14,18 @@ related: locations-reservation, gerer-les-locations, locations-documents
 Le haut du tableau de bord d'une réservation répond à deux questions :
 où en est-elle, et que faut-il faire.
 
-## Ce qui bloque, et l'action proposée
+## Prochaine action
 
-Une phrase nomme ce qui retient la réservation : un contrat à envoyer,
-un paiement attendu avec son échéance, une confirmation. Dessous, **un
-seul bouton** : l'action qui fait avancer la réservation. Refuser ou
-annuler n'est jamais l'action proposée — ce sont des décisions réelles,
-rangées derrière « Autres décisions ».
+Une phrase nomme ce qui retient la réservation : une demande de
+modification du locataire d'abord, puis une question ou une proposition
+qui attend sa réponse, puis l'étape suivante — un contrat à envoyer, un
+paiement attendu, une confirmation. Un retard du locataire et des dates
+qui ne sont plus bloquées s'ajoutent sur une ligne à part.
+
+Dessous, **un seul bouton** quand c'est à l'unité d'agir : l'action qui
+fait avancer la réservation. Quand on attend le locataire, aucun bouton
+n'est mis en avant. Refuser ou annuler n'est jamais l'action proposée :
+ce sont des décisions réelles, rangées derrière « Autres décisions ».
 
 **Votre réponse à une demande, c'est le contrat.** Générez-le depuis son
 étape, relisez le PDF, puis envoyez-le : l'envoi passe la réservation à
@@ -30,7 +35,7 @@ contresigne. On ne confirme qu'au bout de
 l'accord, quand tout ce qui précède « Réservation confirmée » est fait ;
 d'ici là, la ligne dit ce qui manque.
 
-## Le parcours
+## Cycle de vie
 
 Cinq phases : la demande, l'accord, avant le séjour, le séjour, après le
 séjour. Tant que la réservation n'est pas confirmée, les phases qui

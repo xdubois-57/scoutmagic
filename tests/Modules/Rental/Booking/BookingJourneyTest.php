@@ -193,7 +193,7 @@ class BookingJourneyTest extends TestCase
         ]);
 
         $this->assertSame(BookingMilestones::CONTRACT_GENERATED, $journey->next()?->key);
-        $this->assertSame('Cette demande attend votre réponse : générez le contrat.', $journey->headline());
+        $this->assertSame('Le contrat reste à générer.', $journey->headline());
         $this->assertSame(MilestoneAction::GENERATE_CONTRACT, $journey->primaryAction()?->command);
 
         // Generated, it is sending that answers — after reading the PDF.
@@ -521,10 +521,10 @@ class BookingJourneyTest extends TestCase
     public static function headlines(): array
     {
         return [
-            'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre réponse : confirmez la réservation.'],
+            'reçue' => [BookingStatus::RECEIVED, 'La demande attend votre réponse : la réservation peut être confirmée.'],
             'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la suite attend sa réponse.'],
             'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
-            'contrat envoyé' => [BookingStatus::CONTRACT_SENT, "L'accord est complet : la réservation reste à confirmer."],
+            'contrat envoyé' => [BookingStatus::CONTRACT_SENT, 'Tout est prêt : la réservation peut être confirmée.'],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],
             'refusée' => [BookingStatus::REFUSED, 'Cette demande a été refusée : elle ne peut plus changer.'],
             'annulée' => [BookingStatus::CANCELLED, 'Cette réservation a été annulée : elle ne peut plus changer.'],
@@ -637,12 +637,113 @@ class BookingJourneyTest extends TestCase
         );
     }
 
-    public function testAPaymentHoldingTheBookingUpLeadsToThePayments(): void
+    /**
+     * While the renter is the one expected — a payment, a signed copy —
+     * nothing is put forward (#708, IT-19): the heading says what is
+     * awaited, and ticking it by hand stays in the step.
+     */
+    public function testNothingIsPutForwardWhileTheRenterIsExpected(): void
     {
-        $journey = $this->journey(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]);
+        $payment = $this->journey(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]);
+        $copy = $this->journey(BookingStatus::CONTRACT_SENT, [
+            BookingMilestones::CONTRACT_GENERATED => true,
+            BookingMilestones::CONTRACT_SENT => true,
+            BookingMilestones::SIGNED_COPY_RECEIVED => false,
+        ], new \DateTimeImmutable('2027-02-15'));
 
-        $this->assertSame(BookingBox::PAYMENT, $journey->primaryAction()?->box);
-        $this->assertNull($journey->primaryAction()?->transition);
+        $this->assertNull($payment->primaryAction());
+        $this->assertNull($copy->primaryAction());
+        $this->assertStringStartsWith('En attente du solde', $payment->headline());
+    }
+
+    /** The heading of a copy to sign says until when the dates are held. */
+    public function testTheSignedCopyHeadingSaysTheHold(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, new \DateTimeImmutable('2027-02-15'));
+        $journey = BookingJourney::of(
+            BookingMilestones::for($booking, new \DateTimeImmutable('2027-01-10'), [
+                BookingMilestones::CONTRACT_GENERATED => true,
+                BookingMilestones::CONTRACT_SENT => true,
+                BookingMilestones::SIGNED_COPY_RECEIVED => false,
+            ]),
+            $booking->status,
+            null,
+            false,
+            $booking->holdUntil
+        );
+
+        $this->assertSame(
+            "Le contrat attend la signature du locataire : les dates sont bloquées jusqu'au 15/02/2027.",
+            $journey->headline()
+        );
+    }
+
+    /**
+     * A change the renter asked for comes before everything else, with
+     * « Répondre à la demande » to the page it is answered on (IT-20).
+     */
+    public function testARenterChangeRequestComesFirst(): void
+    {
+        $journey = BookingJourney::of(
+            $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]),
+            BookingStatus::CONFIRMED,
+            'du 14/11/2027 au 16/11/2027'
+        );
+
+        $this->assertSame('Le locataire demande une modification : du 14/11/2027 au 16/11/2027.', $journey->headline());
+        $this->assertSame('Répondre à la demande', $journey->primaryAction()?->label);
+        $this->assertSame(\Modules\Rental\Booking\BookingPage::CHANGES, $journey->primaryAction()?->page);
+    }
+
+    public function testAnUnansweredProposalOfTheUnitIsSaidWithNothingToPress(): void
+    {
+        $journey = BookingJourney::of(
+            $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::BALANCE_RECEIVED => false]),
+            BookingStatus::CONFIRMED,
+            null,
+            true
+        );
+
+        $this->assertSame('Une proposition attend la réponse du locataire.', $journey->headline());
+    }
+
+    public function testALateRenterAndALapsedHoldEachAddALine(): void
+    {
+        $late = BookingJourney::of(
+            $this->milestones(BookingStatus::CONFIRMED, [BookingMilestones::DEPOSIT_RECEIVED => false]),
+            BookingStatus::CONFIRMED,
+            null,
+            false,
+            null,
+            new \DateTimeImmutable('2027-10-03')
+        );
+        $lapsed = BookingJourney::of(
+            $this->milestones(BookingStatus::RECEIVED),
+            BookingStatus::RECEIVED,
+            null,
+            false,
+            null,
+            null,
+            new \DateTimeImmutable('2027-02-01')
+        );
+
+        $this->assertSame('En retard : acompte attendu depuis le 03/10/2027.', $late->lateLine());
+        $this->assertNull($late->holdLine());
+        $this->assertSame(
+            'Les dates ne sont plus bloquées depuis le 01/02/2027 : une autre demande peut les prendre.',
+            $lapsed->holdLine()
+        );
+    }
+
+    /** Every step the checklist knows has its own heading — none falls through. */
+    public function testEveryStepHasAHeadingOfItsOwn(): void
+    {
+        $sentences = [];
+        foreach (array_keys(BookingMilestones::ACTORS) as $key) {
+            $sentences[$key] = BookingJourney::stepSentence(new BookingMilestone($key, $key, false));
+        }
+
+        $this->assertNotContains('', $sentences);
     }
 
     public function testAFinalBookingOffersNothingToPress(): void
