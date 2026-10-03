@@ -57,6 +57,8 @@ describe('dates and words', () => {
         expect(summaryFor(1, 'block')).toBe('1 jour bloqué');
         expect(summaryFor(5, 'block')).toBe('5 jours bloqués');
         expect(summaryFor(2, 'release')).toBe('2 jours remis en location');
+        // A gesture the server found nothing to do for is not « 1 jour ».
+        expect(summaryFor(0, 'block')).toBe('Rien n\'a changé : ces dates étaient déjà dans cet état.');
     });
 });
 
@@ -155,7 +157,7 @@ describe('wireBlockCalendar', () => {
         document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));
 
         pointer('pointerdown', cell('2027-07-10'));
-        pointer('pointermove', root);
+        pointer('pointermove', root, { buttons: 1 });
         pointer('pointerup', root);
         // The click the browser fires after the drag must not toggle again.
         cell('2027-07-12').click();
@@ -165,6 +167,60 @@ describe('wireBlockCalendar', () => {
             mode: 'block',
             days: ['2027-07-10', '2027-07-11', '2027-07-12'],
         });
+    });
+
+    it('ends a mouse drag released past the edge of the calendar', () => {
+        const root = render();
+        document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));
+
+        pointer('pointerdown', cell('2027-07-10'));
+        pointer('pointermove', root, { buttons: 1 });
+        pointer('pointerup', document.body);
+
+        expect(postJson).toHaveBeenCalledWith(expect.any(String), {
+            mode: 'block',
+            days: ['2027-07-10', '2027-07-11', '2027-07-12'],
+        });
+        expect(root.classList.contains('is-selecting')).toBe(false);
+        // Nothing to swallow: the next click on a day is its own.
+        cell('2027-07-11').click();
+        expect(postJson).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a mouse gesture whose button is no longer held', () => {
+        const root = render();
+        document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));
+
+        pointer('pointerdown', cell('2027-07-10'));
+        pointer('pointermove', root, { buttons: 0 });
+
+        expect(root.classList.contains('is-selecting')).toBe(false);
+        expect(root.querySelector('.is-gesture')).toBeNull();
+    });
+
+    it('swallows no tap after a finger drag, which raises no click', () => {
+        vi.useFakeTimers();
+        const root = render();
+        document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));
+
+        pointer('pointerdown', cell('2027-07-10'), { pointerType: 'touch' });
+        vi.advanceTimersByTime(400);
+        pointer('pointermove', root, { pointerType: 'touch', clientY: 40 });
+        pointer('pointerup', root, { pointerType: 'touch' });
+        vi.useRealTimers();
+        cell('2027-07-11').click();
+
+        expect(postJson).toHaveBeenCalledTimes(2);
+        expect(postJson).toHaveBeenLastCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'] });
+    });
+
+    it('offers no undo when the server changed nothing', async () => {
+        postJson.mockResolvedValueOnce({ ok: true, status: 200, data: { success: true, changed: {}, list: '' } });
+        render();
+        cell('2027-07-11').click();
+
+        await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+        expect(toast.mock.calls[0][1]).toEqual({ variant: 'info' });
     });
 
     it('lets a quick finger swipe scroll instead of selecting', () => {

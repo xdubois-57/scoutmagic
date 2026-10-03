@@ -104,9 +104,12 @@ export function daysToChange(days, mode, isBlocked) {
  * @returns {string}
  */
 export function summaryFor(count, mode) {
-    const days = count > 1 ? count + ' jours' : '1 jour';
+    if (count === 0) {
+        return 'Rien n\'a changé : ces dates étaient déjà dans cet état.';
+    }
+    const days = count === 1 ? '1 jour' : count + ' jours';
     if (mode === 'block') {
-        return days + (count > 1 ? ' bloqués' : ' bloqué');
+        return days + (count === 1 ? ' bloqué' : ' bloqués');
     }
 
     return days + ' remis en location';
@@ -260,6 +263,13 @@ export function wireBlockCalendar(root) {
             }
 
             const changedDays = Object.keys(changed);
+            if (changedDays.length === 0) {
+                // Another tab or another manager got there first: nothing
+                // to undo, so no « Annuler ».
+                window.ScoutMagicToast.show(summaryFor(0, mode), { variant: 'info' });
+
+                return;
+            }
             window.ScoutMagicToast.show(summaryFor(changedDays.length, mode), {
                 variant: 'success',
                 delayMs: 6000,
@@ -281,6 +291,8 @@ export function wireBlockCalendar(root) {
         if (event.button !== 0) {
             return;
         }
+        // A flag left by an earlier drag never outlives the next press.
+        swallowNextClick = false;
         const day = actionableDay(event.target);
         if (!day) {
             return;
@@ -311,6 +323,14 @@ export function wireBlockCalendar(root) {
 
     root.addEventListener('pointermove', function (event) {
         if (event.pointerId !== gesture?.pointerId) {
+            return;
+        }
+
+        // A mouse released outside the page lost its pointerup: with no
+        // button held any more, the gesture is over.
+        if (event.pointerType === 'mouse' && (event.buttons & 1) === 0) {
+            end();
+
             return;
         }
 
@@ -349,20 +369,30 @@ export function wireBlockCalendar(root) {
         }
     }, { passive: false });
 
-    root.addEventListener('pointerup', function (event) {
+    // On the document, not the grid: a mouse drag released past the edge
+    // of the calendar still ends its gesture, up to the last day it was
+    // over. A finger needs none of this — touch is captured implicitly.
+    const release = function (/** @type {PointerEvent} */ event) {
         if (event.pointerId !== gesture?.pointerId) {
             return;
         }
         const finished = gesture;
         end();
         if (finished.selecting) {
-            // The click that follows a drag must not toggle its last day.
-            swallowNextClick = true;
+            // The click a mouse raises after a drag released on a day must
+            // not toggle that day. A finger raises no click after a drag,
+            // and a release off the grid clicks no day: nothing to swallow.
+            swallowNextClick = event.pointerType === 'mouse' && root.contains(/** @type {Node|null} */ (event.target));
             commit(gestureDays(finished.start, finished.current, month, today), finished.mode, null);
         }
-    });
+    };
+    document.addEventListener('pointerup', release);
 
-    root.addEventListener('pointercancel', end);
+    document.addEventListener('pointercancel', function (event) {
+        if (event.pointerId === gesture?.pointerId) {
+            end();
+        }
+    });
 
     root.addEventListener('contextmenu', function (event) {
         // A long press opens the system menu on a phone; on this grid it

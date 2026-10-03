@@ -1154,6 +1154,15 @@ class RentalManagementControllerTest extends TestCase
         ])->getStatusCode());
         $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // A period's reason too: an id in a POST is no authorisation.
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $this->assertSame(404, $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => 'Pris',
+        ])->getStatusCode());
+        $this->assertSame('Camp', $this->blockRepository->findById($blockId)?->reason);
     }
 
     public function testAWriteWithoutAValidCsrfTokenIsRefused(): void
