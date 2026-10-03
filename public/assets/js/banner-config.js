@@ -45,16 +45,23 @@
     }
 
     // Visibility select — auto-saves on change
-    // (module.json: POST /config/banner/role-min).
+    // (module.json: POST /config/banner/role-min), and answers with a toast
+    // either way (design.md §7.13, issue #739). A refused pick goes back to
+    // the visibility the server still holds.
     roleSelects.forEach(function (select) {
+        var saved = select.value;
         select.addEventListener('change', function () {
+            var chosen = select.value;
             api.postJson('/config/banner/role-min', {
                 id: Number.parseInt(select.dataset.id || '', 10),
-                role_min: select.value
+                role_min: chosen
             }).then(function (res) {
                 if (res.data?.success) {
+                    saved = chosen;
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }
+                select.value = saved;
                 toastError(res, 'Erreur.');
             });
         });

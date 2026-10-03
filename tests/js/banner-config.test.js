@@ -107,12 +107,23 @@ describe('banner-config.js', () => {
             expect(body).toEqual({ id: 3, role_min: 'member', _csrf_token: 'tok-123' });
         });
 
-        it('says nothing on success', async () => {
+        it('confirms a saved visibility with a toast', async () => {
             await boot();
             document.querySelector('.banner-role-min-select').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('puts a refused visibility back on the one the server still holds', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            await boot();
+            const select = document.querySelector('.banner-role-min-select');
+            select.value = '';
+            select.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(select.value).toBe('member');
         });
 
         it('shows the server\'s own message on a refusal answered with HTTP 200', async () => {

@@ -16,11 +16,10 @@ function row(endpoint, field, id) {
     return `
         <tr><td>
             <select class="passage-select" data-endpoint="${endpoint}" data-field="${field}">
-                <option value="">—</option>
+                <option value="0">—</option>
                 <option value="${id}" selected>Louveteaux</option>
+                <option value="${id + 100}">Louveteaux B</option>
             </select>
-            <button type="button" class="passage-save">Enregistrer</button>
-            <div class="form-text passage-feedback" role="status" aria-live="polite"></div>
         </td></tr>`;
 }
 
@@ -58,15 +57,12 @@ function planningBlock(memberId) {
                     <option value="0">— Non défini —</option>
                     <option value="9" selected>Éclaireurs A</option>
                 </select>
-                <div class="form-text passage-wish-feedback"></div>
             </div>
             <div>
                 <textarea class="passage-note" data-endpoint="/passage/membre/${memberId}/note">Note.</textarea>
-                <div class="form-text passage-note-feedback"></div>
             </div>
             <div class="alert alert-warning passage-ai-suggestion" data-endpoint="/passage/membre/${memberId}/ia">
                 <input type="checkbox" class="passage-ai-confirm">
-                <div class="form-text passage-ai-feedback"></div>
             </div>
             <ul>
                 <li class="passage-friend-wish" data-wish-id="5">
@@ -115,6 +111,7 @@ describe('registration-passage.js', () => {
         document.head.innerHTML = '<meta name="csrf-token" content="tok-123">';
         document.body.innerHTML = PAGE;
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
+        window.ScoutMagicToast = { show: vi.fn() };
     });
 
     async function boot() {
@@ -124,8 +121,14 @@ describe('registration-passage.js', () => {
 
     const cells = () => document.querySelectorAll('td');
     const cell = (i) => cells()[i];
-    const saveIn = (i) => cell(i).querySelector('.passage-save');
-    const feedbackIn = (i) => cell(i).querySelector('.passage-feedback');
+    const pickerIn = (i) => cell(i).querySelector('.passage-select');
+    /** Picks `value` in row `i`, the way a chief does: the change saves it. */
+    const pick = (i, value) => {
+        pickerIn(i).value = String(value);
+        pickerIn(i).dispatchEvent(new Event('change'));
+    };
+    const toasted = (message, variant) =>
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(message, { variant });
     const lastRequest = () => {
         const [url, opts] = fetch.mock.calls[fetch.mock.calls.length - 1];
         return { url, body: JSON.parse(opts.body) };
@@ -140,87 +143,82 @@ describe('registration-passage.js', () => {
     });
 
     describe('saving', () => {
-        it('posts each row to ITS OWN endpoint under ITS OWN field name', async () => {
+        it('saves on change, each row to ITS OWN endpoint under ITS OWN field name', async () => {
             await boot();
 
-            saveIn(0).click();
+            pick(0, 104);
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
             expect(lastRequest()).toEqual({
                 url: '/passage/inscription/12/section',
-                body: { intended_section_id: 4, _csrf_token: 'tok-123' },
+                body: { intended_section_id: 104, _csrf_token: 'tok-123' },
             });
 
-            saveIn(1).click();
+            pick(1, 0);
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
             expect(lastRequest()).toEqual({
                 url: '/passage/membre/77/destination',
-                body: { destination_section_id: 9, _csrf_token: 'tok-123' },
+                body: { destination_section_id: 0, _csrf_token: 'tok-123' },
             });
         });
 
-        it('says « Enregistrement… » while it waits, then « Enregistré. »', async () => {
+        it('has no « Enregistrer » button to press any more', async () => {
+            await boot();
+
+            expect(document.querySelector('.passage-save')).toBeNull();
+        });
+
+        it('locks the picker while it waits, then confirms with a toast', async () => {
             let settle;
             global.fetch = vi.fn(() => new Promise((resolve) => { settle = resolve; }));
             await boot();
-            saveIn(0).click();
+            pick(0, 104);
 
-            expect(feedbackIn(0).textContent).toBe('Enregistrement…');
-            expect(saveIn(0).disabled).toBe(true);
+            expect(pickerIn(0).disabled).toBe(true);
 
             // withDisabled() defers the call itself by a microtask.
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             settle({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
-            expect(feedbackIn(0).classList.contains('text-success')).toBe(true);
-            expect(feedbackIn(0).classList.contains('text-danger')).toBe(false);
-            expect(saveIn(0).disabled).toBe(false);
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
+            expect(pickerIn(0).disabled).toBe(false);
+            expect(pickerIn(0).value).toBe('104');
         });
 
-        it('answers in the row that asked, and leaves the other one alone', async () => {
-            await boot();
-            saveIn(1).click();
-
-            await vi.waitFor(() => expect(feedbackIn(1).textContent).toBe('Enregistré.'));
-            expect(feedbackIn(0).textContent).toBe('');
-        });
-
-        it('shows the server\'s own message on a refusal answered with HTTP 200', async () => {
+        it('shows the server\'s own message on a refusal, and PUTS THE PICK BACK', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Section pleine.' }));
             await boot();
-            saveIn(0).click();
+            pick(0, 104);
 
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Section pleine.'));
-            expect(feedbackIn(0).classList.contains('text-danger')).toBe(true);
+            await vi.waitFor(() => toasted('Section pleine.', 'error'));
+            expect(pickerIn(0).value).toBe('4');
         });
 
         it('has a sentence of its own when the refusal carries none', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false }));
             await boot();
-            saveIn(0).click();
+            pick(0, 104);
 
-            await vi.waitFor(() =>
-                expect(feedbackIn(0).textContent).toBe("Erreur lors de l'enregistrement."));
+            await vi.waitFor(() => toasted("Erreur lors de l'enregistrement.", 'error'));
         });
 
         it('distinguishes a network failure from a refusal', async () => {
             global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
             await boot();
-            saveIn(0).click();
+            pick(0, 104);
 
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Erreur réseau.'));
-            expect(feedbackIn(0).classList.contains('text-danger')).toBe(true);
-            expect(saveIn(0).disabled).toBe(false);
+            await vi.waitFor(() => toasted('Erreur réseau.', 'error'));
+            expect(pickerIn(0).value).toBe('4');
+            expect(pickerIn(0).disabled).toBe(false);
         });
 
-        it('re-enables the button after a failure so the save can be retried', async () => {
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+        it('reverts to the LAST SAVED pick, not the one the page loaded with', async () => {
             await boot();
-            saveIn(0).click();
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Non.'));
+            pick(0, 0);
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
 
-            global.fetch = vi.fn(() => jsonResponse({ success: true }));
-            saveIn(0).click();
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            pick(0, 104);
+            await vi.waitFor(() => toasted('Non.', 'error'));
+            expect(pickerIn(0).value).toBe('0');
         });
     });
 
@@ -255,7 +253,7 @@ describe('registration-passage.js', () => {
             }));
             await boot();
 
-            saveIn(0).click();
+            pick(0, 104);
             await vi.waitFor(() => expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 13'));
         });
 
@@ -272,7 +270,7 @@ describe('registration-passage.js', () => {
             scopeRadio('arrivals').checked = true;
             scopeRadio('arrivals').dispatchEvent(new Event('change', { bubbles: true }));
 
-            saveIn(0).click();
+            pick(0, 104);
             await vi.waitFor(() => expect(scopeBlock('arrivals').textContent).toBe('arrivées fraîches'));
             expect(scopeRadio('arrivals').checked).toBe(true);
             expect(scopeBlock('arrivals').hidden).toBe(false);
@@ -286,8 +284,8 @@ describe('registration-passage.js', () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true }));
             await boot();
 
-            saveIn(0).click();
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
+            pick(0, 104);
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
             expect(scopeBlock('projected').textContent).toBe('Louveteaux A · 12');
         });
 
@@ -296,8 +294,8 @@ describe('registration-passage.js', () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true, statistics_html: statisticsBox() }));
 
             await expect(boot()).resolves.not.toThrow();
-            document.querySelector('.passage-save').click();
-            await vi.waitFor(() => expect(document.querySelector('.passage-feedback').textContent).toBe('Enregistré.'));
+            pick(0, 104);
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
         });
     });
 
@@ -388,6 +386,18 @@ describe('registration-passage.js', () => {
                 url: '/passage/membre/77/souhait',
                 body: { preferred_section_id: 9, _csrf_token: 'tok-123' },
             });
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
+        });
+
+        it('puts the staff wish back, and says why, when the server refuses it', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Section inconnue.' }));
+            await boot();
+
+            wishSelect().value = '0';
+            wishSelect().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => toasted('Section inconnue.', 'error'));
+            expect(wishSelect().value).toBe('9');
         });
 
         it('saves the internal note on blur, and only on blur', async () => {
@@ -403,6 +413,40 @@ describe('registration-passage.js', () => {
                 url: '/passage/membre/77/note',
                 body: { note: 'À placer avec son frère.', _csrf_token: 'tok-123' },
             });
+            await vi.waitFor(() => toasted('Enregistré.', 'success'));
+        });
+
+        it('sends nothing and says nothing for a note left as it was', async () => {
+            await boot();
+            note().dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('disables the staff wish while its save is in flight', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+
+            wishSelect().value = '0';
+            wishSelect().dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(wishSelect().disabled).toBe(true);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(wishSelect().disabled).toBe(false));
+        });
+
+        it('keeps a refused note on screen, so nothing the chief wrote is lost', async () => {
+            global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+            await boot();
+
+            note().value = 'Texte neuf.';
+            note().dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => toasted('Erreur réseau.', 'error'));
+            expect(note().value).toBe('Texte neuf.');
         });
 
         it('records a confirmation of the AI reading, and shows it', async () => {
@@ -414,6 +458,16 @@ describe('registration-passage.js', () => {
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().body.confirmed).toBe(true);
             await vi.waitFor(() => expect(aiBox().classList.contains('alert-success')).toBe(true));
+            toasted('Confirmé.', 'success');
+        });
+
+        it('says so when a confirmation is withdrawn', async () => {
+            await boot();
+            aiCheckbox().checked = false;
+            aiCheckbox().dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => toasted('Confirmation retirée.', 'success'));
+            expect(aiBox().classList.contains('alert-warning')).toBe(true);
         });
 
         it('PUTS THE CONFIRMATION BACK when the server refuses it', async () => {
@@ -425,6 +479,7 @@ describe('registration-passage.js', () => {
 
             await vi.waitFor(() => expect(aiCheckbox().checked).toBe(false));
             expect(aiBox().classList.contains('alert-warning')).toBe(true);
+            toasted('Non.', 'error');
         });
 
         it('attaches an ambiguous name to the member the chief picked', async () => {
@@ -449,30 +504,17 @@ describe('registration-passage.js', () => {
 
             await vi.waitFor(() =>
                 expect(document.querySelector('.passage-friend-feedback').textContent).toBe('Pas un candidat.'));
-        });
-    });
-
-    describe('changing the pick', () => {
-        it('clears a stale « Enregistré. » so it never describes the new choice', async () => {
-            await boot();
-            saveIn(0).click();
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Enregistré.'));
-
-            cell(0).querySelector('.passage-select').dispatchEvent(new Event('change'));
-            expect(feedbackIn(0).textContent).toBe('');
-            expect(feedbackIn(0).classList.contains('text-danger')).toBe(false);
+            // An explicit button answers beside itself, never with a toast.
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
         });
 
-        it('clears a stale error too, and sends nothing on its own', async () => {
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+        it('confirms a resolution beside the name it is about', async () => {
             await boot();
-            saveIn(0).click();
-            await vi.waitFor(() => expect(feedbackIn(0).textContent).toBe('Non.'));
 
-            fetch.mockClear();
-            cell(0).querySelector('.passage-select').dispatchEvent(new Event('change'));
-            expect(feedbackIn(0).textContent).toBe('');
-            expect(fetch).not.toHaveBeenCalled();
+            document.querySelector('.passage-friend-save').click();
+
+            await vi.waitFor(() =>
+                expect(document.querySelector('.passage-friend-feedback').textContent).toBe('Enregistré.'));
         });
     });
 });

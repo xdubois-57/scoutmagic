@@ -220,7 +220,7 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByRole('heading', { name: /Nouvelles inscriptions/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /Changements de branche/ })).toBeVisible();
 
-    // The accepted child is in the grid, with the same select+save pair
+    // The accepted child is in the grid, with the section picker
     // the CSP post-mortem is about.
     await expect(page.getByRole('row', { name: /Zoé/ }).first()).toBeVisible();
 

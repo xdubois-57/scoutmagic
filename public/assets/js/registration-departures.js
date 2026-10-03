@@ -9,12 +9,13 @@
 // <script> so the Vitest suite can exercise the production code directly
 // (tests/js/registration-departures.test.js).
 //
-// Both saves are silent on success — this is a list an animateur goes
-// down one row at a time, and a confirmation per row would be noise. A
-// FAILURE is not silent: the two `alert()` boxes it used to raise are
-// toasts (design.md §7.5), and the row is put back the way the server
-// still has it, so the screen never claims a departure that was not
-// recorded.
+// Both saves answer with a toast, success and failure alike (design.md
+// §7.13, issue #739 — they used to be silent on success). The two
+// `alert()` boxes a failure used to raise are toasts too (design.md §7.5),
+// and a refused tick is put back the way the server still has it, so the
+// screen never claims a departure that was not recorded. A refused
+// comment keeps its text: putting the old one back would throw away what
+// the animateur just wrote.
 (function () {
     var api = window.ScoutMagicApi;
 
@@ -36,6 +37,7 @@
     function save(memberYearId, payload) {
         return api.postJson('/departs/' + memberYearId, payload).then(function (res) {
             if (res.data?.success) {
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 return true;
             }
             window.ScoutMagicToast.show(
@@ -96,8 +98,18 @@
     });
 
     comments.forEach(function (field) {
+        // A comment left as it was sends nothing, and says nothing.
+        var savedComment = field.value;
         field.addEventListener('blur', function () {
-            save(field.dataset.memberYearId || '', { comment: field.value });
+            var written = field.value;
+            if (written === savedComment) {
+                return;
+            }
+            void save(field.dataset.memberYearId || '', { comment: written }).then(function (recorded) {
+                if (recorded) {
+                    savedComment = written;
+                }
+            });
         });
     });
 })();

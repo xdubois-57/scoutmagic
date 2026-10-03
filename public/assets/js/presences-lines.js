@@ -29,7 +29,8 @@
 // A save that fails is never silent and never leaves the screen claiming
 // something the server does not have: the button goes back to the state
 // the server still holds and a toast says so (design.md §7.5 — never an
-// alert()).
+// alert()). A save that succeeds says so too, with the same toast
+// (design.md §7.13, issue #739).
 (function () {
     'use strict';
 
@@ -225,6 +226,7 @@
                     if (payload.status !== undefined) {
                         markStale();
                     }
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return true;
                 }
 

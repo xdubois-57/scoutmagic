@@ -9,6 +9,9 @@
 // from here — permission itself is only ever requested from "Mon compte"
 // (public/assets/js/push-notifications.js), after its own explanatory
 // sentence, never implicitly from a preference toggle.
+//
+// Every save answers with a ScoutMagicToast, success and failure alike
+// (design.md §7.13, issue #739).
 (function () {
     var root = document.getElementById('notification-preferences');
     if (!root) return;
@@ -21,6 +24,14 @@
         if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
             window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
         }
+    }
+
+    /** @param {{status: number, data: any}} res */
+    function toastFailure(res) {
+        var message = res.status === 0
+            ? 'Erreur réseau.'
+            : res.data?.error || "Erreur lors de l'enregistrement.";
+        window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
     // Gate the Push column on browser permission.
@@ -45,10 +56,13 @@
                 .then(function (res) {
                     // A network failure or an HTTP error page arrives as a
                     // data-less envelope — same revert as a refused save.
-                    if (!res.data?.success) {
-                        toggle.checked = !toggle.checked;
-                        syncAriaChecked(toggle);
+                    if (res.data?.success) {
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                        return;
                     }
+                    toggle.checked = !toggle.checked;
+                    syncAriaChecked(toggle);
+                    toastFailure(res);
                 });
         });
     });
@@ -58,16 +72,55 @@
     var endInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-end'));
     var discretionToggle = /** @type {HTMLInputElement | null} */ (document.getElementById('notification-discretion'));
 
+    // What the server last recorded: a refused save puts all three back,
+    // the discretion switch included, so nothing on screen claims a
+    // setting the server does not have.
+    var saved = {
+        start: startInput ? startInput.value : '',
+        end: endInput ? endInput.value : '',
+        discretion: discretionToggle ? discretionToggle.checked : false
+    };
+
+    // Answers can cross: an older one must neither undo a newer change nor
+    // put back a baseline older than what the server already confirmed.
+    var saveSequence = 0;
+    var savedSequence = 0;
+
     function saveAccountSettings() {
-        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
-            quiet_hours_start: startInput.value,
-            quiet_hours_end: endInput.value,
+        var sent = {
+            start: startInput.value,
+            end: endInput.value,
             discretion: discretionToggle.checked
+        };
+        // Quiet hours are a pair: half of one is not a setting yet, and
+        // the server would refuse it. Wait for the other half.
+        if ((sent.start === '') !== (sent.end === '')) {
+            return;
+        }
+        var sequence = ++saveSequence;
+        void window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
+            quiet_hours_start: sent.start,
+            quiet_hours_end: sent.end,
+            discretion: sent.discretion
         })
             .then(function (res) {
-                if (res.data?.success) {
-                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                var recorded = !!res.data?.success;
+                if (recorded && sequence > savedSequence) {
+                    saved = sent;
+                    savedSequence = sequence;
                 }
+                if (sequence !== saveSequence) {
+                    return;
+                }
+                if (recorded) {
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    return;
+                }
+                startInput.value = saved.start;
+                endInput.value = saved.end;
+                discretionToggle.checked = saved.discretion;
+                syncAriaChecked(discretionToggle);
+                toastFailure(res);
             });
     }
 

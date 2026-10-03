@@ -111,13 +111,39 @@ describe('config-functions.js', () => {
             await vi.waitFor(() => expect(select.disabled).toBe(false));
         });
 
-        it('drops the « Non confirmée » badge and flashes the row on success', async () => {
+        it('drops the « Non confirmée » badge and confirms with a toast, not a row flash', async () => {
             await boot();
             const row = document.querySelector('.function-row');
             row.querySelector('.role-select').dispatchEvent(new Event('change'));
 
             await vi.waitFor(() => expect(row.querySelector('.badge.text-bg-warning')).toBeNull());
-            expect(row.style.backgroundColor).toBe('var(--bs-success-bg-subtle)');
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+            expect(row.style.backgroundColor).toBe('');
+        });
+
+        it('puts the role back on the one the server still holds when the save is refused', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Rôle invalide.' }));
+            await boot();
+            const select = document.querySelector('.role-select');
+            select.value = 'animated';
+            select.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(select.value).toBe('chief');
+        });
+
+        it('reverts to the LAST SAVED role, not the one the page loaded with', async () => {
+            await boot();
+            const select = document.querySelector('.role-select');
+            select.value = 'animated';
+            select.dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            select.value = 'chief';
+            select.dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(select.value).toBe('animated');
         });
 
         it('surfaces a business failure as an error toast and keeps the badge', async () => {
@@ -175,6 +201,38 @@ describe('config-functions.js', () => {
             await boot();
             document.querySelector('.flag-lead').dispatchEvent(new Event('change'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Fonction introuvable.', { variant: 'error' }));
+        });
+
+        it('confirms a saved flag with a toast', async () => {
+            await boot();
+            document.querySelector('.flag-lead').dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('flips a refused flag back', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(lead.checked).toBe(false);
+        });
+
+        it('does not give the lead checkbox — not a switch — an aria-checked when flipping it back', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            window.ScoutMagicNav = {
+                syncSwitchAriaChecked: (input) => input.setAttribute('aria-checked', String(input.checked)),
+            };
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(lead.checked).toBe(false));
+            expect(lead.hasAttribute('aria-checked')).toBe(false);
+            delete window.ScoutMagicNav;
         });
     });
 
@@ -248,6 +306,37 @@ describe('config-functions.js', () => {
             const { url, body } = lastRequest();
             expect(url).toBe('/config/functions/section-visibility');
             expect(body).toEqual({ section_id: 10, visible: false, _csrf_token: 'tok-123' });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('flips a refused visibility switch back, aria-checked included', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            window.ScoutMagicNav = {
+                syncSwitchAriaChecked: (input) => input.setAttribute('aria-checked', String(input.checked)),
+            };
+            await boot();
+            const input = document.querySelector('.section-visible-input');
+            input.checked = false;
+            input.setAttribute('aria-checked', 'false');
+            input.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(input.checked).toBe(true);
+            expect(input.getAttribute('aria-checked')).toBe('true');
+            delete window.ScoutMagicNav;
+        });
+
+        it('confirms a saved name with a toast, and keeps a refused one on screen', async () => {
+            await boot();
+            const name = document.querySelector('.section-name-input');
+            name.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Nom invalide.' }));
+            name.value = 'Nouveau nom';
+            name.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Nom invalide.', { variant: 'error' }));
+            expect(name.value).toBe('Nouveau nom');
         });
 
         it('adopts the effective colour the server answers with and enables the reset button', async () => {
@@ -280,14 +369,16 @@ describe('config-functions.js', () => {
             expect(reset.disabled).toBe(true);
         });
 
-        it('leaves the colour picker untouched when the save fails', async () => {
+        it('puts the colour picker back on the saved colour when the save fails', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Couleur invalide.' }));
             await boot();
             const colorInput = document.querySelector('.section-color-input');
+            colorInput.value = '#ffffff';
             colorInput.dispatchEvent(new Event('change'));
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Couleur invalide.', { variant: 'error' }));
             expect(colorInput.dataset.hasOverride).toBe('0');
+            expect(colorInput.value).toBe('#112233');
         });
     });
 

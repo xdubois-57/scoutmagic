@@ -4,32 +4,50 @@
  */
 
 // Passage page (modules/registration/views/passage.html.twig): the
-// per-row « Enregistrer » that assigns a future member to a section, or
+// per-row section picker that assigns a future member to a section, or
 // moves an existing one to their destination section. Extracted from the
 // template's inline <script> so the Vitest suite can exercise the
 // production code directly (tests/js/registration-passage.test.js).
 //
 // Each row carries its own endpoint and field name in data-* on the
 // select, so the two tables on this page — future members by intended
-// section, current members by destination section — share one handler
-// and one feedback line.
+// section, current members by destination section — share one handler.
 //
-// The feedback is an inline `role="status" aria-live="polite"` line, not
-// a toast: this page has one of them per row, and a passage evening
-// means dozens of saves in a row. A toast per row would stack, and the
-// answer belongs beside the select it answers for.
+// Every field here saves itself and answers with a ScoutMagicToast
+// (design.md §7.13, issue #739): the picker on change, with no
+// « Enregistrer » button beside it. A toast per save stacks during a
+// passage evening, and that is accepted — the site answers an autosave
+// the same way on every page, and the toast leaves by itself.
 (function () {
     var api = window.ScoutMagicApi;
 
-    /** @type {NodeListOf<HTMLButtonElement>} */
-    var buttons = document.querySelectorAll('.passage-save');
+    /** @type {NodeListOf<HTMLSelectElement>} */
+    var pickers = document.querySelectorAll('.passage-select');
 
     // A no-op on every other page of the site. The guard asks for the
     // page's own toolbar as well as its rows: a unit whose two tables are
     // both empty still has « Réinitialiser » to press, and keying the
-    // whole file on a per-row button would have left it dead there.
-    if (!buttons.length && !document.getElementById('passage-optimize-feedback')) {
+    // whole file on a per-row picker would have left it dead there.
+    if (!pickers.length && !document.getElementById('passage-optimize-feedback')) {
         return;
+    }
+
+    /**
+     * The result of an autosave, the way every page of the site gives it.
+     *
+     * @param {string} message
+     * @param {boolean} isError
+     */
+    function toast(message, isError) {
+        window.ScoutMagicToast?.show(message, { variant: isError ? 'error' : 'success' });
+    }
+
+    /**
+     * @param {{status: number, data: any}} res
+     * @returns {string} what to say about a save that did not go through
+     */
+    function failureMessage(res) {
+        return res.status === 0 ? 'Erreur réseau.' : res.data?.error || "Erreur lors de l'enregistrement.";
     }
 
     // ── The statistics box (spec §8) ─────────────────────────────────
@@ -102,74 +120,40 @@
 
     applyScope();
 
-    /**
-     * @param {Element} cell
-     * @param {string} message
-     * @param {boolean} isError
-     */
-    function feedback(cell, message, isError) {
-        var box = cell.querySelector('.passage-feedback');
-        if (!box) {
-            return;
-        }
-        box.textContent = message;
-        box.classList.toggle('text-danger', isError);
-        box.classList.toggle('text-success', !isError);
-    }
+    pickers.forEach(function (select) {
+        // The value the server holds. A refused save puts the picker back
+        // on it: the screen must never show a placement that was not
+        // recorded.
+        var saved = select.value;
 
-    buttons.forEach(function (button) {
-        var cell = button.closest('td');
-        if (!cell) {
-            return;
-        }
-        var select = /** @type {HTMLSelectElement|null} */ (cell.querySelector('.passage-select'));
-        if (!select) {
-            return;
-        }
-
-        button.addEventListener('click', function () {
+        select.addEventListener('change', function () {
             /** @type {Record<string, number>} */
             var payload = {};
             payload[select.dataset.field || ''] = Number.parseInt(select.value, 10);
+            var chosen = select.value;
 
-            feedback(cell, 'Enregistrement…', false);
-
-            api.withDisabled(button, function () {
+            void api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (select)), function () {
                 return api.postJson(select.dataset.endpoint || '', payload);
             }).then(function (res) {
                 if (res.data?.success) {
-                    feedback(cell, 'Enregistré.', false);
+                    saved = chosen;
+                    toast('Enregistré.', false);
                     // The box comes back in the save's own answer (one
                     // round trip, no cache to invalidate) — spec §8.
                     refreshStatistics(res.data.statistics_html);
                     return;
                 }
-                if (res.status === 0) {
-                    feedback(cell, 'Erreur réseau.', true);
-                    return;
-                }
-                feedback(cell, res.data?.error || "Erreur lors de l'enregistrement.", true);
+                select.value = saved;
+                toast(failureMessage(res), true);
             });
-        });
-
-        // A pick that hasn't been saved yet shouldn't still show the
-        // previous line's « Enregistré. » confirmation.
-        select.addEventListener('change', function () {
-            feedback(cell, '', false);
         });
     });
 
     // ── The planning block (spec §11.6, §11.7 — roadmap IT-17) ───────
     //
     // Three fields that save themselves, on the same delegated shape as
-    // the two above: the endpoint is on the element, so one handler serves
-    // both tables and any number of rows.
-    //
-    // No « Enregistrer » button for the two staff fields. This is a page a
-    // chief goes down line by line during a passage evening, and a button
-    // per field would be three more clicks per child; the destination
-    // picker keeps its button because it is the DECISION, and a decision
-    // deserves a deliberate gesture.
+    // the picker above: the endpoint is on the element, so one handler
+    // serves both tables and any number of rows.
 
     /**
      * @param {Element|null} box
@@ -186,44 +170,64 @@
     }
 
     /**
+     * A save the chief did not ask for with a button: its result is a
+     * toast.
+     *
      * @param {HTMLElement} element the field that carries the endpoint
-     * @param {Element|null} box
      * @param {Record<string, any>} payload
+     * @returns {Promise<boolean>} whether the server recorded it
      */
-    function autoSave(element, box, payload) {
-        inlineFeedback(box, 'Enregistrement…', false);
-
+    function autoSave(element, payload) {
         return api.postJson(element.dataset.endpoint || '', payload).then(function (res) {
             if (res.data?.success) {
-                inlineFeedback(box, 'Enregistré.', false);
+                toast('Enregistré.', false);
                 return true;
             }
-            inlineFeedback(
-                box,
-                res.status === 0 ? 'Erreur réseau.' : res.data?.error || "Erreur lors de l'enregistrement.",
-                true
-            );
+            toast(failureMessage(res), true);
             return false;
         });
     }
 
     document.querySelectorAll('.passage-wish-select').forEach(function (select) {
         var field = /** @type {HTMLSelectElement} */ (select);
+        var saved = field.value;
         field.addEventListener('change', function () {
             /** @type {Record<string, number>} */
             var payload = {};
             payload[field.dataset.field || 'preferred_section_id'] = Number.parseInt(field.value, 10);
-            autoSave(field, field.parentElement?.querySelector('.passage-wish-feedback'), payload);
+            var chosen = field.value;
+            // Disabled while in flight, like the picker above: two answers
+            // crossing could otherwise revert to a value the server no
+            // longer holds.
+            void api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (field)), function () {
+                return autoSave(field, payload);
+            }).then(function (recorded) {
+                if (recorded) {
+                    saved = chosen;
+                } else {
+                    field.value = saved;
+                }
+            });
         });
     });
 
     document.querySelectorAll('.passage-note').forEach(function (note) {
         var field = /** @type {HTMLTextAreaElement} */ (note);
         // On blur, like the Départs comment: a note is written in one go,
-        // and a save per keystroke would be a request per keystroke.
+        // and a save per keystroke would be a request per keystroke. A
+        // refused note keeps its text on screen: putting the old one back
+        // would throw away what the chief just wrote.
+        // A note left as it was sends nothing, and says nothing.
+        var savedNote = field.value;
         field.addEventListener('blur', function () {
-            autoSave(field, field.parentElement?.querySelector('.passage-note-feedback'), {
-                note: field.value,
+            var written = field.value;
+            if (written === savedNote) {
+                return;
+            }
+            void autoSave(field, { note: written }).then(function (recorded) {
+                if (recorded) {
+                    savedNote = written;
+                }
             });
         });
     });
@@ -358,13 +362,11 @@
             return;
         }
         var endpoint = /** @type {HTMLElement} */ (block).dataset.endpoint || '';
-        var box = block.querySelector('.passage-ai-feedback');
 
         checkbox.addEventListener('change', function () {
-            inlineFeedback(box, 'Enregistrement…', false);
             api.postJson(endpoint, { confirmed: checkbox.checked }).then(function (res) {
                 if (res.data?.success) {
-                    inlineFeedback(box, checkbox.checked ? 'Confirmé.' : 'Confirmation retirée.', false);
+                    toast(checkbox.checked ? 'Confirmé.' : 'Confirmation retirée.', false);
                     block.classList.toggle('alert-success', checkbox.checked);
                     block.classList.toggle('alert-warning', !checkbox.checked);
                     return;
@@ -373,11 +375,7 @@
                 // as the departures grid does: the screen must never claim
                 // a confirmation that was not recorded.
                 checkbox.checked = !checkbox.checked;
-                inlineFeedback(
-                    box,
-                    res.status === 0 ? 'Erreur réseau.' : res.data?.error || "Erreur lors de l'enregistrement.",
-                    true
-                );
+                toast(failureMessage(res), true);
             });
         });
     });
@@ -394,9 +392,16 @@
             return;
         }
 
+        // A button, so not an autosave: the answer stays beside the name
+        // it is about, as on every form the chief submits on purpose.
         save.addEventListener('click', function () {
+            inlineFeedback(box, 'Enregistrement…', false);
             api.withDisabled(save, function () {
-                return autoSave(save, box, { matched_member_id: Number.parseInt(picker.value, 10) });
+                return api.postJson(save.dataset.endpoint || '', {
+                    matched_member_id: Number.parseInt(picker.value, 10),
+                });
+            }).then(function (res) {
+                inlineFeedback(box, res.data?.success ? 'Enregistré.' : failureMessage(res), !res.data?.success);
             });
         });
     });
