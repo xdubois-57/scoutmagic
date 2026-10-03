@@ -38,6 +38,16 @@
 // to this page shows a button that can never be pressed again.
 
 (function () {
+    // The attribute name in full, NOT a `dataset` key, and used through
+    // get/set/has/removeAttribute on purpose. Sonar's `javascript:S7761`
+    // asks for `.dataset` here and is wrong for this one: the same marker
+    // is also a CSS attribute selector below
+    // (`form[data-submit-lock-engaged]`), which `pageshow` needs to find
+    // every locked form in the document. Through `dataset` the marker
+    // would be spelled two ways — camelCase for the property, kebab-case
+    // for the selector — and this constant could no longer serve both.
+    // `submitLockBound` further down IS a dataset key, because nothing
+    // ever selects on it.
     var LOCKED = 'data-submit-lock-engaged';
     var DEFAULT_LABEL = 'Envoi en cours…';
 

@@ -90,7 +90,7 @@
      * @returns {HTMLCanvasElement|null}
      */
     function thumbnail(file) {
-        if (typeof file.type !== 'string' || file.type.indexOf('image/') !== 0) {
+        if (typeof file.type !== 'string' || !file.type.startsWith('image/')) {
             return null;
         }
         if (typeof createImageBitmap !== 'function') {
