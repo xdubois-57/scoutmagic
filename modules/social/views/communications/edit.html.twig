@@ -33,8 +33,13 @@
                 {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
             </p>
         {% elseif from_source %}
-            <div class="alert alert-secondary mb-0">
-                L'image est celle de {{ source_label }} : elle apparaîtra ici une fois la communication publiée.
+            {# The source has no image to compose a card from — an album
+               without a cover photo. Said plainly, because « Publier »
+               will refuse it and the reason belongs here, not in a flash
+               message afterwards. #}
+            <div class="alert alert-warning mb-0">
+                {{ source_label|capitalize }} n'a pas d'image : aucune publication ne part sans image.
+                Choisissez-en une là-bas, puis revenez.
             </div>
         {% else %}
             <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>

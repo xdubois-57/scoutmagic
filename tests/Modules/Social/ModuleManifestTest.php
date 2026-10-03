@@ -105,7 +105,7 @@ final class ModuleManifestTest extends TestCase
         foreach ($this->manifest['routes'] as $route) {
             $reads = in_array($route['action'], [
                 'index', 'connect', 'callback', 'show',
-                'history', 'create', 'createFromSource', 'edit', 'preview', 'picker', 'confirmRetry',
+                'history', 'create', 'createFromSource', 'edit', 'preview', 'previewSource', 'picker', 'confirmRetry',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

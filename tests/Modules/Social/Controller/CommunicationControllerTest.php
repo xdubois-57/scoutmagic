@@ -132,7 +132,7 @@ final class CommunicationControllerTest extends TestCase
             self::assertSame('chief', $route['role_min'], $route['path']);
             $cases[$route['method'] . ' ' . $route['path']] = [$route['method'], $route['path'], $route['action']];
         }
-        self::assertCount(11, $cases);
+        self::assertCount(12, $cases);
 
         return $cases;
     }
@@ -207,6 +207,79 @@ final class CommunicationControllerTest extends TestCase
         // The pair travels in the form, not in the address.
         $this->assertStringContainsString('name="source_kind" value="album"', $html);
         $this->assertStringContainsString('name="source_id" value="' . self::ALBUM_ID . '"', $html);
+    }
+
+    /**
+     * « Publier » must never be the first time the card is seen. Since
+     * « Partager » writes no row, the prefilled composer has no
+     * communication to draw a preview from, and the first version of this
+     * showed a sentence promising the image « once published » instead of
+     * the image — on a page where « Publier » was the only button, so
+     * one POST both created the row and made an irreversible public post.
+     */
+    public function testThePrefilledComposerShowsTheCardItWouldPublish(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        $this->assertStringContainsString('data-card-preview', $html);
+        $this->assertStringContainsString(
+            'src="/medias-sociaux/nouvelle/album/' . self::ALBUM_ID . '/apercu"',
+            $html
+        );
+        $this->assertStringNotContainsString('une fois la communication publiée', $html);
+    }
+
+    /** That preview is a real composed card, served before any row exists. */
+    public function testTheSourceKeyedPreviewServesTheComposedCard(): void
+    {
+        $this->loginAuthor();
+
+        $response = $this->controller()
+            ->previewSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('image/jpeg', $response->getHeaders()['Content-Type'] ?? '');
+        // Never cached: it is drawn for this caller, from an image whose
+        // visibility was asked for this caller.
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control'] ?? '');
+        $this->assertStringStartsWith("\xFF\xD8", $response->getBody());
+    }
+
+    /** And it asks the source's own rule, like every other use. */
+    public function testTheSourceKeyedPreviewRefusesASourceThatIsNotYours(): void
+    {
+        $this->loginAuthor();
+
+        $this->assertSame(404, $this->controller()
+            ->previewSource($this->get(), ['kind' => 'album', 'id' => '9999'])->getStatusCode());
+        $this->assertSame(404, $this->controller()
+            ->previewSource($this->get(), ['kind' => 'trombinoscope', 'id' => '1'])->getStatusCode());
+    }
+
+    /**
+     * The blur is a promise about what leaves the site, so the sentence
+     * has to be there for the shares that actually get blurred.
+     *
+     * It was not: `from_gallery` was read from the row's own
+     * `gallery_media_id`, which a source-backed communication never sets
+     * and can never set — while ShareSourceResolver::album() answers
+     * `imageFromGallery` true, so the album's cover IS blurred. The
+     * warning disappeared for exactly the case it describes.
+     */
+    public function testAnAlbumShareStillPromisesTheBlurItPerforms(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        $this->assertStringContainsString('Cette photo vient de la galerie', $html);
+        $this->assertStringContainsString('floutée, sans exception', $html);
     }
 
     /**

@@ -618,8 +618,11 @@ final class UxConventionsTest extends TestCase
         '/config/reseaux-sociaux/{platform}/retour',
         // The composed image Meta's servers fetch — a JPEG, never a page.
         '/partage/carte/{token}',
-        // The card a chief is about to publish, drawn for the composer's <img>.
+        // The card a chief is about to publish, drawn for the composer's
+        // <img> — by the communication once it exists, and by its source
+        // before that, since « Partager » writes no row on opening.
         '/medias-sociaux/{id}/apercu',
+        '/medias-sociaux/nouvelle/{kind}/{id}/apercu',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.

@@ -227,7 +227,41 @@ final class CommunicationController extends AbstractController
     /** @param array<string, string> $params */
     public function preview(Request $request, array $params): Response
     {
-        $source = $this->source($params);
+        return $this->cardOf($this->source($params));
+    }
+
+    /**
+     * The card of an album or an article, for a composer that has no row
+     * yet — keyed on the SOURCE rather than on a communication.
+     *
+     * It exists because « Partager » writes nothing on opening: without
+     * it the prefilled composer had no image to show, and since the
+     * gallery and upload buttons are absent there, « Publier » was the
+     * only button on the page — so the first POST both created the row and
+     * published it, and a chief committed to an irreversible public post
+     * without ever seeing the card. The page that this composer replaced
+     * showed that image, and SECURITY.md promises it.
+     *
+     * The source's own rule is asked again here, as everywhere else: an
+     * album this caller may not share has no card to look at either.
+     *
+     * @param array<string, string> $params
+     */
+    public function previewSource(Request $request, array $params): Response
+    {
+        return $this->cardOf($this->describedSource(
+            (string) ($params['kind'] ?? ''),
+            (int) ($params['id'] ?? 0)
+        ));
+    }
+
+    /**
+     * The composed card as a JPEG, or 404 — for something with no image,
+     * something this caller may not see, and a composition that failed
+     * alike: a chief who may not look at it learns nothing from which.
+     */
+    private function cardOf(?ShareSource $source): Response
+    {
         if ($source === null || $source->image === null || $source->image === '') {
             return new Response('Not Found', 404);
         }
@@ -462,7 +496,14 @@ final class CommunicationController extends AbstractController
             'frozen' => $communication !== null && $this->isFrozen($communication),
             'form_action' => $communication === null ? self::HISTORY_PATH : self::path($communication),
             'has_image' => $source !== null && $source->image !== null && $source->image !== '',
-            'from_gallery' => $communication?->galleryMediaId !== null,
+            // From the SOURCE, not from this row's own columns: a
+            // source-backed communication never sets `gallery_media_id`
+            // — and can never set it, since the gallery button is absent
+            // — yet an album's cover IS blurred at publication
+            // (ShareSourceResolver::album() answers imageFromGallery).
+            // Read from the row, the sentence promising the blur
+            // disappeared for exactly the shares that get blurred.
+            'from_gallery' => $source->imageFromGallery ?? false,
             // Neither button is offered when the image is the source's:
             // an album's cover is the album's to change, not this page's.
             'gallery_available' => $this->photos !== null && !$fromSource,
@@ -471,7 +512,14 @@ final class CommunicationController extends AbstractController
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
-            'preview_path' => $communication === null ? null : self::path($communication) . '/apercu',
+            // Before the row exists the card is served by its source, so
+            // that « Publier » is never the first time the image is seen.
+            'preview_path' => match (true) {
+                $communication !== null => self::path($communication) . '/apercu',
+                $prefill !== null => self::HISTORY_PATH . '/nouvelle/' . $prefill->kind . '/'
+                    . $prefill->id . '/apercu',
+                default => null,
+            },
             'destinations' => $source === null ? $this->unsavedDestinations() : $this->states->forSource($source),
             'offers_groups' => $this->states->offersGroups() && $source !== null,
             'groups' => $source === null ? [] : $this->states->groupsFor(

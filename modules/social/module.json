@@ -147,6 +147,15 @@
       }
     },
     {
+      "path": "/medias-sociaux/nouvelle/{kind}/{id}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "previewSource",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/medias-sociaux",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
