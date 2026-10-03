@@ -166,7 +166,13 @@ class PassageCommentReviewService
                 $hash,
                 $reading['summary'],
                 self::resolveSection($reading['section'], $arrival['sections']),
-                $this->resolveFriends($reading['friends'], $memberId, $arrival['branch_id'], $currentYearId, $targetYearId)
+                $this->resolveFriends(
+                    $reading['friends'],
+                    $memberId,
+                    $arrival['branch_id'],
+                    $currentYearId,
+                    $targetYearId
+                )
             );
             $reviewed++;
         }
