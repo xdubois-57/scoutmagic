@@ -9,11 +9,22 @@
         <div class="alert alert-danger">{{ submit_error }}</div>
     {% endif %}
 
-    {% if not ffmpeg_available %}
-        <div class="alert alert-warning">
-            <strong>FFmpeg n'est pas disponible sur ce serveur.</strong>
-            L'envoi de vidéos est désactivé tant que ce binaire système optionnel n'est pas installé
+    {# What the cron measured (#700): the video is transcoded by a task, so
+       its answer is the one that counts. Not measured yet is « unknown »,
+       never « absent ». The details and what to ask the host live in Santé
+       de l'hébergement, for whoever can act on them. #}
+    {% if ffmpeg_state == 'unknown' %}
+        <div class="alert alert-secondary">
+            <strong>FFmpeg n'a pas encore été vérifié.</strong>
+            La tâche planifiée le vérifie à son prochain passage ; l'envoi de vidéos reste désactivé d'ici là
             (le traitement des photos fonctionne normalement, indépendamment de FFmpeg).
+        </div>
+    {% elseif not ffmpeg_available %}
+        <div class="alert alert-warning">
+            <strong>FFmpeg n'est pas disponible pour la tâche planifiée.</strong>
+            L'envoi de vidéos est désactivé tant que ce binaire système optionnel ne peut pas être lancé
+            (le traitement des photos fonctionne normalement, indépendamment de FFmpeg). Le détail est sur la
+            page Santé de l'hébergement.
         </div>
     {% endif %}
 

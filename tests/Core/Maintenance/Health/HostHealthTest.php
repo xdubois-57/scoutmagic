@@ -8,6 +8,7 @@ use Core\Maintenance\Health\HostCheck;
 use Core\Maintenance\Health\HostFacts;
 use Core\Maintenance\Health\HostHealth;
 use Core\Scheduler\CronStatus;
+use Core\System\CronExecutionFacts;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -20,12 +21,15 @@ final class HostHealthTest extends TestCase
 {
     private const NOW = 1_800_000_000;
 
-    public function testAHealthyHostIsNineGreenLinesInTheOrderThePageShows(): void
+    public function testAHealthyHostIsAllGreenLinesInTheOrderThePageShows(): void
     {
         $checks = HostHealth::checks($this->facts());
 
         $this->assertSame(
-            ['cron', 'ffmpeg', 'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage'],
+            [
+                'cron', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
+                'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage',
+            ],
             array_map(static fn(HostCheck $c): string => $c->key, $checks)
         );
         foreach ($checks as $check) {
@@ -41,8 +45,9 @@ final class HostHealthTest extends TestCase
     {
         $checks = HostHealth::checks($this->facts(
             cron: new CronStatus(CronStatus::STATE_NEVER, null, null, null, self::NOW),
-            ffmpegPath: null,
-            ffprobePath: null,
+            shellWorks: false,
+            cronExecution: self::cron(works: false),
+            procOpen: false,
             zipEncryption: false,
             sodium: false,
             gd: false,
@@ -75,45 +80,114 @@ final class HostHealthTest extends TestCase
     }
 
     /**
-     * A host where PHP may launch nothing reports that, rather than two
-     * binaries « absent » that may well be installed.
+     * #700: the web PHP sandboxed, the cron's free — the LWS case. Video
+     * reads the cron, so it is available, and nothing is asked about the
+     * web shell for it.
      */
-    public function testNoShellIsNamedAsTheCauseRatherThanMissingBinaries(): void
+    public function testVideoFollowsTheCronNotTheWebPhp(): void
     {
-        $line = $this->line('ffmpeg', $this->facts(
-            shellDeclared: false,
-            shellWorks: false,
-            ffmpegPath: null,
-            ffprobePath: null
-        ));
+        $facts = $this->facts(shellWorks: false, cronExecution: self::cron());
+
+        $this->assertTrue($this->line('ffmpeg', $facts)->isOk());
+        $this->assertStringContainsString('/usr/bin/ffmpeg', $this->line('ffmpeg', $facts)->status);
+        $web = $this->line('shell_web', $facts);
+        $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
+        $this->assertStringContainsString('aucune sortie, code 127', $web->status);
+        $this->assertSame('Rien à demander pour la vidéo : le PHP du cron exécute les commandes.', $web->ask);
+    }
+
+    /** The reverse: the web runs commands, the cron cannot — video is refused. */
+    public function testACronThatCannotRunCommandsRefusesVideoWithItsExactError(): void
+    {
+        $facts = $this->facts(cronExecution: self::cron(works: false));
+
+        $video = $this->line('ffmpeg', $facts);
+        $this->assertSame(HostCheck::STATE_MISSING, $video->state);
+        $this->assertStringContainsString('le PHP du cron ne peut lancer aucun programme', $video->status);
+        $this->assertStringContainsString('Erreur exacte : aucune sortie, code 127', $video->ask);
+        $this->assertTrue($this->line('shell_web', $facts)->isOk());
+        $this->assertSame(HostCheck::STATE_MISSING, $this->line('shell_cron', $facts)->state);
+    }
+
+    /** Commands work for the cron, ffmpeg is missing: ask for ffmpeg, not a shell. */
+    public function testOnlyFfmpegMissingAsksForFfmpegAndNothingElse(): void
+    {
+        $line = $this->line('ffmpeg', $this->facts(shellWorks: false, cronExecution: self::cron(ffprobe: null)));
 
         $this->assertSame(HostCheck::STATE_MISSING, $line->state);
-        $this->assertStringContainsString('aucun programme', $line->status);
-        $this->assertStringContainsString('disable_functions', $line->ask);
+        $this->assertStringStartsWith('Absent pour le cron : ffprobe', $line->status);
+        $this->assertSame(
+            'Installer ffmpeg (le paquet fournit aussi ffprobe), exécutable par le PHP du cron.',
+            $line->ask
+        );
+        $this->assertStringNotContainsString('disable_functions', $line->ask);
+    }
+
+    /** Before the cron has ever measured: unknown, never absent. */
+    public function testBeforeTheFirstCronMeasurementVideoIsUnknownNotAbsent(): void
+    {
+        $facts = $this->facts(defaultCron: false);
+
+        $video = $this->line('ffmpeg', $facts);
+        $this->assertSame(HostCheck::STATE_DEGRADED, $video->state);
+        $this->assertStringStartsWith('Inconnus', $video->status);
+        $this->assertStringNotContainsString('Absent', $video->status);
+        $this->assertStringStartsWith('Pas encore vérifiée', $this->line('shell_cron', $facts)->status);
+    }
+
+    /** The cron's line says when it measured. */
+    public function testTheCronMeasurementIsDated(): void
+    {
+        $line = $this->line('shell_cron', $this->facts(cronExecution: self::cron(probedAt: self::NOW - 420)));
+
+        $this->assertSame('Possible (exec) — vérifiée il y a 7 min', $line->status);
     }
 
     /**
-     * Declared is not working: a security module, a nologin shell or a
-     * noexec mount let exec() be called and run nothing. That host must
-     * not be told to install ffmpeg, nor to edit disable_functions.
+     * PDF compression, one state per test, from the facts alone (#700):
+     * never blocking, and worded so.
+     *
+     * @return iterable<string, array{bool, string, string, string}>
      */
-    public function testAShellDeclaredButNotWorkingIsNamedAsSuch(): void
+    public static function pdfStates(): iterable
     {
-        $line = $this->line('ffmpeg', $this->facts(shellWorks: false, ffmpegPath: null, ffprobePath: null));
-
-        $this->assertSame(HostCheck::STATE_MISSING, $line->state);
-        $this->assertStringContainsString('rien ne s\'exécute', $line->status);
-        $this->assertStringNotContainsString('disable_functions', $line->ask);
-        $this->assertStringContainsString('noexec', $line->ask);
+        yield 'proc_open off' => [
+            false, 'none', HostCheck::STATE_DEGRADED, 'Impossible : la fonction proc_open est désactivée',
+        ];
+        yield 'no tool' => [
+            true, 'none', HostCheck::STATE_DEGRADED, 'Aucun outil trouvé (Ghostscript, qpdf ou pdftocairo)',
+        ];
+        yield 'ghostscript' => [true, 'ghostscript', HostCheck::STATE_OK, 'Disponible : Ghostscript'];
+        yield 'qpdf' => [true, 'qpdf', HostCheck::STATE_OK, 'Disponible : qpdf'];
     }
 
-    public function testOneMissingBinaryIsNamed(): void
-    {
-        $line = $this->line('ffmpeg', $this->facts(ffprobePath: null));
+    #[\PHPUnit\Framework\Attributes\DataProvider('pdfStates')]
+    public function testThePdfCompressionLineHasOneStateForEachFact(
+        bool $procOpen,
+        string $backend,
+        string $state,
+        string $status
+    ): void {
+        $line = $this->line('pdf_compression', $this->facts(procOpen: $procOpen, pdfBackend: $backend));
 
-        $this->assertSame(HostCheck::STATE_MISSING, $line->state);
-        $this->assertSame('Absent : ffprobe', $line->status);
-        $this->assertStringContainsString('téléversement de vidéos', $line->consequence);
+        $this->assertSame($state, $line->state);
+        $this->assertSame($status, $line->status);
+        $this->assertNotSame(HostCheck::STATE_MISSING, $line->state, 'nothing is refused without compression');
+        $this->assertSame(
+            'Sans outil de compression, les PDF téléversés ne sont pas compressés. Rien n\'est refusé.',
+            $line->consequence
+        );
+    }
+
+    public function testTheInstallationAdviceForPdfIsWrittenOnceAndOnlyHere(): void
+    {
+        $root = dirname(__DIR__, 4);
+        $staffs = (string) file_get_contents($root . '/core/View/templates/chefs/staffs.html.twig');
+
+        $line = $this->line('pdf_compression', $this->facts(pdfBackend: 'none'));
+        $this->assertStringContainsString('Ghostscript', $line->ask);
+        $this->assertStringNotContainsString('apt install ghostscript', $staffs);
+        $this->assertStringContainsString('href="/config/maintenance">Santé de l\'hébergement</a>', $staffs);
     }
 
     /** The fallback works, so the line is degraded — not missing. */
@@ -192,12 +266,28 @@ final class HostHealthTest extends TestCase
     }
 
     /** @param list<string> $missingMailExtensions */
+    private static function cron(
+        bool $works = true,
+        ?string $ffmpeg = '/usr/bin/ffmpeg',
+        ?string $ffprobe = '/usr/bin/ffprobe',
+        int $probedAt = self::NOW - 30
+    ): CronExecutionFacts {
+        return new CronExecutionFacts(
+            $probedAt,
+            'cli',
+            true,
+            $works,
+            'exec',
+            $works ? 'code 0' : 'aucune sortie, code 127',
+            $works ? $ffmpeg : null,
+            $works ? $ffprobe : null
+        );
+    }
+
     private function facts(
         ?CronStatus $cron = null,
         bool $shellDeclared = true,
         bool $shellWorks = true,
-        ?string $ffmpegPath = '/usr/bin/ffmpeg',
-        ?string $ffprobePath = '/usr/bin/ffprobe',
         bool $zipEncryption = true,
         bool $sodium = true,
         bool $gd = true,
@@ -206,13 +296,15 @@ final class HostHealthTest extends TestCase
         string $databaseDriver = 'mysql',
         string $databaseVersion = '8.0.39',
         bool $storageWritable = true,
+        ?CronExecutionFacts $cronExecution = null,
+        bool $procOpen = true,
+        string $pdfBackend = 'ghostscript',
+        bool $defaultCron = true,
     ): HostFacts {
         return new HostFacts(
             $cron ?? new CronStatus(CronStatus::STATE_ACTIVE, self::NOW - 30, self::NOW - 30, 60, self::NOW),
             $shellDeclared,
             $shellWorks,
-            $ffmpegPath,
-            $ffprobePath,
             $zipEncryption,
             $sodium,
             $gd,
@@ -221,6 +313,12 @@ final class HostHealthTest extends TestCase
             $databaseDriver,
             $databaseVersion,
             $storageWritable,
+            'exec',
+            $shellWorks ? 'code 0' : 'aucune sortie, code 127',
+            $cronExecution ?? ($defaultCron ? self::cron() : null),
+            $procOpen,
+            $pdfBackend,
+            self::NOW,
         );
     }
 }

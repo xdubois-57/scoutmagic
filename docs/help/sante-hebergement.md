@@ -29,7 +29,14 @@ hébergeur. Un bandeau en haut compte les lignes à régler.
   depuis un moment, la page affiche la ligne exacte à ajouter dans la
   rubrique « Tâches planifiées » ou « Cron ». Le mot `php` au début de la
   ligne est obligatoire.
-- **ffmpeg et ffprobe** — sans eux, la galerie refuse les vidéos.
+- **Exécution de commandes**, deux lignes : le PHP qui répond aux
+  visiteurs et celui du cron peuvent avoir des droits différents. La
+  vidéo dépend de celui du cron, qui se vérifie à chaque passage ; avant
+  le premier, l'état est « pas encore vérifié », pas « absent ».
+- **ffmpeg et ffprobe** — sans eux, la galerie et les groupes refusent
+  les vidéos. La ligne recopie l'erreur exacte à transmettre.
+- **Compression des PDF** — sans outil, les PDF ne sont pas compressés ;
+  rien n'est refusé.
 - **Chiffrement des archives** — sans lui, la sauvegarde complète et la
   sauvegarde portable sont indisponibles.
 - **libsodium** — sans elle, les sauvegardes portables se chiffrent
@@ -37,8 +44,7 @@ hébergeur. Un bandeau en haut compte les lignes à régler.
   rouge.
 - **GD** — sans elle, aucune image n'est transformée (vignettes, icônes
   de l'application, photos de section).
-- **Courrier entrant (IMAP)** — les extensions PHP dont la relève des
-  boîtes aux lettres a besoin.
+- **Courrier entrant (IMAP)** — les extensions de la relève du courrier.
 - **PHP, base de données, écriture dans `storage/`** — la version de PHP,
   le moteur et la version de la base, et la possibilité d'enregistrer
   des fichiers.

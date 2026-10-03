@@ -319,6 +319,7 @@ class GalleryConfigController extends AbstractController
             'tab' => $tab,
             'tabs' => self::TABS,
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
+            'ffmpeg_state' => $this->ffmpegAvailability->state(),
             // Still needed here, and only for the « Albums » tab: a
             // migration is a move between two of them, so the list of
             // destinations is what the select is built from. Declaring

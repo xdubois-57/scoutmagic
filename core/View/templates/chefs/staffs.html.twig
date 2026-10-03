@@ -162,9 +162,12 @@
                 {% if section_document_compression_backend_none %}
                     <div class="alert alert-warning small py-2 mb-3">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                        Aucun outil de compression PDF n'est disponible sur ce serveur — les documents PDF ajoutés ne seront pas compressés automatiquement.
-                        {% if is_chief %}
-                            Pour l'activer&nbsp;: installez Ghostscript (<code>apt install ghostscript</code> ou <code>yum install ghostscript</code>) sur le serveur, ou vérifiez que <code>proc_open</code> n'est pas désactivé dans la configuration PHP (<code>disable_functions</code>). Sur un hébergement mutualisé où vous ne pouvez pas installer de logiciel, contactez votre hébergeur.
+                        Les documents PDF ajoutés ne seront pas compressés automatiquement : aucun outil de compression n'est disponible sur ce serveur. Rien n'est refusé.
+                        {# What to ask the host lives on one page only,
+                           Santé de l'hébergement (#700) — and only the
+                           super-admin, who can act on it, is sent there. #}
+                        {% if current_user_role|default('') == 'superadmin' %}
+                            Ce qu'il faut demander à l'hébergeur est sur la page <a href="/config/maintenance">Santé de l'hébergement</a>.
                         {% endif %}
                     </div>
                 {% endif %}
