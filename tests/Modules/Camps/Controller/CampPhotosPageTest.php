@@ -91,4 +91,46 @@ final class CampPhotosPageTest extends TestCase
             $this->assertStringNotContainsString($sentence, $html);
         }
     }
+
+    /**
+     * The server half of issue #756: the page has to ASK for the thumbnail
+     * and for the submit lock, or the shared JavaScript leaves it exactly
+     * as it was. Both are opt-ins, and an opt-in nobody wrote down is a
+     * feature that silently does not exist — which is what a unit getting
+     * the same photo twice was.
+     *
+     * One assertion per promise, read off the rendered page rather than
+     * off the template file: a `data` hash that stopped reaching the
+     * partial would still look right in the source.
+     */
+    public function testThePageAsksForThePreviewAndTheSubmitLock(): void
+    {
+        $html = $this->twig->render('@camps/photos.html.twig', [
+            'gallery_enabled' => true,
+            'album_available' => true,
+            'media_unreadable' => false,
+            'camp' => (object) ['id' => 12],
+            'camp_label' => 'Juillet 2028',
+            'place' => null,
+            'media' => [],
+        ]);
+
+        $this->assertStringContainsString(
+            'data-drop-zone-preview="image"',
+            $html,
+            'the photo zone no longer asks for a thumbnail, so picking a photo says only '
+            . 'IMG_4821.HEIC again (issue #756).'
+        );
+        $this->assertStringContainsString(
+            'data-submit-lock',
+            $html,
+            'the upload form no longer asks for the submit lock, so a second tap during the '
+            . 'several seconds a phone photo takes to leave sends it twice (issue #756).'
+        );
+        $this->assertStringContainsString(
+            'form-submit-lock.js',
+            $html,
+            'the page asks for the submit lock and never loads the script that honours it.'
+        );
+    }
 }

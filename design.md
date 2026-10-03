@@ -757,6 +757,47 @@ separately, and only one of the three remembered that `dragover` must
 call `preventDefault()` — without it the browser refuses the drop and
 opens the file in a new tab, so the zone looks alive and does nothing.
 
+**Picking a file says which one, and sending it says so too** (issue
+#756). Both halves are opt-in on the shared zone, because most of these
+zones take a document rather than a photograph and a change neither asked
+for is a change that surprises them.
+
+`data-drop-zone-preview="image"` on the zone adds a **thumbnail** of each
+picked image above its name (`public/assets/js/upload-drop-zone.js`). The
+name stays — the picture says which photo, the name says which file, and
+a screen reader gets the second one. It is deliberately not derived from
+`accept`: a rental document and a receipt take a PDF or a photograph of
+one indifferently, and a zone that guessed would draw a broken frame for
+every PDF. The File is **decoded in the browser** — `createImageBitmap`
+with `imageOrientation: 'from-image'`, so a phone photo is not drawn on
+its side — and its pixels drawn into a `<canvas>`, which stays hidden
+until it has them. A declared image whose bytes are not one, or an engine
+without `createImageBitmap`, leaves the name standing rather than a broken
+frame. Picking a file uploads nothing.
+
+Deliberately **not** `img.src = URL.createObjectURL(file)`, which is what
+the generic uploader does and what this zone was written with first: here
+the File is reached through an element looked up from a DOM attribute
+(`data-drop-zone-for` names the input), so the object URL derived from it
+is DOM-derived text and CodeQL rates the `src` assignment a HIGH « DOM
+text reinterpreted as HTML ». Validating the string at the sink does not
+change that — decoded pixels leave no string to assign, none to give back,
+and no sink to guard.
+
+`data-submit-lock` on the **form** disables its submit buttons on the
+first submit and says « Envoi en cours… » (`data-submit-lock-label` for
+another wording) beside a spinner, sets `aria-busy`, and locks the file
+inputs — `public/assets/js/form-submit-lock.js`. A 4 MB photo on a phone
+takes several seconds to leave, during which the page used to look exactly
+as it did before, so the visitor pressed the button again and the unit got
+the photo twice. The words carry the state, never the spinner alone: a
+spinner is invisible to a screen reader and reads as decoration to anybody
+who did not see it start. There is no timeout that unlocks it, because
+these forms post and navigate — success and server refusal both replace
+the page. The one case that needs undoing is the back button restoring a
+locked page from the history cache, which `pageshow` handles; without it,
+going back shows a button nobody can ever press again.
+
 `window.ScoutMagicSortable.bind(container, {itemSelector, axis,
 draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
 drag-and-drop reordering. It saves on `dragend`, never on the item's own

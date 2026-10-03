@@ -97,6 +97,14 @@ interface Window {
         bind: (root?: ParentNode) => void;
         describe: (zone: HTMLElement, files: FileList) => void;
     };
+    // public/assets/js/form-submit-lock.js — « Envoi en cours… » and the
+    // guard against a second tap sending the same file twice (issue #756),
+    // loaded by the pages whose forms carry `data-submit-lock`.
+    ScoutMagicFormSubmitLock?: {
+        bind: (root?: ParentNode) => void;
+        lock: (form: HTMLFormElement) => void;
+        unlock: (form: HTMLFormElement) => void;
+    };
     // public/assets/js/collapse-anchor.js — opens the collapsible section
     // a URL fragment points at, loaded by the pages whose boxes fold.
     ScoutMagicCollapseAnchor?: {
