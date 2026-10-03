@@ -25,6 +25,12 @@ jour d'arrivée puis votre jour de départ ; les règles du bien (durée
 minimale, préavis, jours d'arrivée) s'appliquent d'elles-mêmes à la
 sélection.
 
+Un jour coupé en deux en diagonale est à moitié pris. « Départ le
+matin, libre ensuite » : un autre séjour se termine ce matin-là, et le
+vôtre peut commencer ce jour-même. « Libre le matin, arrivée ensuite » :
+un autre séjour commence l'après-midi ; vous pouvez partir ce matin-là,
+mais pas arriver.
+
 ## Estimer le prix
 
 Renseignez les dates, le nombre de participants et votre situation,

@@ -1020,6 +1020,16 @@
         var(--bs-success-bg-subtle, #d1e7dd) 50% 100%
     );
 }
+/* "Free in the morning, taken from the afternoon" — the same diagonal,
+   mirrored, so an arrival and a departure on facing days read as one
+   continuous stay. */
+.daygrid-day--arriving {
+    background-image: linear-gradient(
+        135deg,
+        var(--bs-success-bg-subtle, #d1e7dd) 0 50%,
+        var(--bs-danger-bg-subtle, #f8d7da) 50% 100%
+    );
+}
 /* Past, inside a notice window, or beyond the horizon — greyed out, and
    pointedly NOT the occupied colour: telling a visitor "taken" for a day
    that is merely too late to request makes them give up on a free day. */
