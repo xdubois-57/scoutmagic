@@ -786,6 +786,41 @@
     flex: 1 0 100%;
 }
 
+/* Modules\Groups — the three lines under a message: « Vu par … », the
+   reaction row, and the « Commenter » disclosure. Their vertical rhythm
+   is owned here rather than by a `mt-2` on each (issue #710).
+
+   The utility was right on a desktop and wrong on a phone, because on a
+   coarse pointer each of the three rows already stands in a 44px touch
+   target (app.css's `pointer: coarse` block for the two buttons,
+   `.groups-thread-summary`'s own min-height for the third). A 44px box
+   around a 0.75rem line IS the breathing room; the half-rem above each
+   one then stacked on top of it, and three rows of ~52px turned the foot
+   of every message into more height than the message. Measured at 360px:
+   156px of footer under a two-line post.
+
+   So the margin lives on one class, and the coarse-pointer world sets it
+   to zero — the rows sit flush and each keeps its full 44px. Nothing is
+   made smaller anywhere: this file never touches a min-height, and
+   AGENTS.md's rule is about the tappable zone, which is exactly what is
+   left. A `mt-2` would have needed `!important` to undo, which is why
+   the utility had to go rather than be overridden.
+
+   The reply's reaction row is deliberately NOT in this: it carries
+   `.groups-reactions-compact`, keeps its half-rem at every pointer, and
+   a reply has no « Vu par » or thread line to stack against. */
+.groups-post-action-line {
+    margin-top: 0.5rem;
+}
+.groups-reactions-compact {
+    margin-top: 0.5rem;
+}
+@media (pointer: coarse) {
+    .groups-post-action-line {
+        margin-top: 0;
+    }
+}
+
 /* Modules\Groups\views\partials\post_card.html.twig — a message's
    conversation, folded away behind the browser's own <details>/<summary>
    disclosure so a feed reads as a list of messages rather than as every

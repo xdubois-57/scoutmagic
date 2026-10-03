@@ -74,7 +74,7 @@ class ResponseServiceTest extends TestCase
         $authorId = (int) $this->pdo->lastInsertId();
         $articleId = (new ArticleRepository($this->pdo))->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $authorId);
         $this->article = (new ArticleRepository($this->pdo))->findById($articleId);
-        $this->formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
     }
 
     private function service(
@@ -260,7 +260,7 @@ class ResponseServiceTest extends TestCase
 
     public function testSubmitRejectsWhenFormIsClosed(): void
     {
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
 
         $this->expectException(NewsException::class);
         $this->service()->submit($this->article, $this->form(), [], null, null, 1, 'a@test.com', [], null);
@@ -268,7 +268,7 @@ class ResponseServiceTest extends TestCase
 
     public function testSubmitRejectsAnonymousWhenAccessIsIdentified(): void
     {
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->update($this->formId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $this->expectException(NewsException::class);
         $this->service()->submit($this->article, $this->form(), [], null, null, 1, 'a@test.com', [], null);
@@ -405,7 +405,7 @@ class ResponseServiceTest extends TestCase
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, null, 5.0, null);
         $field = $this->fieldRepository->findById($fieldId);
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 7);
+        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 7);
 
         $structuredCommunication = $this->createStub(StructuredCommunicationInterface::class);
         $structuredCommunication->method('generate')->willReturn('+++100/0000/00034+++');
@@ -439,7 +439,7 @@ class ResponseServiceTest extends TestCase
     {
         $this->formRepository->update(
             $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, $issuesTicket, $eventDate, $eventLocation
+            null, null, false, 'chief', null, null, $issuesTicket, $eventDate, $eventLocation
         );
     }
 
@@ -577,7 +577,7 @@ class ResponseServiceTest extends TestCase
     {
         $id = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [], null, null);
         $response = $this->responseRepository->findById($id);
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
 
         $this->assertTrue($this->service()->canEditResponse($response, $this->form(), Role::ADMIN, 999));
     }
@@ -589,7 +589,7 @@ class ResponseServiceTest extends TestCase
 
         $this->assertTrue($this->service()->canEditResponse($response, $this->form(), Role::IDENTIFIED, 42));
 
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
         $this->assertFalse($this->service()->canEditResponse($response, $this->form(), Role::IDENTIFIED, 42));
     }
 

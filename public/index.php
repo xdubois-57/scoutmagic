@@ -175,6 +175,10 @@ $config = new AppConfig(__DIR__ . '/../config/app.php');
 // anything emits a cookie, a session or a security header — Core\Http\
 // RequestScheme is the single source of truth every one of those consults.
 \Core\Http\RequestScheme::setTrustForwardedProto((bool) $config->get('trust_forwarded_proto', false));
+// HTTPS is required unless this deployment explicitly tolerates HTTP
+// (#751). A config/app.php that predates the key gets the production
+// policy, never the development exception.
+\Core\Http\RequestScheme::setHttpsRequired($config->get('https_required', true) !== false);
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -7671,6 +7675,10 @@ if ($isEnabled('documents')) {
             (string) ($settingService->get('base_url') ?? '')
         )
     );
+
+    // « 3 documents sont expirés » (#731): one aggregated point, leading to
+    // the list where each expired document carries a red tag.
+    $attentionProviders[] = new \Modules\Documents\Service\DocumentsAttentionProvider($documentService);
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
@@ -9696,147 +9704,88 @@ if ($isEnabled('groups')) {
         $groupsGroupRepo
     );
 
-    // GroupController and PostController are the two that carry groups'
-    // optional "ce message parle de la réunion de samedi" link, and
-    // calendar's lookup does not exist yet: its block runs later in this
-    // file, because it needs the retro lookup whose block runs after this
-    // one. So their wiring lives in this closure and is called twice —
-    // once here with no event service, which is also exactly what a
-    // calendar-disabled install keeps for good (ARCHITECTURE.md §7.5's
-    // "works with the other module switched off"), and once more from the
-    // calendar block at the end of this file, with the real lookup.
-    //
-    // One construction site rather than two copies: a constructor
-    // argument added to either controller can no longer be added to the
-    // early wiring and forgotten in the late one, which would have
-    // broken calendar-enabled installs only.
-    $groupsRegisterEventAwareControllers = function (
-        ?\Modules\Groups\Service\PostEventService $eventService
-    ) use (
-        $frontController,
-        $twig,
-        $groupsGroupRepo,
+    // GroupController, PostController and ReportController share one
+    // GroupFeedService: the reports page renders the same post cards as
+    // the feed, so a second instance would be a second set of defaults to
+    // keep in step. One construction site for the three of them, here,
+    // after every collaborator they need exists.
+    $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         $groupsAuthorResolver,
         $groupsPostService,
         $groupsPostMediaService,
         $groupsPostLinkRepo,
-        $groupsPostLinkService,
         $groupsReplyRepo,
         $groupsReplyPresenter,
-        $groupsReplyService,
         $groupsReactionService,
         $groupsReportService,
         $groupsReadStateService,
-        $groupsPollService,
-        $groupsListService,
-        $groupsAccessService,
-        $groupsService,
-        $groupsContextFactory,
-        $sectionService,
-        $groupsSectionGroupSync,
-        $groupsModeratorBinding,
-        $groupsMembershipService,
-        $settingService,
-        $groupsNotificationService,
-        $groupsSeenByService,
-        $groupsMentionService,
-        $groupsIdentityService,
-        $groupsRecipientResolver
-    ): void {
-        $feedService = new \Modules\Groups\Service\GroupFeedService(
-            $groupsPostRepo,
-            $groupsAuthorResolver,
-            $groupsPostService,
+        $groupsPollService
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\GroupController::class,
+        new \Modules\Groups\Controller\GroupController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsListService,
+            $groupsAccessService,
+            $groupsService,
+            $groupsContextFactory,
+            $sectionService,
+            $groupsFeedService,
             $groupsPostMediaService,
-            $groupsPostLinkRepo,
-            $groupsReplyRepo,
-            $groupsReplyPresenter,
-            $groupsReactionService,
-            $groupsReportService,
+            $groupsPostRepo,
+            $groupsSectionGroupSync,
+            $groupsModeratorBinding,
+            $groupsMembershipService,
+            $settingService,
             $groupsReadStateService,
-            $eventService,
-            $groupsPollService
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\GroupController::class,
-            new \Modules\Groups\Controller\GroupController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsListService,
-                $groupsAccessService,
-                $groupsService,
-                $groupsContextFactory,
-                $sectionService,
-                $feedService,
-                $groupsPostMediaService,
-                $groupsPostRepo,
-                $groupsSectionGroupSync,
-                $groupsModeratorBinding,
-                $groupsMembershipService,
-                $settingService,
-                $groupsReadStateService,
-                $eventService,
-                $groupsIdentityService,
-                $groupsReportService,
-                $groupsPostService,
-                $groupsRecipientResolver
-            )
-        );
-        // The moderator's reports page renders the same post cards as the
-        // feed, so it needs the same feed service — which is why it is
-        // registered here rather than above: the one built inside this
-        // closure is the only one that knows about the calendar module
-        // (§7.5), and a card rendered without it silently loses its
-        // event line.
-        $frontController->registerController(
-            \Modules\Groups\Controller\ReportController::class,
-            new \Modules\Groups\Controller\ReportController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsPostRepo,
-                $groupsReplyRepo,
-                $groupsAccessService,
-                $groupsReportService,
-                $groupsContextFactory,
-                $groupsNotificationService,
-                $groupsRecipientResolver,
-                $feedService,
-                $groupsPostService
-            )
-        );
-        $frontController->registerController(
-            \Modules\Groups\Controller\PostController::class,
-            new \Modules\Groups\Controller\PostController(
-                $twig,
-                $groupsGroupRepo,
-                $groupsPostRepo,
-                $groupsAccessService,
-                $feedService,
-                $groupsPostService,
-                $groupsContextFactory,
-                $groupsPostMediaService,
-                $groupsPostLinkService,
-                $groupsReplyService,
-                $groupsReportService,
-                $groupsNotificationService,
-                $groupsSeenByService,
-                $groupsMentionService,
-                $eventService,
-                $groupsPollService,
-                $groupsIdentityService
-            )
-        );
-    };
-    // Called exactly once now: the calendar's single block above already
-    // assigned $calendarEventLookupForOthers, so the "register event-less,
-    // re-register after retro" dance this closure existed for is gone —
-    // it stays as the one construction site for the three controllers
-    // that share the feed service.
-    $groupsRegisterEventAwareControllers(
-        $calendarEventLookupForOthers !== null
-            ? new \Modules\Groups\Service\PostEventService($calendarEventLookupForOthers)
-            : null
+            $groupsIdentityService,
+            $groupsReportService,
+            $groupsPostService,
+            $groupsRecipientResolver
+        )
+    );
+    // Registered here rather than with the other two only because it is
+    // the third consumer of the same feed service, not a different kind
+    // of page: the reports screen is the feed, filtered to what a
+    // moderator has to look at.
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReportController::class,
+        new \Modules\Groups\Controller\ReportController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsReplyRepo,
+            $groupsAccessService,
+            $groupsReportService,
+            $groupsContextFactory,
+            $groupsNotificationService,
+            $groupsRecipientResolver,
+            $groupsFeedService,
+            $groupsPostService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\PostController::class,
+        new \Modules\Groups\Controller\PostController(
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsAccessService,
+            $groupsFeedService,
+            $groupsPostService,
+            $groupsContextFactory,
+            $groupsPostMediaService,
+            $groupsPostLinkService,
+            $groupsReplyService,
+            $groupsReportService,
+            $groupsNotificationService,
+            $groupsSeenByService,
+            $groupsMentionService,
+            $groupsPollService,
+            $groupsIdentityService
+        )
     );
 
     // The home page's group-activity hook (§7.4) — resolved per request
@@ -10260,6 +10209,15 @@ if ($isEnabled('camps')) {
         $auditService,
         $galleryDelegatedAlbumManager ?? null,
         $journalService
+    );
+    // And the name gallery's storage-administration page shows for that
+    // same album — "Grand camp — Ferme de la Hulotte — 12–19 juillet 2028"
+    // rather than "camp_camp #10" (issue #749). Read-only and separate on
+    // purpose, exactly like the groups describer further down: naming an
+    // album for an administrator is not the same permission as opening it.
+    $galleryDelegatedAlbumDescribers[] = new \Modules\Camps\Service\CampDelegatedAlbumDescriber(
+        $campsCampRepo,
+        $campsPlaceRepo
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
@@ -11979,7 +11937,10 @@ if ($isEnabled('rental')) {
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
                 $rentalBookingAudit
-            )
+            ),
+            // Dates the version of the conditions in force on the Gabarits
+            // list, and links to it from their page (#708, IT-10).
+            $rentalConditionsService
         )
     );
     $frontController->registerController(

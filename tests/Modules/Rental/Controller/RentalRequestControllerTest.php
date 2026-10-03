@@ -868,6 +868,35 @@ class RentalRequestControllerTest extends TestCase
     }
 
     /**
+     * The sentence says who the listed people are — and is only true above
+     * a list of managers (#708, IT-04).
+     */
+    public function testTheContactsSectionSaysWhoTheListedPeopleAre(): void
+    {
+        $assetId = $this->createAsset();
+        $this->addManager($assetId, 'contact@example.org', true);
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString(
+            "Les personnes de l'unité qui gèrent cette location. Contactez-les pour toute question sur votre réservation.",
+            $body
+        );
+    }
+
+    public function testTheContactsSentenceIsAbsentWhenOnlyTheEmergencyNumberIsShown(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString("Numéro d'urgence pendant votre séjour", $body);
+        $this->assertStringNotContainsString("Les personnes de l'unité qui gèrent cette location.", $body);
+    }
+
+    /**
      * Public, bookable, and with no rate configured at all — the state a
      * unit is in between publishing an asset and filling in its tariffs.
      */

@@ -1,0 +1,75 @@
+{#
+  Add or change one entry of an asset's paperwork register (#708, IT-09),
+  on its own page — the model is Documents' form.html.twig: a header, a
+  breadcrumb back to Conformité, and back to the list once saved.
+
+  Nothing the old inline forms offered is lost: the suggested labels, the
+  optional due date, the remark, the document — and its replacement when
+  editing.
+
+  Requires `asset`, `entry` (Compliance\ComplianceItem|null), `values`,
+  `label_suggestions` and `error` (string|null).
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ entry ? 'Modifier « ' ~ entry.label ~ ' »' : 'Ajouter une entrée' }} — Conformité — {{ asset.name }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: entry ? 'Modifier « ' ~ entry.label ~ ' »' : 'Ajouter une entrée',
+            subtitle: 'Registre de conformité — ' ~ asset.name,
+        } only %}
+
+        {% if error %}
+            <div class="alert alert-danger" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data"
+              action="/mes-locations/{{ asset.slug }}/conformite/{{ entry ? entry.id ~ '/modifier' : 'nouvelle' }}">
+            {{ csrf_field()|raw }}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'compliance-label', field_name: 'label',
+                label: 'Intitulé', list: 'compliance-suggestions',
+                value: values.label, maxlength: 200, required: true,
+                help: label_suggestions is not empty
+                    ? 'Par exemple : ' ~ label_suggestions|join(' · ') ~ '. Ce ne sont que des suggestions.'
+                    : null,
+            } only %}
+            <datalist id="compliance-suggestions">
+                {% for suggestion in label_suggestions %}
+                    <option value="{{ suggestion }}"></option>
+                {% endfor %}
+            </datalist>
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'compliance-expires', field_name: 'expires_on', type: 'date',
+                label: 'Échéance (facultative)', value: values.expires_on,
+                help: 'Une entrée sans échéance ne déclenche aucun rappel : les gestionnaires sont prévenus avant une échéance, et toujours pour une échéance dépassée.',
+            } only %}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'compliance-remark', field_name: 'remark',
+                label: 'Remarque (facultative)', value: values.remark,
+            } only %}
+
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'compliance-document', field_name: 'document', type: 'file',
+                label: entry and entry.fileId ? 'Remplacer le document' : 'Document (facultatif)',
+                help: entry and entry.fileId
+                    ? 'Laissez vide pour garder le document actuel.'
+                    : 'Une échéance notée sans scan vaut déjà mieux que rien.',
+            } only %}
+
+            {% if entry and entry.fileId %}
+                <p class="small"><a href="{{ file_url(entry.fileId) }}">Ouvrir le document actuel</a></p>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">{{ entry ? 'Enregistrer' : 'Ajouter au registre' }}</button>
+                <a href="/mes-locations/{{ asset.slug }}/conformite" class="btn btn-outline-secondary">Annuler</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

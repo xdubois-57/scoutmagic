@@ -63,7 +63,7 @@ class FormServiceTest extends TestCase
             'closes_at' => null,
             'is_force_closed' => false,
             'response_role_min' => 'chief',
-            'daily_digest_enabled' => false,
+            'digest_email' => null,
             'finance_account_id' => null,
         ], $overrides);
     }
@@ -183,6 +183,131 @@ class FormServiceTest extends TestCase
             '/finance/receivables?source=news&id=' . $form->id,
             $this->service->receivablesLinkFor($form, true, Role::CHIEF)
         );
+    }
+
+    // ── The digest's address (issue #738) ─────────────────────────────
+
+    /**
+     * @return list<array{string, ?string}> the typed value, and what is stored
+     */
+    public static function acceptedDigestAddresses(): array
+    {
+        return [
+            'an address is kept as typed' => ['intendance@unite.test', 'intendance@unite.test'],
+            // The off switch, and the only one there is now: an empty
+            // field has to be accepted and stored as nothing, never
+            // refused as « missing ».
+            'an empty field means nowhere' => ['', null],
+            // Trimmed, because a copied address brings its own spaces and
+            // « intendance@unite.test » with a trailing one is the same
+            // address, not an invalid one.
+            'a padded address is trimmed' => ['  intendance@unite.test  ', 'intendance@unite.test'],
+            'whitespace alone means nowhere too' => ['   ', null],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('acceptedDigestAddresses')]
+    public function testTheDigestAddressIsStoredAsTyped(string $typed, ?string $stored): void
+    {
+        $form = $this->service->save(
+            $this->articleId,
+            $this->baseSettings(['digest_email' => $typed]),
+            []
+        );
+
+        $this->assertSame($stored, $form->digestEmail);
+    }
+
+    /**
+     * A typo saved in silence is a digest that never arrives and says
+     * nothing about why — worse than the refusal, which is why this is
+     * refused rather than dropped to null.
+     */
+    public function testAnInvalidDigestAddressIsRefused(): void
+    {
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('adresse e-mail du résumé quotidien');
+
+        $this->service->save($this->articleId, $this->baseSettings(['digest_email' => 'pas-une-adresse']), []);
+    }
+
+    /**
+     * An address too long for the column, refused rather than truncated
+     * into something that would silently never deliver.
+     *
+     * The refusal comes from `FILTER_VALIDATE_EMAIL` alone, and that is
+     * worth stating because the first version of this code had an
+     * explicit `mb_strlen > 255` beside it: the filter enforces RFC
+     * 5321's own ceiling, measured at 254 characters here, so the extra
+     * guard could never fire and was removed. What this pins is the
+     * property — nothing that gets stored can overflow `VARCHAR(255)` —
+     * rather than which line enforces it.
+     */
+    public function testAnAddressTooLongForTheColumnIsRefused(): void
+    {
+        $this->expectException(NewsException::class);
+
+        $this->service->save(
+            $this->articleId,
+            // 258 characters, every label short enough to be valid on its
+            // own: this is rejected for its LENGTH, not its shape.
+            $this->baseSettings(['digest_email' => str_repeat('a', 60) . '@' . str_repeat('cc.', 65) . 'be']),
+            []
+        );
+    }
+
+    /**
+     * The other side of that boundary, so the test above is about length
+     * and not about « long addresses are suspicious »: 254 characters is
+     * the longest the filter accepts, and it has to go through.
+     */
+    public function testAnAddressAtTheRfcCeilingIsAccepted(): void
+    {
+        $address = str_repeat('a', 60) . '@' . substr(str_repeat('cc.', 200), 0, 191) . 'be';
+        $this->assertSame(254, mb_strlen($address), 'the fixture itself drifted off the boundary');
+
+        $form = $this->service->save($this->articleId, $this->baseSettings(['digest_email' => $address]), []);
+
+        $this->assertSame($address, $form->digestEmail);
+    }
+
+    /**
+     * The address is the form's own from the moment it is saved: a later
+     * save that does not mention it must not resurrect a default, and
+     * nothing about the article's author reaches it.
+     */
+    public function testASecondSaveChangesTheAddressWithoutTouchingAnythingElse(): void
+    {
+        $this->service->save(
+            $this->articleId,
+            $this->baseSettings(['digest_email' => 'premiere@unite.test']),
+            []
+        );
+
+        $form = $this->service->save(
+            $this->articleId,
+            $this->baseSettings(['digest_email' => 'seconde@unite.test']),
+            []
+        );
+
+        $this->assertSame('seconde@unite.test', $form->digestEmail);
+    }
+
+    /**
+     * And clearing it is a real change rather than « no value supplied »:
+     * this is how the digest is turned off.
+     */
+    public function testClearingTheAddressTurnsTheDigestOff(): void
+    {
+        $this->service->save(
+            $this->articleId,
+            $this->baseSettings(['digest_email' => 'intendance@unite.test']),
+            []
+        );
+
+        $form = $this->service->save($this->articleId, $this->baseSettings(['digest_email' => '']), []);
+
+        $this->assertNull($form->digestEmail);
     }
 
     public function testThereIsNoReceivablesLinkWithoutTheFinanceModule(): void

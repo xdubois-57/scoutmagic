@@ -68,8 +68,24 @@ class TouchTargetCssTest extends TestCase
             '/\.form-check-label\s*\{[^}]*min-height:\s*44px/s',
             $block
         );
+    }
+
+    /**
+     * The label must stay an inline-block, never a flex box: flex split its
+     * text and its links into separate items, which dropped the space at
+     * their boundary (« J'accepte lesconditions ») and centred a one-line
+     * label half a line below its checkbox (issue #708, IT-03).
+     */
+    public function testFormCheckLabelTextFlowsAsAParagraphWithItsFirstLineOnTheControl(): void
+    {
+        $block = $this->coarsePointerBlock();
+
         $this->assertMatchesRegularExpression(
-            '/\.form-check-label\s*\{[^}]*align-items:\s*center/s',
+            '/\.form-check-label\s*\{[^}]*display:\s*inline-block/s',
+            $block
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.form-check-label\s*\{[^}]*(?:inline-flex|align-items|flex-wrap)/s',
             $block
         );
     }

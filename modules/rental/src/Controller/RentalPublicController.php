@@ -138,12 +138,6 @@ class RentalPublicController extends AbstractController
                     'breadcrumb_current' => $asset->name,
                     'constraints' => $constraints,
                     'editable_prefix' => 'rental_asset_' . $asset->id,
-                    // The conditions in force — the asset's own wording, or
-                    // the standard Belgian body the module ships. Rendered
-                    // rather than `editable()`: they are the asset's
-                    // managers' text now, edited from the asset's settings
-                    // page, and the configuration mode is not their door.
-                    'conditions' => $this->conditionsService->current($asset->id),
                 ]
             )
         );

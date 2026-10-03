@@ -186,21 +186,6 @@ class PostRepository
     }
 
     /**
-     * Links (or unlinks, with null) a post to a calendar event.
-     *
-     * A separate write rather than a `create()` parameter: create()'s
-     * signature is already long, the link is optional, and the id has to
-     * be re-resolved against the calendar's own visibility rules before
-     * it is stored anyway (Service\PostEventService) — so the caller
-     * always knows by then whether there is anything to write.
-     */
-    public function setCalendarEventId(int $id, ?int $calendarEventId): void
-    {
-        $stmt = $this->pdo->prepare('UPDATE discussion_group_posts SET calendar_event_id = ? WHERE id = ?');
-        $stmt->execute([$calendarEventId, $id]);
-    }
-
-    /**
      * @param string|null $pinnedUntil when the pin lapses on its own, or
      *        null for "until a moderator takes it down". Always cleared
      *        when unpinning, so an old deadline can never come back with
@@ -367,7 +352,6 @@ class PostRepository
             (string) $row['created_at'],
             $row['hidden_at'] !== null ? (string) $row['hidden_at'] : null,
             (bool) $row['moderation_cleared'],
-            ($row['calendar_event_id'] ?? null) !== null ? (int) $row['calendar_event_id'] : null,
             ($row['pinned_until'] ?? null) !== null ? (string) $row['pinned_until'] : null
         );
     }

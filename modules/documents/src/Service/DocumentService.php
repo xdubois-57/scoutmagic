@@ -17,6 +17,7 @@ use Core\Journal\JournalService;
 use Core\Page\TextPageService;
 use Core\Pdf\PdfCompressor;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Modules\Documents\File\DocumentFileOwnershipChecker;
 use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
@@ -164,11 +165,14 @@ class DocumentService
         ?string $description,
         mixed $visibilityInput,
         array $uploadedFile,
-        ?int $actorId
+        ?int $actorId,
+        ?string $expiresOnInput = null
     ): Document {
         $title = $this->cleanTitle($title);
         $description = $this->cleanDescription($description);
         $visibility = $this->cleanVisibility($visibilityInput);
+        // Two years by default (#731); the form proposes that date.
+        $expiresOn = $this->cleanExpiry($expiresOnInput) ?? Document::defaultExpiry($this->today());
 
         if (!$this->hasUpload($uploadedFile)) {
             throw new DocumentException('Choisissez le fichier à partager.');
@@ -188,7 +192,8 @@ class DocumentService
                 $visibility,
                 $fileId,
                 $actorId,
-                $this->now()
+                $this->now(),
+                $expiresOn
             );
         } catch (\Throwable $e) {
             // The file is stored and nothing points at it yet.
@@ -228,13 +233,22 @@ class DocumentService
         ?string $description,
         mixed $visibilityInput,
         ?array $uploadedFile,
-        ?int $actorId
+        ?int $actorId,
+        ?string $expiresOnInput = null
     ): Document {
         $document = $this->requireDocument($id);
         $title = $this->cleanTitle($title);
         $description = $this->cleanDescription($description);
         $visibility = $this->cleanVisibility($visibilityInput);
         $now = $this->now();
+        $replacing = $uploadedFile !== null && $this->hasUpload($uploadedFile);
+        // The expiry moves only when somebody moves it (#731): a change of
+        // title or visibility leaves it alone. A replaced file starts a new
+        // period — unless the same save also set a date, which then wins.
+        $expiresOn = $this->cleanExpiry($expiresOnInput) ?? $document->expiresOn;
+        if ($replacing && $expiresOn === $document->expiresOn) {
+            $expiresOn = Document::defaultExpiry($this->today());
+        }
 
         // One rule for every file this edit touches: closed before the
         // document row changes, opened to its role only once the row says
@@ -243,7 +257,7 @@ class DocumentService
         // whose role and row disagree even briefly is served by the wrong
         // rule — an unlisted file as a listed one, typically.
         $newFileId = null;
-        if ($uploadedFile !== null && $this->hasUpload($uploadedFile)) {
+        if ($replacing) {
             $newFileId = $this->storeUpload($uploadedFile, DocumentVisibility::ADMIN, $actorId, $id);
         }
 
@@ -256,7 +270,16 @@ class DocumentService
 
         try {
             // Visibility and file in one statement: never half-applied.
-            $this->repository->applyEdit($id, $title, $description, $visibility, $newFileId, $actorId, $now);
+            $this->repository->applyEdit(
+                $id,
+                $title,
+                $description,
+                $visibility,
+                $newFileId,
+                $actorId,
+                $now,
+                $expiresOn
+            );
         } catch (\Throwable $e) {
             // The new file is stored and the document does not point at it.
             if ($newFileId !== null) {
@@ -583,5 +606,45 @@ class DocumentService
     private function now(): string
     {
         return AppClock::now()->format('Y-m-d H:i:s');
+    }
+
+    private function today(): string
+    {
+        return AppClock::now()->format('Y-m-d');
+    }
+
+    /**
+     * How many documents are past their expiry date today (#731) — what
+     * the attention point counts. A handful of rows, read whole: the
+     * expiry of a row written before the column existed is computed, not
+     * stored.
+     */
+    public function countExpired(): int
+    {
+        $today = $this->today();
+
+        return count(array_filter(
+            $this->repository->findAll(),
+            static fn(Document $document): bool => $document->isExpired($today)
+        ));
+    }
+
+    /**
+     * The expiry date a form posted: `Y-m-d`, or null when none was
+     * given.
+     *
+     * @throws DocumentException
+     */
+    private function cleanExpiry(?string $input): ?string
+    {
+        $input = trim((string) $input);
+        if ($input === '') {
+            return null;
+        }
+        if (DateInput::iso($input) === null) {
+            throw new DocumentException('La date d\'expiration n\'est pas valide.');
+        }
+
+        return $input;
     }
 }

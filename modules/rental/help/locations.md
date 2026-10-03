@@ -13,8 +13,9 @@ related: gerer-les-locations, locations-demande, locations-suivi
 
 La page Locations présente ce que l'unité met en location : local,
 terrain, tentes, remorque... Chaque bien a sa page, avec ses
-informations pratiques, ce qui est inclus, ses conditions, son
-calendrier et une estimation de prix. Aucune inscription ni compte
+informations pratiques, ce qui est inclus, son calendrier et une
+estimation de prix. Les conditions de location s'affichent au moment de
+la demande, avec un lien vers leur page. Aucune inscription ni compte
 n'est nécessaire.
 
 ## Vérifier les disponibilités

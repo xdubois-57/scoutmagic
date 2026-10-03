@@ -324,6 +324,30 @@ class RentalRbacTest extends TestCase
         );
     }
 
+    private function dispatchConditionsPage(string $slug): Response
+    {
+        return $this->dispatch(
+            '/mes-locations/{slug}/gabarits/{document}',
+            '/mes-locations/' . $slug . '/gabarits/conditions',
+            RentalManagementController::class,
+            'templateDocument',
+            'identified'
+        );
+    }
+
+    /** @param array<string, mixed> $body */
+    private function dispatchConditionsWrite(string $slug, array $body): Response
+    {
+        return $this->dispatchPost(
+            '/mes-locations/{slug}/gabarits/conditions',
+            '/mes-locations/' . $slug . '/gabarits/conditions',
+            \Modules\Rental\Controller\RentalPricingController::class,
+            'saveConditions',
+            'identified',
+            $body
+        );
+    }
+
     /** POST one of the settings page's write actions. */
     /** @param array<string, mixed> $body */
     private function dispatchSettingsWrite(string $slug, string $suffix, string $action, array $body = []): Response
@@ -526,6 +550,22 @@ class RentalRbacTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Local Saint-Georges', (string) $response->getBody());
+    }
+
+    /**
+     * The asset's page no longer carries the full conditions: the request
+     * form shows them, with a link, where the renter accepts them; their
+     * permanent page stays (#708, IT-02).
+     */
+    public function testTheAssetPageNoLongerCarriesTheConditionsCard(): void
+    {
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', isPublic: true);
+
+        $body = (string) $this->dispatchPublicAsset('local-saint-georges')->getBody();
+
+        $this->assertStringNotContainsString('>Conditions de location</h2>', $body);
+        $this->assertStringNotContainsString('Adresse permanente de cette version', $body);
+        $this->assertSame(200, $this->dispatchConditions('local-saint-georges')->getStatusCode());
     }
 
     public function testTheFragmentEndpointAnswersWithBothBlocks(): void
@@ -1072,9 +1112,6 @@ class RentalRbacTest extends TestCase
             '#periode-add',
             '#categorie-add',
             '#frais-add',
-            // The conditions a renter ticks moved here from the
-            // configuration mode (§22.5) and read as a card like the rest.
-            '#conditions-edit',
             // Who the contract names as landlord (issue #497).
             '#bailleur-edit',
         ] as $target) {
@@ -1090,7 +1127,6 @@ class RentalRbacTest extends TestCase
             'reglages/periode' => 'period-form',
             'reglages/categorie' => 'category-form',
             'reglages/frais' => 'fee-form',
-            'reglages/conditions' => 'conditions-form',
             'reglages/bailleur' => 'landlord-form',
         ] as $action => $formId) {
             $this->assertStringContainsString('action="/mes-locations/local/' . $action . '" id="' . $formId . '"', $body, $action);
@@ -1098,7 +1134,7 @@ class RentalRbacTest extends TestCase
         }
 
         // And every dialog is one section-editor.js knows about.
-        $this->assertSame(8, substr_count($body, 'data-section-editor'), $body);
+        $this->assertSame(7, substr_count($body, 'data-section-editor'), $body);
     }
 
     public function testTheSettingsPageShowsNoPrimaryOfItsOwn(): void
@@ -1217,7 +1253,6 @@ class RentalRbacTest extends TestCase
             'frais' => ['frais', 'addFee'],
             'frais supprimé' => ['frais-supprimer', 'deleteFee'],
             'paiements' => ['paiements', 'savePayments'],
-            'conditions' => ['conditions', 'saveConditions'],
             'rappels' => ['rappels', 'saveReminders'],
         ];
     }
@@ -1225,38 +1260,39 @@ class RentalRbacTest extends TestCase
     // ── The conditions a renter ticks (§22.5) ───────────────────────────
 
     /**
-     * The settings page shows the text that is actually in force, which is
-     * the shipped standard while nobody has written any — and says so.
+     * The conditions page under Gabarits (#708, IT-10) shows the text that
+     * is actually in force, which is the shipped standard while nobody has
+     * written any — and says so.
      * Before §22.5 the conditions were generic editable content written in
      * the CONFIGURATION mode on the asset's public page, which needs a
      * superadmin: the one person able to write them was not the one letting
      * the hall, and the request form made a visitor tick « J'accepte les
      * conditions de location » over an empty block.
      */
-    public function testTheSettingsPageShowsTheStandardConditionsWhileNobodyWroteAny(): void
+    public function testTheConditionsPageShowsTheStandardConditionsWhileNobodyWroteAny(): void
     {
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $body = (string) $this->dispatchSettings('local')->getBody();
+        $body = (string) $this->dispatchConditionsPage('local')->getBody();
 
         $this->assertStringContainsString('Conditions de location', $body);
         $this->assertStringContainsString('conditions standard', $body);
         $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
     }
 
-    public function testAManagerWritesTheConditionsFromTheSettingsPage(): void
+    public function testAManagerWritesTheConditionsFromTheirOwnPage(): void
     {
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p>Le local est rendu balayé.</p>',
         ]);
 
         $this->assertStringContainsString(
             'Le local est rendu balayé.',
-            (string) $this->dispatchSettings('local')->getBody()
+            (string) $this->dispatchConditionsPage('local')->getBody()
         );
     }
 
@@ -1270,14 +1306,14 @@ class RentalRbacTest extends TestCase
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p>Le local est rendu balayé.</p>',
         ]);
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', ['conditions' => '<p>  </p>']);
+        $this->dispatchConditionsWrite('local', ['conditions' => '<p>  </p>']);
 
         $this->assertStringContainsString(
             'Le local est rendu balayé.',
-            (string) $this->dispatchSettings('local')->getBody()
+            (string) $this->dispatchConditionsPage('local')->getBody()
         );
     }
 
@@ -1292,16 +1328,16 @@ class RentalRbacTest extends TestCase
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p>Le local est rendu balayé.</p>',
         ]);
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p>&nbsp;</p>',
         ]);
 
         $this->assertStringContainsString(
             'Le local est rendu balayé.',
-            (string) $this->dispatchSettings('local')->getBody()
+            (string) $this->dispatchConditionsPage('local')->getBody()
         );
     }
 
@@ -1324,16 +1360,16 @@ class RentalRbacTest extends TestCase
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p>Le local est rendu balayé.</p>',
         ]);
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => $conditions,
         ]);
 
         $this->assertStringContainsString(
             'Le local est rendu balayé.',
-            (string) $this->dispatchSettings('local')->getBody()
+            (string) $this->dispatchConditionsPage('local')->getBody()
         );
     }
 
@@ -1360,11 +1396,11 @@ class RentalRbacTest extends TestCase
         $this->createAsset('Local', 'local');
         $this->loginAsManagerOf('local');
 
-        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+        $this->dispatchConditionsWrite('local', [
             'conditions' => '<p><img src="/files/12" alt="Conditions scannées"></p>',
         ]);
 
-        $body = (string) $this->dispatchSettings('local')->getBody();
+        $body = (string) $this->dispatchConditionsPage('local')->getBody();
 
         $this->assertStringContainsString('/files/12', $body);
         // Not "the standard text is absent": the page carries it either
@@ -1374,20 +1410,56 @@ class RentalRbacTest extends TestCase
         $this->assertStringContainsString('Voir les conditions standard avant de réinitialiser', $body);
     }
 
-    /**
-     * The public page RENDERS the conditions and no longer offers to edit
-     * them in place: that door was the configuration mode's, which belongs
-     * to a superadmin rather than to the people who let the hall (§22.5).
-     */
-    public function testThePublicAssetPageShowsTheConditionsWithoutOfferingToEditThem(): void
+    /** Saving goes back to the Gabarits list, a refusal back to the page. */
+    public function testSavingTheConditionsGoesBackToTheTemplateList(): void
     {
         $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
 
-        $body = (string) $this->dispatchPublicAsset('local')->getBody();
+        $saved = $this->dispatchConditionsWrite('local', ['conditions' => '<p>Le local est rendu balayé.</p>']);
+        $refused = $this->dispatchConditionsWrite('local', ['conditions' => '<p>  </p>']);
 
-        $this->assertStringContainsString('Conditions de location', $body);
-        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
-        $this->assertStringNotContainsString('data-key="rental_asset_', $body);
+        $this->assertSame('/mes-locations/local/gabarits', $saved->getHeaders()['Location'] ?? null);
+        $this->assertSame('/mes-locations/local/gabarits/conditions', $refused->getHeaders()['Location'] ?? null);
+    }
+
+    /**
+     * The conditions take no keyword — they are the exact text a renter
+     * accepts — and the « sa propre copie » banner of the templates would
+     * lie about them: they are published and versioned, not copied.
+     */
+    public function testTheConditionsPageHasNoKeywordsAndNoCopyBanner(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $body = (string) $this->dispatchConditionsPage('local')->getBody();
+
+        $this->assertStringNotContainsString('Mots-clés disponibles', $body);
+        $this->assertStringNotContainsString('sa propre copie', $body);
+        $this->assertStringContainsString('Pas de mots-clés ici', $body);
+    }
+
+    public function testTheConditionsPageIsOnlyForTheAssetsManagers(): void
+    {
+        $this->createAsset('Mon local', 'mon-local');
+        $this->createAsset('Local des autres', 'local-des-autres');
+        $this->loginAsManagerOf('mon-local');
+
+        $this->assertSame(200, $this->dispatchConditionsPage('mon-local')->getStatusCode());
+        $this->assertSame(404, $this->dispatchConditionsPage('local-des-autres')->getStatusCode());
+    }
+
+    /** Réglages no longer carries them, nor a link to where they were. */
+    public function testTheSettingsPageNoLongerCarriesTheConditions(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $body = (string) $this->dispatchSettings('local')->getBody();
+
+        $this->assertStringNotContainsString('href="#conditions"', $body);
+        $this->assertStringNotContainsString('conditions-form', $body);
     }
 
     public function testTheManageButtonIsShownToAManager(): void
