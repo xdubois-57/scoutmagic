@@ -83,6 +83,8 @@
             if (outbound) {
                 show(returnLine, returnTime, touched.returnTime, res.data.return);
             }
+        }).catch(function () {
+            // No suggestion is not an error: the field stays as it is.
         });
     }
 
