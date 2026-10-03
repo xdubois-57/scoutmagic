@@ -49,7 +49,9 @@ final class BookingMilestone
          */
         public readonly bool $isState = false,
         /** What the state warns about, when it does: dates free again. */
-        public readonly ?string $warning = null
+        public readonly ?string $warning = null,
+        /** Who has to act for it to be done (#708, IT-12). */
+        public readonly ?StepActor $actor = null
     ) {
     }
 

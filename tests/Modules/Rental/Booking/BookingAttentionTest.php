@@ -15,7 +15,14 @@ use Modules\Rental\Booking\ChangeRequest;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\ChangeRequestStatus;
+use Modules\Rental\Booking\BookingJourney;
+use Modules\Rental\Booking\BookingMilestone;
+use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Booking\StepActor;
+use Modules\Rental\Reminder\ReminderKind;
+use Modules\Rental\Reminder\ReminderPlanner;
+use Modules\Rental\Reminder\ReminderSchedule;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -213,5 +220,113 @@ class BookingAttentionTest extends TestCase
         foreach (AttentionReason::cases() as $reason) {
             $this->assertNotSame('', trim($reason->label()));
         }
+    }
+
+    // ── The step put forward (#708, IT-12) ─────────────────────────────
+
+    /**
+     * The step a confirmed booking's page puts forward, from the real
+     * derivation: `BookingMilestones` + `BookingJourney::next()`.
+     *
+     * @param array<string, bool> $extras
+     */
+    private function nextOf(RentalBooking $booking, array $extras): ?BookingMilestone
+    {
+        return BookingJourney::of(
+            BookingMilestones::for($booking, new \DateTimeImmutable('2027-06-01 10:00:00'), $extras),
+            $booking->status
+        )->next();
+    }
+
+    /** @return array<string, mixed> */
+    private static function payment(string $depositDue): array
+    {
+        return ['enabled' => true, 'deposit_due_date' => $depositDue, 'security_deposit' => []];
+    }
+
+    public function testAConfirmedBookingWithAUnitStepIsOnTheListAndSaysWhich(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = $this->nextOf($booking, [BookingMilestones::CONTRACT_SENT => false]);
+
+        $attention = BookingAttention::of($booking, [], $next);
+
+        $this->assertNotNull($attention);
+        $this->assertSame([AttentionReason::UNIT_STEP], $attention->reasons);
+        $this->assertSame(['À faire : envoyer le contrat'], $attention->lines());
+    }
+
+    public function testARenterStepWithinItsDelayKeepsTheBookingOff(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = $this->nextOf($booking, [BookingMilestones::DEPOSIT_RECEIVED => false]);
+        $this->assertSame(BookingMilestones::DEPOSIT_RECEIVED, $next?->key);
+        $deadline = ReminderPlanner::renterDeadline($next->key, $booking, self::payment('2027-06-01'), ReminderSchedule::shipped());
+
+        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-01')));
+    }
+
+    public function testALateRenterIsOnTheListWithTheDateExpected(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = $this->nextOf($booking, [BookingMilestones::DEPOSIT_RECEIVED => false]);
+        $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, self::payment('2027-06-01'), ReminderSchedule::shipped());
+
+        // The deposit reminder goes out the day after the due date (0 days by default).
+        $attention = BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-02'));
+
+        $this->assertSame([AttentionReason::RENTER_LATE], $attention?->reasons);
+        $this->assertSame(['En retard : acompte attendu depuis le 01/06/2027'], $attention?->lines());
+    }
+
+    /** Muting a reminder must not make a booking vanish from the list. */
+    public function testTheDelayCountsEvenWithTheReminderSwitchedOff(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = $this->nextOf($booking, [BookingMilestones::DEPOSIT_RECEIVED => false]);
+        $muted = ReminderSchedule::of([], [ReminderKind::DEPOSIT_MISSING->value => ['days' => null, 'active' => false]]);
+        $this->assertFalse($muted->isActive(ReminderKind::DEPOSIT_MISSING));
+
+        $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, self::payment('2027-06-01'), $muted);
+
+        $this->assertNotNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-10')));
+    }
+
+    public function testARenterStepWithNoDeadlineNeverPutsTheBookingThereAlone(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = $this->nextOf($booking, [BookingMilestones::DEPOSIT_RECEIVED => false]);
+        // Payments not tracked: no due date, no deadline.
+        $deadline = ReminderPlanner::renterDeadline((string) $next?->key, $booking, ['enabled' => false], ReminderSchedule::shipped());
+
+        $this->assertNull($deadline);
+        $this->assertNull(BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-12-31')));
+    }
+
+    public function testAFinalBookingIsNeverOnTheListWhateverItsStep(): void
+    {
+        $booking = $this->booking(BookingStatus::CLOSED);
+        $next = $this->nextOf($booking, [BookingMilestones::SECURITY_DEPOSIT_RETURNED => false]);
+
+        $this->assertNull(BookingAttention::of($booking, [], $next));
+    }
+
+    /** Every step has its side, explicitly — no default. */
+    public function testEveryStepSaysWhoHasToAct(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $extras = array_fill_keys([
+            BookingMilestones::CONTRACT_SENT, BookingMilestones::CONTRACT_ACCEPTED, BookingMilestones::DEPOSIT_RECEIVED,
+            BookingMilestones::BALANCE_RECEIVED, BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
+            BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS, BookingMilestones::DEPARTURE_INVENTORY,
+            BookingMilestones::FINAL_SETTLEMENT, BookingMilestones::SECURITY_DEPOSIT_RETURNED,
+        ], false);
+
+        foreach (BookingMilestones::for($booking, new \DateTimeImmutable('2027-06-01'), $extras) as $milestone) {
+            $this->assertArrayHasKey($milestone->key, BookingMilestones::ACTORS, $milestone->key);
+            $this->assertSame(BookingMilestones::ACTORS[$milestone->key], $milestone->actor, $milestone->key);
+        }
+        $this->assertSame(StepActor::RENTER, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_ACCEPTED]);
+        $this->assertSame(StepActor::UNIT, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_SENT]);
     }
 }

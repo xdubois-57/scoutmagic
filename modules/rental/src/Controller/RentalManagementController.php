@@ -583,12 +583,15 @@ class RentalManagementController extends AbstractController
         // per booking: this page legitimately shows every asset a manager
         // runs, and « À traiter » now asks a question about each of them
         // (§22.5).
+        $now = new \DateTimeImmutable();
         $attention = BookingAttention::from(
             $bookings,
             $this->changeRequestRepository->findPendingForBookings(array_map(
                 static fn(RentalBooking $booking) => $booking->id,
                 $bookings
-            ))
+            )),
+            $this->nextSteps($bookings, $assets, $now),
+            $now
         );
 
         $countsByAsset = [];
@@ -626,6 +629,15 @@ class RentalManagementController extends AbstractController
             $bookings
         ));
 
+        // The step each booking's page puts forward (#708, IT-12): « À
+        // traiter » and its figure read it, so the list and the page agree.
+        $attention = BookingAttention::from(
+            $bookings,
+            $pendingChangeRequests,
+            $this->nextSteps($bookings, [$asset], $now),
+            $now
+        );
+
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             // A public asset with no rate at all answers every visitor
@@ -642,7 +654,7 @@ class RentalManagementController extends AbstractController
             // carrying a change request nobody has answered is exactly a
             // thing to deal with, and used to appear on no list at all
             // (Booking\BookingAttention).
-            'needs_attention' => BookingAttention::from($bookings, $pendingChangeRequests),
+            'needs_attention' => $attention,
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
@@ -651,7 +663,7 @@ class RentalManagementController extends AbstractController
             // The three figures of §6.34, read from the live bookings AND
             // the anonymous aggregates a purge left behind — otherwise the
             // year's revenue drops to zero the morning the purge runs.
-            'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
+            'statistics' => $this->statisticsService?->forAsset($asset->id, $now, count($attention)),
             // Requests and reminders go to the Staff d'U when nobody on the
             // asset can be told (#708, IT-05): said where it can be fixed.
             'managers_unreachable' => $this->recipientResolver !== null
@@ -692,20 +704,29 @@ class RentalManagementController extends AbstractController
         // means the same thing here as on the overview, which is the whole
         // reason Booking\BookingAttention exists rather than four copies of
         // one condition.
-        $pendingChangeRequests = $filter === 'a_traiter'
-            ? $this->changeRequestRepository->findPendingForBookings(array_map(
-                static fn(RentalBooking $b) => $b->id,
-                $all
-            ))
-            : [];
+        $toDeal = [];
+        if ($filter === 'a_traiter') {
+            $now = new \DateTimeImmutable();
+            foreach (BookingAttention::from(
+                $all,
+                $this->changeRequestRepository->findPendingForBookings(array_map(
+                    static fn(RentalBooking $b) => $b->id,
+                    $all
+                )),
+                $this->nextSteps($all, [$asset], $now),
+                $now
+            ) as $one) {
+                $toDeal[$one->booking->id] = true;
+            }
+        }
         $matching = array_values(array_filter($all, static function (RentalBooking $b) use (
             $filter,
             $status,
             $year,
             $search,
-            $pendingChangeRequests
+            $toDeal
         ): bool {
-            if ($filter === 'a_traiter' && BookingAttention::of($b, $pendingChangeRequests[$b->id] ?? []) === null) {
+            if ($filter === 'a_traiter' && !isset($toDeal[$b->id])) {
                 return false;
             }
             if ($status !== null && $b->status !== $status) {
@@ -861,6 +882,63 @@ class RentalManagementController extends AbstractController
         );
 
         return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+    }
+
+    /**
+     * The step each live booking's page puts forward, and — when it is the
+     * renter's — the deadline its reminder runs on (#708, IT-12): what « À
+     * traiter » reads, from the very derivation the booking's page shows.
+     * Final bookings are skipped: they are never on the list.
+     *
+     * @param RentalBooking[] $bookings
+     * @param RentalAsset[] $assets the assets they belong to
+     * @return array<int, array{next: ?\Modules\Rental\Booking\BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}>
+     */
+    private function nextSteps(array $bookings, array $assets, \DateTimeImmutable $now): array
+    {
+        $assetsById = [];
+        foreach ($assets as $asset) {
+            $assetsById[$asset->id] = $asset;
+        }
+
+        $schedules = [];
+        $steps = [];
+        foreach ($bookings as $booking) {
+            $asset = $assetsById[$booking->assetId] ?? null;
+            if ($asset === null || $booking->status->isFinal()) {
+                continue;
+            }
+
+            $payment = $this->paymentStatus($booking, $asset);
+            $next = BookingJourney::of(
+                $this->milestonesOf(
+                    $booking,
+                    $asset,
+                    $this->documentService?->forBooking($booking->id),
+                    $payment,
+                    $now
+                ),
+                $booking->status
+            )->next();
+
+            $deadline = null;
+            if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+                $schedules[$asset->id] ??= ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                );
+                $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                    $next->key,
+                    $booking,
+                    $payment,
+                    $schedules[$asset->id]
+                );
+            }
+
+            $steps[$booking->id] = ['next' => $next, 'deadline' => $deadline];
+        }
+
+        return $steps;
     }
 
     /**

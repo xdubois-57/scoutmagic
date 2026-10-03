@@ -1096,7 +1096,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
     }
 
-    public function testAConfirmedBookingWithNothingPendingStaysOffTheList(): void
+    /**
+     * A confirmed booking with a step of the unit's left — here the
+     * contract to send — stays on « À traiter », and the line names the step
+     * (#708, IT-12). It used to vanish the moment it was confirmed.
+     */
+    public function testAConfirmedBookingWithAUnitStepLeftIsOnTheList(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
         AuthSession::login(1, 'manager@test.be', 'identified');
@@ -1104,9 +1109,22 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
 
-        $body = (string) $this->overview('local-saint-georges')->getBody();
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
-        $this->assertStringContainsString('Aucune demande en attente.', $body);
+        $this->assertStringContainsString('À faire : envoyer le contrat', $body);
+        $this->assertStringNotContainsString('Aucune demande en attente.', $body);
+    }
+
+    /** A final booking is never on the list, whatever its steps say. */
+    public function testAClosedBookingStaysOffTheList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CLOSED, new \DateTimeImmutable());
+
+        $this->assertStringContainsString('Aucune demande en attente.', (string) $this->overview('local-saint-georges')->getBody());
     }
 
     public function testAManagerOfOneAssetCannotReachAnother(): void

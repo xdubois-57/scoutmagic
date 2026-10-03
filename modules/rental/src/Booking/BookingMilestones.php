@@ -54,6 +54,30 @@ final class BookingMilestones
     public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
 
     /**
+     * Who has to act for each step to be done (#708, IT-12) — what « À
+     * traiter » reads off the step put forward. Explicit for every key, no
+     * default: `shaped()` refuses a key missing here, and a test walks them.
+     * « Demande reçue » is the renter's — they sent it — and is always done.
+     */
+    public const ACTORS = [
+        'request_received' => StepActor::RENTER,
+        'hold' => StepActor::UNIT,
+        'decision' => StepActor::UNIT,
+        self::CONTRACT_SENT => StepActor::UNIT,
+        self::CONTRACT_ACCEPTED => StepActor::RENTER,
+        self::DEPOSIT_RECEIVED => StepActor::RENTER,
+        'confirmed' => StepActor::UNIT,
+        self::BALANCE_RECEIVED => StepActor::RENTER,
+        self::SECURITY_DEPOSIT_RECEIVED => StepActor::RENTER,
+        self::ARRIVAL_INVENTORY => StepActor::UNIT,
+        self::METER_READINGS => StepActor::UNIT,
+        self::DEPARTURE_INVENTORY => StepActor::UNIT,
+        self::FINAL_SETTLEMENT => StepActor::UNIT,
+        self::SECURITY_DEPOSIT_RETURNED => StepActor::UNIT,
+        'closed' => StepActor::UNIT,
+    ];
+
+    /**
      * @param array<string, bool> $extras
      * @param array<string, string> $details the grey suffix an extra line may
      *   carry — a send date, a settlement version (Booking\MilestoneEvidence)
@@ -290,7 +314,8 @@ final class BookingMilestones
             $explanation,
             $action,
             $m->isState,
-            $m->warning
+            $m->warning,
+            self::ACTORS[$m->key] ?? throw new \LogicException('No actor declared for step « ' . $m->key . ' ».')
         );
     }
 
