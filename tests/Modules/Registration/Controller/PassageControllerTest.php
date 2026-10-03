@@ -706,6 +706,20 @@ class PassageControllerTest extends TestCase
             preg_match('/\son[a-z]+\s*=\s*["\']/i', $html),
             'the branch passages page must hold no inline event handler (blocked by the CSP)'
         );
-        $this->assertStringContainsString('passage-save', $html);
+        $this->assertStringContainsString('passage-select', $html);
+    }
+
+    public function testSectionPickerSavesItselfWithoutAButton(): void
+    {
+        // Issue #739: the picker is an independent control (design.md
+        // §7.13) — it saves on change and answers with a toast, so neither
+        // the « Enregistrer » button nor an inline result line remains.
+        $this->createLouveteauLastRank();
+
+        $html = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('passage-select', $html);
+        $this->assertStringNotContainsString('passage-save', $html);
+        $this->assertStringNotContainsString('passage-feedback', $html);
     }
 }

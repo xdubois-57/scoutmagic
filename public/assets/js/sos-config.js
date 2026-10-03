@@ -379,10 +379,16 @@
                 return api.postJson('/config/sos/excluded-sections', { section_ids: excludedIds });
             });
             // This save used to be fire-and-forget: a rejected change left
-            // the box looking saved.
-            if (!succeeded(res)) {
-                toastFailure(res);
+            // the box looking saved. It now answers with a toast either way
+            // (design.md §7.13, issue #739), and a refused tick goes back
+            // to what the server still holds.
+            if (succeeded(res)) {
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                return;
             }
+            checkbox.checked = !checkbox.checked;
+            window.ScoutMagicNav?.syncSwitchAriaChecked?.(checkbox);
+            toastFailure(res);
         });
     });
 })();

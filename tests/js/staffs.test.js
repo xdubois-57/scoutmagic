@@ -161,11 +161,23 @@ describe('staffs.js', () => {
             });
         });
 
-        it('says nothing when the save succeeds', async () => {
+        it('confirms a successful save with a toast', async () => {
             await boot();
             document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('keeps a refused title on screen, so nothing the chief wrote is lost', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Titre requis.' }));
+            await boot();
+            const title = document.querySelector('.section-document-title-input');
+            title.value = 'Nouveau titre';
+            title.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Titre requis.', { variant: 'error' }));
+            expect(title.value).toBe('Nouveau titre');
         });
 
         it('surfaces a business failure as an error toast', async () => {

@@ -154,9 +154,7 @@
                                                     <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                 {% endfor %}
                                             </select>
-                                            <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap flex-shrink-0">Enregistrer</button>
                                         </div>
-                                        <output class="form-text passage-feedback d-block" aria-live="polite"></output>
                                     </td>
                                 </tr>
                                 {% if planning_requests[r.id]|default(null) and planning_requests[r.id].wishes is not empty %}
@@ -244,12 +242,10 @@
                                                         <option value="{{ section.id }}" {{ member.destination_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                     {% endfor %}
                                                 </select>
-                                                <button type="button" class="btn btn-sm btn-outline-primary passage-save text-nowrap flex-shrink-0">Enregistrer</button>
                                             </div>
                                             {% if member.destination_options is empty %}
                                                 <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>
                                             {% endif %}
-                                            <output class="form-text passage-feedback d-block" aria-live="polite"></output>
                                         </td>
                                     </tr>
                                     <tr class="passage-planning-row">

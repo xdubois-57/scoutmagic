@@ -9,6 +9,9 @@
 // from here — permission itself is only ever requested from "Mon compte"
 // (public/assets/js/push-notifications.js), after its own explanatory
 // sentence, never implicitly from a preference toggle.
+//
+// Every save answers with a ScoutMagicToast, success and failure alike
+// (design.md §7.13, issue #739).
 (function () {
     var root = document.getElementById('notification-preferences');
     if (!root) return;
@@ -21,6 +24,14 @@
         if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
             window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
         }
+    }
+
+    /** @param {{status: number, data: any}} res */
+    function toastFailure(res) {
+        var message = res.status === 0
+            ? 'Erreur réseau.'
+            : res.data?.error || "Erreur lors de l'enregistrement.";
+        window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
     // Gate the Push column on browser permission.
@@ -45,10 +56,13 @@
                 .then(function (res) {
                     // A network failure or an HTTP error page arrives as a
                     // data-less envelope — same revert as a refused save.
-                    if (!res.data?.success) {
-                        toggle.checked = !toggle.checked;
-                        syncAriaChecked(toggle);
+                    if (res.data?.success) {
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                        return;
                     }
+                    toggle.checked = !toggle.checked;
+                    syncAriaChecked(toggle);
+                    toastFailure(res);
                 });
         });
     });
@@ -67,7 +81,9 @@
             .then(function (res) {
                 if (res.data?.success) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    return;
                 }
+                toastFailure(res);
             });
     }
 

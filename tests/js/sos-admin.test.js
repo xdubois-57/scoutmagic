@@ -494,24 +494,40 @@ describe('sos-admin.js', () => {
             expect(desktop.classList.contains('state-unavailable')).toBe(false);
         });
 
-        it('says « Enregistré. » only on a business success', async () => {
+        it('confirms a business success with a toast, and clears the progress line', async () => {
             await boot();
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistré.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
             });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
         });
 
-        it('reports a {success:false} save as an error and toasts it', async () => {
+        it('reports a {success:false} save as an error toast, never inline', async () => {
             global.fetch = mockFetch({ '/oncall': { success: false, error: 'Mois invalide.' } });
             await boot();
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent).toBe('Erreur : Mois invalide.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
             });
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+        });
+
+        it('PUTS THE CELL BACK when the month could not be saved', async () => {
+            global.fetch = mockFetch({ '/oncall': { success: false, error: 'Mois invalide.' } });
+            await boot();
+            const cell = document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+            const before = { text: cell.textContent, className: cell.className };
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
+            });
+            expect(cell.textContent).toBe(before.text);
+            expect(cell.className).toBe(before.className);
         });
 
         it('reports an HTTP 500 error page instead of reading it as saved', async () => {
@@ -520,11 +536,10 @@ describe('sos-admin.js', () => {
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent)
-                    .toBe('Erreur : Erreur : réponse serveur invalide.');
+                expect(window.ScoutMagicToast.show)
+                    .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
             });
-            expect(window.ScoutMagicToast.show)
-                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
         });
     });
 
@@ -630,15 +645,32 @@ describe('sos-admin.js', () => {
             expect(desktop.textContent).toBe('✗');
         });
 
-        it('reports the save in the sheet as well as under the grid', async () => {
+        it('shows the save under way in the sheet as well as under the grid, then a toast', async () => {
             await boot();
             openDay('2026-03-01');
 
             pressStateButton('7', 'oncall');
+            expect(document.getElementById('sos-day-sheet-status').textContent).toBe('Enregistrement…');
+            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistrement…');
             await vi.waitFor(() => {
-                expect(document.getElementById('sos-day-sheet-status').textContent).toBe('Enregistré.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
             });
-            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistré.');
+            expect(document.getElementById('sos-day-sheet-status').textContent).toBe('');
+        });
+
+        it('puts the sheet\'s buttons back too when the save is refused', async () => {
+            global.fetch = mockFetch({ '/oncall': { success: false, error: 'Non.' } });
+            await boot();
+            openDay('2026-03-01');
+            const button = document.querySelector('.sos-state-button[data-member-id="7"][data-state="unavailable"]');
+            const before = button.getAttribute('aria-pressed');
+
+            pressStateButton('7', 'unavailable');
+            expect(button.getAttribute('aria-pressed')).toBe('true');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' });
+            });
+            expect(button.getAttribute('aria-pressed')).toBe(before);
         });
     });
 
