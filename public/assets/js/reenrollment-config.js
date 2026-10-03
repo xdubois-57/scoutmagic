@@ -54,7 +54,7 @@
         }
         event.preventDefault();
 
-        api.postJson(form.dataset.previewEndpoint || '', values(form)).then(function (res) {
+        void api.postJson(form.dataset.previewEndpoint || '', values(form)).then(function (res) {
             var question = res.data?.success ? res.data.confirm : null;
             if (!question) {
                 // Nothing to ask — or the question could not be asked, in
@@ -66,7 +66,7 @@
 
             // The default, warning-coloured dialog: an e-mail to every
             // family cannot be called back.
-            window.ScoutMagicConfirm.ask({
+            void window.ScoutMagicConfirm.ask({
                 message: question,
                 confirmLabel: 'Ouvrir et envoyer',
             }).then(function (agreed) {
