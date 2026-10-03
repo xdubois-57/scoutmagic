@@ -611,6 +611,33 @@ class StaffsControllerTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
     }
 
+    public function testSaveSectionTotemRefusesAnAnimeOfTheSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $meute = $this->createSection('LOU01', $branchId, 'Meute');
+        $anime = $this->createMemberInSection($meute, 'Lou', 'identified', 'lou@test.be');
+
+        $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($anime, $meute, 'Akela'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
+    public function testSaveSectionTotemRefusesAChiefOfAnotherScoutYear(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $meute = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($meute, 'Élie', 'chief');
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2010-2011', '2010-09-01', '2011-08-31')");
+        $pastYear = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("UPDATE member_years SET scout_year_id = {$pastYear} WHERE id = {$memberYearId}");
+
+        $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($memberYearId, $meute, 'Akela'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
     public function testSaveSectionTotemRefusesATooLongTotemAndABadToken(): void
     {
         $branchId = $this->createBranch('LOU', 'Louveteaux', 1);

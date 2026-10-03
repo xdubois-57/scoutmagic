@@ -262,7 +262,9 @@ class StaffsController extends AbstractController
         }
 
         $section = $this->sectionService->getSection($sectionId);
-        if ($section === null || !$this->sectionService->isMemberYearInSection($memberYearId, (string) $section['desk_code'])) {
+        $scoutYearId = $this->scoutYearResolver
+            ->getEffectiveYear(ScoutYearSession::getPreviewId(), Role::fromString(AuthSession::getRole()))->id;
+        if ($section === null || !$this->sectionService->isStaffOfSection($memberYearId, $sectionId, $scoutYearId)) {
             return $this->json(
                 ['success' => false, 'error' => "Ce membre n'est pas dans le staff de cette section."],
                 422
