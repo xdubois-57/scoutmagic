@@ -11888,6 +11888,31 @@ if ($isEnabled('rental')) {
         // accepted with the request (#708, IT-16).
         $rentalConditionsService
     );
+    $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
+    $rentalStayService = new \Modules\Rental\Service\RentalStayService(
+        $rentalStayRepository,
+        $rentalBookingAudit,
+        $rentalPricingService,
+        new \Modules\Rental\Stay\SettlementCalculator(),
+        $journalService,
+        $rentalPaymentService
+    );
+
+    // « Marquer comme fait » on the steps the site cannot derive — the
+    // walk-throughs of an asset with no inventory (issue #462).
+    $rentalMilestoneMarkService = new \Modules\Rental\Service\RentalMilestoneMarkService(
+        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+        $rentalBookingAudit
+    );
+    // A booking's checklist, for the dashboard and for the renter's
+    // « Et maintenant ? » alike (#708, IT-15).
+    $rentalJourneyService = new \Modules\Rental\Service\RentalJourneyService(
+        $rentalBookingRepository,
+        $rentalStayService,
+        $rentalMilestoneMarkService,
+        $rentalDocumentService,
+        $rentalPaymentService
+    );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
         $mailService,
         $emailTemplateRenderer,
@@ -11898,7 +11923,9 @@ if ($isEnabled('rental')) {
         $inboundMailForOthers,
         // Each email to the renter ends with the link to the version of
         // the conditions they accepted (issue #494).
-        $rentalConditionsService
+        $rentalConditionsService,
+        // … and with what they have to do next (#708, IT-15).
+        $rentalJourneyService
     );
 
     // The contract's two signatures (#708, IT-16): the renter's copy, the
@@ -12044,16 +12071,6 @@ if ($isEnabled('rental')) {
         ));
     }
 
-    $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
-    $rentalStayService = new \Modules\Rental\Service\RentalStayService(
-        $rentalStayRepository,
-        $rentalBookingAudit,
-        $rentalPricingService,
-        new \Modules\Rental\Stay\SettlementCalculator(),
-        $journalService,
-        $rentalPaymentService
-    );
-
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
         $rentalBookingAudit,
@@ -12121,10 +12138,7 @@ if ($isEnabled('rental')) {
             $settingService,
             // « Marquer comme fait » on the steps the site cannot derive —
             // the walk-throughs of an asset with no inventory (issue #462).
-            new \Modules\Rental\Service\RentalMilestoneMarkService(
-                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
-                $rentalBookingAudit
-            ),
+            $rentalMilestoneMarkService,
             // The overview warns when nobody on the asset can be told about
             // a request (#708, IT-05).
             $rentalManagerRecipients,

@@ -636,6 +636,140 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertStringNotContainsString('ne peut pas être téléchargé', $mail['text']);
     }
 
+    // ── « Et maintenant ? » (#708, IT-15) ───────────────────────────────
+
+    /**
+     * A service whose journey answers the given step, and records the
+     * renderer it was built with so a test can customise a body.
+     */
+    private function serviceWithNextStep(
+        \Modules\Rental\Booking\RenterNextStep $step,
+        ?\Core\Mail\Template\EmailTemplateRenderer $renderer = null
+    ): RentalBookingMailService {
+        $journey = $this->createStub(\Modules\Rental\Service\RentalJourneyService::class);
+        $journey->method('renterNextStep')->willReturn($step);
+        $settings = $this->createStub(SettingService::class);
+        $settings->method('get')->willReturnCallback(
+            static fn (string $key): ?string => match ($key) {
+                'site_name' => 'Unité Test',
+                'base_url' => 'https://unite.test',
+                default => null,
+            }
+        );
+
+        return new RentalBookingMailService(
+            $this->recordingMailService(),
+            $renderer ?? EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settings,
+            $this->createStub(JournalService::class),
+            journey: $journey
+        );
+    }
+
+    /** Every e-mail to the renter ends with the block, in both halves. */
+    public function testEveryEmailToTheRenterEndsWithWhatComesNext(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep(
+            "Rien à faire de votre côté pour l'instant : nous étudions votre demande et vous enverrons le contrat."
+        ));
+
+        foreach ($this->everySender() as $name => $send) {
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html' => $mail['html'], 'text' => $mail['text']] as $half => $body) {
+                $this->assertStringContainsString('Et maintenant ?', $body, "{$name} {$half}");
+            }
+            // Each e-mail its own sentence where it knows better: the
+            // contract calls for its signature.
+            if ($name !== 'contract') {
+                $this->assertStringContainsString('nous étudions votre demande', $mail['text'], $name);
+            }
+        }
+    }
+
+    /** The contract calls for its signature, with the link to where it is done. */
+    public function testTheContractsBlockSaysToSignWithTheTrackingLink(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('Rien à faire.'));
+        $this->sent = [];
+        ($this->everySender()['contract'])();
+        $mail = $this->onlyMail();
+
+        $block = substr($mail['text'], (int) strpos($mail['text'], 'Et maintenant ?'));
+        $this->assertStringContainsString('À vous : signez le contrat', $block);
+        $this->assertStringContainsString("jusqu'au 28/05/2027", $block);
+        $this->assertStringContainsString('/locations/suivi/', $block);
+        $this->assertStringContainsString('Ouvrir ma page de suivi</a>', $mail['html']);
+    }
+
+    /** An invoice calls for its payment. */
+    public function testAnInvoicesBlockCallsForItsPayment(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('Rien à faire.'));
+        $this->sent = [];
+        $this->service->sendDocument(
+            $this->booking(),
+            $this->asset(),
+            'Facture v1',
+            '/tmp/invoice.pdf',
+            'facture.pdf',
+            false,
+            \Modules\Rental\Document\DocumentType::INVOICE
+        );
+
+        $this->assertStringContainsString('À vous : réglez la facture', $this->onlyMail()['text']);
+    }
+
+    /** No link is invented for a step that is not done on the tracking page. */
+    public function testNoLinkGoesWithAStepDoneElsewhere(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('À vous : versez le solde.'));
+        $this->sent = [];
+        ($this->everySender()['decision'])();
+
+        $this->assertStringNotContainsString('Ouvrir ma page de suivi', $this->onlyMail()['html']);
+    }
+
+    /** A customised body cannot drop it: it is the frame's. */
+    public function testACustomisedBodyKeepsTheBlock(): void
+    {
+        $store = new \PDO('sqlite::memory:');
+        $store->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $store->exec('CREATE TABLE email_template_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, template_id TEXT NOT NULL UNIQUE, subject TEXT NOT NULL,
+            body_html TEXT NOT NULL, updated_at TEXT, updated_by INTEGER
+        )');
+        $overrides = new \Core\Mail\Template\EmailTemplateOverrideRepository($store);
+        $overrides->save('rental.acknowledgement', 'Merci', '<p>Notre propre texte.</p>', null);
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/rental/module.json')
+        );
+        $renderer = new \Core\Mail\Template\EmailTemplateRenderer($this->twig, $registry, $overrides);
+        $this->service = $this->serviceWithNextStep(
+            new \Modules\Rental\Booking\RenterNextStep('Rien à faire de votre côté pour l\'instant.'),
+            $renderer
+        );
+        $this->sent = [];
+        ($this->everySender()['acknowledgement'])();
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('Notre propre texte.', $mail['html']);
+        $this->assertStringContainsString('Et maintenant ?', $mail['html']);
+        $this->assertStringContainsString('Et maintenant ?', $mail['text']);
+    }
+
+    /** Without the journey, the e-mails go out as they did. */
+    public function testWithoutAJourneyTheEmailsCarryNoBlock(): void
+    {
+        $this->sent = [];
+        ($this->everySender()['acknowledgement'])();
+
+        $this->assertStringNotContainsString('Et maintenant ?', $this->onlyMail()['text']);
+    }
+
     /** The unit's reason reaches the renter as written, and only as text. */
     public function testARefusedCopyCarriesTheReasonEscaped(): void
     {

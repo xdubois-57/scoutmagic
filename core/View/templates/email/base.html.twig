@@ -47,6 +47,25 @@
     <div style="max-width:600px;margin:0 auto;padding:24px 12px;">
         <div class="sm-content" style="background-color:#ffffff;border:1px solid #e6e8eb;border-radius:8px;padding:24px;">
             {% block content %}{% endblock %}
+            {#
+              « Et maintenant ? » — what the recipient has to do next, or
+              that they have nothing to do. Supplied by the SENDING CODE
+              (`next_step`, optional `next_step_link` and
+              `next_step_link_label`), never by the template: it lives in
+              the frame, like the signature, so a customised body cannot
+              lose it (#708, IT-15). Without it, nothing changes.
+            #}
+            {% if next_step is defined and next_step %}
+                <div style="margin:24px 0 0;padding:12px 16px;background-color:#f1f5f9;border-radius:6px;">
+                    <p style="margin:0 0 4px;font-weight:bold;">Et maintenant ?</p>
+                    <p style="margin:0;">{{ next_step }}</p>
+                    {% if next_step_link is defined and next_step_link %}
+                        <p style="margin:8px 0 0;">
+                            <a href="{{ next_step_link }}" style="color:#0d6efd;">{{ next_step_link_label is defined and next_step_link_label ? next_step_link_label : next_step_link }}</a>
+                        </p>
+                    {% endif %}
+                </div>
+            {% endif %}
             <p style="margin:28px 0 0;">
                 Bien à vous,<br>
                 <strong>{{ site_name }}</strong>

@@ -42,7 +42,6 @@ use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
@@ -161,6 +160,9 @@ class RentalManagementController extends AbstractController
         'image/webp',
         'image/heic',
     ];
+
+    /** Built on first use (journeyService()). */
+    private ?\Modules\Rental\Service\RentalJourneyService $journeyService = null;
 
     public function __construct(
         Environment $twig,
@@ -978,11 +980,6 @@ class RentalManagementController extends AbstractController
         \DateTimeImmutable $now,
         ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "nothing validated yet" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $validations = $this->stayService?->inventoryValidations($booking->id);
-
         $marks = [];
         $marked = $this->decorateWithAuthors(
             $this->milestoneMarkService?->marksFor($booking->id) ?? [],
@@ -997,28 +994,32 @@ class RentalManagementController extends AbstractController
             }
         }
 
-        $evidence = MilestoneEvidence::collect(
+        // The one derivation the renter's e-mails read too (#708, IT-15);
+        // only the names of who ticked a step are this page's own.
+        return $this->journeyService()->milestones(
             $booking,
+            $asset,
+            $now,
             $documents,
             $payment,
-            $validations,
-            $this->stayService?->latestSettlement($booking->id),
-            // An asset with neither items to check nor meters to read has
-            // nothing an inventory could walk, so its walk-throughs are
-            // ticked by hand (#708, IT-17).
-            $this->stayService === null || $this->stayService->keepsInventoryFor($booking),
             $marks,
-            $now,
             $acceptedConditions
         );
+    }
 
-        return BookingMilestones::for(
-            $booking,
-            $now,
-            $evidence->done,
-            $evidence->details,
-            $evidence->offsite,
-            $evidence->manual
+    /**
+     * Built here from the collaborators this controller already holds, so
+     * the checklist it shows is the one RentalJourneyService gives every
+     * other reader.
+     */
+    private function journeyService(): \Modules\Rental\Service\RentalJourneyService
+    {
+        return $this->journeyService ??= new \Modules\Rental\Service\RentalJourneyService(
+            $this->bookingRepository,
+            $this->stayService,
+            $this->milestoneMarkService,
+            $this->documentService,
+            $this->paymentService
         );
     }
 
@@ -2160,7 +2161,8 @@ class RentalManagementController extends AbstractController
                     $document->label(),
                     $path,
                     $document->originalName ?? 'document.pdf',
-                    $document->hasBeenSent()
+                    $document->hasBeenSent(),
+                    $document->type
                 );
             }
             $this->documentService->markSent($document->id, $now);
@@ -2297,15 +2299,7 @@ class RentalManagementController extends AbstractController
      */
     private function paymentStatus(RentalBooking $booking, RentalAsset $asset): array
     {
-        if ($this->paymentService === null) {
-            return [
-                'available' => false,
-                'enabled' => false,
-                'security_deposit' => ['amount_cents' => null],
-            ];
-        }
-
-        return $this->paymentService->statusFor($booking, $this->paymentService->settingsFor($asset->id));
+        return $this->journeyService()->payment($booking, $asset);
     }
 
     /**
