@@ -135,7 +135,9 @@ class SectionService
      */
     public function isStaffOfSection(int $memberYearId, int $sectionId, int $scoutYearId): bool
     {
-        return in_array($memberYearId, $this->sections->memberYearIdsInSection($sectionId, $scoutYearId, staff: true), true);
+        $staff = $this->sections->memberYearIdsInSection($sectionId, $scoutYearId, staff: true);
+
+        return in_array($memberYearId, $staff, true);
     }
 
     /**

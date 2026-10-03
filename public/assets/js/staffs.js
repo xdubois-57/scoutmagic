@@ -108,7 +108,7 @@
             if (value === saved.trim()) {
                 return;
             }
-            api.postJson('/chefs/staffs/totem-de-section', {
+            void api.postJson('/chefs/staffs/totem-de-section', {
                 member_year_id: Number.parseInt(input.dataset.memberYearId || '', 10),
                 section_id: Number.parseInt(input.dataset.sectionId || '', 10),
                 totem: value
