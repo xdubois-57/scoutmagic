@@ -501,6 +501,46 @@ class ReminderPlannerTest extends TestCase
         $this->assertNotContains(ReminderKind::CONTRACT_MISSING->value, self::kinds($due));
     }
 
+    // ── The renter's signed copy (#708, IT-16) ──────────────────────────
+
+    private function awaitingCopy(string $holdUntil, string $today, bool $awaits = true): array
+    {
+        return $this->planner->forBooking(
+            $this->booking(BookingStatus::CONTRACT_SENT, holdUntil: new \DateTimeImmutable($holdUntil)),
+            $this->asset(),
+            ['enabled' => false],
+            ['arrival' => true, 'departure' => true],
+            false,
+            true,
+            new \DateTimeImmutable($today),
+            null,
+            $awaits
+        );
+    }
+
+    /** Three days before the hold ends, by default, and to the renter. */
+    public function testTheRenterIsRemindedOfTheirSignedCopyBeforeTheHoldEnds(): void
+    {
+        $this->assertNotContains(
+            ReminderKind::SIGNED_COPY_DUE->value,
+            self::kinds($this->awaitingCopy('2027-05-28 12:00:00', '2027-05-20'))
+        );
+        $this->assertContains(
+            ReminderKind::SIGNED_COPY_DUE->value,
+            self::kinds($this->awaitingCopy('2027-05-28 12:00:00', '2027-05-25'))
+        );
+        $this->assertFalse(ReminderKind::SIGNED_COPY_DUE->isInternal());
+        $this->assertNull(ReminderKind::SIGNED_COPY_DUE->repeatAfterDays(3), 'said once');
+    }
+
+    public function testACopyAlreadyBackIsNotAskedFor(): void
+    {
+        $this->assertNotContains(
+            ReminderKind::SIGNED_COPY_DUE->value,
+            self::kinds($this->awaitingCopy('2027-05-28 12:00:00', '2027-05-25', false))
+        );
+    }
+
     public function testThePracticalInfoEmailComesDueAWeekBefore(): void
     {
         $this->assertContains(

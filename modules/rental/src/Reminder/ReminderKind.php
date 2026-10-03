@@ -37,7 +37,11 @@ enum ReminderKind: string
     /** The balance's due date has passed with something still owed. */
     case BALANCE_MISSING = 'balance_missing';
 
-    /** The stay is close and no contract has been generated. */
+    /**
+     * The stay is close and the renter's signed copy of the contract has
+     * not come back (#708, IT-16). The value is the one units already
+     * configured, so their delay carries over.
+     */
     case CONTRACT_MISSING = 'contract_missing';
 
     /** The security deposit's due date has passed with nothing received. */
@@ -64,16 +68,24 @@ enum ReminderKind: string
     case PRACTICAL_INFO = 'practical_info';
 
     /**
+     * The contract went out, the dates are held while it is signed, and the
+     * hold is about to end with no signed copy back (#708, IT-16). Said
+     * once: without it the renter's dates would free themselves without
+     * the renter ever being told.
+     */
+    case SIGNED_COPY_DUE = 'signed_copy_due';
+
+    /**
      * Whether this reminder goes to somebody with an account.
      *
-     * The one that does not — PRACTICAL_INFO — is the reason this method
-     * exists rather than a comment: a renter has no `user_account`, so
-     * dispatching it through `NotificationService` would silently reach
-     * nobody at all rather than fail.
+     * The ones that do not — PRACTICAL_INFO, SIGNED_COPY_DUE — are the
+     * reason this method exists rather than a comment: a renter has no
+     * `user_account`, so dispatching them through `NotificationService`
+     * would silently reach nobody at all rather than fail.
      */
     public function isInternal(): bool
     {
-        return $this !== self::PRACTICAL_INFO;
+        return $this !== self::PRACTICAL_INFO && $this !== self::SIGNED_COPY_DUE;
     }
 
     /**
@@ -96,7 +108,7 @@ enum ReminderKind: string
             self::HOLD_EXPIRING => 'Blocage de dates bientôt expiré',
             self::DEPOSIT_MISSING => 'Acompte non reçu',
             self::BALANCE_MISSING => 'Solde non reçu',
-            self::CONTRACT_MISSING => 'Contrat non établi',
+            self::CONTRACT_MISSING => 'Copie signée du contrat non reçue',
             self::SECURITY_DEPOSIT_MISSING => 'Caution non reçue',
             self::ARRIVAL_INVENTORY => "État des lieux d'entrée à faire",
             self::DEPARTURE_INVENTORY => 'État des lieux de sortie à faire',
@@ -104,6 +116,7 @@ enum ReminderKind: string
             self::SECURITY_DEPOSIT_TO_RETURN => 'Caution à restituer',
             self::COMPLIANCE_EXPIRING => 'Document de conformité expirant',
             self::PRACTICAL_INFO => 'Informations pratiques avant le séjour',
+            self::SIGNED_COPY_DUE => 'Copie signée attendue avant la fin du blocage',
         };
     }
 
@@ -132,6 +145,7 @@ enum ReminderKind: string
             self::SECURITY_DEPOSIT_TO_RETURN => 14,
             self::COMPLIANCE_EXPIRING => 60,
             self::PRACTICAL_INFO => 7,
+            self::SIGNED_COPY_DUE => 3,
         };
     }
 
@@ -165,6 +179,7 @@ enum ReminderKind: string
             self::SECURITY_DEPOSIT_TO_RETURN => 'reminder_security_deposit_to_return_days',
             self::COMPLIANCE_EXPIRING => 'reminder_compliance_expiring_days',
             self::PRACTICAL_INFO => 'reminder_practical_info_days',
+            self::SIGNED_COPY_DUE => 'reminder_signed_copy_due_days',
         };
     }
 

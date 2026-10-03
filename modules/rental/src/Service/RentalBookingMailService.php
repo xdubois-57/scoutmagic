@@ -317,6 +317,97 @@ class RentalBookingMailService
      * of guessing from the sender's address.
      */
     /**
+     * The contract, attached, saying what to do with it (#708, IT-16): sign
+     * it and send a copy back from the renter's page before the dates stop
+     * being held — with the link, and the date. The generic document e-mail
+     * says the opposite (« ne peut pas être téléchargé »), and the contract
+     * is the one document that comes back.
+     *
+     * @return string The Message-ID, for threading later replies.
+     * @throws \Core\Mail\MailException
+     */
+    public function sendContract(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $documentLabel,
+        string $absolutePath,
+        string $fileName,
+        bool $isResend,
+        ?string $trackingToken,
+        ?\DateTimeImmutable $holdUntil
+    ): string {
+        $messageId = $this->messageIdFor($booking);
+        $email = $this->renderFor($booking, $asset, 'rental.contract', [
+            'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+            'hold_until' => $holdUntil !== null ? $holdUntil->format('d/m/Y') : '',
+        ]);
+
+        $this->mailService->send(
+            $booking->renterEmail,
+            $email->subject,
+            $email->bodyHtml,
+            $email->bodyText,
+            $this->replyAddressFor($booking),
+            [['path' => $absolutePath, 'name' => $fileName]],
+            null,
+            null,
+            ['Message-ID' => $messageId]
+        );
+
+        $this->journal->log(
+            'rental',
+            'rental_document_sent',
+            'info',
+            $documentLabel . ' envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'is_resend' => $isResend]
+        );
+
+        return $messageId;
+    }
+
+    /**
+     * The hold that waits for the signed copy ends soon, and no copy came
+     * back (#708, IT-16): said once, so the renter's dates do not free
+     * themselves without them ever knowing.
+     *
+     * @return bool whether it went out
+     */
+    public function sendSignedCopyReminder(RentalBooking $booking, RentalAsset $asset, ?string $trackingToken): bool
+    {
+        $email = $this->renderFor($booking, $asset, 'rental.signed_copy_reminder', [
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+            'hold_until' => $booking->holdUntil !== null ? $booking->holdUntil->format('d/m/Y') : '',
+        ]);
+
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
+                $this->replyAddressFor($booking),
+                [],
+                null,
+                null,
+                ['Message-ID' => $this->messageIdFor($booking)]
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $this->journal->log(
+            'rental',
+            'rental_signed_copy_reminder_sent',
+            'info',
+            'Rappel de la copie signée envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
+    /**
      * The renter's signed copy was refused (#708, IT-16): the unit's reason,
      * and the way back to their page to send another.
      *
@@ -637,6 +728,8 @@ class RentalBookingMailService
         'rental.practical_info',
         'rental.copy_refused',
         'rental.signed_contract',
+        'rental.contract',
+        'rental.signed_copy_reminder',
     ];
 
     /**

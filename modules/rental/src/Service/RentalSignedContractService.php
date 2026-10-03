@@ -79,7 +79,7 @@ class RentalSignedContractService
     {
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
-            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null
+            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null && !$document->isSuperseded()
                 && ($found === null || $document->version > $found->version)
             ) {
                 $found = $document;
@@ -453,7 +453,9 @@ class RentalSignedContractService
     {
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
-            if ($document->type === $type && $keep($document)
+            // A document the booking has outgrown is on file, and nothing
+            // else (#708, IT-20).
+            if ($document->type === $type && !$document->isSuperseded() && $keep($document)
                 && ($found === null || $document->id > $found->id)
             ) {
                 $found = $document;

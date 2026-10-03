@@ -1,0 +1,14 @@
+{{ document_subject }}
+
+Bonjour {{ renter_name }},
+
+Vous trouverez en pièce jointe le contrat de votre location {{ reference }} ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}.
+
+Imprimez-le, signez-le, puis déposez votre copie signée sur votre page de suivi — un PDF, un scan ou une photo lisible de chaque page suffit.{% if hold_until %} Vos dates restent bloquées jusqu'au {{ hold_until }} : déposez-la avant cette date.{% endif %}
+{% if tracking_url %}
+Déposer ma copie signée : {{ tracking_url }}
+{% endif %}
+
+Nous contresignerons ensuite le contrat et vous le renverrons, signé par les deux parties.
+
+{% include 'email/signature.text.twig' %}

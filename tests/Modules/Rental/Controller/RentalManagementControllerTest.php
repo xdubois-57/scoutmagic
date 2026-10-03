@@ -308,7 +308,16 @@ class RentalManagementControllerTest extends TestCase
                 new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
                 $journal
             ),
-            $this->signatureRepository
+            $this->signatureRepository,
+            // A contract the booking has outgrown is voided (#708, IT-20).
+            new \Modules\Rental\Service\RentalContractValidityService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->bookingRepository,
+                $bookingAudit,
+                $this->paymentService,
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo)
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -2195,6 +2204,83 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(403, $this->get('/mes-locations/ma-signature', '/mes-locations/ma-signature', 'mySignature')->getStatusCode());
         $this->post('/mes-locations/ma-signature', 'saveSignature', ['signature_data' => self::signatureDataUrl()]);
         $this->assertFalse($this->signatureRepository->has(9));
+    }
+
+    /**
+     * Accepting a change the contract states voids the contract (#708,
+     * IT-20) — whichever gesture changed the booking — and the manager is
+     * told, in the same breath as their own gesture's answer.
+     */
+    public function testAcceptingAChangeVoidsTheContractAndSaysSo(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $requestId = $this->operationsService->requestChange(
+            $this->bookingRepository->findById($booking->id) ?? $booking,
+            $this->asset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+        $this->post('/mes-locations/demande', 'decideChange', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('un nouveau contrat doit partir', $flash['message'] ?? '');
+        $this->assertTrue($this->documentService->find($contract->id)?->isSuperseded());
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // Kept and marked on the Documents page; the steps start over.
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Remplacé — la réservation a changé le', $documents);
+        $dashboard = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($dashboard, 'contract_generated'));
+    }
+
+    /** What the contract does not state — an internal comment — voids nothing. */
+    public function testAnInternalCommentVoidsNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+
+        $this->post('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Le trésorier passe les clés.',
+        ]);
+
+        $this->assertFalse($this->documentService->find($contract->id)?->isSuperseded());
     }
 
     /**

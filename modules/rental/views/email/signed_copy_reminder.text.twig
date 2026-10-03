@@ -1,0 +1,12 @@
+Votre contrat signé est attendu
+
+Bonjour {{ renter_name }},
+
+Nous n'avons pas encore reçu votre copie signée du contrat pour la location {{ reference }} ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}.
+
+{% if hold_until %}Vos dates restent bloquées jusqu'au {{ hold_until }}. Passé cette date, elles pourront être proposées à quelqu'un d'autre.{% else %}Sans elle, vos dates pourront être proposées à quelqu'un d'autre.{% endif %} Déposez votre copie signée depuis votre page de suivi : un PDF, un scan ou une photo lisible de chaque page suffit.
+{% if tracking_url %}
+Déposer ma copie signée : {{ tracking_url }}
+{% endif %}
+
+{% include 'email/signature.text.twig' %}

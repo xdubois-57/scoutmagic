@@ -274,6 +274,8 @@ class RentalTestHelper
             source TEXT NOT NULL DEFAULT \'manual\',
             refused_at TEXT,
             refusal_reason TEXT,
+            fingerprint TEXT,
+            superseded_at TEXT,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 

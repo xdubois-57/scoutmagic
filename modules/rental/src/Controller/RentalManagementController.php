@@ -236,7 +236,9 @@ class RentalManagementController extends AbstractController
         /** The contract's two signatures (#708, IT-16). Null offers neither. */
         private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
         /** Each manager's own signature, readable by its owner alone. */
-        private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null
+        private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null,
+        /** Whether a contract still says what its booking says (#708, IT-20). */
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null
     ) {
         parent::__construct($twig);
     }
@@ -1476,24 +1478,14 @@ class RentalManagementController extends AbstractController
 
         $latest = null;
         foreach ($documents as $document) {
-            if ($document->type === DocumentType::CONTRACT && ($latest === null || $document->version > $latest->version)) {
+            if ($document->type === DocumentType::CONTRACT && !$document->isSuperseded()
+                && ($latest === null || $document->version > $latest->version)
+            ) {
                 $latest = $document;
             }
         }
 
-        // What `RentalOperationsService::contractSent()` will make of the
-        // hold: lengthened to the floor, never shortened, and nothing to
-        // say once the booking firmly occupies the asset.
-        $holdUntil = null;
-        if (!$booking->status->isFinal() && !$booking->status->firmlyOccupiesTheAsset()) {
-            $floor = RentalBookingService::capAtArrival(
-                $now->modify('+' . $this->contractHoldMinDays() . ' days'),
-                $now,
-                $booking->arrivalDate
-            );
-            $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
-            $holdUntil = $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
-        }
+        $holdUntil = $this->holdAfterContractSent($booking, $now);
 
         $account = AuthSession::getUserAccountId();
 
@@ -1510,6 +1502,54 @@ class RentalManagementController extends AbstractController
             'has_signature' => $account !== null && ($this->signatureRepository?->has($account) ?? false),
             'max_refusal_length' => \Modules\Rental\Service\RentalSignedContractService::MAX_REFUSAL_LENGTH,
         ];
+    }
+
+    /**
+     * After any gesture on a booking, whether its contract still says what
+     * the booking says (#708, IT-20) — one generic question rather than a
+     * list of the gestures that change a date, a price or a name. When it
+     * no longer does, the manager is told in the same breath as their own
+     * gesture's answer.
+     */
+    private function recheckContract(int $bookingId, RentalAsset $asset): void
+    {
+        if ($this->contractValidity === null) {
+            return;
+        }
+        $fresh = $this->bookingRepository->findById($bookingId);
+        if ($fresh === null
+            || !$this->contractValidity->recheck($fresh, $asset, $this->actorMemberId(), new \DateTimeImmutable())
+        ) {
+            return;
+        }
+
+        $said = FlashMessage::get();
+        FlashMessage::set('warning', trim(
+            ($said['message'] ?? '') . ' La réservation ne correspond plus à son contrat : il est marqué « Remplacé », '
+            . 'et un nouveau contrat doit partir.'
+        ));
+    }
+
+    /**
+     * What `RentalOperationsService::contractSent()` will make of the hold:
+     * lengthened to the floor, never shortened, and nothing to say once the
+     * booking firmly occupies the asset — said in the confirmation before
+     * the contract leaves, and in the e-mail that carries it.
+     */
+    private function holdAfterContractSent(RentalBooking $booking, \DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($booking->status->isFinal() || $booking->status->firmlyOccupiesTheAsset()) {
+            return null;
+        }
+
+        $floor = RentalBookingService::capAtArrival(
+            $now->modify('+' . $this->contractHoldMinDays() . ' days'),
+            $now,
+            $booking->arrivalDate
+        );
+        $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
+
+        return $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
     }
 
     /**
@@ -1927,15 +1967,29 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Le fichier de ce document est introuvable. Régénérez-le.");
             }
 
-            $this->mailService->sendDocument(
-                $booking,
-                $asset,
-                $document->label(),
-                $path,
-                $document->originalName ?? 'document.pdf',
-                $document->hasBeenSent()
-            );
             $now = new \DateTimeImmutable();
+            if ($document->type === DocumentType::CONTRACT) {
+                // What to do with it, and by when (#708, IT-16).
+                $this->mailService->sendContract(
+                    $booking,
+                    $asset,
+                    $document->label(),
+                    $path,
+                    $document->originalName ?? 'contrat.pdf',
+                    $document->hasBeenSent(),
+                    $this->bookingService?->trackingTokenFor($booking->id),
+                    $this->holdAfterContractSent($booking, $now)
+                );
+            } else {
+                $this->mailService->sendDocument(
+                    $booking,
+                    $asset,
+                    $document->label(),
+                    $path,
+                    $document->originalName ?? 'document.pdf',
+                    $document->hasBeenSent()
+                );
+            }
             $this->documentService->markSent($document->id, $now);
 
             // The contract is the unit's answer (#708, IT-13): « Contrat
@@ -3167,6 +3221,7 @@ class RentalManagementController extends AbstractController
 
         try {
             $work($booking, $asset);
+            $this->recheckContract($booking->id, $asset);
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

@@ -114,9 +114,9 @@ class EmailTemplateRegistryTest extends TestCase
         self::assertArrayHasKey('', $grouped, 'the core templates must form a group');
         self::assertArrayHasKey('rental', $grouped);
         // Five since the managers' new-request email became a notification
-        // (#708, IT-05); seven with the refused copy and the contract
-        // signed by both parties (IT-16).
-        self::assertCount(7, $grouped['rental']);
+        // (#708, IT-05); nine with the contract to sign, its reminder, the
+        // refused copy and the contract signed by both parties (IT-16).
+        self::assertCount(9, $grouped['rental']);
     }
 
     // ── manifest validation ───────────────────────────────────────────

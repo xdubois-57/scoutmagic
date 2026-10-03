@@ -409,15 +409,18 @@ class RentalReminderServiceTest extends TestCase
     }
 
     /**
-     * A step ticked by hand stops its reminder (#708, IT-14): the contract
-     * sent by e-mail is not chased as « Contrat non établi ».
+     * A step ticked by hand stops its reminder (#708, IT-14): a signed
+     * copy handed over in person is not chased as « Copie signée du contrat
+     * non reçue » (IT-16).
      */
     public function testAStepTickedByHandIsNotChased(): void
     {
         $this->addManagerWithAccount('chef@unite.be');
         $booking = $this->createBooking(arrival: '2027-07-10', departure: '2027-07-13');
         $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
-        $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::CONTRACT_SENT, null, new \DateTimeImmutable('2027-06-20'));
+        // The contract reminder chases the renter's signed copy (#708,
+        // IT-16): ticking that step by hand stops it.
+        $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::SIGNED_COPY_RECEIVED, null, new \DateTimeImmutable('2027-06-20'));
 
         $service = new RentalReminderService(
             $this->bookingRepository,

@@ -112,7 +112,9 @@ class RentalRequestController extends AbstractController
          */
         private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
         private ?\Modules\Rental\Service\RentalDocumentService $documentService = null,
-        private ?\Core\File\UploadHandler $uploadHandler = null
+        private ?\Core\File\UploadHandler $uploadHandler = null,
+        /** Whether a contract still says what its booking says (#708, IT-20). */
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null
     ) {
         parent::__construct($twig);
     }
@@ -814,7 +816,18 @@ class RentalRequestController extends AbstractController
                     null,
                     new \DateTimeImmutable()
                 );
-                FlashMessage::set('success', 'Proposition acceptée. Votre réservation a été mise à jour.');
+                // The booking changed: the contract that described it may
+                // not any more (#708, IT-20), and the renter is told.
+                $fresh = $this->bookingService->findByTrackingToken(
+                    (int) ($params['id'] ?? 0),
+                    (string) ($params['token'] ?? '')
+                ) ?? $booking;
+                $voided = $this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false;
+                FlashMessage::set(
+                    'success',
+                    'Proposition acceptée. Votre réservation a été mise à jour.'
+                    . ($voided ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.' : '')
+                );
             } else {
                 $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::RENTER, null);
                 FlashMessage::set('success', 'Proposition refusée. Votre réservation est inchangée.');

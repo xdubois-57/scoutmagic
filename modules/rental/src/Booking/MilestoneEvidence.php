@@ -122,6 +122,12 @@ final class MilestoneEvidence
         };
 
         if ($documents !== null) {
+            // A contract the booking has outgrown, and every copy signed
+            // from it, counts for nothing (#708, IT-20): the steps reopen.
+            $documents = array_values(array_filter(
+                $documents,
+                static fn(RentalDocument $d): bool => !$d->isSuperseded()
+            ));
             $generated = self::latestOfType($documents, DocumentType::CONTRACT);
             $record(
                 BookingMilestones::CONTRACT_GENERATED,

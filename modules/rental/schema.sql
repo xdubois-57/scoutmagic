@@ -826,6 +826,16 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     refused_at DATETIME NULL,
     refusal_reason VARCHAR(300) NULL,
 
+    -- A contract stops being valid the moment the booking no longer says
+    -- what it says (#708, IT-20). `fingerprint` is the hash of the values a
+    -- contract took — dates, people, price and its lines, the renter, the
+    -- asset — taken at generation (Document\ContractFingerprint); when the
+    -- booking's own hash no longer matches, the contract and every copy
+    -- signed from it get `superseded_at`. They stay on file, marked, and
+    -- count for nothing: a new contract must go out.
+    fingerprint CHAR(64) NULL,
+    superseded_at DATETIME NULL,
+
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

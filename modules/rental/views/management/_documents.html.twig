@@ -105,6 +105,12 @@
                             <tr>
                                 <td>
                                     {{ document.label }}
+                                    {% if document.isSuperseded %}
+                                        {# Kept on file, never valid again (#708, IT-20). #}
+                                        <span class="badge bg-warning-subtle text-warning-emphasis ms-1">
+                                            Remplacé — la réservation a changé le {{ document.supersededAt|date_fr }}
+                                        </span>
+                                    {% endif %}
                                     {% if document.isForRenter %}
                                         <span class="badge bg-body-tertiary border text-body-secondary ms-1"
                                               title="Sera joint à un email — jamais téléchargeable par le locataire">

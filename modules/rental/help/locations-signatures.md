@@ -39,6 +39,18 @@ copie reçue, puis choisissez :
 Une page ajoutée plutôt qu'une signature posée sur le contrat : sur un
 scan ou une photo, le site ne peut pas savoir où se trouve l'emplacement.
 
+Peu avant la fin du blocage des dates, le locataire qui n'a pas encore
+déposé sa copie reçoit un rappel par e-mail, une seule fois.
+
+## Un contrat qui ne correspond plus
+
+Dès que la réservation change — dates, participants, prix, coordonnées
+du locataire —, son contrat ne vaut plus. Il reste dans les documents,
+marqué « Remplacé », avec les copies signées à partir de lui ; les étapes
+du contrat se rouvrent, et un nouveau contrat doit partir. Une demande
+qui attendait la signature revient à « Demande reçue » ; une réservation
+confirmée le reste.
+
 ## Ma signature
 
 Vous l'enregistrez une fois, depuis « Gérer mes locations » › « Ma
