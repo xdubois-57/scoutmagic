@@ -87,16 +87,6 @@ class E2eOverlayGestureRatchetTest extends TestCase
         // once the delay is running, on the help itself: a count of zero,
         // not a dialog that opens or closes.
         'tests/e2e/specs/help-discovery.spec.js' => ['help-discovery-modal toHaveCount' => 3],
-        // Configuration > Maintenance serves each of its six sub-pages with
-        // its own boxes open (issue #619); each read follows the page's
-        // goto, and that default is the subject.
-        'tests/e2e/specs/maintenance-backup.spec.js' => [
-            'maintenance-auto-update-body toBeVisible' => 1,
-            'maintenance-backups-automatic-body toBeVisible' => 1,
-            'maintenance-backups-body toBeVisible' => 1,
-            'maintenance-health-body toBeVisible' => 1,
-            'maintenance-reset-body toBeVisible' => 1,
-        ],
         // The three configuration boxes arrive folded. Two of them are
         // checked again, panel and all, by openCollapse() on the way in;
         // « États d'une demande » is never opened, so its panel is read
