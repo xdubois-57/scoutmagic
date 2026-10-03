@@ -318,7 +318,14 @@
      * @returns {boolean}
      */
     function isSameOrigin(input) {
-        var url = typeof Request !== 'undefined' && input instanceof Request ? input.url : String(input);
+        var url = '';
+        if (typeof input === 'string') {
+            url = input;
+        } else if (input instanceof URL) {
+            url = input.href;
+        } else if (typeof Request !== 'undefined' && input instanceof Request) {
+            url = input.url;
+        }
         try {
             return new URL(url, window.location.href).origin === window.location.origin;
         } catch (e) {

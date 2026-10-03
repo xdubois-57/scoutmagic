@@ -323,6 +323,17 @@ describe('secure-context signal', () => {
         expect(native.mock.calls[0][1]).toEqual({ headers: { Accept: 'image/png' } });
     });
 
+    it('reads the origin of a URL object, marking only one of this site', async () => {
+        setContext('http:', false);
+        await load();
+
+        await window.fetch(new URL('http://unite.example/api/x'));
+        await window.fetch(new URL('https://tiles.example.org/1/2/3.png'));
+
+        expect(new Headers(native.mock.calls[0][1].headers).get(HEADER)).toBe('0');
+        expect(native.mock.calls[1][1]).toBeUndefined();
+    });
+
     it('keeps the headers of a Request object passed without init', async () => {
         setContext('http:', false);
         await load();
