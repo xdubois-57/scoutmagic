@@ -180,11 +180,19 @@
             {% endif %}
         </div>
 
+        {#
+          Photos first, text under them (issue #710). A message with both
+          is almost always a photo somebody is commenting — "voilà la
+          cordée de samedi" reads in that order, and the caption under the
+          picture is where every other feed puts it. Each of the two
+          partials carries its own `mt-2`, so the order swaps without
+          either of them moving.
+        #}
+        {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
+
         {% if row.post.body %}
             {% include '@groups/partials/post_body.html.twig' with { post: row.post } only %}
         {% endif %}
-
-        {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
         {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
         {% include '@groups/partials/poll.html.twig' with {
             poll: row.poll|default(null),
@@ -204,8 +212,8 @@
           above it.
         #}
         {% if row.can_see_seen_by|default(false) %}
-            <p class="mb-0 mt-2" style="font-size:0.75rem;">
-                <button type="button" class="btn btn-link p-0 border-0 text-body-tertiary text-decoration-none groups-seen-by"
+            <p class="mb-0 groups-post-action-line" style="font-size:0.75rem;">
+                <button type="button" class="btn btn-link p-0 border-0 d-inline-flex align-items-center text-body-tertiary text-decoration-none groups-seen-by"
                         style="font-size:0.75rem;" aria-haspopup="dialog"
                         data-url="/groups/{{ group.id }}/posts/{{ row.post.id }}/seen-by"
                         data-dialog-title="Vu par">
@@ -276,7 +284,7 @@
         {% set can_reply = participate_permission.allowed|default(false) %}
         {% set new_replies = row.new_reply_count|default(0) %}
         {% if row.reply_count > 0 or can_reply %}
-            <details class="groups-thread mt-2" id="post-thread-{{ row.post.id }}"
+            <details class="groups-thread groups-post-action-line" id="post-thread-{{ row.post.id }}"
                      data-post="{{ row.post.id }}"
                      {%- if new_replies > 0 or (rejected_draft|default(null) and rejected_draft.post_id == row.post.id) %} open{% endif %}>
                 <summary class="groups-thread-summary d-flex align-items-center gap-2">
