@@ -23,7 +23,7 @@
   everywhere else is owned by `.groups-reactions` in that same file, the
   same ownership `display` already moved there for the two blocks below.
 #}
-<div class="groups-reactions{{ compact ? ' groups-reactions-compact' : '' }} d-flex align-items-center gap-1 mt-2">
+<div class="groups-reactions{{ compact ? ' groups-reactions-compact' : ' groups-post-action-line' }} d-flex align-items-center gap-1">
     {% if summary.entries is not empty %}
         <button type="button" class="groups-reaction-tally btn btn-link p-0 border-0 d-inline-flex align-items-center gap-1 text-decoration-none"
                 data-reactors-url="{{ reactors_url }}" aria-haspopup="dialog">
