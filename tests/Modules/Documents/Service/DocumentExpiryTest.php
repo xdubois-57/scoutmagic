@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Documents\Service;
 
 use Core\Config\AppClock;
+use Modules\Documents\Repository\Document;
 use Modules\Documents\Service\DocumentException;
 use Modules\Documents\Service\DocumentService;
 use Modules\Documents\Service\DocumentsAttentionProvider;
@@ -165,5 +166,12 @@ class DocumentExpiryTest extends TestCase
             );
         }
         $this->assertSame([], $provider->collect(1));
+    }
+
+    public function testTheDefaultExpiryIsTwoYearsAfterAStoredDayAndNoneForAnythingElse(): void
+    {
+        $this->assertSame('2028-10-03', Document::defaultExpiry('2026-10-03'));
+        $this->assertSame('', Document::defaultExpiry(''), 'never two years from today');
+        $this->assertSame('', Document::defaultExpiry('pas une date'));
     }
 }

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Documents\Repository;
 
+use Core\Service\DateInput;
 use Modules\Documents\Service\DocumentVisibility;
 
 /**
@@ -42,14 +43,18 @@ final class Document
     ) {
     }
 
-    /** The address that is shared: it survives a new version. */
     /** How long a document is valid by default, and after a replaced file. */
     public const VALIDITY_YEARS = 2;
 
-    /** `Y-m-d`, {@see VALIDITY_YEARS} after the given day. */
+    /**
+     * `Y-m-d`, {@see VALIDITY_YEARS} after the given day — or '' (no expiry)
+     * when that day is not a date, rather than two years from today.
+     */
     public static function defaultExpiry(string $fromDay): string
     {
-        return (new \DateTimeImmutable($fromDay))->modify('+' . self::VALIDITY_YEARS . ' years')->format('Y-m-d');
+        $day = DateInput::fromStorage($fromDay);
+
+        return $day === null ? '' : $day->modify('+' . self::VALIDITY_YEARS . ' years')->format('Y-m-d');
     }
 
     /**
@@ -61,6 +66,7 @@ final class Document
         return $this->expiresOn !== '' && $this->expiresOn < $today;
     }
 
+    /** The address that is shared: it survives a new version. */
     public function path(): string
     {
         return '/documents/' . $this->slug;
