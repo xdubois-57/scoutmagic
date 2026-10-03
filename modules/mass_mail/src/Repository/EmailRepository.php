@@ -89,6 +89,86 @@ class EmailRepository
         $this->replaceScoutYears($id, $scoutYearIds);
     }
 
+    /**
+     * Runs $work in one transaction on the connection every repository of
+     * this module shares — the start of a sending (issue #755): the claim
+     * and the recipients frozen with it are seen together or not at all.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function atomically(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Moves an email from one status to another only if it is still in the
+     * first — the compare-and-set that lets a deletion and a start race
+     * without both winning (issue #755). False when somebody else changed
+     * or deleted it first.
+     */
+    public function transitionStatus(int $id, string $from, string $to): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE mass_mail_emails SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?'
+        );
+        $stmt->execute([$to, $id, $from]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Deletes an email whose real sending has not started — draft or test —
+     * and everything that is only its own: its scout years, its frozen
+     * recipients, its attachment links (issue #755).
+     *
+     * Conditional on the status in the DELETE itself: if a start moved it
+     * to `sending` first, nothing is deleted and this answers false. The
+     * dependents are deleted explicitly as well as by the schema's cascades,
+     * so an engine without them is left with nothing dangling either.
+     * Shared things — a mailing list, a mail-merge audience — are only
+     * referenced and stay, under their own retention.
+     */
+    public function deleteIfNotStarted(int $id): bool
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $stmt = $this->pdo->prepare('DELETE FROM mass_mail_emails WHERE id = ? AND status IN (?, ?)');
+            $stmt->execute([$id, Email::STATUS_DRAFT, Email::STATUS_TEST]);
+            if ($stmt->rowCount() !== 1) {
+                $this->pdo->rollBack();
+
+                return false;
+            }
+            foreach (['mass_mail_email_scout_years', 'mass_mail_recipients', 'mass_mail_attachments'] as $table) {
+                $this->pdo->prepare("DELETE FROM {$table} WHERE email_id = ?")->execute([$id]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return true;
+    }
+
     public function updateStatus(int $id, string $status, bool $setSentAt = false): void
     {
         if ($setSentAt) {

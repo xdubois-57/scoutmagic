@@ -189,6 +189,15 @@
       "label": ""
     },
     {
+      "path": "/mass-mail/{id}/delete",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "delete",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/mass-mail/{id}/test-send",
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MassMailController",
