@@ -60,7 +60,13 @@
      data-reorder-url="{{ reorder_url }}"
      data-active-url="{{ active_url }}"
      data-delete-url="{{ delete_url }}"
-     data-add-mode="{{ add_mode|default('default') }}">
+     data-add-mode="{{ add_mode|default('default') }}"
+     {#- Opt-in connected lists (issue #752): lists sharing a
+         `sortable_group` accept each other's items, and post their
+         `group_key` with their order. Absent, the list is on its own. #}
+     {%- if sortable_group is defined and sortable_group %}
+     data-sortable-group="{{ sortable_group }}" data-group-key="{{ group_key|default('') }}"
+     {%- endif %}>
     <div class="list-editor-items d-flex flex-column gap-2 mb-3">
         {% for item in items %}
             {% set can_delete = item.can_delete is not defined or item.can_delete %}
@@ -109,8 +115,11 @@
                 </div>
             </div>
         {% else %}
-            <p class="text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>
         {% endfor %}
+        {# Always rendered, hidden while there are items: a connected list
+           that is emptied by a drag must be able to say so, and one that
+           receives a drop must be able to stop saying it. #}
+        <p class="text-body-secondary fst-italic mb-0 list-editor-empty{{ items is empty ? '' : ' d-none' }}">{{ empty_label|default('Aucun élément.') }}</p>
     </div>
     {% if add_url is defined and add_url %}
         <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">

@@ -32,11 +32,30 @@
 //       axis: 'y',                              // 'x' for a grid
 //       draggingClass: 'list-editor-item--dragging',
 //       onReorder: persistOrder,
+//       group: 'text-pages',                    // optional, see below
 //   })
+//
+// **Connected lists are opt-in** (issue #752). Containers bound with the
+// same `group` accept each other's items: while one is dragged every list
+// of the group is marked as a drop zone (`sortable-drop-zone`), an empty
+// list accepts a drop, and `onReorder` is called ONCE, on the list the
+// item ended up in, with `{item, from, to}`. Without `group` nothing
+// changes: a list only ever reorders its own items, which is what every
+// other screen using this file relies on.
 (function () {
     /**
+     * Shared per group: what is being dragged, and from where. A list
+     * outside any group keeps its own, so it can never receive a foreign
+     * item.
+     *
+     * @type {Object<string, {dragged: HTMLElement|null, source: HTMLElement|null, members: HTMLElement[]}>}
+     */
+    var groups = {};
+
+    /**
      * @param {HTMLElement|null} container
-     * @param {{itemSelector: string, axis?: string, draggingClass?: string, onReorder?: () => void}} options
+     * @param {{itemSelector: string, axis?: string, draggingClass?: string, group?: string,
+     *          onReorder?: (move?: {item: HTMLElement, from: HTMLElement, to: HTMLElement}) => void}} options
      * @returns {void}
      */
     function bind(container, options) {
@@ -51,7 +70,22 @@
         var itemSelector = options.itemSelector;
         var horizontal = options.axis === 'x';
         var draggingClass = options.draggingClass || 'opacity-50';
-        var dragged = /** @type {HTMLElement|null} */ (null);
+        var state = options.group
+            ? (groups[options.group] = groups[options.group] || { dragged: null, source: null, members: [] })
+            : { dragged: null, source: null, members: [container] };
+        if (options.group) {
+            state.members.push(container);
+        }
+
+        /** @param {boolean} on */
+        function markDropZones(on) {
+            if (!options.group) {
+                return;
+            }
+            state.members.forEach(function (member) {
+                member.classList.toggle('sortable-drop-zone', on);
+            });
+        }
 
         /** @param {Event} e */
         function itemOf(e) {
@@ -66,24 +100,33 @@
             if (!item) {
                 return;
             }
-            dragged = item;
+            state.dragged = item;
+            state.source = container;
             item.classList.add(draggingClass);
+            markDropZones(true);
         });
 
+        // The dragged item has its own `dragend`, which bubbles through the
+        // list it is IN NOW — the target list when it crossed over, which
+        // is the one whose `onReorder` has to save.
         container.addEventListener('dragend', function (e) {
             var item = itemOf(e);
             if (item) {
                 item.classList.remove(draggingClass);
             }
-            if (!dragged) {
+            if (!state.dragged) {
                 return;
             }
-            dragged = null;
+            var moved = state.dragged;
+            var from = state.source || container;
+            state.dragged = null;
+            state.source = null;
+            markDropZones(false);
             // Fires whether the pointer was released on a sibling or
             // anywhere else — the DOM already carries the new order
             // either way, so this is where it gets saved.
             if (options.onReorder) {
-                options.onReorder();
+                options.onReorder({ item: moved, from: from, to: container });
             }
         });
 
@@ -91,8 +134,22 @@
             // Without this the browser refuses the drop outright.
             e.preventDefault();
 
+            var dragged = state.dragged;
+            if (!dragged) {
+                return;
+            }
+
             var over = itemOf(e);
-            if (!over || !dragged || over === dragged) {
+            if (over === dragged) {
+                return;
+            }
+            if (!over) {
+                // Over the list but not over an item — an empty list, or
+                // the space below the last item. Only a connected list
+                // takes the item there; a lone list has nothing to gain.
+                if (options.group && dragged.parentNode !== container) {
+                    container.appendChild(dragged);
+                }
                 return;
             }
 

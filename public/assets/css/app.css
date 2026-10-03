@@ -536,6 +536,15 @@ body:has(> #cookie-banner) {
 .list-editor-item--dragging {
     opacity: 0.4;
 }
+/* Connected lists (issue #752): while an item is dragged, every list of
+   its group says it can take it — an empty one included, which keeps a
+   height worth aiming at. */
+.list-editor-items.sortable-drop-zone {
+    outline: 2px dashed var(--bs-primary-border-subtle);
+    outline-offset: 0.25rem;
+    border-radius: var(--bs-border-radius);
+    min-height: 3rem;
+}
 .list-editor-drag-handle:active {
     cursor: grabbing;
 }

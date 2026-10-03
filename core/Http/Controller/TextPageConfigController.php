@@ -220,9 +220,45 @@ class TextPageConfigController extends AbstractController
         }
 
         $ids = array_map('intval', (array) ($data['ids'] ?? []));
-        $this->pages->reorder($ids);
 
-        return $this->json(['success' => true]);
+        // A list that names its section is a drop that may cross sections
+        // (issue #752): its ids become that section's content, and a page
+        // arriving from another one moves — validated server-side, never
+        // trusted from the browser.
+        $menuId = $data['group'] ?? null;
+        if (!is_string($menuId) || $menuId === '') {
+            $this->pages->reorder($ids);
+
+            return $this->json(['success' => true]);
+        }
+
+        try {
+            $moves = $this->pages->placeInMenu($menuId, $ids);
+        } catch (TextPageException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        $items = [];
+        foreach ($moves as $pageId => $fromMenu) {
+            // The same security event as a move through the form: a drop
+            // into « Notre unité » publishes a page to the open internet.
+            $this->journal->log(
+                'core',
+                'text_page_moved',
+                'security',
+                'Page de texte déplacée de section',
+                ['text_page_id' => $pageId, 'from_menu' => $fromMenu, 'to_menu' => $menuId],
+                AuthSession::getUserAccountId()
+            );
+            $page = $this->pages->findById($pageId);
+            if ($page !== null) {
+                // What the row shows that depends on its section, so the
+                // screen can say it without a reload.
+                $items[(string) $pageId] = ['group_label' => (string) ($this->describe($page)['group_label'] ?? '')];
+            }
+        }
+
+        return $this->json(['success' => true, 'items' => $items]);
     }
 
     /**
