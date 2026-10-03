@@ -13,7 +13,46 @@
 // caller-defined content — changes); reordering updates the DOM in place
 // and persists silently in the background, since that's the whole point
 // of drag-and-drop feeling instant.
+//
+// **Connected lists are opt-in** (issue #752): lists rendered with the
+// same `data-sortable-group` accept each other's items. The list that
+// receives a drop posts its whole content with its own `data-group-key`
+// as `group`; the server moves whatever arrived from elsewhere and closes
+// the gap it left. A list without the attribute behaves exactly as before.
 (function () {
+    /**
+     * Writes one changed value into a row's `data-item-field` elements.
+     *
+     * @param {Element} row
+     * @param {string} field
+     * @param {string} value
+     */
+    function writeItemField(row, field, value) {
+        row.querySelectorAll('[data-item-field="' + field + '"]').forEach(function (node) {
+            node.textContent = value ? value + ' · ' : '';
+        });
+    }
+
+    /**
+     * The chrome that depends on a list's content: the « empty »
+     * sentence, and which move buttons are disabled.
+     *
+     * @param {HTMLElement} list
+     */
+    function refreshList(list) {
+        var items = Array.from(list.querySelectorAll('.list-editor-item'));
+        var empty = /** @type {HTMLElement|null} */ (list.querySelector('.list-editor-empty'));
+        if (empty) {
+            empty.classList.toggle('d-none', items.length > 0);
+        }
+        items.forEach(function (item, index) {
+            var upBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-up'));
+            var downBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-down'));
+            if (upBtn) upBtn.disabled = (index === 0);
+            if (downBtn) downBtn.disabled = (index === items.length - 1);
+        });
+    }
+
     // Requests go through the shared window.ScoutMagicApi.postJson envelope
     // ({ok, status, data} — never a rejection); each call site below reads
     // `res.data || {}` and branches on data.success as before.
@@ -30,13 +69,25 @@
         // The shared toolbox (public/assets/js/sortable.js), delegated on
         // the list, so an item added or removed after load needs no
         // re-wiring.
+        var group = container.dataset.sortableGroup || '';
         window.ScoutMagicSortable.bind(itemsEl, {
             itemSelector: '.list-editor-item',
             draggingClass: 'list-editor-item--dragging',
             onReorder: persistOrder,
+            group: group || undefined,
         });
 
-        function persistOrder() {
+        /**
+         * @param {{item: HTMLElement, from: HTMLElement, to: HTMLElement}} [move]
+         */
+        function persistOrder(move) {
+            var crossed = !!move && move.from !== move.to;
+            // The arrows follow the DOM, saved or not — a list without a
+            // reorder endpoint still moves its rows locally.
+            refreshList(itemsEl);
+            if (crossed) {
+                refreshList(move.from);
+            }
             if (!reorderUrl) return;
             // Sent as-is (not parseInt'd) — an item's id isn't always
             // numeric (e.g. the general configuration page's module list
@@ -46,47 +97,68 @@
                 function (el) {
                 return el.dataset.id;
             });
-            window.ScoutMagicApi.postJson(reorderUrl, { ids: ids }).then(function (res) {
+            /** @type {Record<string, any>} */
+            var body = { ids: ids };
+            if (group) {
+                body.group = container.dataset.groupKey || '';
+            }
+            void window.ScoutMagicApi.postJson(reorderUrl, body).then(function (res) {
                 var data = res.data || {};
                 if (!data.success) {
                     window.ScoutMagicToast.show(data.error || 'Erreur lors de la réorganisation.', { variant: 'error' });
+                    // An item shown in a section it was never saved in
+                    // would be a screen that lies about who can read a
+                    // page: start again from what the server holds.
+                    if (crossed) {
+                        window.location.reload();
+                    }
+                    return;
                 }
+                applyItemFields(data.items);
+            });
+        }
+
+        /**
+         * What the server says changed on a row that moved (its column,
+         * for a text page), written into the row's `data-item-field`
+         * elements — so the screen is right without a reload.
+         *
+         * @param {Record<string, Record<string, string>>|undefined} items
+         */
+        function applyItemFields(items) {
+            if (!items) return;
+            Object.keys(items).forEach(function (id) {
+                var row = itemsEl.querySelector('.list-editor-item[data-id="' + id + '"]');
+                if (!row) return;
+                Object.keys(items[id]).forEach(function (field) {
+                    writeItemField(row, field, items[id][field]);
+                });
             });
         }
 
         // --- Move up/down (touch-friendly alternative to drag-and-drop) ---
-        itemsEl.querySelectorAll('.list-editor-move-up').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var item = btn.closest('.list-editor-item');
+        // Delegated on the list, so a row that arrived from a connected
+        // list answers to the list it is in now.
+        itemsEl.addEventListener('click', function (e) {
+            var target = /** @type {HTMLElement|null} */ (e.target);
+            var up = target?.closest('.list-editor-move-up');
+            var down = target?.closest('.list-editor-move-down');
+            if (!up && !down) return;
+            var item = /** @type {HTMLElement} */ ((up || down).closest('.list-editor-item'));
+            if (up) {
                 var prev = item.previousElementSibling;
                 if (prev?.classList.contains('list-editor-item')) {
                     prev.before(item);
                     persistOrder();
-                    updateMoveButtons();
                 }
-            });
-        });
-        itemsEl.querySelectorAll('.list-editor-move-down').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                var item = btn.closest('.list-editor-item');
+            } else {
                 var next = item.nextElementSibling;
                 if (next?.classList.contains('list-editor-item')) {
                     item.before(next);
                     persistOrder();
-                    updateMoveButtons();
                 }
-            });
+            }
         });
-
-        function updateMoveButtons() {
-            var items = Array.from(itemsEl.querySelectorAll('.list-editor-item'));
-            items.forEach(function (item, index) {
-                var upBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-up'));
-                var downBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-down'));
-                if (upBtn) upBtn.disabled = (index === 0);
-                if (downBtn) downBtn.disabled = (index === items.length - 1);
-            });
-        }
 
         // --- Active toggle (icon button, not a checkbox) ---
         itemsEl.querySelectorAll('.list-editor-active-toggle').forEach(

@@ -766,6 +766,17 @@ implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
 
+Lists are independent unless they opt in: lists bound with the same
+`group` (`partials/list_editor.html.twig`: `sortable_group` and
+`group_key`) accept each other's items, are all marked as drop zones while
+one is dragged — an empty one included — and the receiving list posts its
+whole content with its key as `group`. Only Configuration › Pages de texte
+does this (issue #752), because there the list a page sits in IS its menu
+section, and so who may read it: the server validates the section, gives
+the page that menu's default column, and journals the move. The touch and
+keyboard path for that move is the page's own form, whose section picker
+does the same.
+
 **Dans l'application installée, une navigation n'aboutit jamais à un
 fichier : le serveur la transforme en visionneuse. Rien à faire dans les
 gabarits.** The installed window has no address bar and no back button,
