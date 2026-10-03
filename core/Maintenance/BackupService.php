@@ -12,6 +12,7 @@ use Core\Database\Connection;
 use Core\Database\DatabaseDumper;
 use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
+use Core\Maintenance\Portable\PortableArchiveHints;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
@@ -317,20 +318,22 @@ class BackupService implements BackupServiceInterface
      * @param string      $passphrase    already length-checked by
      *        {@see \Core\Maintenance\Portable\PortablePassphrase}; this
      *        class only refuses an empty one, as its sibling does.
-     * @param string      $version       what to write in the manifest
+     * @param PortableArchiveHints $hints what the archive says about itself
+     *        in clear (#719); its version is also the manifest's
      * @param string|null $installationId the origin, or null when unknown
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
     public function createPortableBackup(
         string $passphrase,
-        string $version,
+        PortableArchiveHints $hints,
         ?string $installationId
     ): array {
         return $this->writeArchive(
             Backup::PORTABLE_TYPE,
             $passphrase,
-            new PortableManifest($version, $installationId, new \DateTimeImmutable())
+            new PortableManifest($hints->version, $installationId, $hints->createdAt),
+            $hints
         );
     }
 
@@ -345,16 +348,22 @@ class BackupService implements BackupServiceInterface
      * @param PortableManifest|null $manifest present exactly when this is a
      *        portable archive; its presence is what adds the sealed secrets
      *        and the manifest member, so the two can never be separated.
+     * @param PortableArchiveHints|null $hints present exactly with the
+     *        manifest: the clear comment a portable archive cannot lack.
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
     private function writeArchive(
         string $scope,
         ?string $password,
-        ?PortableManifest $manifest
+        ?PortableManifest $manifest,
+        ?PortableArchiveHints $hints = null
     ): array {
         // The portable archive is never written in clear: it carries the
         // site's keys, and in clear it is every member's data in one file.
+        if (($manifest === null) !== ($hints === null)) {
+            throw new \LogicException('A portable archive needs both its manifest and its hints.');
+        }
         if ($password === '' || ($password === null && $manifest !== null)) {
             throw new BackupException('Un mot de passe est requis.');
         }
@@ -428,14 +437,14 @@ class BackupService implements BackupServiceInterface
                 }
             }
 
-            if ($manifest !== null && $keys !== null && $archivePassword !== null) {
+            if ($manifest !== null && $hints !== null && $keys !== null && $archivePassword !== null) {
                 $this->addSealedSecrets($zip, $manifest, $keys->envelopeKey(), $archivePassword);
                 $this->addEncryptedString($zip, PortableManifest::MEMBER, $manifest->toJson(), $archivePassword);
 
                 // In clear, and it has to be: the archive password is
                 // derived FROM this, so anything the password protects
                 // could not carry it. A salt is not a secret.
-                if (!$zip->setArchiveComment(PortableKeys::comment($derivation))) {
+                if (!$zip->setArchiveComment(PortableKeys::comment($derivation, $hints))) {
                     throw new BackupException(
                         'L\'en-tête de la sauvegarde portable n\'a pas pu être écrit dans l\'archive.'
                     );
