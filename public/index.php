@@ -7721,6 +7721,10 @@ if ($isEnabled('documents')) {
             (string) ($settingService->get('base_url') ?? '')
         )
     );
+
+    // « 3 documents sont expirés » (#731): one aggregated point, leading to
+    // the list where each expired document carries a red tag.
+    $attentionProviders[] = new \Modules\Documents\Service\DocumentsAttentionProvider($documentService);
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md

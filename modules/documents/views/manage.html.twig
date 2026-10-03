@@ -39,14 +39,17 @@
     } %}
         {% block item_content %}
             {% set document = item.document %}
+            {# #731: the date of the FILE (a metadata edit leaves it alone),
+               no type, no size, no address in clear — the link is copied
+               with the button beside the pencil. #}
             <div class="d-flex flex-wrap align-items-baseline gap-2">
                 <span class="fw-semibold">{{ document.title }}</span>
                 <span class="badge text-bg-light border">{{ document.visibility.label() }}</span>
+                {% if document.isExpired(today) %}
+                    <span class="badge text-bg-danger" title="Valable jusqu'au {{ document.expiresOn|date_fr }}">Expiré</span>
+                {% endif %}
             </div>
-            <div class="small text-body-secondary">
-                {{ document.kindLabel() }} · {{ document.sizeBytes|filesize }} · mis à jour le {{ document.updatedAt|date_fr }}
-            </div>
-            <div class="small text-body-secondary text-break font-monospace">{{ base_url }}{{ document.path() }}</div>
+            <div class="small text-body-secondary">{{ document.fileUpdatedAt|date_fr }}</div>
             {% set past = versions[document.id] ?? [] %}
             {% if past is not empty %}
                 <details class="small mt-1">
@@ -76,6 +79,11 @@
             {% endif %}
         {% endblock %}
         {% block item_edit %}
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-copy-link="{{ base_url }}{{ item.document.path() }}"
+                    aria-label="Copier le lien de « {{ item.document.title }} »" title="Copier le lien">
+                <i class="bi bi-link-45deg" aria-hidden="true"></i>
+            </button>
             <a href="/admin/documents/{{ item.document.id }}/modifier" class="btn btn-sm btn-outline-secondary"
                aria-label="Modifier « {{ item.document.title }} »" title="Modifier « {{ item.document.title }} »">
                 <i class="bi bi-pencil" aria-hidden="true"></i>
@@ -110,4 +118,5 @@
 {% block scripts %}
 <script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
 <script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+<script src="{{ asset('/assets/js/documents-manage.js') }}" defer></script>
 {% endblock %}

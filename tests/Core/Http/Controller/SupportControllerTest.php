@@ -322,6 +322,43 @@ class SupportControllerTest extends TestCase
         $this->assertStringNotContainsString(date('d/m/Y à H:i', $observedAt), $body);
     }
 
+    /**
+     * Issue #744, on the real rendered page: the spinner and « Génération
+     * en cours… » live inside the one container support-package.js shows
+     * and hides, hidden on arrival, and nothing of it sits outside —
+     * which a synthetic DOM in a JavaScript test could never notice.
+     */
+    public function testTheGenerationIndicatorIsOneHiddenContainerWithItsSentenceInside(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="UTF-8">' . $body);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $progress = $document->getElementById('support-package-progress');
+        $this->assertNotNull($progress);
+        $this->assertContains('d-none', explode(' ', (string) $progress->getAttribute('class')));
+        $this->assertStringContainsString('Génération en cours…', (string) $progress->textContent);
+        $this->assertSame(
+            1,
+            (new \DOMXPath($document))->query('.//*[contains(@class, "spinner-border")]', $progress)?->length
+        );
+        $this->assertSame(1, substr_count($body, 'Génération en cours…'), 'the sentence exists only inside it');
+
+        // And the card's markup is balanced: the stray closing tag that
+        // left the sentence outside is gone.
+        $start = strpos($body, 'id="support-package-generate"');
+        $end = strpos($body, 'id="support-package-download"');
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $between = substr($body, $start, $end - $start);
+        $this->assertSame(substr_count($between, '<span'), substr_count($between, '</span>'));
+        $this->assertSame(substr_count($between, '<output'), substr_count($between, '</output>'));
+    }
+
     // ── The measurement window (CHANTIER-performance §6) ────────────────
 
     public function testThePageOffersToMeasureAndSaysWhatItRecordsAndWhatItCannot(): void

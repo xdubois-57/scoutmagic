@@ -7,8 +7,8 @@
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
         <div class="card-body">
-            {{ m.section_header('maintenance-update-body', 'Mise à jour', true) }}
-            <div class="collapse show mt-3" id="maintenance-update-body">
+            {{ m.section_header('Mise à jour') }}
+            <div class="mt-3" id="maintenance-update-body">
                 {# The most recent ATTEMPT, not the most recent success: a channel
                    whose last installs all rolled back still has a perfectly good
                    « dernière mise à jour réussie ». Moved here from Santé de
@@ -185,8 +185,8 @@
     {# ————— Mises à jour automatiques ————— #}
     <div class="card mb-4" id="maintenance-auto-update">
         <div class="card-body">
-            {{ m.section_header('maintenance-auto-update-body', 'Mises à jour automatiques', true) }}
-            <div class="collapse show mt-3" id="maintenance-auto-update-body">
+            {{ m.section_header('Mises à jour automatiques') }}
+            <div class="mt-3" id="maintenance-auto-update-body">
                 {% if webhook_warning %}
                     <div class="alert alert-warning small">
                         Les mises à jour automatiques sont activées mais le webhook GitHub n'est pas configuré.

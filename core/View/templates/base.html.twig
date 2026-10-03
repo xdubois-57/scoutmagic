@@ -71,7 +71,12 @@
     <link rel="stylesheet" href="{{ asset('/assets/css/editable.css') }}">
     {% block stylesheets %}{% endblock %}
 </head>
-<body>
+{# The same condition as the banner's include below (#742): the banner and
+   the space kept for it are ONE state, set here and removed together by
+   cookie-consent.js once the choice is stored. #}
+{% set _cookie_banner_shown = cookie_consent_given is defined and not cookie_consent_given
+    and current_path|default('') != '/cookies' %}
+<body{% if _cookie_banner_shown %} class="cookie-banner-visible"{% endif %}>
     <a class="visually-hidden-focusable" href="#main-content">Aller au contenu</a>
     {#
       Revealed by offline-nav.js the moment the browser reports itself
@@ -383,9 +388,10 @@
        that was covering the very page its own "Personnaliser" action leads
        to — the category toggles and the "Enregistrer mes choix" button were
        unreachable. Everywhere else app.css compensates the banner's height
-       with a body:has(> #cookie-banner) padding so the bottom of the page
-       stays reachable (see "COOKIE BANNER HEIGHT COMPENSATION" there). #}
-    {% if cookie_consent_given is defined and not cookie_consent_given and current_path|default('') != '/cookies' %}
+       with the body's `cookie-banner-visible` class, set above, so the
+       bottom of the page stays reachable (see "COOKIE BANNER HEIGHT
+       COMPENSATION" there). #}
+    {% if _cookie_banner_shown %}
         {% include 'partials/cookie_banner.html.twig' %}
     {% endif %}
 
