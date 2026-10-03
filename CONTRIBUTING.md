@@ -68,5 +68,43 @@ npm run e2e:install  # only needed once, before your first `npm run e2e`
 `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options,
 or uploads over 8M will return 413.
 
-For the purpose of each test layer, its local prerequisites, and what a green result does (and
-does not) prove, see [docs/quality-pipeline.md](docs/quality-pipeline.md).
+### Database-backed PHP tests
+
+`vendor/bin/phpunit` runs the whole configured suite. Most tests labelled `database` use the
+in-memory SQLite helper, but the tests that exercise the production database engine read
+`TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_NAME`, `TEST_DB_USER` and `TEST_DB_PASSWORD`.
+When those variables promise a server, a refused connection is a failed run rather than a skip.
+`TEST_DB_PASSWORD` must not be empty because the setup-controller tests replay the real
+installation form, where the database password is required.
+
+### End-to-end and dynamic tests
+
+`npm run e2e` provisions a disposable ScoutMagic installation and database, applies the real
+schema, activates every shipped module, serves the real `public/index.php`, drives headless
+Chromium, and removes the temporary installation afterwards. It never reads or modifies a local
+ScoutMagic installation. Mail scenarios use the application's real mail stack; only the last
+transport hop is redirected to `scripts/e2e-maildrop.php`.
+
+The harness first uses `E2E_DB_*`, then `TEST_DB_*`, then the usual local MySQL defaults. If no
+server is reachable and Docker is available, it starts a disposable MySQL 8 container. An
+environment that already provides a compatible Chromium but cannot use Playwright's managed
+download can set `E2E_CHROMIUM_EXECUTABLE=/path/to/chromium`. On failure, Playwright diagnostics
+live under `tests/e2e/test-results/` and `tests/e2e/playwright-report/`.
+
+For the dynamic scan, pull the ZAP image once and then run the profile you need:
+
+```bash
+docker pull ghcr.io/zaproxy/zaproxy:stable
+./scripts/dast.sh --profile=passive
+```
+
+The `deep` and `audit` profiles are active scans: they send attack payloads while authenticated
+against the disposable installation. Read `tests/dast/zap-active.yaml` before adding a route that
+resets, restores, imports, reconfigures, changes credentials or roles, or contacts an external
+service. The exclusions in that file are what keep the scan from destroying its own state or
+reaching real third parties.
+
+For what each layer proves, the two E2E tiers, CI behaviour and the four DAST profiles, see
+[docs/quality-pipeline.md](docs/quality-pipeline.md). For the architecture of the E2E/DAST harness,
+including module activation, TLS termination, proxy coverage and the maildrop, see
+[ARCHITECTURE.md](ARCHITECTURE.md) §15 and [SECURITY.md](SECURITY.md) for the security model.
