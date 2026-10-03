@@ -1120,14 +1120,21 @@ section 5.2.
 des durées de conservation. S'il est actif, conserve-les intégralement et sans les édulcorer, en particulier : (a) que
 les noms (conducteur, famille, enfants), les numéros de téléphone et la note d'un conducteur sont **chiffrés en base** ;
 (b) que le numéro est **recopié** au moment où la personne le confirme, pré-rempli depuis sa fiche mais modifiable, et
-n'est jamais relu depuis la fiche ensuite ; (c) qu'un numéro n'est montré **qu'à l'autre partie d'une demande
-acceptée**, jamais aux animateurs, et que les animateurs d'une section concernée, le Staff d'Unité et les
+n'est jamais relu depuis la fiche ensuite ; (c) qu'un numéro n'est montré **qu'à l'autre partie d'une demande**,
+celui de la famille au conducteur dès la demande, celui du conducteur à la famille une fois la demande acceptée,
+jamais aux animateurs, et que les animateurs d'une section concernée, le Staff d'Unité et les
 administrateurs voient qui monte dans quelle voiture ; (d) que le point de rendez-vous d'un conducteur est visible de
 tous les membres et ne doit pas être une adresse personnelle ; (e) qu'un covoiturage est **effacé automatiquement**
 après sa dernière date, au bout d'un délai réglable (30 jours par défaut, sauf réglage contraire), avec tout ce qu'il
 contient. Le géocodage du lieu d'une sortie relève du paragraphe "Fond de carte et géocodage" (règle 22bis) — il a lieu
 en tâche de fond ET pendant qu'un animateur saisit ce lieu, toujours depuis le serveur du site, jamais depuis le
 navigateur, avec un cache qui ne conserve pas l'adresse elle-même : ce n'est jamais une donnée personnelle qui part.
+Le formulaire d'offre géocode aussi (Nominatim), depuis le serveur, le point de rendez-vous saisi par le
+conducteur — un lieu visible de tous, jamais une adresse personnelle (point d) —, puis demande la durée du trajet
+au serveur de démonstration d'OSRM (router.project-osrm.org, données OpenStreetMap) pour suggérer une heure de
+départ : seulement
+deux coordonnées, le point de rendez-vous saisi par le conducteur et le lieu de la sortie, jamais une
+donnée personnelle ; conserve cette mention.
 Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre sous-traitant.
 
 33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs
