@@ -2668,10 +2668,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Documents still lists the contract and resends it, but no longer
-     * generates it, nor links to its text (#708, IT-16).
+     * Documents still lists the contract and the invoice and resends them,
+     * but generates neither (#708, IT-16, IT-18), nor holds the billing
+     * details any more.
      */
-    public function testTheDocumentsPageNoLongerGeneratesTheContract(): void
+    public function testTheDocumentsPageNoLongerGeneratesTheContractNorTheInvoice(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2680,7 +2681,8 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringNotContainsString('Générer le contrat', $body);
         $this->assertStringNotContainsString('/document/contract"', $body);
-        $this->assertStringContainsString('Générer la facture', $body);
+        $this->assertStringNotContainsString('Générer la facture', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/facturation"', $body);
     }
 
     /**
@@ -3390,15 +3392,6 @@ class RentalManagementControllerTest extends TestCase
 
     // ── The stay (§6.21–§6.23) ──────────────────────────────────────────
 
-    private function stayPage(string $slug, int $bookingId): \Core\Http\Response
-    {
-        return $this->get(
-            '/mes-locations/{slug}/reservations/{id}/sejour',
-            '/mes-locations/' . $slug . '/reservations/' . $bookingId . '/sejour',
-            'stay'
-        );
-    }
-
     // ── The journey (issue #462, IT-02) ─────────────────────────────────
 
     private function confirm(RentalBooking $booking): void
@@ -4025,37 +4018,22 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('href="#dossier-', $body);
     }
 
-    public function testTheStayPageIsRefusedToANonManager(): void
-    {
-        $booking = $this->createBooking();
-        AuthSession::login(1, 'nobody@test.be', 'identified');
-
-        $this->assertSame(404, $this->stayPage('local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    public function testTheStayPageOfAnotherAssetsBookingIsA404(): void
-    {
-        $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
-
-        $this->assertSame(404, $this->stayPage('local-saint-georges', $foreign->id)->getStatusCode());
-    }
-
-    public function testTheStayPageSaysItDoesNotWorkOffline(): void
+    public function testTheInventoryPageSaysItDoesNotWorkOffline(): void
     {
         // §6.23: these are write pages, never cached. The page tells a
         // manager the workaround rather than letting them discover it by
         // losing an inventory on the way home.
         $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
-        $body = (string) $this->stayPage('local-saint-georges', $booking->id)->getBody();
+        $body = (string) $this->filePage(BookingPage::INVENTORY, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringContainsString('en ligne', $body);
         $this->assertStringContainsString('hotographiez sur place', $body);
     }
 
-    public function testAManagerRecordsAReadingFromTheStayPage(): void
+    public function testAManagerRecordsAReading(): void
     {
         $this->loginAsManager();
         $meterId = $this->stayService->addMeter(
@@ -4806,6 +4784,187 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->inventoryPage($booking);
         $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
         $this->assertStringContainsString('aria-label="Relevé sortie — Électricité"', $body);
+    }
+
+    // ── « Facture » (#708, IT-18) ───────────────────────────────────────
+
+    private function invoicePage(RentalBooking $booking): string
+    {
+        $response = $this->filePage(BookingPage::INVOICE, 'local-saint-georges', $booking->id);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    private function generateInvoice(RentalBooking $booking): void
+    {
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'document_type' => 'invoice',
+        ]);
+    }
+
+    /** @return list<\Modules\Rental\Document\RentalDocument> */
+    private function invoices(RentalBooking $booking): array
+    {
+        return array_values(array_filter(
+            $this->documentService->forBooking($booking->id),
+            static fn($document): bool => $document->type === \Modules\Rental\Document\DocumentType::INVOICE
+        ));
+    }
+
+    /** The billing details, the settlement and the invoice, in that order. */
+    public function testTheInvoicePageHoldsTheBillingTheSettlementAndTheInvoice(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->invoicePage($booking);
+
+        $billing = strpos($body, 'action="/mes-locations/facturation"');
+        $settlement = strpos($body, 'action="/mes-locations/decompte"');
+        $invoice = strpos($body, 'Générer la facture');
+        $this->assertNotFalse($billing);
+        $this->assertNotFalse($settlement);
+        $this->assertNotFalse($invoice);
+        $this->assertTrue($billing < $settlement && $settlement < $invoice);
+        $this->assertStringContainsString('ne modifie jamais le prix convenu', $body);
+    }
+
+    /** No « Séjour » shortcut on the dashboard, and no link to it anywhere. */
+    public function testNothingLeadsToTheStayPageAnyMore(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+
+        foreach (BookingPage::cases() as $page) {
+            $response = $this->filePage($page, 'local-saint-georges', $booking->id);
+            if ($response->getStatusCode() === 200) {
+                $this->assertStringNotContainsString('/sejour', (string) $response->getBody(), $page->value);
+            }
+        }
+        $manifest = (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json');
+        $this->assertStringNotContainsString('/sejour"', $manifest);
+    }
+
+    /**
+     * The invoice waits for the departure inventory — on screen, and at
+     * the server, whatever a crafted POST says.
+     */
+    public function testTheInvoiceWaitsForTheDepartureInventory(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->stayService->snapshotInventory($booking, $this->assetId);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString("La facture se génère une fois l'état des lieux de sortie complété.", $body);
+        $this->assertStringContainsString("/etat-des-lieux\">Faire l'état des lieux</a>", $body);
+        $this->assertStringNotContainsString('Générer la facture', $body);
+
+        $this->generateInvoice($booking);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->invoices($booking));
+
+        // Validated: the invoice can be made.
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null);
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::DEPARTURE, new \DateTimeImmutable(), null);
+        $this->assertStringContainsString('Générer la facture', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    public function testADepartureTickedByHandLetsTheInvoiceBeMade(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+        $this->markStep($booking, 'departure_inventory');
+
+        $this->assertStringContainsString('Générer la facture', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    /** An asset with no inventory page waits for nothing. */
+    public function testAnAssetWithoutInventoryWaitsForNothing(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->assertStringNotContainsString('data-invoice-waits', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    /** « Envoyer la facture » names the address before it goes, and sends it. */
+    public function testTheInvoiceIsSentFromItsPageAfterAQuestionNamingTheAddress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->generateInvoice($booking);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString('Envoyer la facture à ' . $booking->renterEmail . ' ?', $body);
+        $this->assertStringContainsString('Envoyer la facture </button>', $body);
+
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'document_id' => (string) $this->invoices($booking)[0]->id,
+        ]);
+
+        $this->assertNotNull($this->documentService->find($this->invoices($booking)[0]->id)?->sentAt);
+        $this->assertStringContainsString('Renvoyer la facture </button>', $this->invoicePage($booking));
+        // Documents still lists it.
+        $this->assertStringContainsString(
+            'Facture',
+            (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody()
+        );
+    }
+
+    /**
+     * The incidents decided on « État des lieux » show on the settlement
+     * with their amount, read only, and a link to change the decision.
+     */
+    public function testDecidedIncidentsAreCarriedReadOnlyWithALinkBack(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, 4500, 1);
+        $this->stayService->reportIncident($booking, 'Tache au mur', 1000, null, 1);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('Vitre cassée', $body);
+        $this->assertStringNotContainsString('Tache au mur', $body);
+        $this->assertStringContainsString('45,00', $body);
+        $this->assertStringContainsString('/etat-des-lieux">Changer une décision', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/incident-decision"', $body);
+    }
+
+    public function testASettlementLandsBackOnTheInvoicePage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/decompte', 'recordSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'final_persons' => '28',
+        ]);
+
+        $this->assertStringEndsWith('/facture', (string) $response->getHeaders()['Location']);
+        $this->assertNotNull($this->stayService->latestSettlement($booking->id));
     }
 
     private function templatesPage(): string

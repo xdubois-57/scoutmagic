@@ -144,9 +144,11 @@ gestionnaires dit qui ne peut pas être prévenu, et pourquoi.
 
 ## 6. Suivre une réservation
 
-Une réservation tient en quatre pages, reliées par les pastilles sous
-son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
-**Documents** (contrat, facture, fichiers, coordonnées de facturation) et
+Une réservation tient en plusieurs pages, reliées par les pastilles sous
+son titre : **Tableau de bord**, **Modifications**, **Finances** (le prix
+et les paiements), **Documents** (contrat, facture, fichiers), **État des
+lieux** (les deux états des lieux, les compteurs, les incidents),
+**Facture** (coordonnées de facturation, décompte final, facture) et
 **Courrier** (§11). Le tableau de bord dit où en est la réservation et
 propose l'étape qui la fait avancer ; dessous, le parcours, étape par
 étape, dit pour chacune si le site la coche tout seul, si elle se fait

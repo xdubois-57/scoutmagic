@@ -49,7 +49,7 @@ final class BookingMilestones
      * The lines a manager may tick by hand when the site cannot derive them
      * — the walk-throughs, on an asset whose inventory the site does not
      * keep (issue #462, D5). A line becomes one only per booking, through
-     * `$offsite`: where the stay page records the inventory line by line,
+     * `$offsite`: where « État des lieux » records the inventory line by line,
      * the same line derives itself and carries no box.
      */
     public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
@@ -360,8 +360,8 @@ final class BookingMilestones
                 break;
             case self::FINAL_SETTLEMENT:
                 $kind = MilestoneKind::HERE;
-                $explanation = "Le décompte s'établit et se valide sur la page Séjour.";
-                $action = MilestoneAction::openBox('Établir le décompte', BookingBox::STAY);
+                $explanation = "Le décompte s'établit et se valide sur la page Facture.";
+                $action = MilestoneAction::openBox('Établir le décompte', BookingBox::INVOICE);
                 break;
             case self::SECURITY_DEPOSIT_RETURNED:
                 $kind = MilestoneKind::HERE;

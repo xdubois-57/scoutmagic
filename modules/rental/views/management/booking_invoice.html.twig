@@ -1,0 +1,82 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « Facture » (Booking\BookingPage::INVOICE, #708 IT-18): what the invoice
+  is made of, in the order it is made — the billing details, the final
+  settlement, then the invoice itself.
+
+  **The invoice waits for the departure inventory.** Until it is complete
+  — validated, or ticked by hand — « Générer la facture » is replaced by
+  the reason and a link to « État des lieux »; the controller refuses it
+  too. An asset with no inventory page waits for nothing.
+
+  « Envoyer la facture » sends the latest version through the document
+  e-mail, like Documents does, and its question names the address.
+
+  Requires the context of RentalManagementController::invoiceContext().
+#}
+{% block booking_content %}
+    <div id="{{ boxes.invoice.anchor }}">
+        <div data-booking-panel="invoice">
+            {% include '@rental/management/_billing.html.twig' %}
+
+            {% include '@rental/management/_settlement.html.twig' %}
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5 mb-2">Facture</h2>
+                    <p class="text-body-secondary small">
+                        Pour cette réservation seulement, ajustez
+                        <a href="{{ booking_url }}/document/invoice">le texte de la facture</a> avant de la
+                        générer. Chaque génération crée une version de plus, sans écraser la précédente.
+                    </p>
+
+                    {% if invoice_waits_for %}
+                        <p class="alert alert-secondary small mb-3" data-invoice-waits>
+                            La facture se génère une fois l'état des lieux de sortie complété.
+                            <a href="{{ invoice_waits_for }}">Faire l'état des lieux</a>
+                        </p>
+                    {% else %}
+                        <form method="post" action="/mes-locations/document-generer" class="d-inline">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                            <input type="hidden" name="booking_page" value="invoice">
+                            <input type="hidden" name="document_type" value="invoice">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture</button>
+                        </form>
+                    {% endif %}
+
+                    {% if invoice %}
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-top mt-3 pt-3"
+                             data-invoice>
+                            <span>
+                                <a href="{{ file_url(invoice.fileId) }}" target="_blank" rel="noopener">{{ invoice.label }}</a>
+                                <span class="text-body-secondary small d-block">
+                                    {% if invoice.hasBeenSent %}
+                                        Envoyée le {{ invoice.sentAt|date_fr }}
+                                    {% else %}
+                                        Pas encore envoyée
+                                    {% endif %}
+                                </span>
+                            </span>
+                            <form method="post" action="/mes-locations/document-envoyer"
+                                  data-confirm="{{ invoice.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} la facture à {{ booking.renterEmail }} ? Elle part immédiatement et ne peut pas être rappelée.{% if not invoice.hasBeenSent %} Son texte ne sera plus modifiable ensuite.{% endif %}"
+                                  data-confirm-label="{{ invoice.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="booking_page" value="invoice">
+                                <input type="hidden" name="document_id" value="{{ invoice.id }}">
+                                <button type="submit" class="btn btn-sm btn-primary">
+                                    {{ invoice.hasBeenSent ? 'Renvoyer la facture' : 'Envoyer la facture' }}
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block booking_scripts %}{% endblock %}

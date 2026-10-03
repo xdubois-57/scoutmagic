@@ -25,6 +25,10 @@
 #}
 {% block booking_content %}
     <div id="{{ boxes.inventory.anchor }}">
+        <div class="alert alert-secondary small">
+            <strong>Cette page ne fonctionne qu'en ligne.</strong> Rien n'y est enregistré hors
+            connexion : photographiez sur place, saisissez au retour.
+        </div>
         <div data-booking-panel="inventory">
             {% if not inventory_kept %}
                 <div class="card mb-3">

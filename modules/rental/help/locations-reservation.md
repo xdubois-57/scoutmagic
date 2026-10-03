@@ -8,12 +8,12 @@ question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
 paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/modifications
-related: locations-parcours, locations-etat-des-lieux, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
+related: locations-parcours, locations-etat-des-lieux, locations-facture, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
 Une réservation tient en plusieurs pages, reliées par les onglets sous
 son titre : **Tableau de bord**, **Modifications**, **Finances**,
-**Documents**, **État des lieux** et **Courrier**. La pastille
+**Documents**, **État des lieux**, **Facture** et **Courrier**. La pastille
 « État des lieux » est toujours là : sans modèle d'état des lieux ni
 compteurs, la page ne garde que les incidents. La pastille « Courrier »
 n'apparaît que si une boîte e-mail est dédiée aux locations, et une seule.
@@ -52,8 +52,7 @@ et l'ancien cesse de fonctionner sur-le-champ.
 
 Les commentaires internes et l'historique, repliés. Chaque ligne porte
 le chiffre qui répond à la question pour laquelle on l'aurait ouverte —
-le nombre de commentaires, de modifications — et s'ouvre d'un clic. Une boîte ouverte le reste pendant que vous y travaillez. Le
-séjour a sa propre page, et sa ligne y conduit.
+le nombre de commentaires, de modifications — et s'ouvre d'un clic. Une boîte ouverte le reste pendant que vous y travaillez.
 
 ## Les autres pages
 
@@ -63,7 +62,8 @@ Le nombre de celles qui attendent une réponse s'affiche à côté de son
 nom, « Modifications (1) », et une demande du locataire vous est
 notifiée.
 
-Le prix et les paiements sont sur « Finances », le contrat, la facture
-et les fichiers sur « Documents », les e-mails sur « Courrier » ;
+Le prix et les paiements sont sur « Finances », le contrat et les
+fichiers sur « Documents », le décompte final et la facture sur
+« Facture », les e-mails sur « Courrier » ;
 chacune a son sujet d'aide. Une étape du parcours qui se règle sur
 l'une d'elles y conduit directement, la bonne boîte ouverte.

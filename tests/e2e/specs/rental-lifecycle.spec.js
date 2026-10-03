@@ -363,20 +363,21 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(page.locator('[data-booking-panel="inventory"]'))
             .toContainText('Les deux états des lieux sont validés');
 
-        await page.goto(`${bookingUrl(page)}/sejour`, { waitUntil: 'load' });
-
-        // ── The final settlement ─────────────────────────────────────────
+        // ── The final settlement, then the invoice (#708, IT-18) ─────────
+        // On « Facture », inside `[data-rental-booking]`: the settlement's
+        // forms post without a page load and the panel is re-rendered.
         // Its own lines, and it never touches the agreed price (§6.21).
+        await page.goto(`${bookingUrl(page)}/facture`, { waitUntil: 'load' });
         await page.locator('#final-persons').fill('28');
-        await submitAndReload(
+        await submitAndRefresh(
             page,
             '/mes-locations/decompte',
-            page.getByRole('button', { name: 'Enregistrer un décompte' }),
+            () => page.getByRole('button', { name: 'Enregistrer un décompte' }).click(),
         );
         // A version now exists, and it is offered for validation — which is
         // also the proof that pressing « Enregistrer un décompte » created
-        // one rather than only redirecting.
-        await expect(page.getByRole('button', { name: 'Valider' })).toBeVisible();
+        // one rather than only answering.
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toBeVisible();
 
         // A version exists but nobody has signed it off, so the line names
         // the version while staying unticked — the shape of a settlement
@@ -386,14 +387,22 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Décompte final réglé')).toContainText(TODO);
         await expect(milestone(page, 'Décompte final réglé')).toContainText('v1');
 
-        await page.goto(`${bookingUrl(page)}/sejour`, { waitUntil: 'load' });
-        await submitAndReload(
+        await page.goto(`${bookingUrl(page)}/facture`, { waitUntil: 'load' });
+        await submitAndRefresh(
             page,
             '/mes-locations/decompte-valider',
-            page.getByRole('button', { name: 'Valider' }),
+            () => page.getByRole('button', { name: 'Valider', exact: true }).click(),
         );
         // Validated is final: the control that would change it is gone.
-        await expect(page.getByRole('button', { name: 'Valider' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toHaveCount(0);
+
+        // The departure inventory is validated, so the invoice can be made.
+        await submitAndRefresh(
+            page,
+            '/mes-locations/document-generer',
+            () => page.getByRole('button', { name: 'Générer la facture' }).click(),
+        );
+        await expect(page.getByRole('button', { name: 'Envoyer la facture' })).toBeVisible();
 
         // ── The closure ──────────────────────────────────────────────────
         await page.goto(bookingUrl(page), { waitUntil: 'load' });
@@ -447,24 +456,24 @@ function milestone(page, label) {
 /**
  * The booking's own URL, taken from the address bar.
  *
- * The stay page hangs off it and every form there redirects back to it, so
- * the scenario moves between the two by path rather than by hunting for a
- * link — the booking id is never written down in this file.
+ * Every page of the file hangs off it, so the scenario moves between them
+ * by path rather than by hunting for a link — the booking id is never
+ * written down in this file.
  *
  * @param {import('@playwright/test').Page} page
  */
 function bookingUrl(page) {
-    return page.url().split(/[?#]/)[0].replace(/\/(sejour|modifications|finances|documents|etat-des-lieux|courrier)$/, '');
+    return page.url().split(/[?#]/)[0].replace(/\/(modifications|finances|documents|etat-des-lieux|facture|courrier)$/, '');
 }
 
 /**
- * Submit one of the module's PLAIN forms — the asset's templates page and
- * the stay page, neither of which is inside `[data-rental-booking]` — and
- * wait for the page it redirects to.
+ * Submit one of the module's PLAIN forms — the asset's templates page,
+ * which is not inside `[data-rental-booking]` — and wait for the page it
+ * redirects to.
  *
- * Needed because `RentalManagementController`'s `assetSetupAction()` and
- * `stayAction()` both redirect back to the SAME url with no new text of
- * their own — several of these actions even set the same flash — so there
+ * Needed because `RentalManagementController`'s `assetSetupAction()`
+ * redirects back to the SAME url with no new text of its own — several
+ * of these actions even set the same flash — so there
  * is nothing for a following assertion to wait on, and a bare click would
  * let the next action race the navigation it just started. Waiting for the
  * POST's own response and then for the document that follows it is the one

@@ -8,7 +8,7 @@ question: Comment faire l'état des lieux d'entrée d'une location ?
 question: Pourquoi ne puis-je plus modifier un état des lieux ?
 question: Comment envoyer l'état des lieux au locataire ?
 paths: /mes-locations/*/reservations/*/etat-des-lieux
-related: locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
+related: locations-facture, locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
 ---
 
 La page « État des lieux » d'une réservation propose l'état des lieux si
@@ -56,6 +56,9 @@ Le PDF est rangé dans les documents de la réservation et envoyé au
 locataire. **Une fois validé, l'état des lieux ne se modifie plus** : le
 locataire en a une copie. Si l'envoi échoue, il est validé quand même ;
 renvoyez-le depuis la page Documents.
+
+La facture attend l'état des lieux de sortie : elle se génère, sur la
+page « Facture », une fois celui-ci validé.
 
 Si l'état des lieux d'entrée a été coché à la main sur le tableau de
 bord, celui de sortie commence directement, sans référence d'entrée à

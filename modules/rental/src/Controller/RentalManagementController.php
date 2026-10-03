@@ -939,6 +939,17 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * GET /mes-locations/{slug}/reservations/{id}/facture — the billing
+     * details, the final settlement and the invoice (#708, IT-18).
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingInvoice(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::INVOICE);
+    }
+
+    /**
      * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
      * booking; a 404 where `inbound_mail` collects nothing, the same answer
      * as a page that does not exist, because here it does not.
@@ -1299,13 +1310,13 @@ class RentalManagementController extends AbstractController
                         )
                     )),
                     'uploadable_types' => DocumentType::uploadable(),
-                    'billing' => $this->operationsService->billingIdentity($booking->id),
                     // So the page can say, BEFORE a contract goes out, that
                     // it would print « — » where the landlord's address
                     // belongs (issue #497).
                     'landlord' => $this->documentService?->landlordFor($asset),
                 ],
                 BookingPage::INVENTORY => $this->inventoryContext($booking, $asset),
+                BookingPage::INVOICE => $this->invoiceContext($booking, $asset),
                 // Only offered at all when a mailbox collects, which
                 // `bookingPagesOffered()` settled above.
                 BookingPage::MAIL => $this->mailContext($request, $booking),
@@ -2059,6 +2070,9 @@ class RentalManagementController extends AbstractController
             $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
             if ($type === null || !$type->isGenerated()) {
                 throw new RentalException("Ce type de document ne se génère pas.");
+            }
+            if ($type === DocumentType::INVOICE && $this->invoiceWaits($booking, $asset)) {
+                throw new RentalException("La facture se génère une fois l'état des lieux de sortie complété.");
             }
 
             $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
@@ -2912,62 +2926,6 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * GET /mes-locations/{slug}/reservations/{id}/sejour — meters,
-     * inventory, incidents and the settlement (§6.21–§6.23).
-     *
-     * Its own page rather than another card on the booking's file: this is
-     * what a manager opens on the day, and burying it under a contract
-     * editor and a payment panel would make the one screen used with muddy
-     * boots on the hardest to reach.
-     *
-     * **Deliberately absent from `Core\Offline\OfflineWhitelist`** (§6.23).
-     * The module declares no `offline` section at all, so nothing here is
-     * ever cached — and it must stay that way: these are WRITE pages, and
-     * the offline layer caches reads. A cached inventory form would let a
-     * manager fill it in on a phone with no signal and lose everything on
-     * the way home. The documented workaround is the honest one: photograph
-     * on site, type it up on return.
-     *
-     * @param array<string, string> $params
-     */
-    public function stay(Request $request, array $params): Response
-    {
-        $asset = $this->manageableAsset($params);
-        if ($asset === null || $this->stayService === null) {
-            return $this->notFound();
-        }
-
-        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
-        if ($booking === null) {
-            return $this->notFound();
-        }
-
-        // The count from the last settlement if one exists, else what was
-        // announced — a manager correcting a figure should not have to
-        // retype the one they already recorded.
-        $latestSettlement = $this->stayService->latestSettlement($booking->id);
-        $finalPersons = $latestSettlement !== null && $latestSettlement->finalPersons !== null
-            ? $latestSettlement->finalPersons
-            : $booking->estimatedPersons;
-
-        // Only the settlement is left here (#708, IT-17): the meters, the
-        // inventories and the incidents have their own page.
-        return $this->render('@rental/management/stay.html.twig', [
-            'asset' => $asset,
-            'booking' => $booking,
-            'breadcrumb_current' => 'Séjour',
-            'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
-            'settlements' => $this->stayService->settlementsFor($booking->id),
-            'final_persons' => $finalPersons,
-            // Recomputed live so a manager sees the effect of the reading
-            // they just typed — looking never creates a version.
-            'preview' => $this->stayService->previewSettlement($booking, $asset->id, $finalPersons),
-            'csrf_token' => CsrfGuard::generateToken(),
-            'nav_page' => 'bookings',
-        ]);
-    }
-
-    /**
      * What « État des lieux » renders (#708, IT-17): one inventory at a
      * time — the arrival until it is validated, then the departure, then a
      * read-only summary with both PDFs — its lines with what each is
@@ -3051,6 +3009,76 @@ class RentalManagementController extends AbstractController
         $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
 
         return isset($marks[BookingMilestones::ARRIVAL_INVENTORY]);
+    }
+
+    /**
+     * What « Facture » renders (#708, IT-18): the billing details, the
+     * final settlement with the incidents decided on « État des lieux »,
+     * and the latest invoice.
+     *
+     * @return array<string, mixed>
+     */
+    private function invoiceContext(RentalBooking $booking, RentalAsset $asset): array
+    {
+        // The count from the last settlement if one exists, else what was
+        // announced — a manager correcting a figure should not have to
+        // retype the one they already recorded.
+        $latestSettlement = $this->stayService?->latestSettlement($booking->id);
+        $finalPersons = $latestSettlement !== null && $latestSettlement->finalPersons !== null
+            ? $latestSettlement->finalPersons
+            : $booking->estimatedPersons;
+
+        $invoice = null;
+        foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
+            if ($document->type === DocumentType::INVOICE
+                && !$document->isSuperseded()
+                && ($invoice === null || $document->version > $invoice->version)
+            ) {
+                $invoice = $document;
+            }
+        }
+
+        // The page that changes a decision exists wherever the stay
+        // features do (bookingPagesOffered()): the incidents live there.
+        $keepsInventory = $this->stayService !== null;
+
+        return [
+            'billing' => $this->operationsService->billingIdentity($booking->id),
+            'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
+            'final_persons' => $finalPersons,
+            // Recomputed live, so the figure a manager sees is the one the
+            // next version would record — looking never creates a version.
+            'preview' => $this->stayService?->previewSettlement($booking, $asset->id, $finalPersons),
+            'decided_incidents' => array_values(array_filter(
+                $this->stayService?->incidentsFor($booking->id) ?? [],
+                static fn(\Modules\Rental\Stay\Incident $incident): bool
+                    => $incident->decision !== IncidentDecision::PENDING
+            )),
+            'inventory_url' => $keepsInventory
+                ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
+                : null,
+            'invoice' => $invoice,
+            'invoice_waits_for' => $this->invoiceWaits($booking, $asset)
+                ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
+                : null,
+        ];
+    }
+
+    /**
+     * Whether the invoice still waits for the departure inventory (#708,
+     * IT-18): until it is validated or ticked by hand, what it would bill
+     * — the consumptions, the incidents — is not known. A booking with
+     * nothing to walk waits for nothing (keepsInventoryFor(): its own
+     * copied checklist, not the asset's current template).
+     */
+    private function invoiceWaits(RentalBooking $booking, RentalAsset $asset): bool
+    {
+        if ($this->stayService === null || !$this->stayService->keepsInventoryFor($booking)) {
+            return false;
+        }
+
+        return !isset($this->stayService->inventoryValidations($booking->id)['departure'])
+            && !isset(($this->milestoneMarkService?->marksFor($booking->id) ?? [])[BookingMilestones::DEPARTURE_INVENTORY]);
     }
 
     /**
@@ -3216,7 +3244,7 @@ class RentalManagementController extends AbstractController
      */
     public function recordSettlement(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->stayService === null) {
                 throw new RentalException('Le décompte final n\'est pas disponible.');
             }
@@ -3244,7 +3272,7 @@ class RentalManagementController extends AbstractController
      */
     public function validateSettlement(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
             $this->stayService?->validateSettlement(
                 $booking,
                 (int) $request->getBody('settlement_id', 0),
@@ -3848,41 +3876,6 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * Same shape as `bookingAction()`, but back to the stay page.
-     *
-     * A manager recording eight meter readings should land where they were,
-     * not on the booking's file eight times.
-     *
-     * @param callable(RentalBooking, RentalAsset): void $work
-     */
-    private function stayAction(Request $request, callable $work): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
-            return $guard;
-        }
-
-        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
-        if ($asset === null || $this->stayService === null) {
-            return $this->notFound();
-        }
-
-        $booking = $this->bookingOfAsset($asset, (int) $request->getBody('booking_id', 0));
-        if ($booking === null) {
-            return $this->notFound();
-        }
-
-        try {
-            $work($booking, $asset);
-        } catch (RentalException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->redirect(
-            $this->bookingUrl($asset, $booking) . '/sejour'
-        );
-    }
-
-    /**
      * An integer a form actually carried, or null for a field left empty.
      *
      * `(int) ''` is `0`, and zero participants is a real answer — a group
@@ -4020,6 +4013,7 @@ class RentalManagementController extends AbstractController
         'finances' => '@rental/management/booking_finances.html.twig',
         'documents' => '@rental/management/booking_documents.html.twig',
         'inventory' => '@rental/management/booking_inventory.html.twig',
+        'invoice' => '@rental/management/booking_invoice.html.twig',
         'mail' => '@rental/management/booking_mail.html.twig',
     ];
 

@@ -8,13 +8,14 @@ question: Comment modifier le contrat d'une location déjà envoyé ?
 question: Pourquoi ne puis-je plus modifier le texte de ma facture ?
 question: Comment envoyer le contrat de location au locataire ?
 paths: /mes-locations/*/reservations/*/document/*, /mes-locations/*/reservations/*/documents
-related: gerer-les-locations, locations-reglages, locations-courrier
+related: gerer-les-locations, locations-reglages, locations-courrier, locations-facture
 ---
 
 La page « Documents » d'une réservation réunit ses documents — contrat,
-facture, copies signées, pièces reçues par e-mail — et les « Coordonnées
-de facturation » du locataire, que la facture reprend. Un document reçu
-par e-mail et rangé « Non classé » se reclasse depuis sa ligne.
+facture, copies signées, pièces reçues par e-mail. Un document reçu
+par e-mail et rangé « Non classé » se reclasse depuis sa ligne. La
+facture se génère sur la page « Facture », avec les coordonnées de
+facturation qu'elle reprend.
 
 Un contrat et une facture se construisent en trois temps : le **gabarit du
 bien**, la **copie de cette réservation**, puis le **PDF**.
@@ -44,8 +45,9 @@ site vous prévient avant la génération.
 ## Générer, puis envoyer
 
 **Le contrat se génère et s'envoie depuis le tableau de bord**, à son
-étape : générez, relisez le PDF, puis envoyez. La facture se génère ici.
-Cette page liste le contrat avec les autres documents et le renvoie.
+étape : générez, relisez le PDF, puis envoyez. La facture se génère sur
+la page « Facture ». Cette page-ci les liste avec les autres documents
+et les renvoie.
 
 Générer produit un PDF. Chaque génération crée une version de plus **sans
 écraser la précédente** : une version déjà signée reste intacte. Le
