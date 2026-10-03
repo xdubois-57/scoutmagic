@@ -27,7 +27,9 @@ final class BookingPageTest extends TestCase
      */
     public function testEachPageHoldsTheBoxesItWasGiven(): void
     {
-        $this->assertSame([BookingBox::CHANGES, BookingBox::COMMENTS, BookingBox::HISTORY], BookingPage::DASHBOARD->boxes());
+        $this->assertSame([BookingBox::COMMENTS, BookingBox::HISTORY], BookingPage::DASHBOARD->boxes());
+        // « Modifications » is a page of its own, not a box (#708, IT-20).
+        $this->assertSame([], BookingPage::CHANGES->boxes());
         $this->assertSame([BookingBox::PRICE, BookingBox::PAYMENT], BookingPage::FINANCES->boxes());
         $this->assertSame([BookingBox::DOCUMENTS], BookingPage::DOCUMENTS->boxes());
         $this->assertSame([BookingBox::MAIL], BookingPage::MAIL->boxes());
@@ -82,7 +84,7 @@ final class BookingPageTest extends TestCase
     public function testEachPageHasAFrenchLabel(): void
     {
         $this->assertSame(
-            ['Tableau de bord', 'Finances', 'Documents', 'Courrier'],
+            ['Tableau de bord', 'Modifications', 'Finances', 'Documents', 'Courrier'],
             array_map(static fn(BookingPage $page): string => $page->label(), BookingPage::cases())
         );
     }

@@ -805,6 +805,17 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * GET /mes-locations/{slug}/reservations/{id}/modifications — the
+     * renter's change requests and the unit's proposals (#708, IT-20).
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingChanges(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::CHANGES);
+    }
+
+    /**
      * GET /mes-locations/{slug}/reservations/{id}/finances — the price and
      * the payments of one booking.
      *
@@ -1135,6 +1146,15 @@ class RentalManagementController extends AbstractController
             'is_in_progress' => $booking->isInProgress($now),
             'nav_page' => 'bookings',
             'boxes' => $boxes,
+            // « Modifications (1) » in the rail, on every page of the file:
+            // seeing that somebody waits is the reason to go there (#708,
+            // IT-20).
+            'booking_page_counts' => [
+                BookingPage::CHANGES->value => count(array_filter(
+                    $this->changeRequestRepository->findForBooking($booking->id),
+                    static fn($change): bool => $change->isPending()
+                )),
+            ],
         ];
 
         // Each page loads what it renders and nothing else: the pages
@@ -1145,6 +1165,9 @@ class RentalManagementController extends AbstractController
             self::BOOKING_PAGE_TEMPLATES[$page->value],
             $context + match ($page) {
                 BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
+                BookingPage::CHANGES => [
+                    'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+                ],
                 BookingPage::FINANCES => [
                     'quote' => $this->operationsService->workingQuote($booking, $asset),
                     'payment' => $this->paymentStatus($booking, $asset),
@@ -1451,7 +1474,6 @@ class RentalManagementController extends AbstractController
                 AuditService::DEFAULT_PER_PAGE
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
-            'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
         ];
     }
@@ -3449,6 +3471,7 @@ class RentalManagementController extends AbstractController
      */
     private const BOOKING_PAGE_TEMPLATES = [
         'dashboard' => '@rental/management/booking.html.twig',
+        'changes' => '@rental/management/booking_changes.html.twig',
         'finances' => '@rental/management/booking_finances.html.twig',
         'documents' => '@rental/management/booking_documents.html.twig',
         'mail' => '@rental/management/booking_mail.html.twig',

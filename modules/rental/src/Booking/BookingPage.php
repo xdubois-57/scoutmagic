@@ -9,7 +9,8 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 /**
- * The four pages a booking's file is spread over (issue #462, IT-01).
+ * The pages a booking's file is spread over (issue #462, IT-01) — four at
+ * first, « Modifications » since #708 (IT-20).
  *
  * The file used to be one long screen: the journey, then eight folded
  * boxes under it. Everything was there, and a manager found neither where
@@ -31,6 +32,12 @@ namespace Modules\Rental\Booking;
 enum BookingPage: string
 {
     case DASHBOARD = 'dashboard';
+    /**
+     * The renter's change requests and the unit's proposals (#708, IT-20) —
+     * right after the dashboard, because it is the page somebody waiting
+     * for an answer sends a manager to.
+     */
+    case CHANGES = 'changes';
     case FINANCES = 'finances';
     case DOCUMENTS = 'documents';
     case MAIL = 'mail';
@@ -39,6 +46,10 @@ enum BookingPage: string
     {
         return match ($this) {
             self::DASHBOARD => 'Tableau de bord',
+            // Not « Demandes et propositions »: « demande » would collide
+            // with « la demande de location ». The renter makes a « demande
+            // de modification »; their word is the one taken.
+            self::CHANGES => 'Modifications',
             self::FINANCES => 'Finances',
             self::DOCUMENTS => 'Documents',
             self::MAIL => 'Courrier',
@@ -54,6 +65,7 @@ enum BookingPage: string
     {
         return match ($this) {
             self::DASHBOARD => '',
+            self::CHANGES => '/modifications',
             self::FINANCES => '/finances',
             self::DOCUMENTS => '/documents',
             self::MAIL => '/courrier',

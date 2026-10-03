@@ -687,6 +687,21 @@
       }
     },
     {
+      "path": "/mes-locations/{slug}/reservations/{id}/modifications",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingChanges",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifications",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
       "path": "/mes-locations/{slug}/reservations/{id}/finances",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -1220,6 +1235,18 @@
       "id": "rental.signed_contract_received",
       "label": "Contrat signé reçu",
       "description": "Le locataire a déposé sa copie signée du contrat sur sa page de suivi : elle attend votre vérification et votre contresignature.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "rental.change_request",
+      "label": "Demande de modification reçue",
+      "description": "Un locataire demande à modifier sa réservation — d'autres dates, un autre nombre de participants, ou son annulation. Elle mène à la page « Modifications » de la réservation.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {

@@ -2337,7 +2337,8 @@ class RentalManagementControllerTest extends TestCase
         // « Aucun document » over a document somebody has just generated is
         // the lie the wrapper exists to stop.
         $expected = [
-            'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments', 'changes'],
+            'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments'],
+            'changes' => ['changes'],
             'finances' => ['price', 'price-figure', 'payment', 'payment-figure'],
             'documents' => ['documents', 'documents-figure'],
         ];
@@ -2385,9 +2386,45 @@ class RentalManagementControllerTest extends TestCase
             '/\d+ modification/',
             self::panel($body, 'history-figure')
         );
-        // No change request has been made, and the figure says so rather
-        // than staying blank.
-        $this->assertStringContainsString('Aucune demande', self::panel($body, 'changes-figure'));
+    }
+
+    /**
+     * « Modifications » (#708, IT-20): its own page, right after the
+     * dashboard, the count of what waits beside its name — on every page
+     * of the file — and no box left on the dashboard.
+     */
+    public function testTheChangesHaveTheirOwnPageAndTheRailCountsWhatWaits(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $empty = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Aucune demande.', self::panel($empty, 'changes'));
+        $this->assertMatchesRegularExpression('#<span>Tableau de bord</span>.*?<span>Modifications</span>.*?<span>Finances</span>#s', $empty);
+
+        $this->operationsService->requestChange(
+            $booking,
+            $this->asset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+
+        $dashboard = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span>Modifications (1)</span>', $dashboard);
+        $this->assertStringNotContainsString('/mes-locations/demande', $dashboard, 'the box left the dashboard');
+
+        $changes = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Nous serons plus nombreux.', $changes);
+        // Answered from this page, and back to it without JavaScript.
+        $this->assertStringContainsString('name="booking_page" value="changes"', $changes);
+        // « Message au locataire » on three lines.
+        $this->assertMatchesRegularExpression('#<textarea[^>]*id="propose-message"[^>]*rows="3"#', $changes);
     }
 
     /**

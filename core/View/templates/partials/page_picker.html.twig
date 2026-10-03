@@ -47,7 +47,8 @@
                                       -- parent page selected
   } only %}
 
-  A page may also carry `icon` (a Bootstrap Icons class) and `align_end`
+  A page may also carry `count` (a number shown after its label when above
+  zero), `icon` (a Bootstrap Icons class) and `align_end`
   (push this page, and every page after it, to the far end of the rail —
   for the one entry that leaves the module the rail navigates). Both are
   passed straight through to the nav rail; see its own docblock.
@@ -69,6 +70,7 @@
         label: page.label,
         selected: page.url == _best,
         icon: page.icon|default(null),
+        count: page.count|default(null),
         align_end: page.align_end|default(false),
     }]) %}
 {% endfor %}

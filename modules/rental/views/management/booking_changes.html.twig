@@ -1,0 +1,17 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « Modifications » — the renter's change requests and the unit's
+  proposals on one booking (Booking\BookingPage::CHANGES, #708 IT-20).
+  Right after the dashboard in the rail, with the count of what is pending
+  beside its name: it is the page somebody waiting for an answer sends a
+  manager to.
+
+  One refreshable region, `changes`, so an answer re-renders the list.
+#}
+{% block booking_content %}
+    <div class="card mb-3">
+        <div data-booking-panel="changes">
+            {% include '@rental/management/_changes.html.twig' %}
+        </div>
+    </div>
+{% endblock %}

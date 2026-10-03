@@ -12,11 +12,20 @@
   rather than disabled. « Séjour » is never one of them: it has its own page
   one level deeper in the breadcrumb, and a chip would put it on this level.
 
-  Requires `booking_pages`, `booking_page` and `booking_url`.
+  A page may carry a count beside its name — « Modifications (1) » while a
+  request or a proposal waits (#708, IT-20) — from `booking_page_counts`,
+  keyed by the page's value.
+
+  Requires `booking_pages`, `booking_page` and `booking_url`; optional
+  `booking_page_counts`.
 #}
 {% set pages = [] %}
 {% for page in booking_pages %}
-    {% set pages = pages|merge([{url: page.url(booking_url), label: page.label}]) %}
+    {% set pages = pages|merge([{
+        url: page.url(booking_url),
+        label: page.label,
+        count: (booking_page_counts|default({}))[page.value]|default(null),
+    }]) %}
 {% endfor %}
 {% include 'partials/page_picker.html.twig' with {
     picker_id: 'rental-booking-picker',
