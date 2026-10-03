@@ -12,7 +12,15 @@
         subtitle: carpool.dates,
     } only %}
 
-    <p class="mb-1">{{ carpool.address }}</p>
+    {# What the address IS depends on the direction (#703): every car of
+       the outbound goes there, every car of the return leaves from there.
+       It opens a route from where the reader is, in their own map
+       application. #}
+    <p class="mb-1">
+        <span class="text-body-secondary">{{ direction == 'return' ? 'Départ' : 'Destination' }} :</span>
+        <a href="{{ directions_url }}" target="_blank" rel="noopener noreferrer"
+           title="Itinéraire depuis votre position">{{ carpool.address }}</a>
+    </p>
     <p class="small mb-1">
         <a href="{{ carpool.maps_url }}" target="_blank" rel="noopener noreferrer">Ouvrir sur une carte</a>
     </p>

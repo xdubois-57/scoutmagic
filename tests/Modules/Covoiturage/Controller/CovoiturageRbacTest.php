@@ -200,9 +200,23 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('Sophie Martin (vous)', $page);
         $this->assertStringContainsString('Demandes (1)', $page);
         $this->assertStringContainsString('Accepter la place', $page);
-        // Pending: no phone for the driver yet. The whole number, not a
+        // Pending, and the driver already has the family's phone, so they
+        // can call before answering (#703). The whole number, not a
         // prefix: four hex digits of the page's CSRF token once read 0495.
-        $this->assertStringNotContainsString('0495 88 77 66', $page);
+        $this->assertStringContainsString('0495 88 77 66', $page);
+        // The address says what it is on this trip, and opens a route.
+        $this->assertStringContainsString('Destination :', $page);
+        $this->assertStringContainsString('title="Itinéraire depuis votre position"', $page);
+        // Refusing asks for an optional word, 200 characters at most.
+        $this->assertStringContainsString('data-confirm-note="Un mot pour la famille (facultatif)"', $page);
+        $this->assertStringContainsString('data-confirm-note-maxlength="200"', $page);
+
+        // On the return, the same address is where every car leaves from.
+        $return = $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId, ['sens' => 'return'], [], [], []))
+            ->getBody();
+        $this->assertStringContainsString('Départ :', $return);
+        $this->assertStringNotContainsString('Destination :', $return);
 
         $form = $this->frontController('GET', '/covoiturage/{id}/proposer', 'offerForm', 'identified')
             ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId . '/proposer', [], [], [], []))->getBody();

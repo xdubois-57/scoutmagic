@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Covoiturage\Controller;
 
+use Core\Geo\MapsLink;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -73,6 +74,13 @@ class CarpoolController extends AbstractController
         return $this->render('@covoiturage/show.html.twig', [
             'carpool' => $this->board->carpoolPage($carpool, $viewer),
             'direction' => $carpool->hasReturn() ? $direction : Offer::OUTBOUND,
+            // The address opens a route from where the reader is, in the
+            // map application of their own device (#703).
+            'directions_url' => MapsLink::directions(
+                $carpool->point,
+                $carpool->address,
+                (string) $request->getServer('HTTP_USER_AGENT', '')
+            ),
             'prefill' => $this->board->prefill($viewer),
             'breadcrumb_current' => $carpool->title(),
         ]);
@@ -255,9 +263,22 @@ class CarpoolController extends AbstractController
 
         $apply = fn() => match ($action) {
             'accept' => $this->offerService->accept($seatRequest, $offer, $viewer, $carpool),
-            'refuse' => $this->offerService->refuse($seatRequest, $offer, $viewer, $carpool),
+            // The optional word the confirmation dialog asks for (#703).
+            'refuse' => $this->offerService->refuse(
+                $seatRequest,
+                $offer,
+                $viewer,
+                $carpool,
+                (string) $request->getBody('message', '')
+            ),
             'revoke' => $this->offerService->revoke($seatRequest, $offer, $viewer, $carpool),
-            default => $this->offerService->withdraw($seatRequest, $viewer, $carpool, $offer),
+            default => $this->offerService->withdraw(
+                $seatRequest,
+                $viewer,
+                $carpool,
+                $offer,
+                (string) $request->getBody('message', '')
+            ),
         };
 
         return $this->act($request, $carpool, $offer, $apply, $success);

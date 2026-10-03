@@ -36,11 +36,17 @@ pour moins de personnes, ou dans une autre voiture.
 
 Quand la demande est acceptée, le téléphone du conducteur s'affiche sous
 votre place. Vous pouvez à tout moment « Retirer ma demande » : la place
-redevient libre et le conducteur le voit.
+redevient libre et le conducteur le voit. En refusant comme en retirant,
+un mot facultatif (200 caractères au plus) peut accompagner la décision ;
+il est transmis avec la notification.
 
-> Votre numéro n'est montré au conducteur **que s'il accepte**. Les
-> animateurs de la section voient qui monte dans quelle voiture, mais pas
-> les numéros.
+L'adresse du covoiturage est un lien : elle ouvre l'application de cartes
+de votre appareil avec l'itinéraire depuis l'endroit où vous êtes.
+
+> Votre numéro est montré au conducteur **dès votre demande**, pour qu'il
+> puisse vous appeler avant de répondre. Le sien ne vous est montré que
+> s'il accepte. Les animateurs de la section voient qui monte dans quelle
+> voiture, mais pas les numéros.
 
 ## Les covoiturages passés
 
