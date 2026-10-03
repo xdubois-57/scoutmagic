@@ -34,16 +34,28 @@ use Modules\Social\Service\ShareSourceResolver;
 use Twig\Environment;
 
 /**
- * « Communications » (espace chefs): a free communication — an image, a
- * title written on it, a text — published like an album or an article, and
- * « Ce qui est parti », the history of everything that left, destination by
- * destination, with its retry.
+ * « Médias sociaux » (espace chefs): the ONE composer everything is
+ * published through, and « Ce qui est parti », the history of everything
+ * that left, destination by destination, with its retry.
+ *
+ * **One composer, two ways in** (docs/chantiers/CHANTIER-medias-sociaux.md,
+ * IT-01). From nothing: an image of its own — a gallery photo or an upload
+ * — a title written on it, a text. Or from « Partager » on an album or an
+ * article, which opens the same page prefilled, with the image and the
+ * title coming from that source and locked, and no address field anywhere:
+ * the link is the source's, never typed.
  *
  * **A real page, in the mockup's order**: the image as it will be
- * published, the two buttons that change it (gallery or upload), the title
- * written on the image, the text, then the destinations. The image is
- * always required — the card says so, and PublishingService refuses
- * without one.
+ * published, the two buttons that change it (gallery or upload, and only
+ * when the image is this communication's own), the title written on the
+ * image, the text, then the destinations. The image is always required —
+ * the card says so, and PublishingService refuses without one.
+ *
+ * **There is no « Enregistrer ».** Everything is saved by « Publier ». A
+ * round trip to the gallery or an upload keeps the draft by itself, with
+ * no button and no mention of it, and nothing is published or frozen
+ * before « Publier » (IT-01). Publishing then returns to the history,
+ * which is where what you just did is visible.
  *
  * **What was sent is frozen once it left.** As soon as one destination has
  * been tried, the image, title and text no longer change: a retry, and a
@@ -56,7 +68,7 @@ use Twig\Environment;
  */
 final class CommunicationController extends AbstractController
 {
-    public const HISTORY_PATH = '/communications';
+    public const HISTORY_PATH = '/medias-sociaux';
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
@@ -116,18 +128,63 @@ final class CommunicationController extends AbstractController
         return $this->editor(null);
     }
 
+    /**
+     * The same composer, opened by « Partager » on an album or an article
+     * and prefilled from it.
+     *
+     * **No row is created here.** A click on « Partager » is not a
+     * decision to publish anything, and creating one per click would leave
+     * a trail of empty communications behind every look at the page. The
+     * source travels in the form and is checked again, against the owning
+     * module's own rule, when « Publier » creates the row.
+     *
+     * @param array<string, string> $params
+     */
+    public function createFromSource(Request $request, array $params): Response
+    {
+        $kind = (string) ($params['kind'] ?? '');
+        $source = $this->sources->describeSource(
+            $kind,
+            (int) ($params['id'] ?? 0),
+            AuthSession::getRole(),
+            (int) AuthSession::getUserAccountId(),
+            AuthSession::getEmail()
+        );
+        if ($source === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->editor(null, $source);
+    }
+
     /** @param array<string, string> $params */
     public function store(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/communications/nouvelle')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::HISTORY_PATH . '/nouvelle')) !== null) {
             return $guard;
         }
 
+        // The source the form carries is never taken on trust: it is
+        // described again, through the owning module's own Api, so a
+        // forged album id answers 404 exactly as asking for that album
+        // directly would.
+        $kind = $this->nullableSourceKind($request);
+        $sourceId = $kind === null ? null : (int) $request->getBody('source_id', 0);
+        if ($kind !== null && $this->describedSource($kind, (int) $sourceId) === null) {
+            return new Response('Not Found', 404);
+        }
+
         $id = $this->communications->create(
-            self::title($request),
+            // A source-backed communication has no title of its own: the
+            // card's title IS the source's, read at every use, so writing
+            // a copy here would be a second answer able to disagree with
+            // it (Repository\Communication).
+            $kind === null ? self::title($request) : '',
             self::body($request),
             AuthSession::getUserAccountId(),
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            $kind,
+            $sourceId
         );
         $communication = $this->communications->find($id);
         \assert($communication !== null);
@@ -157,7 +214,7 @@ final class CommunicationController extends AbstractController
         if (!$this->isFrozen($communication)) {
             $this->communications->updateText(
                 $communication->id,
-                self::title($request),
+                $communication->hasSource() ? $communication->title : self::title($request),
                 self::body($request),
                 new \DateTimeImmutable()
             );
@@ -278,17 +335,23 @@ final class CommunicationController extends AbstractController
 
     /**
      * What a form's button asked: go and choose a gallery photo, take the
-     * uploaded file, publish, or only save.
+     * uploaded file, or publish.
+     *
+     * There is no « Enregistrer » any more (IT-01), so the fall-through is
+     * not a save that announces itself: the row has already been written
+     * by the time this runs, and the visitor is simply put back on their
+     * draft with nothing to read. Saying « Communication enregistrée »
+     * here would tell them something happened that they did not ask for.
      */
     private function act(Request $request, Communication $communication): Response
     {
-        $action = (string) $request->getBody('action', 'save');
+        $action = (string) $request->getBody('action', '');
         $self = self::path($communication);
 
-        if ($action === 'gallery' && $this->photos !== null && !$this->isFrozen($communication)) {
+        if ($action === 'gallery' && $this->photos !== null && $this->mayChangeImage($communication)) {
             return $this->redirect($self . '/photo');
         }
-        if ($action === 'upload' && !$this->isFrozen($communication)) {
+        if ($action === 'upload' && $this->mayChangeImage($communication)) {
             $this->upload($request, $communication);
 
             return $this->redirect($self);
@@ -297,9 +360,17 @@ final class CommunicationController extends AbstractController
             return $this->publishNow($request, $communication);
         }
 
-        FlashMessage::set('success', 'Communication enregistrée.');
-
         return $this->redirect($self);
+    }
+
+    /**
+     * Whether the image is this communication's to change: not once it has
+     * left, and never when it comes from a source — an album's cover is
+     * the album's, and « Partager » hides both buttons for that reason.
+     */
+    private function mayChangeImage(Communication $communication): bool
+    {
+        return !$this->isFrozen($communication) && !$communication->hasSource();
     }
 
     private function upload(Request $request, Communication $communication): void
@@ -344,11 +415,7 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
 
-        $source = $this->sources->communication(
-            $communication->id,
-            AuthSession::getRole(),
-            (int) AuthSession::getUserAccountId()
-        );
+        $source = $this->communicationSource($communication->id);
         if ($source === null) {
             return new Response('Not Found', 404);
         }
@@ -365,25 +432,46 @@ final class CommunicationController extends AbstractController
         [$type, $message] = DestinationStates::summary($outcomes);
         FlashMessage::set($type, $message);
 
-        return $this->redirect($self);
+        // To the history, not back to the draft (IT-01): what just left is
+        // what you want to see, and the composer has nothing more to say.
+        return $this->redirect(self::HISTORY_PATH);
     }
 
-    private function editor(?Communication $communication): Response
+    /**
+     * The composer, for a saved communication or for a new one.
+     *
+     * `$prefill` is the album or article « Partager » came from, on a page
+     * that has no row yet: it is what the card shows and what the hidden
+     * source fields carry into the POST. For a saved communication the
+     * source comes from the row instead, through the resolver, which is
+     * also where a source-backed one gets its image and title.
+     */
+    private function editor(?Communication $communication, ?ShareSource $prefill = null): Response
     {
-        $source = $communication === null ? null : $this->sources->communication(
-            $communication->id,
-            AuthSession::getRole(),
-            (int) AuthSession::getUserAccountId()
-        );
+        $source = $communication === null
+            ? $prefill
+            : $this->communicationSource($communication->id);
+        // What is being shared, for the one line above the card — from the
+        // row once there is one, from the prefill before that.
+        $sourceKind = $communication->sourceKind ?? $prefill?->kind;
+        $fromSource = $sourceKind !== null && $sourceKind !== ShareSource::KIND_COMMUNICATION;
 
         return $this->render('@social/communications/edit.html.twig', [
             'communication' => $communication,
             'source' => $source,
             'frozen' => $communication !== null && $this->isFrozen($communication),
-            'form_action' => $communication === null ? '/communications' : self::path($communication),
+            'form_action' => $communication === null ? self::HISTORY_PATH : self::path($communication),
             'has_image' => $source !== null && $source->image !== null && $source->image !== '',
             'from_gallery' => $communication?->galleryMediaId !== null,
-            'gallery_available' => $this->photos !== null,
+            // Neither button is offered when the image is the source's:
+            // an album's cover is the album's to change, not this page's.
+            'gallery_available' => $this->photos !== null && !$fromSource,
+            'uploadable' => !$fromSource,
+            'from_source' => $fromSource,
+            'source_kind' => $fromSource ? $sourceKind : null,
+            'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
+            'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
+            'preview_path' => $communication === null ? null : self::path($communication) . '/apercu',
             'destinations' => $source === null ? $this->unsavedDestinations() : $this->states->forSource($source),
             'offers_groups' => $this->states->offersGroups() && $source !== null,
             'groups' => $source === null ? [] : $this->states->groupsFor(
@@ -463,10 +551,43 @@ final class CommunicationController extends AbstractController
      */
     private function source(array $params): ?ShareSource
     {
+        return $this->communicationSource((int) ($params['id'] ?? 0));
+    }
+
+    /**
+     * A communication as something publishable — asked of its own rule,
+     * and of its source's when it has one, at every single use.
+     */
+    private function communicationSource(int $communicationId): ?ShareSource
+    {
         return $this->sources->communication(
-            (int) ($params['id'] ?? 0),
+            $communicationId,
             AuthSession::getRole(),
-            (int) AuthSession::getUserAccountId()
+            (int) AuthSession::getUserAccountId(),
+            AuthSession::getEmail()
+        );
+    }
+
+    /**
+     * The album or article kind a composer's form carried, or null for a
+     * communication written from nothing. An unknown kind is null too:
+     * store() then records no source rather than one nothing can describe.
+     */
+    private function nullableSourceKind(Request $request): ?string
+    {
+        $kind = trim((string) $request->getBody('source_kind', ''));
+
+        return ShareSourceResolver::sourceLabel($kind) === null ? null : $kind;
+    }
+
+    private function describedSource(string $kind, int $id): ?ShareSource
+    {
+        return $this->sources->describeSource(
+            $kind,
+            $id,
+            AuthSession::getRole(),
+            (int) AuthSession::getUserAccountId(),
+            AuthSession::getEmail()
         );
     }
 
@@ -488,12 +609,15 @@ final class CommunicationController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $role = AuthSession::getRole();
         $accountId = (int) AuthSession::getUserAccountId();
-        $source = match ((string) ($params['kind'] ?? '')) {
-            ShareSource::KIND_ALBUM => $this->sources->album($id, $role, AuthSession::getEmail() ?? ''),
-            ShareSource::KIND_ARTICLE => $this->sources->article($id, $role, $accountId),
-            ShareSource::KIND_COMMUNICATION => $this->sources->communication($id, $role, $accountId),
-            default => null,
-        };
+        $source = (string) ($params['kind'] ?? '') === ShareSource::KIND_COMMUNICATION
+            ? $this->communicationSource($id)
+            : $this->sources->describeSource(
+                (string) ($params['kind'] ?? ''),
+                $id,
+                $role,
+                $accountId,
+                AuthSession::getEmail()
+            );
         if (($platform === null && ($groupId === null || !$this->states->offersGroups())) || $source === null) {
             return null;
         }
@@ -563,7 +687,8 @@ final class CommunicationController extends AbstractController
                 'publication' => $publication,
                 // Unencoded: the router matches the raw path, and a
                 // destination key (`group:3`) is valid in one as it is.
-                'retry_path' => '/communications/reessayer/' . $group['kind'] . '/' . $group['id'] . '/' . $key,
+                'retry_path' => self::HISTORY_PATH . '/reessayer/'
+                    . $group['kind'] . '/' . $group['id'] . '/' . $key,
             ];
         }
 
@@ -593,12 +718,12 @@ final class CommunicationController extends AbstractController
 
     private static function retryPath(ShareSource $source, string $key): string
     {
-        return '/communications/reessayer/' . $source->kind . '/' . $source->id . '/' . $key;
+        return self::HISTORY_PATH . '/reessayer/' . $source->kind . '/' . $source->id . '/' . $key;
     }
 
     private static function path(?Communication $communication): string
     {
-        return $communication === null ? self::HISTORY_PATH : '/communications/' . $communication->id;
+        return $communication === null ? self::HISTORY_PATH : ShareSourceResolver::path($communication->id);
     }
 
     private static function title(Request $request): string

@@ -25,13 +25,26 @@ class CommunicationRepository
         return $row === false ? null : self::hydrate($row);
     }
 
-    public function create(string $title, string $body, ?int $createdBy, \DateTimeImmutable $now): int
-    {
+    /**
+     * `$sourceKind` and `$sourceId` go together: what this communication
+     * shares, or nothing at all. The caller has already asked the owning
+     * module whether this viewer may share it — this layer only records
+     * the answer.
+     */
+    public function create(
+        string $title,
+        string $body,
+        ?int $createdBy,
+        \DateTimeImmutable $now,
+        ?string $sourceKind = null,
+        ?int $sourceId = null
+    ): int {
         $stamp = $now->format('Y-m-d H:i:s');
         $this->pdo->prepare(
-            'INSERT INTO social_communications (title, body, created_by, created_at, updated_at)'
-            . ' VALUES (?, ?, ?, ?, ?)'
-        )->execute([$title, $body, $createdBy, $stamp, $stamp]);
+            'INSERT INTO social_communications'
+            . ' (title, body, created_by, created_at, updated_at, source_kind, source_id)'
+            . ' VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$title, $body, $createdBy, $stamp, $stamp, $sourceKind, $sourceId]);
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -69,7 +82,9 @@ class CommunicationRepository
             $row['gallery_media_id'] === null ? null : (int) $row['gallery_media_id'],
             $row['file_id'] === null ? null : (int) $row['file_id'],
             $row['created_by'] === null ? null : (int) $row['created_by'],
-            DateInput::fromStorage((string) $row['created_at']) ?? new \DateTimeImmutable()
+            DateInput::fromStorage((string) $row['created_at']) ?? new \DateTimeImmutable(),
+            $row['source_kind'] === null ? null : (string) $row['source_kind'],
+            $row['source_id'] === null ? null : (int) $row['source_id']
         );
     }
 }

@@ -297,7 +297,17 @@ class NewsIntegrationTest extends TestCase
         $registry->register(new class implements \Modules\News\Api\ArticleActionProviderInterface {
             public function actionsFor(int $articleId): array
             {
-                return [new \Modules\News\Api\ArticleAction('Partager', '/partage/actualite/' . $articleId, 'bi-share')];
+                return [new \Modules\News\Api\ArticleAction(
+                    'Partager',
+                    '/medias-sociaux/nouvelle/article/' . $articleId,
+                    'bi-share',
+                    true
+                )];
+            }
+
+            public function noteFor(int $articleId): ?\Modules\News\Api\ArticleNote
+            {
+                return null;
             }
         });
         $controller = new NewsController(
@@ -311,7 +321,8 @@ class NewsIntegrationTest extends TestCase
 
         $body = $controller->edit($request, ['id' => (string) $articleId])->getBody();
         $this->assertStringContainsString('data-article-actions', $body);
-        $this->assertStringContainsString('href="/partage/actualite/' . $articleId . '"', $body);
+        $this->assertStringContainsString('href="/medias-sociaux/nouvelle/article/' . $articleId . '"', $body);
+        $this->assertStringContainsString('aria-label="Partager"', $body);
 
         $this->assertStringNotContainsString('data-article-actions', $this->newsController->edit($request, ['id' => (string) $articleId])->getBody());
     }

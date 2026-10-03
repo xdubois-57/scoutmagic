@@ -10,22 +10,40 @@
 <form method="post" action="{{ form_action }}" enctype="multipart/form-data">
     {{ csrf_field()|raw }}
 
+    {# What is being shared, when this was opened from « Partager ». The
+       source travels in the form rather than in the address: a composer
+       has no address field at all, and the server describes this pair
+       again, through the owning module, before writing anything. #}
+    {% if from_source %}
+        <input type="hidden" name="source_kind" value="{{ source_kind }}">
+        <input type="hidden" name="source_id" value="{{ source_id }}">
+        <p class="d-flex align-items-center gap-2 text-body-secondary mb-3">
+            <i class="bi bi-images" aria-hidden="true"></i>
+            <span>Partage de {{ source_label }} <strong>{{ source.title|default('') }}</strong></span>
+        </p>
+    {% endif %}
+
     {# 1. The image, as it will be published — it is what is judged. #}
     <div class="mb-3" data-communication-image>
-        {% if has_image %}
-            <img src="{{ form_action }}/apercu" alt="Carte qui sera publiée : {{ source.title }}"
+        {% if has_image and preview_path %}
+            <img src="{{ preview_path }}" alt="Carte qui sera publiée : {{ source.title }}"
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
                 {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
             </p>
+        {% elseif from_source %}
+            <div class="alert alert-secondary mb-0">
+                L'image est celle de {{ source_label }} : elle apparaîtra ici une fois la communication publiée.
+            </div>
         {% else %}
             <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>
         {% endif %}
     </div>
 
-    {# 2. The two buttons that change it, side by side, and what differs between them. #}
-    {% if not frozen %}
+    {# 2. The two buttons that change it — absent when the image is the
+       source's, which is the album's own to change, not this page's. #}
+    {% if not frozen and uploadable %}
         <div class="row g-2 mb-2">
             {% if gallery_available %}
                 <div class="col-6">
@@ -48,22 +66,33 @@
         <p class="small text-body-secondary mb-4">
             Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
         </p>
-    {% else %}
+    {% elseif frozen %}
         <div class="alert alert-info small mb-4">
             Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
             pour que chaque destination reçoive la même chose.
         </div>
     {% endif %}
 
-    {# 3. The title written on the image — right after it, since it changes it. #}
-    {% include 'partials/form_field.html.twig' with {
-        field_id: 'communication-title',
-        field_name: 'title',
-        label: 'Titre sur l\'image',
-        value: communication.title|default(''),
-        maxlength: title_max,
-        readonly: frozen,
-    } only %}
+    {# 3. The title written on the image. Read-only and taken from the
+       source when there is one: an album's name is the album's. #}
+    {% if from_source %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'communication-title',
+            label: 'Titre sur l\'image',
+            value: source.title|default(''),
+            readonly: true,
+            help: 'Le titre est celui de ' ~ source_label ~ ' : il se change là-bas.',
+        } only %}
+    {% else %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'communication-title',
+            field_name: 'title',
+            label: 'Titre sur l\'image',
+            value: communication.title|default(''),
+            maxlength: title_max,
+            readonly: frozen,
+        } only %}
+    {% endif %}
 
     {# 4. The text of the post. #}
     {% include 'partials/form_field.html.twig' with {
@@ -72,7 +101,7 @@
         label: 'Texte de la publication',
         type: 'textarea',
         rows: 4,
-        value: communication.body|default(''),
+        value: communication.body|default(source.defaultCaption|default('')),
         maxlength: body_max,
         readonly: frozen,
         help: 'Sur Instagram, une adresse en légende n\'est pas cliquable : c\'est pour ça qu\'elle figure sur l\'image.',
@@ -89,11 +118,9 @@
         {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
     </div>
 
+    {# No « Enregistrer »: « Publier » is what saves (IT-01). #}
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
-        <a class="btn btn-link" href="/communications">Voir l'historique</a>
-        {% if not frozen %}
-            <button type="submit" name="action" value="save" class="btn btn-outline-secondary">Enregistrer</button>
-        {% endif %}
+        <a class="btn btn-link" href="/medias-sociaux">Voir l'historique</a>
         <button type="submit" name="action" value="publish" class="btn btn-primary"
                 data-confirm="Publier maintenant ? Sur Facebook et Instagram, c'est public et hors du site : personne ne pourra le reprendre d'ici."
                 data-confirm-label="Publier">

@@ -1,13 +1,18 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Ce qui est parti — {{ site_name }}{% endblock %}
+{% block title %}Médias sociaux — {{ site_name }}{% endblock %}
 
 {% block content %}
+{# The page is « Médias sociaux » and the list under it is « Ce qui est
+   parti » — the mockup's own hierarchy
+   (docs/chantiers/maquettes/medias-sociaux.html). #}
 {% include 'partials/page_header.html.twig' with {
-    title: 'Ce qui est parti',
+    title: 'Médias sociaux',
     action_label: 'Nouvelle communication',
-    action_url: '/communications/nouvelle',
+    action_url: '/medias-sociaux/nouvelle',
 } only %}
+
+<h2 class="h5 mb-3">Ce qui est parti</h2>
 
 {% for entry in entries %}
     <div class="card mb-3" data-history-entry="{{ entry.kind }}">

@@ -2,7 +2,7 @@
   "id": "social",
   "name": "Réseaux sociaux",
   "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -87,103 +87,25 @@
       "label": ""
     },
     {
-      "path": "/partage/album/{id}",
-      "method": "GET",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "showAlbum",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": "",
-      "breadcrumb": {
-        "label": "Partager",
-        "parents": [
-          "Espace animateurs"
-        ],
-        "ancestors": [
-          {
-            "label": "Gérer les photos",
-            "path": "/gallery/manage"
-          }
-        ]
-      }
-    },
-    {
-      "path": "/partage/album/{id}/apercu",
-      "method": "GET",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "previewAlbum",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/partage/album/{id}",
-      "method": "POST",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "publishAlbum",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/partage/actualite/{id}",
-      "method": "GET",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "showArticle",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": "",
-      "breadcrumb": {
-        "label": "Partager",
-        "parents": [
-          "Espace animateurs"
-        ],
-        "ancestors": [
-          {
-            "label": "Rédiger les actualités",
-            "path": "/news/manage"
-          }
-        ]
-      }
-    },
-    {
-      "path": "/partage/actualite/{id}/apercu",
-      "method": "GET",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "previewArticle",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/partage/actualite/{id}",
-      "method": "POST",
-      "controller": "Modules\\Social\\Controller\\ShareController",
-      "action": "publishArticle",
-      "menu": "espace_chefs",
-      "role_min": "chief",
-      "label": ""
-    },
-    {
-      "path": "/communications",
+      "path": "/medias-sociaux",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "history",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Communications",
+      "label": "Médias sociaux",
       "menu_icon": "bi-megaphone",
       "menu_group": "communication",
       "menu_order": 85,
       "breadcrumb": {
-        "label": "Communications",
+        "label": "Médias sociaux",
         "parents": [
           "Espace animateurs"
         ]
       }
     },
     {
-      "path": "/communications/nouvelle",
+      "path": "/medias-sociaux/nouvelle",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "create",
@@ -197,14 +119,35 @@
         ],
         "ancestors": [
           {
-            "label": "Communications",
-            "path": "/communications"
+            "label": "Médias sociaux",
+            "path": "/medias-sociaux"
           }
         ]
       }
     },
     {
-      "path": "/communications",
+      "path": "/medias-sociaux/nouvelle/{kind}/{id}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "createFromSource",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouvelle communication",
+        "parents": [
+          "Espace animateurs"
+        ],
+        "ancestors": [
+          {
+            "label": "Médias sociaux",
+            "path": "/medias-sociaux"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/medias-sociaux",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "store",
@@ -213,7 +156,7 @@
       "label": ""
     },
     {
-      "path": "/communications/{id}",
+      "path": "/medias-sociaux/{id}",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "edit",
@@ -227,14 +170,14 @@
         ],
         "ancestors": [
           {
-            "label": "Communications",
-            "path": "/communications"
+            "label": "Médias sociaux",
+            "path": "/medias-sociaux"
           }
         ]
       }
     },
     {
-      "path": "/communications/{id}",
+      "path": "/medias-sociaux/{id}",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "update",
@@ -243,7 +186,7 @@
       "label": ""
     },
     {
-      "path": "/communications/{id}/apercu",
+      "path": "/medias-sociaux/{id}/apercu",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "preview",
@@ -252,7 +195,7 @@
       "label": ""
     },
     {
-      "path": "/communications/{id}/photo",
+      "path": "/medias-sociaux/{id}/photo",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "picker",
@@ -266,14 +209,14 @@
         ],
         "ancestors": [
           {
-            "label": "Communications",
-            "path": "/communications"
+            "label": "Médias sociaux",
+            "path": "/medias-sociaux"
           }
         ]
       }
     },
     {
-      "path": "/communications/{id}/photo",
+      "path": "/medias-sociaux/{id}/photo",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "pick",
@@ -282,7 +225,7 @@
       "label": ""
     },
     {
-      "path": "/communications/reessayer/{kind}/{id}/{platform}",
+      "path": "/medias-sociaux/reessayer/{kind}/{id}/{platform}",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "confirmRetry",
@@ -296,14 +239,14 @@
         ],
         "ancestors": [
           {
-            "label": "Communications",
-            "path": "/communications"
+            "label": "Médias sociaux",
+            "path": "/medias-sociaux"
           }
         ]
       }
     },
     {
-      "path": "/communications/reessayer/{kind}/{id}/{platform}",
+      "path": "/medias-sociaux/reessayer/{kind}/{id}/{platform}",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "retry",

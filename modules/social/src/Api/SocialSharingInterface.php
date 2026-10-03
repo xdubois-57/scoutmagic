@@ -11,11 +11,9 @@ namespace Modules\Social\Api;
 /**
  * What another module may ask of the social connector.
  *
- * Nothing consumes it yet: the chantier (docs/chantiers/
- * CHANTIER-partage-social.md) adds the publishing call and its first
- * consumers — the news and the gallery — in later iterations. What exists
- * today is the question every consumer will ask first: is there anywhere
- * to publish?
+ * Its consumers are the gallery's album form and the news editor, which
+ * offer « Partager » — and must know, before drawing a button, whether
+ * this person has anywhere to publish at all.
  *
  * A consumer receives it NULLABLE, null when the module is disabled
  * (ARCHITECTURE.md §7.5).
@@ -23,11 +21,23 @@ namespace Modules\Social\Api;
 interface SocialSharingInterface
 {
     /**
-     * The accounts connected and last found working, in platform order.
-     * Never throws: a token that cannot be decrypted, or that Meta
-     * refused at the last check, is simply not a destination.
+     * The unit's Meta accounts connected and last found working, in
+     * platform order. Never throws: a token that cannot be decrypted, or
+     * that Meta refused at the last check, is simply not a destination.
      *
      * @return list<SocialDestination>
      */
     public function connectedDestinations(): array;
+
+    /**
+     * Whether THIS person has anywhere to publish right now: one of the
+     * accounts above, or — the reason this question is broader than that
+     * list — a discussion group they may post in
+     * (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01).
+     *
+     * Asked of the viewer rather than of the site, because the answer
+     * differs between two chiefs: discussion groups are per-person, and a
+     * unit with no Meta account at all still shares to its groups.
+     */
+    public function canPublish(?string $email, string $role, ?int $userAccountId): bool;
 }
