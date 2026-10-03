@@ -308,7 +308,10 @@ class LeadershipController extends AbstractController
         } catch (\Throwable $e) {
             FlashMessage::set(
                 'error',
-                UserFacingMessage::from($e, "Le brouillon n'a pas pu être créé. Vérifiez que le publipostage est configuré.")
+                UserFacingMessage::from(
+                    $e,
+                    "Le brouillon n'a pas pu être créé. Vérifiez que le publipostage est configuré."
+                )
             );
 
             return $this->redirect($back);

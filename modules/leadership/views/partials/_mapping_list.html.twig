@@ -40,8 +40,9 @@
                 {% endif %}
             </div>
             <div class="d-flex gap-2 align-items-center mt-1">
+                <label class="visually-hidden" for="{{ list_id }}-step-{{ loop.index }}">Étape pour « {{ row.raw_value }} »</label>
                 <select class="form-select form-select-sm w-auto leadership-mapping-select"
-                        aria-label="Étape pour « {{ row.raw_value }} »">
+                        id="{{ list_id }}-step-{{ loop.index }}">
                     {% if _selected is null %}
                         <option value="" selected>Choisir une étape…</option>
                     {% endif %}
