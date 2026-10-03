@@ -383,3 +383,80 @@ describe('list-editor.js: options for registers and lists without an order (#708
         }));
     });
 });
+
+describe('list-editor.js: a list that changes without reloading (#708, IT-10)', () => {
+    beforeEach(() => {
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+    });
+
+    function buildInPlaceEditor(items = [1, 2]) {
+        const container = buildEditor({ items, addMode: '' });
+        container.dataset.inPlace = 'true';
+        container.dataset.addUrl = '/add-row';
+        container.dataset.emptyLabel = 'Aucun compteur.';
+        container.querySelector('.list-editor-add-btn').remove();
+        container.insertAdjacentHTML('beforeend', `<div class="list-editor-add-form-slot">
+            <form><input name="label" value="Eau"><select name="kind"><option value="water" selected>Eau</option></select>
+            <button type="submit">Ajouter</button></form></div>`);
+        return container;
+    }
+
+    it("posts the add form's fields and inserts the row the server rendered, wired like the others", async () => {
+        const container = buildInPlaceEditor();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true,
+            html: `<div class="list-editor">${buildItem(9)}</div>`,
+        }));
+        await boot();
+
+        container.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+        await vi.waitFor(() => expect(container.querySelectorAll('.list-editor-item')).toHaveLength(3));
+        const body = JSON.parse(fetch.mock.calls[0][1].body);
+        expect(fetch.mock.calls[0][0]).toBe('/add-row');
+        expect(body).toMatchObject({ label: 'Eau', kind: 'water' });
+        expect(window.location.reload).not.toHaveBeenCalled();
+        // The previous last row can move down now; the new one cannot.
+        const rows = container.querySelectorAll('.list-editor-item');
+        expect(rows[1].querySelector('.list-editor-move-down').disabled).toBe(false);
+        expect(rows[2].querySelector('.list-editor-move-down').disabled).toBe(true);
+
+        // And its own bin works.
+        fetch.mockClear();
+        global.fetch = vi.fn(() => jsonResponse({ success: true }));
+        rows[2].querySelector('.list-editor-delete-btn').click();
+        await vi.waitFor(() => expect(container.querySelectorAll('.list-editor-item')).toHaveLength(2));
+    });
+
+    it('removes a deleted row in place, and says the list is empty once it is', async () => {
+        const container = buildInPlaceEditor([1]);
+        await boot();
+
+        container.querySelector('.list-editor-delete-btn').click();
+
+        await vi.waitFor(() => expect(container.querySelector('.list-editor-empty')?.textContent).toBe('Aucun compteur.'));
+        expect(container.querySelectorAll('.list-editor-item')).toHaveLength(0);
+        expect(window.location.reload).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's refusal and inserts nothing", async () => {
+        const container = buildInPlaceEditor();
+        global.fetch = vi.fn(() => jsonResponse({ success: false, error: "Un compteur a besoin d'un nom." }));
+        await boot();
+
+        container.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
+
+        await vi.waitFor(() => expect(lastToastText()).toBe("Un compteur a besoin d'un nom."));
+        expect(container.querySelectorAll('.list-editor-item')).toHaveLength(2);
+    });
+
+    it('leaves a list without in_place exactly as it was: a delete still reloads', async () => {
+        buildEditor();
+        await boot();
+
+        document.querySelector('.list-editor-delete-btn').click();
+
+        await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
+        expect(document.querySelectorAll('.list-editor-item')).toHaveLength(3);
+    });
+});

@@ -11979,7 +11979,10 @@ if ($isEnabled('rental')) {
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
                 $rentalBookingAudit
-            )
+            ),
+            // Dates the version of the conditions in force on the Gabarits
+            // list, and links to it from their page (#708, IT-10).
+            $rentalConditionsService
         )
     );
     $frontController->registerController(
