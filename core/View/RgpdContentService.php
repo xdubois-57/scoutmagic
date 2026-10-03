@@ -816,9 +816,12 @@ famille qui a répondu ne reçoit plus de rappel), et que la réponse de la fami
 mais n'est ni modifiée ni effacée lorsque le staff la corrige ensuite. (n) que la page « Passage » porte, à côté de la
 réponse de la famille, une note interne du staff chiffrée au repos, jamais visible par la famille, jamais dans un
 export qui lui est destiné et jamais journalisée ; et (o) que la relecture facultative des commentaires libres par une
-IA n'a lieu que sur un geste explicite d'un chef d'unité, n'envoie que le commentaire (sans le nom de l'enfant ni
-celui de la famille), n'envoie chaque commentaire qu'une fois, conserve le résultat chiffré et présenté « à vérifier
-», et n'alimente aucun traitement automatique avant validation par un humain. Ne réduis JAMAIS (l) à « des préférences
+IA n'a lieu que lorsqu'un chef d'unité lance la répartition automatique, et seulement pour les enfants que cette
+répartition va placer, n'envoie que le commentaire (sans le nom de l'enfant ni celui de la famille), n'envoie chaque
+commentaire qu'une fois, conserve le résultat chiffré et présenté « à vérifier », et que la section et les amis qu'elle
+relève — retenus seulement s'ils désignent sans ambiguïté une section ou un enfant précis — sont utilisés directement
+par cette répartition, après le choix du staff et les champs remplis par la famille, sans validation préalable par un
+humain ; le staff peut ensuite modifier chaque placement. Ne réduis JAMAIS (l) à « des préférences
 » : le fait que ce champ contienne le nom d'un enfant tiers est précisément ce qu'une politique de confidentialité
 doit dire. Pour (o), si un connecteur IA est actif, **traite le fournisseur d'IA comme un sous-traitant à part entière
 pour ce traitement** — il reçoit du texte rédigé par une famille — et fais-le donc apparaître en section 4 et, s'il

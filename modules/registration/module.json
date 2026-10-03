@@ -503,15 +503,6 @@
       "label": ""
     },
     {
-      "path": "/passage/relire-commentaires",
-      "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\PassageController",
-      "action": "reviewComments",
-      "menu": "espace_admin",
-      "role_min": "admin",
-      "label": ""
-    },
-    {
       "path": "/passage/membre/{id}/ia",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",

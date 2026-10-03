@@ -422,18 +422,28 @@ CREATE TABLE registration_passage_notes (
     -- new call. It is a hash of text nobody looks up by it — no blind
     -- index, no lookup, only an equality test against a value we hold.
     --
-    -- `ai_confirmed` is the chief's validation. Until it is set, the
-    -- suggestion is shown « à vérifier » and the optimiser (IT-18) must
-    -- ignore it: a machine reading of a parent's sentence is a hint to a
-    -- human, never an input to a placement.
+    -- `ai_confirmed` is the chief's mark that they read the suggestion
+    -- and agree with it.
+    --
+    -- `ai_section_id` and `ai_friend_member_ids` are the same reading in a
+    -- shape the optimiser can use (issue #733): the section and the
+    -- friends the model found in the comment, ALREADY RESOLVED here — a
+    -- section of the arrival branch, members matched by the module's own
+    -- name matcher — and left empty when the text was ambiguous rather
+    -- than guessed. Ids only: the comment itself and the names it carries
+    -- never leave the encrypted columns. The optimiser ranks them after
+    -- the staff's choice and the family's own fields.
     ai_source_hash VARCHAR(64) NULL,
     ai_suggestion_encrypted BLOB NULL,
     ai_confirmed TINYINT(1) NOT NULL DEFAULT 0,
+    ai_section_id INT UNSIGNED NULL,
+    ai_friend_member_ids TEXT NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by_user_account_id INT UNSIGNED NULL,
     UNIQUE INDEX idx_rpn_member_year (member_id, scout_year_id),
     CONSTRAINT fk_rpn_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_rpn_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
     CONSTRAINT fk_rpn_section FOREIGN KEY (preferred_section_id) REFERENCES sections(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rpn_ai_section FOREIGN KEY (ai_section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_rpn_account FOREIGN KEY (updated_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
