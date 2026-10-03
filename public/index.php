@@ -175,6 +175,10 @@ $config = new AppConfig(__DIR__ . '/../config/app.php');
 // anything emits a cookie, a session or a security header — Core\Http\
 // RequestScheme is the single source of truth every one of those consults.
 \Core\Http\RequestScheme::setTrustForwardedProto((bool) $config->get('trust_forwarded_proto', false));
+// HTTPS is required unless this deployment explicitly tolerates HTTP
+// (#751). A config/app.php that predates the key gets the production
+// policy, never the development exception.
+\Core\Http\RequestScheme::setHttpsRequired($config->get('https_required', true) !== false);
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));

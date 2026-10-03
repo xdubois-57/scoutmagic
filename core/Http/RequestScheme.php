@@ -52,6 +52,22 @@ namespace Core\Http;
  *
  * No other proxy header is trusted — not `X-Forwarded-For`, not
  * `Forwarded`, not `X-Forwarded-Ssl`. One header, one opt-in.
+ *
+ * ## `https_required`, and why detection no longer decides protections
+ *
+ * Detection answers "what did PHP see?", which behind a TLS terminator
+ * the administrator does not control (most shared hosting) is plain
+ * HTTP on a site every browser reaches over HTTPS. Letting that answer
+ * remove the session cookie's `Secure` flag or the HSTS header weakened
+ * exactly the installations least able to fix it (#751).
+ *
+ * `https_required` in `config/app.php` (default `true`) is the product
+ * policy: ScoutMagic is never served publicly over HTTP. While it holds,
+ * enforcesHttps() is true whatever the request looks like, so the
+ * HTTPS-only protections can no longer be stripped by a guess. Only an
+ * explicit `false` — a developer's `http://localhost`, the end-to-end
+ * harness, CI — falls back to detection. isHttps() stays for callers
+ * that genuinely need the scheme PHP perceived.
  */
 final class RequestScheme
 {
@@ -62,6 +78,14 @@ final class RequestScheme
      * pre-existing detection semantics.
      */
     private static bool $trustForwardedProto = false;
+
+    /**
+     * Process-wide, set once at boot from `config/app.php`. Defaults to
+     * true: an entry point that never configures it gets the production
+     * policy, never the development exception. tests/bootstrap.php sets
+     * it to false explicitly, like every other HTTP-only environment.
+     */
+    private static bool $httpsRequired = true;
 
     /**
      * Called once from the composition root, right after `AppConfig` is
@@ -75,6 +99,33 @@ final class RequestScheme
     public static function trustsForwardedProto(): bool
     {
         return self::$trustForwardedProto;
+    }
+
+    /**
+     * Called once from the composition root, next to
+     * setTrustForwardedProto().
+     */
+    public static function setHttpsRequired(bool $required): void
+    {
+        self::$httpsRequired = $required;
+    }
+
+    public static function httpsRequired(): bool
+    {
+        return self::$httpsRequired;
+    }
+
+    /**
+     * Whether the HTTPS-only protections — `Secure` cookies, HSTS, an
+     * `https://` public URL — apply to this response. Always true while
+     * HTTPS is required; detection only decides on an installation that
+     * explicitly tolerates HTTP.
+     *
+     * @param array<string, mixed> $server
+     */
+    public static function enforcesHttps(array $server): bool
+    {
+        return self::$httpsRequired || self::isHttps($server);
     }
 
     /**
