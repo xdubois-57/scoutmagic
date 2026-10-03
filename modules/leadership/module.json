@@ -2,7 +2,7 @@
   "id": "leadership",
   "name": "Encadrement",
   "description": "Qui contacter pour les formations et le parcours des animateurs.",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "routes": [
     {
       "path": "/admin/leadership",
