@@ -152,6 +152,29 @@ class RetroBoardControllerTest extends TestCase
         );
     }
 
+    /**
+     * An intendant who may not configure boards gets no link to the board
+     * name: it could only lead back to this very page.
+     */
+    public function testAViewerWhoCannotConfigureGetsTheNameAsPlainText(): void
+    {
+        $this->settingService->register('retro_role_min_create_board', 'intendant', 'select', 'Création', '', 'retro');
+        $this->settingService->set('retro_role_min_create_board', 'chief', 'retro');
+        AuthSession::login(3, 'intendant@test.be', 'intendant');
+        [, $token] = $this->createBoard();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->show(
+            new Request('GET', '/r/' . $token, [], [], [], []),
+            ['token' => $token]
+        )->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#<a href="/retro" [^>]*>Rétrospectives</a>.*aria-current="page">Camp · Tableau</li>#',
+            $body
+        );
+        $this->assertStringNotContainsString('href="/r/' . $token . '"', $body);
+    }
+
     public function testAPublicVisitorGetsNoLinkIntoTheEspaceAnimateurs(): void
     {
         [, $token] = $this->createBoard();
