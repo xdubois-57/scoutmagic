@@ -1,16 +1,15 @@
 ---
 id: locations-reglages
 title: Les réglages d'un bien
-summary: Ce qu'un visiteur peut demander, ce que ça coûte, ce qui est attendu à l'avance et sous quelles conditions.
+summary: Ce qu'un visiteur peut demander, ce que ça coûte et ce qui est attendu à l'avance.
 category: Espace membres
 role_min: identified
 discovery: 3
 question: Comment fixer le prix de location d'un local ?
 question: Comment imposer une durée minimum de réservation ?
-question: Où écrire les conditions de location d'un bien ?
 question: Comment changer le délai d'un rappel sur un bien ?
 paths: /mes-locations/*/reglages
-related: gerer-les-locations, config-locations, locations-conformite
+related: gerer-les-locations, config-locations, locations-conformite, locations-gabarits
 ---
 
 Cinq sections, cinq questions différentes. Chacune se lit d'un coup d'œil,
@@ -46,21 +45,13 @@ créance à part entière et n'entre jamais dans le revenu de location.
 Le compte bancaire attendu ne se choisit pas ici : il est fixé par le Staff
 d'Unité, la liste des comptes portant les IBAN de l'unité.
 
-## Conditions de location
+Les conditions de location se trouvent désormais sur la page « Gabarits »,
+avec le contrat et la facture.
 
-Le texte que le locataire lit — et accepte — avant d'envoyer sa demande,
-affiché aussi sur la page publique du bien.
+## Bailleur
 
-Tant que vous ne l'avez pas écrit, ce sont les **conditions standard**
-fournies avec le site : un point de départ à relire et à adapter, pas un
-avis juridique. « Revenir aux conditions standard » remet le texte
-d'origine.
-
-**Chaque modification crée une nouvelle version**, et l'ancienne reste
-lisible à son adresse permanente. Le site enregistre la version que chaque
-locataire a acceptée. L'accusé de réception, la décision, les documents et
-les informations pratiques qui lui sont envoyés se terminent par un lien
-vers celle-là, même si vous personnalisez ces e-mails.
+Qui le contrat et la facture nomment comme bailleur, si ce bien en a un
+autre que l'unité.
 
 ## Rappels
 
