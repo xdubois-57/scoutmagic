@@ -189,7 +189,9 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                     new \Core\Member\SectionMembershipRepository($pdo),
                     new \Core\Config\ScoutYearService($pdo)
                 )
-            )
+            ),
+            // Steps ticked by hand stop being chased (#708, IT-14).
+            new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo)
         );
     }
 

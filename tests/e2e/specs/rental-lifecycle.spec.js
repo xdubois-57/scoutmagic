@@ -206,15 +206,11 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
         await page.waitForURL(/\/reservations\/\d+$/, { waitUntil: 'load' });
 
-        // The action the journey puts forward on an undecided request.
-        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
-        // The end of the setup, and the only reason it is asserted at all:
-        // everything below is about a CONFIRMED booking, and starting the
-        // subject before the confirmation has landed would blame the first
-        // milestone for the setup's own timing.
-        await expect(milestone(page, 'Réservation confirmée')).toContainText(DONE);
-
-        // ── The checklist as a confirmed booking leaves it ───────────────
+        // The unit's answer to a request is its contract (#708, IT-13): the
+        // journey puts forward preparing it, and confirming is not on offer
+        // until the agreement is complete.
+        await expect(page.getByRole('link', { name: 'Préparer le contrat' }).first()).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Confirmer la réservation' })).toHaveCount(0);
         // Applicable and unticked: there is a contract to send, and the
         // conditions the renter ticked on the public form are what stands in
         // for the signed copy until one comes back.
@@ -222,23 +218,6 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Conditions et contrat acceptés')).toContainText(TODO);
         await expect(milestone(page, 'Conditions et contrat acceptés'))
             .toContainText(/conditions acceptées le \d{2}\/\d{2}\/\d{4}/);
-
-        // The confirmation copied the asset's checklist into this booking,
-        // so the two inventory lines have become reachable work.
-        await expect(milestone(page, "État des lieux d'entrée")).toContainText(TODO);
-        await expect(milestone(page, 'État des lieux de sortie')).toContainText(TODO);
-        await expect(milestone(page, 'Relevés de compteurs')).toContainText(TODO);
-        await expect(milestone(page, 'Décompte final réglé')).toContainText(TODO);
-        await expect(milestone(page, 'Location clôturée')).toContainText(TODO);
-
-        // And the money, which this asset does not handle, is GREYED rather
-        // than unticked — the distinction `BookingMilestone::$isApplicable`
-        // exists for, and the one thing about those four lines that only a
-        // rendered page can state.
-        await expect(milestone(page, 'Acompte reçu')).toContainText(NOT_APPLICABLE);
-        await expect(milestone(page, 'Solde reçu')).toContainText(NOT_APPLICABLE);
-        await expect(milestone(page, 'Caution reçue')).toContainText(NOT_APPLICABLE);
-        await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
 
         // ── The contract: generated, then sent ───────────────────────────
         // « Documents » is a page of the booking's own (issue #462), reached
@@ -325,6 +304,34 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Conditions et contrat acceptés'))
             .not.toContainText('conditions acceptées le');
 
+
+        // ── The agreement complete: now it can be confirmed ──────────────
+        // The action the journey puts forward once the contract is out and
+        // signed — the last line of the agreement (#708, IT-13).
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
+        // The end of the setup, and the only reason it is asserted at all:
+        // everything below is about a CONFIRMED booking, and starting the
+        // subject before the confirmation has landed would blame the first
+        // milestone for the setup's own timing.
+        await expect(milestone(page, 'Réservation confirmée')).toContainText(DONE);
+
+        // The confirmation copied the asset's checklist into this booking,
+        // so the two inventory lines have become reachable work.
+        await expect(milestone(page, "État des lieux d'entrée")).toContainText(TODO);
+        await expect(milestone(page, 'État des lieux de sortie')).toContainText(TODO);
+        await expect(milestone(page, 'Relevés de compteurs')).toContainText(TODO);
+        await expect(milestone(page, 'Décompte final réglé')).toContainText(TODO);
+        await expect(milestone(page, 'Location clôturée')).toContainText(TODO);
+
+        // And the money, which this asset does not handle, is GREYED rather
+        // than unticked — the distinction `BookingMilestone::$isApplicable`
+        // exists for, and the one thing about those four lines that only a
+        // rendered page can state.
+        await expect(milestone(page, 'Acompte reçu')).toContainText(NOT_APPLICABLE);
+        await expect(milestone(page, 'Solde reçu')).toContainText(NOT_APPLICABLE);
+        await expect(milestone(page, 'Caution reçue')).toContainText(NOT_APPLICABLE);
+        await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
+
         // ── The stay: meters, then the two inventories ───────────────────
         // A different page, and deliberately a plainer one: stay.html.twig
         // is not wrapped in `[data-rental-booking]`, so every form here
@@ -400,7 +407,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Décompte final réglé')).toContainText(DONE);
 
         // With everything settled, closing is the action put forward.
-        await page.getByRole('button', { name: 'Clôturer la location' }).click();
+        await page.getByRole('button', { name: 'Clôturer la location' }).first().click();
 
         await expect(milestone(page, 'Location clôturée')).toContainText(DONE);
         // And there is nowhere left to go: the journey's heading says so.
@@ -437,7 +444,10 @@ test.describe('Rentals — the milestones after a confirmation', () => {
  * @param {string} label the milestone's label
  */
 function milestone(page, label) {
-    return page.locator('[data-booking-panel="milestones"] li').filter({ hasText: label });
+    // By the step's own label, exactly: another line may quote it — « Il
+    // manque : « Contrat envoyé » » under « Réservation confirmée ».
+    return page.locator('[data-booking-panel="milestones"] li')
+        .filter({ has: page.getByText(label, { exact: true }) });
 }
 
 

@@ -5,7 +5,7 @@ summary: Ce qui bloque une réservation, l'action proposée, et comment chaque �
 category: Espace membres
 role_min: identified
 question: Comment savoir ce qu'il me reste à faire sur une réservation ?
-question: Pourquoi certaines étapes ont-elles une case à cocher et d'autres pas ?
+question: Comment marquer une étape faite en dehors du site ?
 question: Pourquoi le bouton proposé n'est-il jamais « Refuser la demande » ?
 paths: /mes-locations/*/reservations/*
 related: locations-reservation, gerer-les-locations, locations-documents
@@ -40,12 +40,19 @@ Chaque étape dit **comment elle se coche** :
   comme un paiement pointé dans les Finances ;
 - **à faire ici** — un bouton mène à ce qu'il faut faire ;
 - **en attente du locataire** — elle se cochera quand il aura répondu ;
-- **hors du site** — personne ne peut le deviner : cochez « Marquer
-  comme fait » quand c'est fait.
+- **hors du site** — personne ne peut le deviner : cochez-la à la main
+  quand c'est fait.
 
-## Pourquoi une case sur certaines étapes seulement
+## Cocher une étape à la main
 
-Seules les étapes hors du site en ont une : les états des lieux d'un
-bien dont le site ne tient pas l'inventaire. Une coche à la main à côté
-d'une étape que le site déduit lui-même serait une seconde vérité. La
-case enregistre qui l'a cochée et quand, et l'historique le garde.
+Toute étape à faire se coche en touchant **son rond numéroté** — un
+contrat accepté par e-mail, un acompte payé en liquide. Une confirmation
+le rappelle : ce n'est pas la bonne pratique, le site ne la vérifiera
+plus. La coche compte comme celle du site : étape suivante, « À
+traiter », rappels. La ligne dit qui l'a cochée et quand ; le même rond
+la rouvre. Une étape que le site a vérifiée lui-même ne se rouvre pas.
+
+Le rond de « Réservation confirmée » et de « Location clôturée » lance
+la transition elle-même. Ceux de « Demande reçue » et de « Dates
+bloquées » ne font rien. Cocher « Contrat envoyé » passe la réservation
+à « Contrat envoyé » ; le rouvrir la remet à « Demande reçue ».

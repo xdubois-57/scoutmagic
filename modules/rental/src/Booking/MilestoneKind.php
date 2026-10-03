@@ -21,13 +21,12 @@ namespace Modules\Rental\Booking;
  * | DERIVED  | the derived sentence, and no control at all           |
  * | HERE     | a button, and the other decisions beside it           |
  * | RENTER   | the derived sentence (no manual chase exists to offer) |
- * | OFFSITE  | a « Marquer comme fait » box, recorded with who and when |
+ * | OFFSITE  | nothing the site can see: only ticked by hand         |
  *
- * **Only OFFSITE carries a box.** « Acompte reçu » is derived from the
- * payments and « Contrat accepté » comes from the renter: a manual tick
- * beside either would be a second truth, which is the very thing the
- * derived checklist exists to prevent (D5). A line is OFFSITE only when
- * the site holds no record it could be derived from.
+ * **Any nature can be completed by hand since #708 (IT-14)**, from the
+ * step's disc: things happen away from the site, a contract accepted by
+ * e-mail, a deposit paid in cash. The nature still says how the line
+ * normally gets ticked; OFFSITE is the one whose only way is the hand.
  */
 enum MilestoneKind: string
 {

@@ -62,7 +62,7 @@ final class BookingAudit
         self::CHANGE_REQUESTED => 'Demande de modification',
         self::CHANGE_DECIDED => 'Décision sur la modification',
         self::COMMENT_ADDED => 'Commentaire',
-        self::STEP_MARKED => 'Étape hors du site',
+        self::STEP_MARKED => 'Étape cochée à la main',
     ];
 
     public function __construct(

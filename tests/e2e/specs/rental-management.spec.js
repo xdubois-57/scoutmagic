@@ -245,7 +245,20 @@ test.describe('Rentals — running an asset', () => {
         // page navigates, and the dialog answerConfirmation() waits for is
         // never built. See waitForConfirmReady()'s own comment.
         await waitForConfirmReady(page);
-        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
+
+        // The unit answers with its contract, and confirms at the end of
+        // the agreement (#708, IT-13). Here the contract went by e-mail and
+        // came back signed, so both steps are ticked by hand from their
+        // disc (#708, IT-14) — each asks first, saying it is not the
+        // practice the site prefers.
+        for (const step of ['Contrat envoyé', 'Conditions et contrat acceptés']) {
+            await page.getByRole('button', { name: `Marquer « ${step} » comme fait` }).click();
+            const warning = await answerConfirmation(page);
+            expect(warning).toContain('sans que le site ait pu le vérifier');
+            await expect(page.getByRole('button', { name: `Rouvrir « ${step} »` })).toBeVisible();
+        }
+
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
 
         // Confirming now asks first, and the dialog is where the manager
         // writes the word that travels with the decision — the field

@@ -428,11 +428,10 @@ class MilestoneEvidenceTest extends TestCase
     }
 
     /**
-     * **Where the stay page records the inventory, no line is ticked by
-     * hand**, even with a stale mark lying around: the recorded lines are
-     * the truth, and a hand tick beside them would be a second one.
+     * Any step can be ticked by hand since #708 (IT-14) — an inventory
+     * done on paper on an asset whose stay page keeps one counts too.
      */
-    public function testAnInventoryTheSiteKeepsIsNeverTickedByHand(): void
+    public function testAnInventoryTheSiteKeepsCanBeTickedByHand(): void
     {
         $evidence = MilestoneEvidence::collect(
             $this->booking(),
@@ -446,7 +445,48 @@ class MilestoneEvidenceTest extends TestCase
         );
 
         $this->assertSame([], $evidence->offsite);
-        $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertTrue($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
+        $this->assertSame([BookingMilestones::ARRIVAL_INVENTORY], $evidence->manual);
+    }
+
+    /**
+     * **The site's answer wins.** A deposit ticked as paid in cash, then
+     * reconciled in Finances, is the site's again: done, not a hand tick,
+     * and it no longer reopens.
+     */
+    public function testAStepTheSiteVerifiesIsNoLongerAHandTick(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [$this->document(DocumentType::CONTRACT, new \DateTimeImmutable('2027-03-04 08:00:00'))],
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            [BookingMilestones::CONTRACT_SENT => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame([], $evidence->manual);
+        $this->assertStringNotContainsString('à la main', $evidence->details[BookingMilestones::CONTRACT_SENT]);
+    }
+
+    /** A step that does not apply here cannot be ticked into being. */
+    public function testAHandTickCannotMakeAStepApplicable(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            null,
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            [BookingMilestones::CONTRACT_SENT => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
+        );
+
+        $this->assertArrayNotHasKey(BookingMilestones::CONTRACT_SENT, $evidence->done);
     }
 
     /**
@@ -511,7 +551,8 @@ class MilestoneEvidenceTest extends TestCase
         );
 
         $this->assertTrue($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
-        $this->assertSame('fait le 20/07/2027 par Jeanne Martin', $evidence->details[BookingMilestones::DEPARTURE_INVENTORY]);
+        $this->assertSame('Coché à la main par Jeanne Martin le 20/07/2027', $evidence->details[BookingMilestones::DEPARTURE_INVENTORY]);
+        $this->assertSame([BookingMilestones::DEPARTURE_INVENTORY], $evidence->manual);
         $this->assertFalse($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
     }
 

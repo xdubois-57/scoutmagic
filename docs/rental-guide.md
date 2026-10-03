@@ -151,8 +151,13 @@ son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
 propose l'étape qui la fait avancer ; dessous, le parcours, étape par
 étape, dit pour chacune si le site la coche tout seul, si elle se fait
 sur l'une des pages, si elle attend le locataire ou si elle se passe hors
-du site — celles-là seules se cochent à la main (« Marquer comme fait »), et la coche
-est tracée dans l'historique.
+du site. **Toute étape à faire peut être cochée à la main** en touchant
+son rond numéroté — un contrat accepté par e-mail, un acompte payé en
+liquide — après une confirmation : ce n'est pas la bonne pratique, mais
+la coche compte comme celle du site (étape suivante, « À traiter »,
+rappels). La ligne dit qui l'a cochée et quand, l'historique la garde, et
+elle se rouvre du même rond. Une étape que le site a vérifiée lui-même ne
+se rouvre pas.
 
 On y trouve aussi :
 

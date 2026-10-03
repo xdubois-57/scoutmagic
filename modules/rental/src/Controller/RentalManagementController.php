@@ -226,7 +226,7 @@ class RentalManagementController extends AbstractController
          */
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
         private ?SettingService $settingService = null,
-        /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
+        /** A step completed by hand, from its disc (issue #462, #708 IT-14). */
         private ?RentalMilestoneMarkService $milestoneMarkService = null,
         /**
          * Whether anybody on the asset can be told about a request (#708,
@@ -881,7 +881,14 @@ class RentalManagementController extends AbstractController
             $now
         );
 
-        return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+        return BookingMilestones::for(
+            $booking,
+            $now,
+            $evidence->done,
+            $evidence->details,
+            $evidence->offsite,
+            $evidence->manual
+        );
     }
 
     /**
@@ -942,13 +949,26 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/etape — « Marquer comme fait » on a step the site
-     * cannot derive (issue #462, D5), or « Remettre à faire ».
+     * POST /mes-locations/etape — complete a step by hand, or reopen one
+     * completed by hand (#708, IT-14).
      *
-     * The journey decides whether the step may be ticked here, not the
-     * form: the step must be ticked by hand ON THIS BOOKING — an inventory
-     * the stay page records is never ticked beside it — and in a stretch the
-     * booking has reached. A hand-made POST for anything else is refused.
+     * Not good practice, and the page's confirmation says so: things happen
+     * away from the site — a contract accepted by e-mail, a deposit paid in
+     * cash — and the manager has to be able to say so. The tick counts
+     * exactly like the site's own answer: next action, « À traiter », and
+     * the reminders, which stop chasing it.
+     *
+     * The journey decides, not the form: the step must be one this booking
+     * shows, in a stretch it has reached, still to do (to tick) or ticked
+     * by hand (to reopen) — a step the site completed itself never reopens,
+     * and a status step (« Réservation confirmée », « Location clôturée »)
+     * is never ticked: its disc runs the transition. A hand-made POST for
+     * anything else is refused.
+     *
+     * « Contrat envoyé » ticked by hand has the effects of a real send:
+     * the status, and the dates held while the renter signs. Reopened, it
+     * puts the booking back to « Demande reçue » if it still is « Contrat
+     * envoyé »; the hold is not shortened.
      *
      * @param array<string, string> $params
      */
@@ -956,10 +976,11 @@ class RentalManagementController extends AbstractController
     {
         $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->milestoneMarkService === null) {
-                throw new RentalException("Cette étape ne peut pas être marquée ici.");
+                throw new RentalException('Cette étape ne peut pas être marquée ici.');
             }
 
             $key = (string) $request->getBody('milestone_key', '');
+            $done = (string) $request->getBody('done', '') === '1';
             $now = new \DateTimeImmutable();
             $milestones = $this->milestonesOf(
                 $booking,
@@ -974,11 +995,11 @@ class RentalManagementController extends AbstractController
                     if ($milestone->key !== $key) {
                         continue;
                     }
-                    if (!$milestone->kind->isMarkable() || !$milestone->isApplicable || $phase->isFuture) {
+                    $allowed = $done ? $milestone->canBeCompletedByHand() : $milestone->canBeReopened();
+                    if (!$allowed || $phase->isFuture) {
                         break 2;
                     }
 
-                    $done = (string) $request->getBody('done', '') === '1';
                     $this->milestoneMarkService->set(
                         $booking,
                         $key,
@@ -987,18 +1008,39 @@ class RentalManagementController extends AbstractController
                         $this->actorMemberId(),
                         $now
                     );
+
+                    if ($key === BookingMilestones::CONTRACT_SENT) {
+                        if ($done) {
+                            $this->operationsService->contractSent(
+                                $booking,
+                                $this->actorMemberId(),
+                                $now,
+                                $this->contractHoldMinDays()
+                            );
+                        } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
+                            $this->operationsService->changeStatus(
+                                $booking,
+                                BookingStatus::RECEIVED,
+                                $this->actorMemberId(),
+                                $now
+                            );
+                        }
+                    }
+
                     FlashMessage::set(
                         'success',
                         $done
                             ? '« ' . $milestone->label . ' » est marqué comme fait.'
-                            : '« ' . $milestone->label . ' » est remis à faire.'
+                            : '« ' . $milestone->label . ' » est rouvert : l\'étape est de nouveau à faire.'
                     );
 
                     return;
                 }
             }
 
-            throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
+            throw new RentalException($done
+                ? 'Cette étape ne peut pas être cochée à la main sur cette réservation.'
+                : 'Seule une étape cochée à la main peut être rouverte.');
         };
 
         return $this->bookingAction($request, $work);

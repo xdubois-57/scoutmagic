@@ -247,8 +247,12 @@ test.describe('Rentals', () => {
         // Still signed in: nothing dropped this session in the meantime.
         await page.goto('/mes-locations');
 
-        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
-        await expect(page.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+        // Within the page itself: the new request is also announced in the
+        // notification menu (#708, IT-05), whose items are hidden until it
+        // opens.
+        const main = page.getByRole('main');
+        await expect(main.getByText(ASSET_NAME).first()).toBeVisible();
+        await expect(main.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
 
         // --- What the renter never sees of it. ---
         // A manager's internal comment is the one thing §6.6 is most

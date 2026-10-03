@@ -54,6 +54,14 @@ final class BookingMilestones
     public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
 
     /**
+     * The steps whose disc is never a box to tick (#708, IT-14): « Demande
+     * reçue » is always the site's, « Dates bloquées » is a state, and
+     * « Réservation confirmée » and « Location clôturée » are statuses —
+     * their disc runs the transition itself, never a tick.
+     */
+    public const NEVER_BY_HAND = ['request_received', 'hold', 'confirmed', 'closed'];
+
+    /**
      * Who has to act for each step to be done (#708, IT-12) — what « À
      * traiter » reads off the step put forward. Explicit for every key, no
      * default: `shaped()` refuses a key missing here, and a test walks them.
@@ -105,6 +113,8 @@ final class BookingMilestones
      *   carry — a send date, a settlement version (Booking\MilestoneEvidence)
      * @param list<string> $offsite the keys that are done outside the site on
      *   this booking, and therefore ticked by hand (Booking\MilestoneEvidence)
+     * @param list<string> $manual the keys done because a manager ticked them
+     *   by hand (#708, IT-14)
      * @return list<BookingMilestone>
      */
     public static function for(
@@ -112,7 +122,8 @@ final class BookingMilestones
         \DateTimeImmutable $now,
         array $extras = [],
         array $details = [],
-        array $offsite = []
+        array $offsite = [],
+        array $manual = []
     ): array {
         $milestones = [
             new BookingMilestone(
@@ -215,7 +226,8 @@ final class BookingMilestones
                 $m,
                 $booking->status,
                 $offsite,
-                $booking->holdOrigin
+                $booking->holdOrigin,
+                in_array($m->key, $manual, true)
             ),
             $milestones
         );
@@ -242,7 +254,8 @@ final class BookingMilestones
                 null,
                 $m->isState,
                 $m->warning,
-                $m->actor
+                $m->actor,
+                $m->isManual
             ),
             $shaped
         );
@@ -261,7 +274,8 @@ final class BookingMilestones
         BookingMilestone $m,
         BookingStatus $status,
         array $offsite,
-        ?HoldOrigin $holdOrigin = null
+        ?HoldOrigin $holdOrigin = null,
+        bool $isManual = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
         $explanation = null;
@@ -345,7 +359,8 @@ final class BookingMilestones
             $action,
             $m->isState,
             $m->warning,
-            self::ACTORS[$m->key] ?? throw new \LogicException('No actor declared for step « ' . $m->key . ' ».')
+            self::ACTORS[$m->key] ?? throw new \LogicException('No actor declared for step « ' . $m->key . ' ».'),
+            $isManual
         );
     }
 
