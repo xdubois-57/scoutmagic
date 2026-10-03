@@ -110,6 +110,23 @@ La documentation détaillée est volontairement séparée de ce README :
 Les règles destinées aux contributeurs et aux agents de développement se
 trouvent également dans [AGENTS.md](AGENTS.md).
 
+### Analyse statique JavaScript
+
+Les commandes, garanties et limites de l'analyse statique JavaScript sont
+documentées dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis).
+
+### Tests de bout en bout
+
+La suite Playwright, ses deux niveaux et son rôle dans le CI sont documentés
+dans le [pipeline de qualité](docs/quality-pipeline.md#end-to-end--playwright).
+L'inventaire à jour des scénarios est le répertoire `tests/e2e/specs/`.
+
+### Analyse de sécurité dynamique
+
+Les profils OWASP ZAP et leur rôle sont documentés dans le
+[pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ; le
+modèle de sécurité détaillé reste dans [SECURITY.md](SECURITY.md).
+
 ## Données, sécurité et responsabilité
 
 Chaque unité qui déploie ScoutMagic agit en tant que responsable de
