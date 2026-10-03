@@ -250,7 +250,7 @@
         /** @type {Object.<string, Object.<string, string>>} */
         var copy = {};
         Object.keys(states).forEach(function (date) {
-            copy[date] = Object.assign({}, states[date]);
+            copy[date] = { ...states[date] };
         });
         return copy;
     }

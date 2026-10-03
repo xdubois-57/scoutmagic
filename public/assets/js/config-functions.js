@@ -202,17 +202,16 @@
             saveOnChangedBlur(emailInput, function (value) {
                 return save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: value })
                     .then(function (data) {
-                        if (!data || !emailWarning || !emailWarningText) {
-                            return data;
-                        }
                         // The sentence comes from the server, which owns the
                         // rule: this only shows or hides what it answered.
                         // An absent key is « nothing to warn about », the
                         // same as an empty one, so an older answer cannot
                         // leave a stale warning on screen.
-                        var warning = data.alignment_warning || '';
-                        emailWarningText.textContent = warning;
-                        emailWarning.classList.toggle('d-none', warning === '');
+                        if (data && emailWarning && emailWarningText) {
+                            var warning = data.alignment_warning || '';
+                            emailWarningText.textContent = warning;
+                            emailWarning.classList.toggle('d-none', warning === '');
+                        }
                         return data;
                     });
             });
