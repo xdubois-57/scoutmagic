@@ -423,6 +423,11 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- unavailable identically to the public.
     hold_until DATETIME NULL,
     hold_origin VARCHAR(20) NULL,
+    -- The deadline of an AUTOMATIC hold that lapsed while the request was
+    -- still waiting (#708, IT-01): the expiry task clears `hold_until`, and
+    -- the booking page still has to say « les dates ne sont plus bloquées
+    -- depuis le … ». Cleared as soon as a new hold is placed.
+    hold_lapsed_at DATETIME NULL,
 
     -- ── Price snapshot (§6.11) ───────────────────────────────────────
     -- The ESTIMATED price at submission, as a self-contained

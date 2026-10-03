@@ -32,13 +32,17 @@
 {% set number = loop.index %}
 {% set future = phase.isFuture %}
 {% set is_next = next_key is not null and next_key == milestone.key %}
-{% set state = not milestone.isApplicable ? 'na' : (milestone.isDone ? 'done' : 'todo') %}
-<li class="step-item d-flex gap-3 pb-3 {{ state == 'done' ? 'step-item--done' : (future or state == 'na' ? 'step-item--upcoming' : 'step-item--current') }}"
+{# A state (« Dates bloquées », #708 IT-01) is never a step to do: ticked
+   while it holds, a warning once it no longer does. #}
+{% set state = not milestone.isApplicable ? 'na' : (milestone.isDone ? 'done' : (milestone.isState ? 'warning' : 'todo')) %}
+<li class="step-item d-flex gap-3 pb-3 {{ state == 'done' ? 'step-item--done' : (future or state == 'na' or state == 'warning' ? 'step-item--upcoming' : 'step-item--current') }}"
     data-milestone="{{ milestone.key }}" data-kind="{{ milestone.kind.value }}">
     <div class="step-item__marker flex-shrink-0">
         <span class="step-circle {{ state == 'done' ? 'step-circle--done' : 'step-circle--pending' }}" aria-hidden="true">
             {% if state == 'done' %}
                 <i class="bi bi-check-lg"></i>
+            {% elseif state == 'warning' %}
+                <i class="bi bi-exclamation-lg"></i>
             {% elseif state == 'na' %}
                 <i class="bi bi-dash"></i>
             {% else %}
@@ -48,7 +52,7 @@
     </div>
     <div class="flex-grow-1 {{ state == 'na' ? 'text-body-secondary opacity-50' : '' }}">
         <div class="d-flex flex-wrap align-items-baseline gap-2">
-            <span class="visually-hidden">{{ state == 'done' ? 'Fait :' : (state == 'na' ? 'Sans objet :' : 'À faire :') }}</span>
+            <span class="visually-hidden">{{ state == 'done' ? 'Fait :' : (state == 'na' ? 'Sans objet :' : (state == 'warning' ? 'Attention :' : 'À faire :')) }}</span>
             <span class="fw-semibold {{ state == 'done' ? 'text-success-emphasis' : '' }}">{{ milestone.label }}</span>
             {% if state == 'todo' %}
                 {% set kind_class = {
@@ -61,7 +65,12 @@
             {% endif %}
         </div>
 
-        {% if state == 'todo' and milestone.explanation %}
+        {% if milestone.warning and state != 'na' %}
+            <p class="small text-warning-emphasis mb-1" data-hold-warning>
+                <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>{{ milestone.warning }}
+            </p>
+        {% endif %}
+        {% if (state == 'todo' or (milestone.isState and state != 'na')) and milestone.explanation %}
             <p class="text-body-secondary small mb-1">{{ milestone.explanation }}</p>
         {% endif %}
         {% if milestone.detail and state != 'na' %}

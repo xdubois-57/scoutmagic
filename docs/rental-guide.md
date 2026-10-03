@@ -124,10 +124,13 @@ le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
 nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
 immédiatement.
 
-Les dates sont **bloquées** pendant un délai réglable, le temps que vous
+Les dates sont **bloquées** pendant un délai réglable — 30 jours par
+défaut, jamais au-delà du début du séjour —, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
-attente, les dates redeviennent simplement libres pour les autres. Vous
-recevez un rappel juste avant.
+attente, les dates redeviennent simplement libres pour les autres, et la
+page de la réservation vous en avertit. Vous recevez un rappel juste
+avant. Une **option**, elle, fait expirer la réservation si elle passe
+sans confirmation.
 
 Vous recevez aussi une notification à chaque nouvelle demande. **Elle ne
 contient aucune donnée du locataire** — juste la référence et un lien vers

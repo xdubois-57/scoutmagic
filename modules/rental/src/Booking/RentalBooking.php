@@ -69,7 +69,13 @@ final class RentalBooking
         public readonly ?\DateTimeImmutable $conditionsAcceptedAt,
         public readonly ?string $privacyVersion,
         public readonly ?string $privacyHash,
-        public readonly ?\DateTimeImmutable $privacyAcknowledgedAt
+        public readonly ?\DateTimeImmutable $privacyAcknowledgedAt,
+        /**
+         * When an automatic hold lapsed while the request was still waiting
+         * (#708, IT-01) — kept after the expiry task clears `$holdUntil`, so
+         * the page can still say since when the dates are free again.
+         */
+        public readonly ?\DateTimeImmutable $holdLapsedAt = null
     ) {
     }
 
@@ -96,12 +102,12 @@ final class RentalBooking
      *   moment the decision is taken.
      * - **Confirmed or closed** — always. It is a commitment; no deadline
      *   enters into it.
-     * - **Anything still provisional** (received, under review, information
-     *   requested, an option proposed) — **only while a hold is running**.
+     * - **Anything still provisional** (received, information requested,
+     *   an option proposed) — **only while a hold is running**.
      *   A request holds the dates for a configurable period so two visitors
      *   cannot both be told yes, and when that period lapses the dates are
      *   free again while the request itself stays waiting (spec §22.5). The
-     *   `automatic_hold_hours` setting says so in as many words, down to
+     *   `automatic_hold_days` setting says so in as many words, down to
      *   what 0 means.
      *
      * Reading it off the status alone made the hold decorative: an abandoned
@@ -111,6 +117,23 @@ final class RentalBooking
      * lapsed a minute ago frees its dates on this page load, not on the next
      * run of the task.
      */
+    /**
+     * Since when the dates are no longer held, for a request still
+     * waiting on the unit whose automatic hold ran out (#708, IT-01) —
+     * null while a hold runs, or once the booking is confirmed or final.
+     *
+     * Read from the hold itself before the expiry task has run, and from
+     * `$holdLapsedAt` after it.
+     */
+    public function holdLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($this->status->firmlyOccupiesTheAsset() || $this->status->isFinal() || $this->holdIsActive($now)) {
+            return null;
+        }
+
+        return $this->holdUntil ?? $this->holdLapsedAt;
+    }
+
     public function occupiesTheAsset(\DateTimeImmutable $now): bool
     {
         if (!$this->status->occupiesTheAsset()) {

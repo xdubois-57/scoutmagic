@@ -65,7 +65,8 @@ final class BookingJourney
 
         $next = null;
         foreach ($milestones as $milestone) {
-            if ($milestone->isApplicable && !$milestone->isDone) {
+            // A state (« Dates bloquées ») is never the next thing to do.
+            if ($milestone->isOutstanding()) {
                 $next = $milestone;
                 break;
             }
@@ -168,7 +169,6 @@ final class BookingJourney
         }
 
         return match ($this->next->key) {
-            'hold' => "L'option sur les dates est échue.",
             BookingMilestones::CONTRACT_SENT => 'Le contrat reste à envoyer.',
             'confirmed' => 'La réservation reste à confirmer.',
             BookingMilestones::ARRIVAL_INVENTORY => "L'état des lieux d'entrée reste à faire.",

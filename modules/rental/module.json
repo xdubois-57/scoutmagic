@@ -967,11 +967,11 @@
       "validation_regex": "^(BE)?\\s?[01][0-9]{3}[.\\s]?[0-9]{3}[.\\s]?[0-9]{3}$"
     },
     {
-      "key": "automatic_hold_hours",
-      "default_value": "48",
+      "key": "automatic_hold_days",
+      "default_value": "30",
       "type": "number",
-      "label": "Blocage automatique des dates (heures)",
-      "description": "Durée pendant laquelle les dates d'une demande reçue sont retenues, en heures, le temps que les gestionnaires y répondent. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs ; passé ce délai elles se libèrent seules et la demande reste en attente — rien n'est refusé automatiquement. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
+      "label": "Blocage automatique des dates (jours)",
+      "description": "Nombre de jours pendant lesquels les dates d'une demande reçue sont retenues, le temps que les gestionnaires y répondent — jamais au-delà du début du séjour. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs. À l'échéance, elles se libèrent seules et la demande reste en attente : rien n'est refusé automatiquement, et la page de la réservation avertit que les dates ne sont plus bloquées. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
     },
     {
       "key": "compliance_label_suggestions",

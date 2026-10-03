@@ -643,4 +643,78 @@ class BookingJourneyTest extends TestCase
 
         $this->fail('no phase ' . $wanted->value);
     }
+
+    // ── « Dates bloquées » is a state, never a task (#708, IT-01) ──────
+
+    private function holdLine(RentalBooking $booking, string $now): BookingMilestone
+    {
+        foreach (BookingMilestones::for($booking, new \DateTimeImmutable($now)) as $milestone) {
+            if ($milestone->key === 'hold') {
+                return $milestone;
+            }
+        }
+
+        self::fail('No hold line.');
+    }
+
+    private function automaticallyHeld(?\DateTimeImmutable $until, ?\DateTimeImmutable $lapsedAt = null): RentalBooking
+    {
+        $base = $this->booking();
+
+        return new RentalBooking(
+            ...array_merge(get_object_vars($base), [
+                'holdUntil' => $until,
+                'holdOrigin' => $until === null ? null : HoldOrigin::AUTOMATIC,
+                'holdLapsedAt' => $lapsedAt,
+            ])
+        );
+    }
+
+    public function testARunningHoldIsTickedWithItsDeadline(): void
+    {
+        $line = $this->holdLine($this->automaticallyHeld(new \DateTimeImmutable('2027-01-29 14:00:00')), '2027-01-10 12:00:00');
+
+        $this->assertTrue($line->isState);
+        $this->assertTrue($line->isDone);
+        $this->assertSame("jusqu'au 29/01/2027 à 14h00", $line->detail);
+        $this->assertNull($line->warning);
+    }
+
+    public function testALapsedAutomaticHoldWarnsAndIsNeverTheNextAction(): void
+    {
+        foreach ([
+            'before the task ran' => $this->automaticallyHeld(new \DateTimeImmutable('2027-01-09 14:00:00')),
+            'after it ran' => $this->automaticallyHeld(null, new \DateTimeImmutable('2027-01-09 14:00:00')),
+        ] as $case => $booking) {
+            $now = new \DateTimeImmutable('2027-01-10 12:00:00');
+            $milestones = BookingMilestones::for($booking, $now);
+            $line = $this->holdLine($booking, '2027-01-10 12:00:00');
+
+            $this->assertTrue($line->isApplicable, $case);
+            $this->assertFalse($line->isDone, $case);
+            $this->assertStringContainsString('ne sont plus bloquées depuis le 09/01/2027', (string) $line->warning, $case);
+            $this->assertFalse($line->isOutstanding(), $case);
+            $this->assertNotSame('hold', BookingJourney::of($milestones, BookingStatus::RECEIVED)->next()?->key, $case);
+        }
+    }
+
+    public function testTheHoldExplanationDependsOnItsOrigin(): void
+    {
+        $automatic = $this->holdLine($this->automaticallyHeld(new \DateTimeImmutable('2027-01-29 14:00:00')), '2027-01-10 12:00:00');
+        $option = $this->holdLine($this->booking(BookingStatus::RECEIVED, new \DateTimeImmutable('2027-01-29 14:00:00')), '2027-01-10 12:00:00');
+
+        $this->assertStringContainsString('la demande reste en attente', (string) $automatic->explanation);
+        $this->assertStringContainsString('la réservation expire', (string) $option->explanation);
+    }
+
+    public function testAConfirmedBookingHasNoHoldWarning(): void
+    {
+        $base = $this->automaticallyHeld(null, new \DateTimeImmutable('2027-01-09 14:00:00'));
+        $confirmed = new RentalBooking(...array_merge(get_object_vars($base), ['status' => BookingStatus::CONFIRMED]));
+
+        $line = $this->holdLine($confirmed, '2027-01-10 12:00:00');
+
+        $this->assertNull($line->warning);
+        $this->assertFalse($line->isApplicable);
+    }
 }

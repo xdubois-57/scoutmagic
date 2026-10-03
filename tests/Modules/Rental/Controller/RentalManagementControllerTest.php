@@ -31,6 +31,7 @@ use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
@@ -1558,6 +1559,44 @@ class RentalManagementControllerTest extends TestCase
             'until' => '',
         ]);
         $this->assertNull($this->bookingRepository->findById($booking->id)?->holdUntil);
+    }
+
+    /**
+     * The field says which hold runs (#708, IT-01): saving a date over the
+     * automatic one makes it an option, which ends differently.
+     */
+    public function testTheOptionFieldSaysTheAutomaticHoldRunsAndSavingMakesAnOption(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $until = new \DateTimeImmutable('+10 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+        $this->assertStringContainsString('value="' . $until->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringContainsString('Cette date est celle du <strong>blocage automatique</strong>', $body);
+
+        $this->post('/mes-locations/option', 'placeOption', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'until' => $until->format('Y-m-d\TH:i'),
+        ]);
+        $this->assertSame(HoldOrigin::MANAGER, $this->bookingRepository->findById($booking->id)?->holdOrigin);
+    }
+
+    /** A lapsed automatic hold warns, and the field shows no stale deadline. */
+    public function testALapsedAutomaticHoldWarnsOnTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $lapsed = new \DateTimeImmutable('-2 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $lapsed, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+
+        $this->assertStringContainsString('Les dates ne sont plus bloquées depuis le ' . $lapsed->format('d/m/Y'), $body);
+        $this->assertStringNotContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringNotContainsString("L'option sur les dates est échue", $body);
     }
 
     public function testAManagerEditsThePriceAndTheRenterSeesTheNewTotal(): void

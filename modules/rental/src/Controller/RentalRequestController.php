@@ -302,7 +302,7 @@ class RentalRequestController extends AbstractController
                     'privacy_text' => $this->privacyText(),
                 ],
                 $now,
-                $this->automaticHoldHours()
+                $this->automaticHoldDays()
             );
         } catch (RentalException $e) {
             return $this->renderForm($asset, $request, [$e->getMessage()]);
@@ -801,17 +801,15 @@ class RentalRequestController extends AbstractController
     }
 
     /**
-     * How long the automatic hold lasts (specifications.md §22.5), configurable per
-     * installation. Clamped to something sane: a zero or negative value
-     * would mean "no hold at all", which is a legitimate choice but must be
-     * made by clearing the setting, not by typing a nonsense number.
+     * How long the automatic hold lasts, in days (#708, IT-01), configurable
+     * per installation. 0 turns it off; a negative value is read as 0.
      */
-    private function automaticHoldHours(): int
+    private function automaticHoldDays(): int
     {
-        $configured = $this->settingService->get('automatic_hold_hours', 'rental');
+        $configured = $this->settingService->get('automatic_hold_days', 'rental');
 
         if ($configured === null || $configured === '') {
-            return RentalBookingService::DEFAULT_AUTOMATIC_HOLD_HOURS;
+            return RentalBookingService::DEFAULT_AUTOMATIC_HOLD_DAYS;
         }
 
         return max(0, (int) $configured);
