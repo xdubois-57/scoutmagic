@@ -344,3 +344,42 @@ describe('list-editor.js: add', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 });
+
+describe('list-editor.js: options for registers and lists without an order (#708, IT-09)', () => {
+    it('never persists an order for a list rendered with sortable: false', async () => {
+        const container = buildEditor();
+        container.dataset.sortable = 'false';
+        await boot();
+
+        const items = container.querySelectorAll('.list-editor-item');
+        items[2].dispatchEvent(new Event('dragstart', { bubbles: true }));
+        items[2].dispatchEvent(new Event('dragend', { bubbles: true }));
+
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("asks the item's own question before deleting it, when it has one", async () => {
+        const container = buildEditor();
+        container.querySelector('.list-editor-item').dataset.deleteConfirm = 'Supprimer « Extincteurs » du registre ?';
+        await boot();
+
+        container.querySelector('.list-editor-delete-btn').click();
+
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith({
+            message: 'Supprimer « Extincteurs » du registre ?',
+            confirmLabel: 'Supprimer',
+        }));
+    });
+
+    it('keeps the generic question for an item without one', async () => {
+        const container = buildEditor();
+        await boot();
+
+        container.querySelector('.list-editor-delete-btn').click();
+
+        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith({
+            message: 'Supprimer définitivement cet élément ?',
+            confirmLabel: 'Supprimer',
+        }));
+    });
+});

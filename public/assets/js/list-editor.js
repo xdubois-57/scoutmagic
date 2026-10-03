@@ -29,12 +29,16 @@
         // --- Drag-and-drop reorder ---
         // The shared toolbox (public/assets/js/sortable.js), delegated on
         // the list, so an item added or removed after load needs no
-        // re-wiring.
-        window.ScoutMagicSortable.bind(itemsEl, {
-            itemSelector: '.list-editor-item',
-            draggingClass: 'list-editor-item--dragging',
-            onReorder: persistOrder,
-        });
+        // re-wiring. Skipped for a list rendered with `sortable: false`,
+        // whose rows are not draggable and whose page may not load the
+        // toolbox at all.
+        if (container.dataset.sortable !== 'false') {
+            window.ScoutMagicSortable.bind(itemsEl, {
+                itemSelector: '.list-editor-item',
+                draggingClass: 'list-editor-item--dragging',
+                onReorder: persistOrder,
+            });
+        }
 
         function persistOrder() {
             if (!reorderUrl) return;
@@ -121,8 +125,9 @@
             function (btn) {
             btn.addEventListener('click', async function () {
                 if (btn.disabled) return;
+                var item = /** @type {HTMLElement|null} */ (btn.closest('.list-editor-item'));
                 var confirmed = await window.ScoutMagicConfirm.ask({
-                    message: 'Supprimer définitivement cet élément ?',
+                    message: item?.dataset.deleteConfirm || 'Supprimer définitivement cet élément ?',
                     confirmLabel: 'Supprimer'
                 });
                 if (!confirmed) return;

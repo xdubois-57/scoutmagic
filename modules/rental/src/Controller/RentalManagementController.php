@@ -378,98 +378,155 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/conformite-ajouter
+     * GET /mes-locations/{slug}/conformite/nouvelle and
+     * GET /mes-locations/{slug}/conformite/{id}/modifier — one register
+     * entry on its own page (#708, IT-09), like a shared document.
      *
      * @param array<string, string> $params
      */
-    public function addComplianceItem(Request $request, array $params): Response
+    public function complianceForm(Request $request, array $params): Response
     {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $fileId = $this->uploadComplianceFile($request, $asset);
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->complianceService === null) {
+            return $this->notFound();
+        }
 
-            $this->complianceService?->add(
-                $asset->id,
-                (string) $request->getBody('label', ''),
-                Support::optionalString($request->getBody('expires_on')),
-                Support::optionalString($request->getBody('remark')),
-                $fileId,
-                $this->actorMemberId()
-            );
-
-            FlashMessage::set('success', 'Entrée ajoutée au registre.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/conformite-modifier
-     *
-     * @param array<string, string> $params
-     */
-    public function updateComplianceItem(Request $request, array $params): Response
-    {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $itemId = (int) $request->getBody('item_id', 0);
-
-            $this->complianceService?->update(
-                $asset->id,
-                $itemId,
-                (string) $request->getBody('label', ''),
-                Support::optionalString($request->getBody('expires_on')),
-                Support::optionalString($request->getBody('remark')),
-                $this->actorMemberId()
-            );
-
-            $fileId = $this->uploadComplianceFile($request, $asset);
-            if ($fileId !== null) {
-                $this->complianceService?->attachFile($asset->id, $itemId, $fileId, $this->actorMemberId());
+        $entry = null;
+        if (isset($params['id'])) {
+            $entry = $this->complianceService->find($asset->id, (int) $params['id']);
+            if ($entry === null) {
+                return $this->notFound();
             }
+        }
 
-            FlashMessage::set('success', 'Entrée mise à jour.');
-        });
+        return $this->renderComplianceForm($asset, $entry, [
+            'label' => $entry->label ?? '',
+            'expires_on' => $entry->expiresOn ?? '',
+            'remark' => $entry->remark ?? '',
+        ], null);
     }
 
     /**
-     * POST /mes-locations/conformite-supprimer
+     * POST /mes-locations/{slug}/conformite/nouvelle and
+     * POST /mes-locations/{slug}/conformite/{id}/modifier — back to the
+     * list once saved; on a refusal, the same page with what was typed.
      *
      * @param array<string, string> $params
      */
-    public function deleteComplianceItem(Request $request, array $params): Response
-    {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $this->complianceService?->delete(
-                $asset->id,
-                (int) $request->getBody('item_id', 0),
-                $this->actorMemberId()
-            );
-
-            FlashMessage::set('success', 'Entrée supprimée.');
-        });
-    }
-
-    /**
-     * The register's own action shape: same guards as `bookingAction()`,
-     * but back to the compliance page and without a booking.
-     *
-     * @param callable(RentalAsset): void $work
-     */
-    private function complianceAction(Request $request, callable $work): Response
+    public function complianceSave(Request $request, array $params): Response
     {
         if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
             return $guard;
         }
 
-        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        $asset = $this->manageableAsset($params);
         if ($asset === null || $this->complianceService === null) {
             return $this->notFound();
         }
 
+        $entry = null;
+        if (isset($params['id'])) {
+            $entry = $this->complianceService->find($asset->id, (int) $params['id']);
+            if ($entry === null) {
+                return $this->notFound();
+            }
+        }
+
+        $values = [
+            'label' => (string) $request->getBody('label', ''),
+            'expires_on' => (string) $request->getBody('expires_on', ''),
+            'remark' => (string) $request->getBody('remark', ''),
+        ];
+
         try {
-            $work($asset);
+            $fileId = $this->uploadComplianceFile($request, $asset);
+            if ($entry === null) {
+                $this->complianceService->add(
+                    $asset->id,
+                    $values['label'],
+                    Support::optionalString($values['expires_on']),
+                    Support::optionalString($values['remark']),
+                    $fileId,
+                    $this->actorMemberId()
+                );
+                FlashMessage::set('success', 'Entrée ajoutée au registre.');
+            } else {
+                $this->complianceService->update(
+                    $asset->id,
+                    $entry->id,
+                    $values['label'],
+                    Support::optionalString($values['expires_on']),
+                    Support::optionalString($values['remark']),
+                    $this->actorMemberId()
+                );
+                if ($fileId !== null) {
+                    $this->complianceService->attachFile($asset->id, $entry->id, $fileId, $this->actorMemberId());
+                }
+                FlashMessage::set('success', 'Entrée mise à jour.');
+            }
         } catch (RentalException | UploadException $e) {
-            FlashMessage::set('error', $e->getMessage());
+            return $this->renderComplianceForm($asset, $entry, $values, $e->getMessage())->setStatusCode(422);
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/conformite');
+    }
+
+    /**
+     * POST /mes-locations/{slug}/conformite/supprimer — the list editor's
+     * bin (#708, IT-09): JSON in, `{success}` out, the page reloads.
+     *
+     * @param array<string, string> $params
+     */
+    public function complianceDelete(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->complianceService === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+
+        try {
+            $this->complianceService->delete($asset->id, (int) ($data['id'] ?? 0), $this->actorMemberId());
+        } catch (RentalException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        FlashMessage::set('success', 'Entrée supprimée.');
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * @param array{label: string, expires_on: string, remark: string} $values
+     */
+    private function renderComplianceForm(
+        RentalAsset $asset,
+        ?\Modules\Rental\Compliance\ComplianceItem $entry,
+        array $values,
+        ?string $error
+    ): Response {
+        return $this->render('@rental/management/compliance_form.html.twig', [
+            'asset' => $asset,
+            'entry' => $entry,
+            'values' => $values,
+            'error' => $error,
+            'label_suggestions' => $this->complianceService?->labelSuggestions() ?? [],
+            'breadcrumb_current' => $entry !== null ? $entry->label : 'Ajouter une entrée',
+            'breadcrumb_trail' => array_merge(
+                $this->assetSubPageTrail($asset),
+                [['label' => 'Conformité', 'url' => '/mes-locations/' . $asset->slug . '/conformite']]
+            ),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'compliance',
+        ]);
     }
 
     /**

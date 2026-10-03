@@ -450,28 +450,10 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/conformite-ajouter",
+      "path": "/mes-locations/{slug}/conformite/supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "addComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-modifier",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "updateComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-supprimer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "deleteComplianceItem",
+      "action": "complianceDelete",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -934,6 +916,42 @@
           "Espace membres"
         ]
       }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
   "settings": [

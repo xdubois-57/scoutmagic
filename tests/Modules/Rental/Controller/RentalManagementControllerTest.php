@@ -97,6 +97,8 @@ class RentalManagementControllerTest extends TestCase
     private RentalChangeRequestRepository $changeRequestRepository;
     private RentalBookingCommentRepository $commentRepository;
     private RentalBlockRepository $blockRepository;
+
+    private ?\Modules\Rental\Service\RentalComplianceService $complianceService = null;
     private RentalOperationsService $operationsService;
     private RentalPricingService $pricingService;
     private EncryptionService $encryption;
@@ -260,7 +262,7 @@ class RentalManagementControllerTest extends TestCase
             null,
             null,
             // The paperwork register: the compliance page 404s without it.
-            new \Modules\Rental\Service\RentalComplianceService(
+            $this->complianceService = new \Modules\Rental\Service\RentalComplianceService(
                 new \Modules\Rental\Repository\RentalComplianceRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 $journal,
@@ -463,8 +465,9 @@ class RentalManagementControllerTest extends TestCase
 
     /**
      * @param array<string, string> $body
+     * @param array<string, string> $params placeholders of $path, filled into the request path
      */
-    private function post(string $path, string $action, array $body): Response
+    private function post(string $path, string $action, array $body, array $params = []): Response
     {
         $body['_csrf_token'] ??= CsrfGuard::generateToken();
         $_POST = $body;
@@ -472,7 +475,19 @@ class RentalManagementControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('POST', $path, RentalManagementController::class, $action, 'identified');
 
-        return $this->dispatch($router, new Request('POST', $path, [], $body, [], []));
+        $requestPath = $path;
+        foreach ($params as $name => $value) {
+            $requestPath = str_replace('{' . $name . '}', $value, $requestPath);
+        }
+
+        return $this->dispatch($router, new Request('POST', $requestPath, [], $body, [], []));
+    }
+
+    private function complianceService(): \Modules\Rental\Service\RentalComplianceService
+    {
+        $this->assertNotNull($this->complianceService);
+
+        return $this->complianceService;
     }
 
     /**
@@ -3337,16 +3352,156 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
+        $html = (string) $this->complianceFormPage('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('aria-describedby="compliance-document-help"', $html);
+        $this->assertStringContainsString('<div class="form-text" id="compliance-document-help">', $html);
+        // The datalist the intitulé field reads still reaches it.
+        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        // An entry without a due date triggers nothing, and the field says so.
+        $this->assertStringContainsString('ne déclenche aucun rappel', $html);
+    }
+
+    // ── The compliance register on the shared list (#708, IT-09) ───────
+
+    public function testTheRegisterIsAListSortedByDueDateWithoutDragHandles(): void
+    {
+        $this->loginAsManager();
+        $service = $this->complianceService();
+        $service->add($this->assetId, 'Sans date', null, null);
+        $service->add($this->assetId, 'Chaudière', '2027-09-01', null);
+        $service->add($this->assetId, 'Extincteurs', '2027-03-01', 'Société Feu Sûr');
+
         $html = (string) $this->get(
             '/mes-locations/{slug}/conformite',
             '/mes-locations/local-saint-georges/conformite',
             'compliance'
         )->getBody();
 
-        $this->assertStringContainsString('aria-describedby="new-document-help"', $html);
-        $this->assertStringContainsString('<div class="form-text" id="new-document-help">', $html);
-        // The datalist the intitulé field reads still reaches it.
-        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        $this->assertStringContainsString('id="compliance-list"', $html);
+        $this->assertStringContainsString('data-sortable="false"', $html);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $html);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/conformite/nouvelle"', $html);
+        $this->assertStringNotContainsString('action="/mes-locations/conformite-ajouter"', $html);
+        $first = strpos($html, 'Extincteurs');
+        $this->assertNotFalse($first);
+        $this->assertGreaterThan($first, strpos($html, 'Chaudière'));
+        $this->assertGreaterThan(strpos($html, 'Chaudière'), strpos($html, 'Sans date'));
+        $this->assertStringContainsString('Supprimer « Extincteurs » du registre ?', $html);
+    }
+
+    public function testAnEntryIsAddedFromItsOwnPageAndTheManagerIsSentBackToTheList(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => 'Extincteurs',
+            'expires_on' => '2027-03-01',
+            'remark' => 'Société Feu Sûr',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mes-locations/local-saint-georges/conformite', $response->getHeaders()['Location'] ?? null);
+        $items = $this->complianceService()->forAsset($this->assetId);
+        $this->assertCount(1, $items);
+        $this->assertSame('2027-03-01', $items[0]->expiresOn);
+    }
+
+    public function testARefusedEntryComesBackWithWhatWasTyped(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => '',
+            'remark' => 'Ma remarque',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Ma remarque', (string) $response->getBody());
+    }
+
+    public function testAnEntryIsChangedFromItsOwnPageKeepingItsDocument(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $page = (string) $this->complianceFormPage('local-saint-georges', $id)->getBody();
+        $this->assertStringContainsString('value="Extincteurs"', $page);
+
+        $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Extincteurs (rez)',
+            'expires_on' => '',
+            'remark' => '',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $id]);
+
+        $entry = $this->complianceService()->find($this->assetId, $id);
+        $this->assertSame('Extincteurs (rez)', $entry?->label);
+        $this->assertNull($entry?->expiresOn);
+    }
+
+    public function testAnEntryIsDeletedThroughTheListBin(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', [
+            'id' => $id,
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame([], $this->complianceService()->forAsset($this->assetId));
+    }
+
+    public function testTheEntryPagesAreClosedToAnotherAssetsEntriesAndToNonManagers(): void
+    {
+        $foreign = $this->complianceService()->add($this->otherAssetId, 'Chaudière', null, null);
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges')->getStatusCode());
+
+        $this->loginAsManager();
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges', $foreign)->getStatusCode());
+        $this->assertSame(404, $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Pris',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $foreign])->getStatusCode());
+        $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', ['id' => $foreign]);
+        $this->assertNotNull($this->complianceService()->find($this->otherAssetId, $foreign));
+    }
+
+    private function complianceFormPage(string $slug, ?int $id = null): Response
+    {
+        return $id === null
+            ? $this->get('/mes-locations/{slug}/conformite/nouvelle', '/mes-locations/' . $slug . '/conformite/nouvelle', 'complianceForm')
+            : $this->get(
+                '/mes-locations/{slug}/conformite/{id}/modifier',
+                '/mes-locations/' . $slug . '/conformite/' . $id . '/modifier',
+                'complianceForm'
+            );
+    }
+
+    /**
+     * A list editor's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postJsonTo(string $routePath, string $action, string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $router = new Router();
+        $router->addRoute('POST', $routePath, RentalManagementController::class, $action, 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                str_replace('{slug}', $slug, $routePath),
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── The « Rappels » section of the settings page (IT-07, §6.29) ──────
