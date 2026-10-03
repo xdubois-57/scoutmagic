@@ -194,7 +194,6 @@
             {% include '@groups/partials/post_body.html.twig' with { post: row.post } only %}
         {% endif %}
         {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
-        {% include '@groups/partials/post_event.html.twig' with { event: row.event|default(null) } only %}
         {% include '@groups/partials/poll.html.twig' with {
             poll: row.poll|default(null),
             group: group,

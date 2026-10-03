@@ -51,10 +51,6 @@ class GroupFeedService
         // this module: a feed renders perfectly well with no read state
         // at all, it just shows no "vu par" line.
         private ?GroupReadStateService $readStateService = null,
-        // Also nullable and also last, and for a stronger reason than
-        // the one above: this one reaches another MODULE. With calendar
-        // disabled it is simply absent and no post shows an event.
-        private ?PostEventService $eventService = null,
         private ?PollService $pollService = null
     ) {
     }
@@ -168,11 +164,6 @@ class GroupFeedService
                 $canModerate
             );
         $polls = $this->pollService?->forPosts($postIds, $context->userAccountId, $context->linkedMemberIds) ?? [];
-        $events = $this->eventService?->summariesFor(
-            array_map(fn(Post $p) => $p->calendarEventId, $posts),
-            $context->role
-        ) ?? [];
-
         $repliesByPost = [];
         foreach ($replyData['replies'] as $postId => $replies) {
             $repliesByPost[$postId] = $this->replyPresenter->decorate(
@@ -194,7 +185,6 @@ class GroupFeedService
             'reports' => $postReports,
             'seen_counts' => $seenCounts,
             'new_reply_counts' => $newReplyCounts,
-            'events' => $events,
             'polls' => $polls,
         ];
     }
@@ -308,7 +298,6 @@ class GroupFeedService
             // A post that did not exist a moment ago has been seen by
             // nobody, by definition — no query needed to say so.
             'seen_counts' => [$post->id => 0],
-            'events' => $this->eventService?->summariesFor([$post->calendarEventId], $context->role) ?? [],
             // A post that did not exist a moment ago has no replies, so
             // none of them can be new either.
             'new_reply_counts' => [],
@@ -400,12 +389,6 @@ class GroupFeedService
             // what decides both the thread's badge and whether it opens
             // itself (partials/post_card.html.twig).
             'new_reply_count' => $page['new_reply_counts'][$post->id] ?? 0,
-            // Null whenever calendar is disabled, the event was deleted,
-            // or this reader may not see the calendar it sits on — the
-            // card then simply omits the line.
-            'event' => $post->calendarEventId !== null
-                ? ($page['events'][$post->calendarEventId] ?? null)
-                : null,
             'poll' => $page['polls'][$post->id] ?? null,
             'is_hidden' => $canModerate && $post->isHidden(),
             'report_count' => $canModerate ? ($page['reports']['counts'][$post->id] ?? 0) : 0,

@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Discussions",
   "description": "Groupes de discussion privés, un par section.",
-  "version": "1.17.9",
+  "version": "1.18.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"

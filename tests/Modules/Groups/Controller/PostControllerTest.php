@@ -134,8 +134,7 @@ class PostControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?LinkPreviewFetcher $linkPreviewFetcher = null,
-        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
+        ?LinkPreviewFetcher $linkPreviewFetcher = null
     ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -183,17 +182,13 @@ class PostControllerTest extends TestCase
             new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
             $access
         );
-        // Null unless a test supplies one — which is production's own
-        // "calendar disabled" wiring, so every other test in this file
-        // exercises the degraded path for free.
-        $eventService = new \Modules\Groups\Service\PostEventService($eventLookup);
         $pollService = new \Modules\Groups\Service\PollService(
             new \Modules\Groups\Repository\PollRepository($this->pdo)
         );
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
             $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
-            $readStateService, $eventService, $pollService
+            $readStateService, $pollService
         );
 
         $twig = TestTwig::create([
@@ -228,7 +223,6 @@ class PostControllerTest extends TestCase
                 $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
                 $memberService
             ),
-            $eventService,
             $pollService,
             GroupsTestHelper::identityService($this->pdo)
         );
@@ -1386,58 +1380,15 @@ class PostControllerTest extends TestCase
         $this->assertSame(400, $response->getStatusCode());
     }
 
-    // --- linked calendar event ------------------------------------------
-
-    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
-    {
-        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
-        $lookup->method('findEventById')->willReturn($event);
-        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
-
-        return $lookup;
-    }
-
-    private function summary(int $id = 9): \Modules\Calendar\Api\EventSummary
-    {
-        return new \Modules\Calendar\Api\EventSummary($id, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
-    }
-
-    public function testAPostCanCarryACalendarEventAndShowsItInTheFeed(): void
-    {
-        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
-        $controller = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup($this->summary()));
-
-        $controller->create($this->request(), $this->params());
-
-        $posts = $this->postRepo->findPage($this->groupId, 10);
-        $this->assertSame(9, $posts[0]->calendarEventId);
-
-        $body = $controller->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())->getBody();
-        $this->assertStringContainsString('Réunion de section', $body);
-        $this->assertStringContainsString('/calendar?month=2026-03', $body);
-    }
-
     /**
-     * The id is re-resolved against the calendar's own visibility rules
-     * before anything is stored, so one typed into the form by hand
-     * cannot attach an event this member may not see.
+     * A post could carry an optional calendar event until issue #711
+     * removed the feature. What is pinned here is the absence on the
+     * write side: a `calendar_event_id` still arriving from a stale
+     * cached page, a bookmarked form or a script must publish an
+     * ordinary post and store nothing, rather than reach a column that
+     * no longer exists.
      */
-    public function testAnEventTheMemberMayNotSeeIsNotAttached(): void
-    {
-        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
-
-        $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
-            ->create($this->request(), $this->params());
-
-        $this->assertNull($this->postRepo->findPage($this->groupId, 10)[0]->calendarEventId);
-    }
-
-    /**
-     * The whole point of the nullable interface: with the calendar module
-     * switched off, posting still works and the card simply shows no
-     * event line (ARCHITECTURE.md §7.5).
-     */
-    public function testWithTheCalendarDisabledAPostStillPublishesWithNoEventLine(): void
+    public function testASubmittedCalendarEventIdIsIgnoredAndThePostStillPublishes(): void
     {
         $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
         $controller = $this->controller([$this->memberId]);
@@ -1445,29 +1396,12 @@ class PostControllerTest extends TestCase
         $response = $controller->create($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $post = $this->postRepo->findPage($this->groupId, 10)[0];
-        $this->assertNull($post->calendarEventId);
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertSame('On en parle samedi', $posts[0]->body);
         $this->assertStringNotContainsString(
             'bi-calendar-event',
             $controller->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())->getBody()
         );
-    }
-
-    /**
-     * A stale id — the event was deleted after the post was written —
-     * renders as no line at all rather than as a broken link. That is why
-     * schema.sql carries no foreign key on the column.
-     */
-    public function testAPostWhoseEventHasSinceDisappearedRendersWithoutIt(): void
-    {
-        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'On en parle', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
-        $this->postRepo->setCalendarEventId($postId, 9);
-
-        $body = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
-            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
-            ->getBody();
-
-        $this->assertStringNotContainsString('bi-calendar-event', $body);
     }
 
     // --- the card's own layout ------------------------------------------
