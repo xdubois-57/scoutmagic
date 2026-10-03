@@ -53,6 +53,12 @@ function dragOver(target, clientY = 0) {
     target.dispatchEvent(event);
 }
 
+/** A real drop where the row now is, then the end of the drag. */
+function release(target) {
+    target.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new Event('dragend', { bubbles: true }));
+}
+
 function layOut(key) {
     [...items(key).querySelectorAll('.list-editor-item')].forEach((el, i) => {
         el.getBoundingClientRect = () => ({ top: i * 100, left: 0, height: 100, width: 100 });
@@ -74,7 +80,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(2).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(row(8), 10); // upper half of the second row: before it
-        row(2).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(2));
 
         expect(ids('unite')).toEqual(['7', '2', '8']);
         expect(ids('membres')).toEqual(['1']);
@@ -91,7 +97,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(3).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(items('animateurs').querySelector('.list-editor-empty'));
-        row(3).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(3));
 
         expect(ids('animateurs')).toEqual(['3']);
         expect(emptyShown('animateurs')).toBe(false);
@@ -106,11 +112,26 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(1).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(items('unite')); // the list's own padding, over no row
-        row(1).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(1));
 
         const children = [...items('unite').children];
         expect(children.indexOf(row(1))).toBeLessThan(children.indexOf(items('unite').querySelector('.list-editor-empty')));
         expect(ids('unite')).toEqual(['7', '8', '1']);
+    });
+
+    it('puts a row back and saves nothing when a move to another section is abandoned (no drop)', async () => {
+        document.body.innerHTML = list('membres', [1, 2]) + list('unite', [7]);
+        await boot();
+
+        row(2).dispatchEvent(new Event('dragstart', { bubbles: true }));
+        dragOver(items('unite'));
+        expect(ids('unite')).toEqual(['7', '2']); // moved live while hovering
+        row(2).dispatchEvent(new Event('dragend', { bubbles: true })); // Escape: no drop
+
+        expect(ids('membres')).toEqual(['1', '2']);
+        expect(ids('unite')).toEqual(['7']);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(fetch).not.toHaveBeenCalled();
     });
 
     it('marks every list of the group as a drop zone while dragging, and only then', async () => {
@@ -121,7 +142,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
         expect(items('membres').classList.contains('sortable-drop-zone')).toBe(true);
         expect(items('unite').classList.contains('sortable-drop-zone')).toBe(true);
 
-        row(1).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(1));
         expect(items('unite').classList.contains('sortable-drop-zone')).toBe(false);
     });
 
@@ -132,7 +153,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(2).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(row(5), 90);
-        row(2).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(2));
 
         await vi.waitFor(() =>
             expect(row(2).querySelector('[data-item-field="group_label"]').textContent).toBe('Infos · '));
@@ -145,7 +166,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(2).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(items('unite'));
-        row(2).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(2));
 
         await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
         expect(document.querySelector('.toast-body').textContent).toBe("Cette section de menu n'existe pas.");
@@ -159,7 +180,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(1).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(row(2), 90);
-        row(1).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(1));
 
         await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
         expect(window.location.reload).not.toHaveBeenCalled();
@@ -171,7 +192,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
         layOut('unite');
         row(2).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(row(7), 90);
-        row(2).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(2));
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
         row(2).querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
@@ -187,7 +208,7 @@ describe('list-editor.js — connected lists (issue #752)', () => {
 
         row(1).dispatchEvent(new Event('dragstart', { bubbles: true }));
         dragOver(items('b'));
-        row(1).dispatchEvent(new Event('dragend', { bubbles: true }));
+        release(row(1));
 
         expect(ids('a')).toEqual(['1']);
         expect(ids('b')).toEqual([]);
