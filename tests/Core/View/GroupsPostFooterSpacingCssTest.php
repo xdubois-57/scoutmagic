@@ -117,6 +117,23 @@ final class GroupsPostFooterSpacingCssTest extends TestCase
     }
 
     /**
+     * What `@media (pointer: coarse)` actually contains in app.css.
+     *
+     * Bounded by the block's OWN closing brace, which is the one `}` at
+     * the start of a line — every rule inside it is indented. That is
+     * what makes an assertion against this string mean « inside the
+     * block », and it survives the rules inside being reordered, which a
+     * `[^}]*` reaching from the opener would not.
+     */
+    private function coarsePointerBlock(): string
+    {
+        preg_match('/@media \(pointer: coarse\) \{\n(.*?)\n\}/s', $this->app, $matches);
+        $this->assertNotEmpty($matches, 'app.css no longer has an @media (pointer: coarse) block at all.');
+
+        return $matches[1];
+    }
+
+    /**
      * The part a spacing change must not quietly pay for. AGENTS.md
      * treats 44px as a comfort goal for small controls, implemented
      * centrally in app.css's `pointer: coarse` block — never by an inline
@@ -124,9 +141,16 @@ final class GroupsPostFooterSpacingCssTest extends TestCase
      */
     public function testTheThreeRowsKeepTheirFortyFourPixelTouchTargets(): void
     {
+        // Against the BLOCK's content, not against the whole file. Written
+        // first as one pattern over app.css with `.*` under `/s`, which
+        // asserted only that the two fragments appeared in that textual
+        // ORDER: `.*` crosses the block's closing brace, so moving `.btn`
+        // out of the block to file scope — forcing 44px on every button
+        // whatever the pointer — left this green. Measured, not reasoned:
+        // that exact move was made and the assertion passed.
         $this->assertMatchesRegularExpression(
-            '/@media \(pointer: coarse\) \{.*\.btn \{\s*min-height:\s*44px;/s',
-            $this->app,
+            '/\.btn \{\s*min-height:\s*44px;/',
+            $this->coarsePointerBlock(),
             'app.css no longer gives a .btn its 44px on a coarse pointer, which is where both the '
             . '« Vu par » line and the reaction tally get theirs.',
         );
