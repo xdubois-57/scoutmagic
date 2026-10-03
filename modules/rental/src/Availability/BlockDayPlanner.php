@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Availability;
 
+use Core\Service\DateInput;
 use Modules\Rental\Repository\RentalBlock;
 
 /**
@@ -149,6 +150,6 @@ final class BlockDayPlanner
 
     private static function shift(string $day, int $by): string
     {
-        return (new \DateTimeImmutable($day))->modify(($by >= 0 ? '+' : '') . $by . ' day')->format('Y-m-d');
+        return DateInput::requireFromStorage($day, 'block day')->modify(($by >= 0 ? '+' : '') . $by . ' day')->format('Y-m-d');
     }
 }
