@@ -79,6 +79,24 @@ describe('covoiturage-offer.js', () => {
         expect(fetch.mock.calls[0][0]).toContain('depuis=Gare%20de%20Wavre');
     });
 
+    it('drops an answer still on its way once the meeting point is cleared', async () => {
+        await boot();
+        await settle();
+        let answer;
+        global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+
+        $('offer-endpoint').value = 'Gare de Wavre';
+        $('offer-endpoint').dispatchEvent(new Event('change'));
+        $('offer-endpoint').value = '';
+        $('offer-endpoint').dispatchEvent(new Event('change'));
+        answer({ ok: true, status: 200, json: () => Promise.resolve({ ...ANSWER, outbound: { time: '12:00', line: 'Périmé.' } }) });
+        await settle();
+
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect($('offer-time').value).toBe('13:13');
+        expect($('offer-time-suggestion').textContent).toContain('trajet estimé à 42 min');
+    });
+
     it('keeps an hour the driver typed, while the sentence still says the suggestion', async () => {
         await boot();
         await settle();

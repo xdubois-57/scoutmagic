@@ -64,10 +64,15 @@
     var asked = 0;
 
     function refresh() {
-        if (!endpoint || endpoint.value.trim() === '') {
+        if (!endpoint) {
             return;
         }
+        // Every change makes a new question, so an answer still on its way
+        // for the previous meeting point never lands after it was cleared.
         var mine = ++asked;
+        if (endpoint.value.trim() === '') {
+            return;
+        }
         var url = (form.dataset.travelUrl || '') + '?depuis=' + encodeURIComponent(endpoint.value.trim());
         api.getJson(url).then(function (res) {
             // Only the latest question's answer counts.
