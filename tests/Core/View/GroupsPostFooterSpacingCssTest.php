@@ -96,11 +96,23 @@ final class GroupsPostFooterSpacingCssTest extends TestCase
             'the « Commenter » disclosure\'s classes are no longer exactly `groups-thread '
             . 'groups-post-action-line` — same two possibilities, same consequence.',
         );
-        $this->assertStringContainsString(
-            "compact ? ' groups-reactions-compact' : ' groups-post-action-line'",
+        // The whole attribute here too, Twig expression included. A
+        // containment check on the ternary alone was the first version of
+        // this assertion and it was the one row of the three NOT pinned
+        // whole: appending ` mt-2` after `gap-1` leaves that substring
+        // untouched, so it would have passed while `!important` beat the
+        // media query again. This row's attribute is half Twig, which is
+        // why it reads differently from the two above and not why it
+        // should be held more loosely.
+        $this->assertMatchesRegularExpression(
+            '/<div class="groups-reactions\{\{ compact \? \x27 groups-reactions-compact\x27'
+            . ' : \x27 groups-post-action-line\x27 \}\} d-flex align-items-center gap-1"/',
             $this->reactions,
-            'the reaction row no longer picks .groups-post-action-line for a card and '
-            . '.groups-reactions-compact for a reply, so one of the two lost its spacing.',
+            'the reaction row\'s class attribute is no longer exactly `groups-reactions{{ compact ? '
+            . '\' groups-reactions-compact\' : \' groups-post-action-line\' }} d-flex '
+            . 'align-items-center gap-1`: either the card/reply split is gone — one of the two '
+            . 'variants losing its spacing — or a margin utility was appended beside it, which '
+            . '`!important` would make the coarse-pointer rule powerless against.',
         );
     }
 
