@@ -58,6 +58,32 @@ class CampLabelsTest extends TestCase
         $this->assertSame('neutral', CampLabels::statusTone('inconnu'));
     }
 
+    /**
+     * The label gallery's album administration shows for a stay (issue
+     * #749). The two cases its own describer tests cannot reach are here,
+     * because they are about the join and not about the data: a stay
+     * whose place row is gone, and one with neither place nor date.
+     *
+     * Both have to keep reading as a stay. The whole point of the label
+     * is that an administrator never falls back to `camp_camp #10`, and
+     * an empty string would send them straight back to it.
+     */
+    public function testTheAlbumLabelSkipsWhatIsMissingAndNeverCollapses(): void
+    {
+        $this->assertSame(
+            'Grand camp — 12–19 juillet 2028',
+            CampLabels::albumOwnerLabel(Camp::STAY_GRAND_CAMP, null, '2028-07-12', '2028-07-19', null),
+            'a stay whose place row is gone loses the place and keeps the rest.'
+        );
+
+        $this->assertSame(
+            'Autre séjour',
+            CampLabels::albumOwnerLabel(Camp::STAY_OTHER, '  ', null, null, null),
+            'with no place and no date, the stay type carries the label alone — a blank place name '
+            . 'is treated as none, and an empty label would hand the page back its identifier.'
+        );
+    }
+
     public function testEveryStatusAndStayTypeHasALabelAndATone(): void
     {
         // A value the schema allows but the vocabulary forgot would render

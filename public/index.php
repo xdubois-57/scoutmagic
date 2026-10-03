@@ -10202,6 +10202,15 @@ if ($isEnabled('camps')) {
         $galleryDelegatedAlbumManager ?? null,
         $journalService
     );
+    // And the name gallery's storage-administration page shows for that
+    // same album — "Grand camp — Ferme de la Hulotte — 12–19 juillet 2028"
+    // rather than "camp_camp #10" (issue #749). Read-only and separate on
+    // purpose, exactly like the groups describer further down: naming an
+    // album for an administrator is not the same permission as opening it.
+    $galleryDelegatedAlbumDescribers[] = new \Modules\Camps\Service\CampDelegatedAlbumDescriber(
+        $campsCampRepo,
+        $campsPlaceRepo
+    );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
         $campsPlaceRepo,
