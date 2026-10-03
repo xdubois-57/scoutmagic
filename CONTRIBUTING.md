@@ -59,7 +59,7 @@ Node nor npm is required on the hosting server.
 
 ```bash
 composer install
-cp config/app.php.dist config/app.php
+composer dev-config  # config/app.php for plain http://localhost (https_required => false)
 composer serve
 
 npm ci               # only needed for JS static analysis and the Node-based tests (Vitest, Playwright)
