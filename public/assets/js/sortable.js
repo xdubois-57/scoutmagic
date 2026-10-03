@@ -148,7 +148,16 @@
                 // the space below the last item. Only a connected list
                 // takes the item there; a lone list has nothing to gain.
                 if (options.group && dragged.parentNode !== container) {
-                    container.appendChild(dragged);
+                    // After the last item rather than at the very end: a
+                    // list may close on a non-item (an « empty » note),
+                    // and the item belongs among the items.
+                    var items = container.querySelectorAll(itemSelector);
+                    var last = items.length ? items[items.length - 1] : null;
+                    if (last?.parentNode === container) {
+                        container.insertBefore(dragged, last.nextSibling);
+                    } else {
+                        container.insertBefore(dragged, container.firstChild);
+                    }
                 }
                 return;
             }

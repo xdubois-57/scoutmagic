@@ -140,6 +140,17 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('still refreshes the arrows after a local move when no reorder URL is configured', async () => {
+        buildEditor({ items: [1, 2], reorderUrl: '' });
+        await boot();
+        const [first, second] = document.querySelectorAll('.list-editor-item');
+        second.querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
+
+        expect(second.querySelector('.list-editor-move-up').disabled).toBe(true);
+        expect(first.querySelector('.list-editor-move-down').disabled).toBe(true);
+        expect(first.querySelector('.list-editor-move-up').disabled).toBe(false);
+    });
+
     it('toasts the server error message when persisting a move fails', async () => {
         buildEditor({ items: [1, 2] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Verrou déjà pris.' }));

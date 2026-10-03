@@ -48,8 +48,14 @@
          * @param {{item: HTMLElement, from: HTMLElement, to: HTMLElement}} [move]
          */
         function persistOrder(move) {
-            if (!reorderUrl) return;
             var crossed = !!move && move.from !== move.to;
+            // The arrows follow the DOM, saved or not — a list without a
+            // reorder endpoint still moves its rows locally.
+            refreshList(itemsEl);
+            if (crossed) {
+                refreshList(move.from);
+            }
+            if (!reorderUrl) return;
             // Sent as-is (not parseInt'd) — an item's id isn't always
             // numeric (e.g. the general configuration page's module list
             // uses each module's string id).
@@ -62,10 +68,6 @@
             var body = { ids: ids };
             if (group) {
                 body.group = container.dataset.groupKey || '';
-            }
-            refreshList(itemsEl);
-            if (crossed) {
-                refreshList(move.from);
             }
             window.ScoutMagicApi.postJson(reorderUrl, body).then(function (res) {
                 var data = res.data || {};

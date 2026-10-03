@@ -100,6 +100,19 @@ describe('list-editor.js — connected lists (issue #752)', () => {
         expect(JSON.parse(fetch.mock.calls[0][1].body).group).toBe('animateurs');
     });
 
+    it('drops into the gap of a NON-empty section after its last row, never after the empty sentence', async () => {
+        document.body.innerHTML = list('membres', [1]) + list('unite', [7, 8]);
+        await boot();
+
+        row(1).dispatchEvent(new Event('dragstart', { bubbles: true }));
+        dragOver(items('unite')); // the list's own padding, over no row
+        row(1).dispatchEvent(new Event('dragend', { bubbles: true }));
+
+        const children = [...items('unite').children];
+        expect(children.indexOf(row(1))).toBeLessThan(children.indexOf(items('unite').querySelector('.list-editor-empty')));
+        expect(ids('unite')).toEqual(['7', '8', '1']);
+    });
+
     it('marks every list of the group as a drop zone while dragging, and only then', async () => {
         document.body.innerHTML = list('membres', [1]) + list('unite', []);
         await boot();
