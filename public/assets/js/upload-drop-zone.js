@@ -27,39 +27,29 @@
 // guessed would draw a broken frame for every PDF. The zones that take
 // documents ask for nothing and keep exactly the behaviour they had.
 //
-// The preview is local and temporary — `URL.createObjectURL` on the picked
-// File, revoked the moment it is replaced or cleared, so picking three
-// photos in a row does not pin three decoded images in memory. Selecting a
-// file uploads nothing: that is the form's own POST, later, when the
-// visitor presses the button. Same reasoning, and the same proven shape,
-// as the generic uploader's own preview in upload.js.
+// The preview is local: the picked File is DECODED in the browser and its
+// pixels drawn into a <canvas>. Selecting a file uploads nothing — that is
+// the form's own POST, later, when the visitor presses the button.
+//
+// Deliberately NOT `img.src = URL.createObjectURL(file)`, which is the
+// shape upload.js uses and the shape this file was written with first.
+// Here the File is reached through an element this module looked up from a
+// DOM attribute (`data-drop-zone-for` names the input), so the object URL
+// derived from it is DOM-derived text, and CodeQL rates the resulting
+// `src` assignment a HIGH « DOM text reinterpreted as HTML ». Checking the
+// string at the sink did not answer it and should not have been expected
+// to: the honest answer is to stop putting a string there. Decoded pixels
+// leave no URL to assign, none to give back, and no sink to guard.
 
 (function () {
     var PREVIEW_CLASS = 'drop-zone-preview';
 
     /**
-     * Object URLs currently held by each zone's preview, so the next
-     * selection can revoke them. Keyed by the zone's own element: a page
-     * with two zones must not revoke the other one's images.
-     *
-     * @type {WeakMap<HTMLElement, string[]>}
+     * The longest side of a thumbnail, in CSS pixels. Small on purpose:
+     * this sits above a filename inside a form's help text, and its job is
+     * « which photo is this », not « look at this photo ».
      */
-    var heldUrls = new WeakMap();
-
-    /**
-     * @param {HTMLElement} zone
-     * @returns {void}
-     */
-    function releaseUrls(zone) {
-        var held = heldUrls.get(zone);
-        if (!held) {
-            return;
-        }
-        held.forEach(function (url) {
-            URL.revokeObjectURL(url);
-        });
-        heldUrls.delete(zone);
-    }
+    var PREVIEW_SIZE = 96;
 
     /**
      * Whether this zone asked for thumbnails. A zone that did not is left
@@ -74,59 +64,85 @@
     }
 
     /**
-     * One thumbnail, or null for anything that is not an image this
-     * browser will decode. The caller then has only the name to show,
-     * which is the right answer rather than a broken frame.
+     * One thumbnail for a picked image, or null for anything this browser
+     * will not decode — the caller then has only the name to show, which
+     * is the right answer rather than a broken frame.
      *
-     * @param {HTMLElement} zone
+     * Returned EMPTY and `hidden`, and filled in when the decode resolves:
+     * the element has to exist straight away so the thumbnails appear in
+     * the order the files were picked, and it stays hidden until it has
+     * pixels because a bordered empty canvas is a grey box, and a file
+     * whose bytes are not an image would leave that box standing.
+     *
+     * `imageOrientation: 'from-image'` for the reason upload.js writes out
+     * at length: createImageBitmap's own default is 'none', so an
+     * unconfigured call draws a sideways phone photo.
+     *
+     * A rejected decode is the same outcome `img.onerror` used to give,
+     * with one race fewer: there is no element in the document yet that
+     * has to be taken back out from under a load event.
+     *
+     * No fallback to an <img> for an engine without createImageBitmap:
+     * that is exactly the sink this file no longer has (see the top of the
+     * file). Those engines show the filename, as they did before #756.
+     *
      * @param {File} file
-     * @returns {HTMLImageElement|null}
+     * @returns {HTMLCanvasElement|null}
      */
-    function thumbnail(zone, file) {
+    function thumbnail(file) {
         if (typeof file.type !== 'string' || file.type.indexOf('image/') !== 0) {
             return null;
         }
-        if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        if (typeof createImageBitmap !== 'function') {
             return null;
         }
 
-        var url = URL.createObjectURL(file);
+        var canvas = document.createElement('canvas');
+        canvas.className = PREVIEW_CLASS + ' rounded border me-2 mb-1';
+        canvas.hidden = true;
+        // Decorative: the filename beside it is the accessible answer, and
+        // a screen reader announcing "image" over a canvas with no name
+        // tells nobody which photo this is.
+        canvas.setAttribute('aria-hidden', 'true');
 
-        // Checked AT THE SINK, which is where AGENTS.md § CodeQL says to
-        // check: the only value this `img.src` may ever carry is a blob
-        // URL the browser just minted for a File the visitor picked. The
-        // guard is what makes that an invariant rather than a reading of
-        // the three lines above, and it is why CodeQL flagged this
-        // assignment HIGH — an `src` is a navigable sink, and « it came
-        // from our own code » is not an argument that survives the next
-        // caller. A browser that answered anything else gets the text
-        // fallback, same as an undecodable image.
-        if (url.indexOf('blob:') !== 0) {
-            URL.revokeObjectURL(url);
+        createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bitmap) {
+            draw(canvas, bitmap);
+        }, function () {
+            canvas.remove();
+        });
 
-            return null;
+        return canvas;
+    }
+
+    /**
+     * @param {HTMLCanvasElement} canvas
+     * @param {ImageBitmap} bitmap
+     * @returns {void}
+     */
+    function draw(canvas, bitmap) {
+        var longest = Math.max(bitmap.width, bitmap.height);
+        // Never enlarged: a 32-pixel icon blown up to 96 is a blurry mess,
+        // and `min` is what keeps the thumbnail at the file's own size
+        // when the file is smaller than the box.
+        var scale = longest > 0 ? Math.min(1, PREVIEW_SIZE / longest) : 1;
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+
+        var context = canvas.getContext('2d');
+        if (context === null) {
+            // No 2D context to paint into: nothing to show, and an empty
+            // bordered box would be worse than the name alone.
+            canvas.remove();
+        } else {
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            canvas.hidden = false;
         }
 
-        var held = heldUrls.get(zone) || [];
-        held.push(url);
-        heldUrls.set(zone, held);
-
-        var img = document.createElement('img');
-        img.className = PREVIEW_CLASS + ' rounded border me-2 mb-1';
-        // The name, not "Aperçu": a screen reader reading "image" twice
-        // over tells nobody which photo this is, and the visible name
-        // below is for the sighted reader only.
-        img.alt = file.name;
-        // A declared image whose bytes are not one — a renamed file, a
-        // format this engine cannot decode — leaves the name standing
-        // rather than a broken frame, and gives the URL straight back.
-        img.onerror = function () {
-            img.remove();
-            URL.revokeObjectURL(url);
-        };
-        img.src = url;
-
-        return img;
+        if (typeof bitmap.close === 'function') {
+            // The decoded pixels are in the canvas now; the bitmap itself
+            // is several megabytes of phone photo with nothing left to do.
+            bitmap.close();
+        }
     }
 
     /**
@@ -139,11 +155,6 @@
         if (target === null) {
             return;
         }
-
-        // Whatever the previous selection held goes back now, before
-        // anything replaces it: this runs on every pick, including the
-        // one that clears the zone.
-        releaseUrls(zone);
 
         if (!files || files.length === 0) {
             target.textContent = '';
@@ -166,9 +177,14 @@
             return;
         }
 
+        // Nothing to release first: the line above already replaced every
+        // child of `target`, the previous selection's canvases among them,
+        // and a decode still in flight for one of them resolves onto an
+        // element that is no longer in the document — which is the whole
+        // reason there is no longer a list of object URLs to give back.
         var thumbs = picked
-            .map(function (file) { return thumbnail(zone, file); })
-            .filter(function (img) { return img !== null; });
+            .map(function (file) { return thumbnail(file); })
+            .filter(function (canvas) { return canvas !== null; });
 
         if (thumbs.length === 0) {
             return;
@@ -178,8 +194,8 @@
         // a long filename on one line leave room for neither.
         var strip = document.createElement('span');
         strip.className = 'd-block mb-1';
-        thumbs.forEach(function (img) {
-            strip.appendChild(img);
+        thumbs.forEach(function (canvas) {
+            strip.appendChild(canvas);
         });
         target.insertBefore(strip, target.firstChild);
     }

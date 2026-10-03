@@ -768,10 +768,21 @@ name stays — the picture says which photo, the name says which file, and
 a screen reader gets the second one. It is deliberately not derived from
 `accept`: a rental document and a receipt take a PDF or a photograph of
 one indifferently, and a zone that guessed would draw a broken frame for
-every PDF. The preview is `URL.createObjectURL` on the File, revoked the
-moment it is replaced or cleared, and a declared image whose bytes are not
-one leaves the name standing rather than a broken frame. Picking a file
-uploads nothing.
+every PDF. The File is **decoded in the browser** — `createImageBitmap`
+with `imageOrientation: 'from-image'`, so a phone photo is not drawn on
+its side — and its pixels drawn into a `<canvas>`, which stays hidden
+until it has them. A declared image whose bytes are not one, or an engine
+without `createImageBitmap`, leaves the name standing rather than a broken
+frame. Picking a file uploads nothing.
+
+Deliberately **not** `img.src = URL.createObjectURL(file)`, which is what
+the generic uploader does and what this zone was written with first: here
+the File is reached through an element looked up from a DOM attribute
+(`data-drop-zone-for` names the input), so the object URL derived from it
+is DOM-derived text and CodeQL rates the `src` assignment a HIGH « DOM
+text reinterpreted as HTML ». Validating the string at the sink does not
+change that — decoded pixels leave no string to assign, none to give back,
+and no sink to guard.
 
 `data-submit-lock` on the **form** disables its submit buttons on the
 first submit and says « Envoi en cours… » (`data-submit-lock-label` for

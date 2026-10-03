@@ -27,9 +27,19 @@ function file(name) {
     return new File(['x'], name, { type: 'application/pdf' });
 }
 
-/** @param {string} name @param {string} [type] */
-function image(name, type = 'image/jpeg') {
-    return new File(['\u00ff\u00d8\u00ff'], name, { type });
+/**
+ * @param {string} name
+ * @param {string} [type]
+ * @param {{ width?: number, height?: number, undecodable?: boolean }} [bitmap]
+ *        what the stubbed createImageBitmap() will answer for this file
+ */
+function image(name, type = 'image/jpeg', bitmap = {}) {
+    const file = new File(['\u00ff\u00d8\u00ff'], name, { type });
+    file.__width = bitmap.width;
+    file.__height = bitmap.height;
+    file.__undecodable = bitmap.undecodable === true;
+
+    return file;
 }
 
 /** A FileList-alike, which is all the production code reads. */
@@ -41,36 +51,70 @@ function fileList(...files) {
 }
 
 /**
- * jsdom implements neither createObjectURL nor revokeObjectURL, and what
- * matters about them here is the PAIRING — an object URL handed out and
- * not given back is a decoded image pinned in memory for the life of the
- * page. So they are counted rather than stubbed away.
+ * jsdom ships neither createImageBitmap nor a painting 2D context, so both
+ * are stubbed — same shape as tests/js/upload.test.js, which exercises the
+ * other half of this pair. Every stub records what the module asked of it,
+ * because that IS the behaviour here: which decode options it requests,
+ * what size it draws at, and whether it lets the bitmap go afterwards.
  *
- * @type {{ created: string[], revoked: string[] }}
+ * `URL.createObjectURL` is stubbed too, and counted — not because the
+ * module uses it but because it must not: see « mints no object URL ».
+ *
+ * @type {{ decoded: Array<{ file: File, options: object }>, drawn: Array<object>, closed: number }}
  */
-let objectUrls = { created: [], revoked: [] };
+let browser = { decoded: [], drawn: [], closed: 0 };
 
-function trackObjectUrls() {
-    objectUrls = { created: [], revoked: [] };
-    let next = 0;
+/** @type {string[]} */
+let objectUrlsCreated = [];
+
+function stubBrowserImageApis() {
+    browser = { decoded: [], drawn: [], closed: 0 };
+    objectUrlsCreated = [];
+
+    globalThis.createImageBitmap = (/** @type {File} */ file, options) => {
+        browser.decoded.push({ file, options });
+        if (file.__undecodable) {
+            return Promise.reject(new Error('not an image'));
+        }
+
+        return Promise.resolve({
+            width: file.__width ?? 40,
+            height: file.__height ?? 30,
+            close: () => { browser.closed += 1; },
+        });
+    };
+
+    HTMLCanvasElement.prototype.getContext = function () {
+        const canvas = this;
+
+        return {
+            drawImage: (bitmap, x, y, width, height) => {
+                browser.drawn.push({ canvas, bitmap, x, y, width, height });
+            },
+        };
+    };
+
     URL.createObjectURL = (/** @type {Blob} */ blob) => {
-        const url = `blob:test/${++next}`;
-        objectUrls.created.push(url);
+        const url = 'blob:test/forbidden';
+        objectUrlsCreated.push(url);
 
         return url;
     };
-    URL.revokeObjectURL = (/** @type {string} */ url) => {
-        objectUrls.revoked.push(url);
-    };
+    URL.revokeObjectURL = () => {};
 }
 
-/** The object URLs handed out and never given back. */
-function leaked() {
-    return objectUrls.created.filter((url) => !objectUrls.revoked.includes(url));
+/** Lets the decode promises and their `.then` callbacks run. */
+function settle() {
+    return new Promise((resolve) => { setTimeout(resolve, 0); });
 }
 
 function thumbnails() {
-    return Array.from(document.querySelectorAll('#photo-drop-zone-selection img'));
+    return Array.from(document.querySelectorAll('#photo-drop-zone-selection canvas'));
+}
+
+/** Only the thumbnails that actually got pixels — a hidden one shows nothing. */
+function visibleThumbnails() {
+    return thumbnails().filter((canvas) => !canvas.hidden);
 }
 
 /** @param {File[]} files */
@@ -82,7 +126,7 @@ function pick(files) {
 
 async function load({ withDropZone = true } = {}) {
     vi.resetModules();
-    trackObjectUrls();
+    stubBrowserImageApis();
     document.body.innerHTML = PAGE;
     if (withDropZone) {
         await import('../../public/assets/js/drop-zone.js');
@@ -192,17 +236,14 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
         await load();
 
         pick([image('IMG_4821.jpg')]);
+        await settle();
 
-        const thumbs = thumbnails();
-        expect(thumbs).toHaveLength(1);
-        // The name on the image rather than « Aper\u00e7u »: a screen reader
-        // reading "image" tells nobody which photo this is.
-        expect(thumbs[0].alt).toBe('IMG_4821.jpg');
-        expect(thumbs[0].src).toBe(objectUrls.created[0]);
+        expect(visibleThumbnails()).toHaveLength(1);
         // Secondary, not replaced \u2014 the picture says which photo, the
-        // name says which file.
+        // name says which file, and the name is the accessible one.
         expect(document.getElementById('photo-drop-zone-selection').textContent)
             .toBe('IMG_4821.jpg');
+        expect(visibleThumbnails()[0].getAttribute('aria-hidden')).toBe('true');
     });
 
     it('produces the same preview from a drop as from the picker', async () => {
@@ -213,33 +254,147 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
             value: { files: fileList(image('glissee.png', 'image/png')) },
         });
         document.getElementById('photo-drop-zone').dispatchEvent(drop);
+        await settle();
 
-        expect(thumbnails().map((img) => img.alt)).toEqual(['glissee.png']);
+        expect(visibleThumbnails()).toHaveLength(1);
+        expect(browser.decoded.map(({ file }) => file.name)).toEqual(['glissee.png']);
     });
 
-    it('replaces the thumbnail and gives the old object URL back', async () => {
-        // Picking three photos in a row must not pin three decoded images
-        // in memory for the life of the page.
+    /**
+     * The reason this file no longer assigns a string to an `src`. CodeQL
+     * rated that assignment a HIGH \u00ab DOM text reinterpreted as HTML \u00bb,
+     * twice: the File is reached through an element looked up from a DOM
+     * attribute, so the object URL derived from it is DOM-derived text, and
+     * a guard at the sink does not change that. Decoded pixels have no URL.
+     *
+     * Falsifiable: put `img.src = URL.createObjectURL(file)` back and both
+     * halves of this fail.
+     */
+    it('mints no object URL and inserts no <img>', async () => {
+        await load();
+
+        pick([image('IMG_4821.jpg')]);
+        await settle();
+
+        expect(objectUrlsCreated).toEqual([]);
+        expect(document.querySelectorAll('#photo-drop-zone-selection img')).toHaveLength(0);
+    });
+
+    /**
+     * A bordered canvas with nothing in it is a grey box, and a file whose
+     * bytes are not an image would leave that box standing. So the element
+     * exists immediately \u2014 which is what keeps the thumbnails in the order
+     * the files were picked \u2014 but shows nothing until it has pixels.
+     */
+    it('shows nothing until the pixels are in it', async () => {
+        await load();
+
+        pick([image('IMG_4821.jpg')]);
+
+        // Before the decode resolves: present, in order, and invisible.
+        expect(thumbnails()).toHaveLength(1);
+        expect(visibleThumbnails()).toHaveLength(0);
+
+        await settle();
+
+        expect(visibleThumbnails()).toHaveLength(1);
+    });
+
+    /**
+     * createImageBitmap's own default is `imageOrientation: 'none'`, so an
+     * unconfigured call draws a phone photo on its side \u2014 upload.js writes
+     * that out at length and this is the same decode.
+     */
+    it('asks for the file\u2019s own EXIF orientation', async () => {
+        await load();
+
+        pick([image('couchee.jpg')]);
+        await settle();
+
+        expect(browser.decoded).toHaveLength(1);
+        expect(browser.decoded[0].options).toEqual({ imageOrientation: 'from-image' });
+    });
+
+    it('scales a big photo into the thumbnail box, keeping its shape', async () => {
+        await load();
+
+        pick([image('grande.jpg', 'image/jpeg', { width: 4000, height: 3000 })]);
+        await settle();
+
+        const canvas = visibleThumbnails()[0];
+        // 96 on the longest side, and 4:3 kept rather than squashed.
+        expect([canvas.width, canvas.height]).toEqual([96, 72]);
+        expect(browser.drawn[0].width).toBe(96);
+        expect(browser.drawn[0].height).toBe(72);
+    });
+
+    it('never enlarges an image smaller than the box', async () => {
+        // A 32-pixel icon blown up to 96 is a blurry mess.
+        await load();
+
+        pick([image('minuscule.png', 'image/png', { width: 32, height: 24 })]);
+        await settle();
+
+        const canvas = visibleThumbnails()[0];
+        expect([canvas.width, canvas.height]).toEqual([32, 24]);
+    });
+
+    it('lets the decoded bitmap go once it is drawn', async () => {
+        // It is several megabytes of phone photo with nothing left to do;
+        // the pixels live in the canvas now.
+        await load();
+
+        pick([image('lourde.jpg', 'image/jpeg', { width: 4000, height: 3000 })]);
+        await settle();
+
+        expect(browser.closed).toBe(1);
+    });
+
+    it('replaces the previous thumbnail on a new pick', async () => {
+        // Picking three photos in a row must leave one thumbnail, not
+        // three stacked up.
         await load();
 
         pick([image('premiere.jpg')]);
-        const first = objectUrls.created[0];
+        await settle();
         pick([image('seconde.jpg')]);
+        await settle();
 
-        expect(thumbnails().map((img) => img.alt)).toEqual(['seconde.jpg']);
-        expect(objectUrls.revoked).toContain(first);
-        expect(leaked()).toEqual([thumbnails()[0].src]);
+        expect(visibleThumbnails()).toHaveLength(1);
+        expect(document.getElementById('photo-drop-zone-selection').textContent)
+            .toBe('seconde.jpg');
     });
 
-    it('gives every object URL back when the selection is cleared', async () => {
+    /**
+     * The decode of a selection that has already been replaced resolves
+     * onto a canvas that is no longer in the document \u2014 which is what
+     * replaced the list of object URLs this file used to have to give back.
+     *
+     * Falsifiable: a `describe()` that appended instead of replacing, or a
+     * draw that re-attached its canvas, leaves two here.
+     */
+    it('shows nothing from a decode that finishes after its selection is gone', async () => {
+        await load();
+
+        pick([image('abandonnee.jpg')]);
+        pick([image('gardee.jpg')]);
+        await settle();
+
+        expect(visibleThumbnails()).toHaveLength(1);
+        expect(document.getElementById('photo-drop-zone-selection').textContent)
+            .toBe('gardee.jpg');
+    });
+
+    it('clears the thumbnails when the selection is cleared', async () => {
         await load();
 
         const zone = document.getElementById('photo-drop-zone');
         window.ScoutMagicUploadDropZone.describe(zone, fileList(image('a.jpg'), image('b.jpg')));
+        await settle();
         window.ScoutMagicUploadDropZone.describe(zone, fileList());
+        await settle();
 
         expect(thumbnails()).toHaveLength(0);
-        expect(leaked()).toEqual([]);
     });
 
     it('falls back to the name alone for a file that is not an image', async () => {
@@ -249,28 +404,73 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
         await load();
 
         pick([file('contrat.pdf')]);
+        await settle();
 
         expect(thumbnails()).toHaveLength(0);
         expect(document.getElementById('photo-drop-zone-selection').textContent)
             .toBe('contrat.pdf');
-        expect(objectUrls.created).toEqual([]);
+        expect(browser.decoded).toEqual([]);
     });
 
-    it('removes the thumbnail and releases its URL when the image will not decode', async () => {
+    it('takes the thumbnail back out when the image will not decode', async () => {
         // A file declared image/* whose bytes are not one: a renamed file,
         // or a format this engine cannot draw.
         await load();
 
-        pick([image('cassee.jpg')]);
-        const img = thumbnails()[0];
-        img.dispatchEvent(new Event('error'));
+        pick([image('cassee.jpg', 'image/jpeg', { undecodable: true })]);
+        await settle();
 
         expect(thumbnails()).toHaveLength(0);
-        expect(leaked()).toEqual([]);
         // The name survives the picture, which is the whole point of
         // keeping it.
         expect(document.getElementById('photo-drop-zone-selection').textContent)
             .toBe('cassee.jpg');
+    });
+
+    /**
+     * `typeof`, not a truthiness check: on an engine that never had
+     * createImageBitmap the global does not exist at all, so a bare
+     * reference throws a ReferenceError rather than reading as undefined.
+     *
+     * Called through `describe()` rather than by picking a file, because
+     * that is the only way the throw is visible: an exception inside a
+     * `change` listener is reported and swallowed, and the filename is
+     * written before the thumbnails, so every other assertion here passes
+     * just as well with the guard deleted \u2014 which is what a mutation
+     * showed.
+     */
+    it('shows the name alone on an engine without createImageBitmap', async () => {
+        // No fallback to an <img>: that is the sink this file no longer
+        // has. Those engines get what they had before #756.
+        await load();
+        delete globalThis.createImageBitmap;
+        const zone = document.getElementById('photo-drop-zone');
+
+        expect(() => window.ScoutMagicUploadDropZone.describe(
+            zone,
+            fileList(image('sans-decodeur.jpg')),
+        )).not.toThrow();
+        await settle();
+
+        expect(thumbnails()).toHaveLength(0);
+        expect(objectUrlsCreated).toEqual([]);
+        expect(document.getElementById('photo-drop-zone-selection').textContent)
+            .toBe('sans-decodeur.jpg');
+    });
+
+    it('takes the thumbnail back out when there is no 2D context to paint into', async () => {
+        // An engine that refuses a context \u2014 or simply has none, which is
+        // jsdom's own answer without the optional canvas binding \u2014 must
+        // leave the name alone rather than an empty bordered box.
+        await load();
+        HTMLCanvasElement.prototype.getContext = () => null;
+
+        pick([image('sans-contexte.jpg')]);
+        await settle();
+
+        expect(thumbnails()).toHaveLength(0);
+        expect(document.getElementById('photo-drop-zone-selection').textContent)
+            .toBe('sans-contexte.jpg');
     });
 
     it('shows one thumbnail per image on a multi-file zone', async () => {
@@ -280,41 +480,12 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
             document.getElementById('photo-drop-zone'),
             fileList(image('un.jpg'), file('deux.pdf'), image('trois.png', 'image/png')),
         );
+        await settle();
 
-        expect(thumbnails().map((img) => img.alt)).toEqual(['un.jpg', 'trois.png']);
+        expect(visibleThumbnails()).toHaveLength(2);
+        expect(browser.decoded.map(({ file }) => file.name)).toEqual(['un.jpg', 'trois.png']);
         expect(document.getElementById('photo-drop-zone-selection').textContent)
             .toBe('un.jpg, deux.pdf, trois.png');
-    });
-
-    /**
-     * The guard at the sink. `img.src` is a navigable sink, and CodeQL
-     * flagged this assignment HIGH for it — « it came from our own code »
-     * is not an argument that survives the next caller, so the only value
-     * this ever carries is checked to be a browser-minted blob URL
-     * (AGENTS.md § CodeQL: validate at the sink, not at the call sites).
-     *
-     * Unfalsifiable without this: jsdom's own stub always answers
-     * `blob:…`, so the guard never rejected anything and dropping it left
-     * every other test in this file green.
-     */
-    it('refuses a preview URL that is not a blob, and gives it back', async () => {
-        await load();
-        const handed = [];
-        URL.createObjectURL = () => {
-            const url = 'javascript:alert(1)';
-            handed.push(url);
-            objectUrls.created.push(url);
-
-            return url;
-        };
-
-        pick([image('piegee.jpg')]);
-
-        expect(thumbnails()).toHaveLength(0);
-        // The name still names the file; only the picture is refused.
-        expect(document.getElementById('photo-drop-zone-selection').textContent)
-            .toBe('piegee.jpg');
-        expect(objectUrls.revoked).toEqual(handed);
     });
 
     it('draws nothing on a zone that did not ask for a preview', async () => {
@@ -328,9 +499,10 @@ describe('upload-drop-zone.js \u2014 the image preview', () => {
             value: fileList(image('photo-du-contrat.jpg')),
         });
         input.dispatchEvent(new Event('change'));
+        await settle();
 
-        expect(document.querySelectorAll('#document-drop-zone-selection img')).toHaveLength(0);
+        expect(document.querySelectorAll('#document-drop-zone-selection canvas')).toHaveLength(0);
         expect(selection()).toBe('photo-du-contrat.jpg');
-        expect(objectUrls.created).toEqual([]);
+        expect(browser.decoded).toEqual([]);
     });
 });
