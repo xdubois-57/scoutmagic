@@ -27,6 +27,12 @@ Sous la voiture qui vous convient, cliquez sur « Demander une place »,
 cochez les enfants concernés, vérifiez votre numéro de téléphone, puis
 « Envoyer la demande ».
 
+## Proposer des places
+
+Le formulaire suggère l'heure de départ à partir de l'activité, en tenant
+compte du trajet quand il peut être calculé, et dit comment il l'a
+obtenue. Elle reste modifiable.
+
 ## Ce qui se passe ensuite
 
 Le conducteur **accepte ou refuse chaque demande, entière**. Tant qu'il n'a

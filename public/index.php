@@ -10557,7 +10557,23 @@ if ($isEnabled('covoiturage')) {
                 // staff gets none on account of its role (D11).
                 new \Modules\Covoiturage\Service\CarpoolNotifier($notificationService)
             ),
-            $covoiturageViewers
+            $covoiturageViewers,
+            // The suggested departure (#703): the events' hours through the
+            // calendar's contract, and the route from the meeting point —
+            // under the same switch as the geocoding, since it starts with
+            // a lookup. Off, the 30-minute rule applies.
+            (string) $settingService->get('covoiturage_geocoding_enabled', 'covoiturage', '1') === '1'
+                ? new \Modules\Covoiturage\Service\DeparturePlanner(
+                    $calendarServiceForOthers,
+                    new \Core\Geo\AddressLocator(
+                        $pdo,
+                        new \Core\Geo\GeocodingService((string) ($settingService->get('base_url') ?? ''))
+                    ),
+                    new \Core\Geo\RoutingService((string) ($settingService->get('base_url') ?? '')),
+                    new \Core\Geo\GeocodingThrottle($pdo, null, null, \Core\Geo\GeocodingThrottle::ROUTING_LOCK_NAME)
+                )
+                : new \Modules\Covoiturage\Service\DeparturePlanner($calendarServiceForOthers),
+            (string) ($settingService->get(\Core\Config\UnitAddresses::PREMISES_ADDRESS) ?? '')
         )
     );
     $frontController->registerController(

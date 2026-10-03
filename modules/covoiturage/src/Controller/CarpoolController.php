@@ -23,6 +23,7 @@ use Modules\Covoiturage\Service\CarpoolBoard;
 use Modules\Covoiturage\Service\CarpoolException;
 use Modules\Covoiturage\Service\CarpoolViewer;
 use Modules\Covoiturage\Service\CarpoolViewerResolver;
+use Modules\Covoiturage\Service\DeparturePlanner;
 use Modules\Covoiturage\Service\OfferService;
 use Twig\Environment;
 
@@ -46,7 +47,12 @@ class CarpoolController extends AbstractController
         private SeatRequestRepository $requests,
         private CarpoolBoard $board,
         private OfferService $offerService,
-        private CarpoolViewerResolver $viewers
+        private CarpoolViewerResolver $viewers,
+        // The suggested departure (#703); null leaves the form as it was.
+        private ?DeparturePlanner $planner = null,
+        // Where the outbound meeting point is pre-filled from: the unit's
+        // premises (Core\Config\UnitAddresses), never its postal address.
+        private string $premisesAddress = ''
     ) {
         parent::__construct($twig);
     }
@@ -96,7 +102,7 @@ class CarpoolController extends AbstractController
             return $this->notFound();
         }
 
-        return $this->renderOfferForm($carpool, null, $this->defaultOfferValues($request), []);
+        return $this->renderOfferForm($carpool, null, $this->defaultOfferValues($request, $carpool), []);
     }
 
     /**
@@ -328,6 +334,7 @@ class CarpoolController extends AbstractController
                     . ' : le nombre de places ne peut pas descendre en dessous.'
                 : null,
             'max_seats' => OfferService::MAX_SEATS,
+            'departure' => $offer === null ? $this->departure($carpool, $viewer) : null,
             'breadcrumb_trail' => [['label' => $carpool->title(), 'url' => '/covoiturage/' . $carpool->id]],
         ]);
     }
@@ -335,18 +342,66 @@ class CarpoolController extends AbstractController
     /**
      * @return array<string, string>
      */
-    private function defaultOfferValues(Request $request): array
+    private function defaultOfferValues(Request $request, Carpool $carpool): array
     {
-        $prefill = $this->board->prefill($this->viewer());
+        $viewer = $this->viewer();
+        $prefill = $this->board->prefill($viewer);
+        $direction = $carpool->hasReturn() ? self::direction($request) : Offer::OUTBOUND;
+        $outbound = DeparturePlanner::outboundSuggestion($this->planner?->outboundStart($carpool, $viewer->role), null);
+        $return = DeparturePlanner::returnSuggestion($this->planner?->returnEnd($carpool, $viewer->role), null);
 
         return [
             'direction' => self::direction($request),
-            'departure_time' => '',
-            'endpoint' => '',
+            // Pre-filled from the events (#703), still the driver's to
+            // change; the form's script refines it once the route is known.
+            'departure_time' => ($direction === Offer::OUTBOUND ? $outbound : $return)['time'] ?? '',
+            'return_departure_time' => $return['time'] ?? '',
+            // The outbound meeting point starts at the unit's premises.
+            'endpoint' => $direction === Offer::OUTBOUND ? $this->premisesAddress : '',
             'seats' => '4',
             'driver_name' => $prefill['driver_name'],
             'phone' => $prefill['phone'],
             'note' => '',
+        ];
+    }
+
+    /**
+     * GET /covoiturage/{id}/trajet?depuis=… — the suggested times once the
+     * route from the typed meeting point is known (#703). Asked by the
+     * form when the field changes value, never per keystroke (Nominatim
+     * forbids autocompletion); every failure answers the 30-minute rule,
+     * never an error.
+     *
+     * @param array<string, string> $params
+     */
+    public function travel(Request $request, array $params): Response
+    {
+        $carpool = $this->carpools->findById((int) ($params['id'] ?? 0));
+        if ($carpool === null) {
+            return $this->notFound();
+        }
+        $viewer = $this->viewer();
+        $from = trim((string) $request->getQuery('depuis', ''));
+        $minutes = $from !== '' ? $this->planner?->travelMinutes($carpool, $from, $viewer->accountId) : null;
+
+        return $this->json($this->departure($carpool, $viewer, $minutes));
+    }
+
+    /**
+     * @return array{minutes: ?int, outbound: ?array<string, mixed>, return: ?array<string, mixed>}
+     */
+    private function departure(Carpool $carpool, CarpoolViewer $viewer, ?int $minutes = null): array
+    {
+        return [
+            'minutes' => $minutes,
+            'outbound' => DeparturePlanner::outboundSuggestion(
+                $this->planner?->outboundStart($carpool, $viewer->role),
+                $minutes
+            ),
+            'return' => DeparturePlanner::returnSuggestion(
+                $this->planner?->returnEnd($carpool, $viewer->role),
+                $minutes
+            ),
         ];
     }
 

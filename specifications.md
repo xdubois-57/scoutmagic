@@ -3159,6 +3159,15 @@ adresse personnelle.
   section ne fait ajouter aucune section, et aucune n'est choisie à sa
   place. La section retenue est affichée, sur le formulaire et sur la page
   du covoiturage.
+- **Heure de départ suggérée** (#703) : à l'aller, le lieu de départ est
+  pré-rempli avec l'adresse des locaux de l'unité, et l'heure avec le début
+  le plus tôt des évènements liés de ce jour, moins le trajet et 5 minutes
+  quand l'itinéraire est trouvé (OSRM, depuis le serveur), moins
+  30 minutes sinon. Au retour, l'heure est la fin la plus tardive, et
+  l'arrivée estimée n'est donnée que si le trajet est connu. Un évènement
+  sur la journée entière est écarté ; sans évènement à heure, rien n'est
+  suggéré. La suggestion reste modifiable, et une ligne dit comment elle a
+  été obtenue.
 - **Suppression** d'un covoiturage : impossible dès qu'une voiture y est
   proposée.
 - **Conservation** : les covoiturages passés restent visibles, repliés,

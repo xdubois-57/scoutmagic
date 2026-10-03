@@ -64,6 +64,28 @@ final class GeocodingThrottleTest extends TestCase
         $this->assertSame([], $pauses, 'a refused call does not wait either');
     }
 
+    /**
+     * #703: the route server has a slot of its own — a route is never held
+     * back by an address lookup, and is still one call at a time.
+     */
+    public function testTheRoutingSlotIsItsOwn(): void
+    {
+        $this->assertTrue(AdvisoryLock::acquire($this->holder, GeocodingThrottle::LOCK_NAME));
+        $noPause = static function (int $us): void {
+        };
+
+        $routing = new GeocodingThrottle($this->caller, $noPause, null, GeocodingThrottle::ROUTING_LOCK_NAME);
+        $this->assertSame([true, 'route'], $routing->run(static fn(): string => 'route'));
+
+        AdvisoryLock::release($this->holder, GeocodingThrottle::LOCK_NAME);
+        $this->assertTrue(AdvisoryLock::acquire($this->holder, GeocodingThrottle::ROUTING_LOCK_NAME));
+        try {
+            $this->assertSame([false, null], $routing->run(static fn(): string => 'route'));
+        } finally {
+            AdvisoryLock::release($this->holder, GeocodingThrottle::ROUTING_LOCK_NAME);
+        }
+    }
+
     public function testTheSlotIsFreeAgainOnceTheCallAndItsSecondAreOver(): void
     {
         $throttle = new GeocodingThrottle($this->caller, static function (int $us): void {

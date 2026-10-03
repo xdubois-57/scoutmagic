@@ -1129,6 +1129,10 @@ après sa dernière date, au bout d'un délai réglable (30 jours par défaut, s
 contient. Le géocodage du lieu d'une sortie relève du paragraphe "Fond de carte et géocodage" (règle 22bis) — il a lieu
 en tâche de fond ET pendant qu'un animateur saisit ce lieu, toujours depuis le serveur du site, jamais depuis le
 navigateur, avec un cache qui ne conserve pas l'adresse elle-même : ce n'est jamais une donnée personnelle qui part.
+Le formulaire d'offre demande aussi, depuis le serveur, la durée du trajet au serveur de démonstration
+d'OSRM (router.project-osrm.org, données OpenStreetMap) pour suggérer une heure de départ : seulement
+deux coordonnées, le point de rendez-vous saisi par le conducteur et le lieu de la sortie, jamais une
+donnée personnelle ; conserve cette mention.
 Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre sous-traitant.
 
 33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs

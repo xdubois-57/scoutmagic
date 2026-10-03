@@ -26,6 +26,9 @@ use Modules\Covoiturage\Repository\SeatRequestRepository;
 use Modules\Covoiturage\Service\CarpoolBoard;
 use Modules\Covoiturage\Service\CarpoolService;
 use Modules\Covoiturage\Service\CarpoolViewerResolver;
+use Modules\Covoiturage\Service\DeparturePlanner;
+use Modules\Covoiturage\Repository\CarpoolEvent;
+use Modules\Calendar\Api\EventSummary;
 use Modules\Covoiturage\Service\OfferService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -107,7 +110,21 @@ final class CovoiturageRbacTest extends TestCase
             $requests,
             $board,
             new OfferService($offers, $requests, $this->pdo),
-            $viewers
+            $viewers,
+            // #703: one linked event with hours, no geocoding (so the
+            // route is unknown and the 30-minute rule applies).
+            new DeparturePlanner(new FakeCalendar([
+                new EventSummary(
+                    701,
+                    'Fête',
+                    'Louveteaux',
+                    H::day(10),
+                    H::day(11),
+                    startTime: '14:00',
+                    endTime: '17:00'
+                ),
+            ])),
+            'Local des Louveteaux, rue du Parc 1, Wavre'
         );
         $this->carpools = $carpools;
         $this->board = $board;
@@ -184,6 +201,76 @@ final class CovoiturageRbacTest extends TestCase
 
         $this->assertContains($response->getStatusCode(), [302, 403], "{$below} reached {$method} {$path}");
         $this->assertNotSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * #703 on the offer form: the meeting point starts at the unit's
+     * premises, the hour at the event's start minus 30 minutes (no route
+     * here), with the sentence saying how; the return field shows only
+     * once its box is ticked, and its hour is the event's end.
+     */
+    public function testTheOfferFormSuggestsFromTheLinkedEvents(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $id = H::carpool($this->pdo, 10, 11, [new CarpoolEvent(701, 'Fête', null, null)]);
+
+        $form = $this->members->offerForm(
+            new Request('GET', '/covoiturage/' . $id . '/proposer', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertSame('Local des Louveteaux, rue du Parc 1, Wavre', self::valueOf($form, 'offer-endpoint'));
+        $this->assertSame('13:30', self::valueOf($form, 'offer-time'));
+        $this->assertStringContainsString(
+            'Heure suggérée : 13 h 30 — début à 14 h 00, trajet non calculé : 30 min avant.',
+            $form
+        );
+        $this->assertMatchesRegularExpression('~<div id="offer-return-block"\s+hidden>~', $form);
+        $this->assertStringNotContainsString('Seulement si vous cochez la case ci-dessus.', $form);
+        $this->assertSame('17:00', self::valueOf($form, 'offer-return-time'));
+        $this->assertStringContainsString('Arrivée non estimée : trajet non calculé.', $form);
+        $this->assertStringContainsString('data-travel-url="/covoiturage/' . $id . '/trajet"', $form);
+
+        // On the return, the meeting point is not pre-filled: the premises
+        // are where the outbound starts, not where the return ends.
+        $return = $this->members->offerForm(
+            new Request('GET', '/covoiturage/' . $id . '/proposer', ['sens' => 'return'], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+        $this->assertStringNotContainsString('value="Local des Louveteaux, rue du Parc 1, Wavre"', $return);
+        $this->assertSame('17:00', self::valueOf($return, 'offer-time'));
+    }
+
+    /** The value attribute of the input with that id. */
+    private static function valueOf(string $html, string $id): ?string
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $input = $document->getElementById($id);
+
+        return $input?->getAttribute('value');
+    }
+
+    /** The route the form asks: JSON, and the fallback when nothing can be measured. */
+    public function testTheTravelRouteAnswersTheFallbackWithoutAnError(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $id = H::carpool($this->pdo, 10, 11, [new CarpoolEvent(701, 'Fête', null, null)]);
+
+        $response = $this->members->travel(
+            new Request('GET', '/covoiturage/' . $id . '/trajet', ['depuis' => 'Gare de Wavre'], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $data = json_decode($response->getBody(), true);
+        $this->assertNull($data['minutes']);
+        $this->assertSame('13:30', $data['outbound']['time']);
+        $this->assertSame('17:00', $data['return']['time']);
+        $this->assertNull($data['return']['arrival']);
     }
 
     public function testThePagesSayWhatTheMaquetteSays(): void
