@@ -175,7 +175,7 @@ final class NewsSeeder
                     'closes_at' => null,
                     'is_force_closed' => false,
                     'response_role_min' => $declared['form']['responseRoleMin'],
-                    'daily_digest_enabled' => $declared['form']['dailyDigest'],
+                    'digest_email' => $declared['form']['digestEmail'],
                     'finance_account_id' => null,
                 ],
                 array_map(

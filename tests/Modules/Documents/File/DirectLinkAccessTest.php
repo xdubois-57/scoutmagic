@@ -111,7 +111,8 @@ final class DirectLinkAccessTest extends TestCase
                 DocumentVisibility $visibility,
                 ?int $newFileId,
                 ?int $updatedBy,
-                string $now
+                string $now,
+                string $expiresOn
             ): void {
                 // Both files as the row is about to switch: the new one and
                 // the outgoing one must both be closed at this instant.
@@ -121,7 +122,7 @@ final class DirectLinkAccessTest extends TestCase
                 );
                 $query->execute([$newFileId, $id]);
                 $this->seen[] = array_map('strval', $query->fetchAll(\PDO::FETCH_COLUMN));
-                parent::applyEdit($id, $title, $description, $visibility, $newFileId, $updatedBy, $now);
+                parent::applyEdit($id, $title, $description, $visibility, $newFileId, $updatedBy, $now, $expiresOn);
             }
         };
         $service = DocumentsTestHelper::service($this->pdo, $this->storage, null, $spy);
@@ -148,7 +149,8 @@ final class DirectLinkAccessTest extends TestCase
                 DocumentVisibility $visibility,
                 ?int $newFileId,
                 ?int $updatedBy,
-                string $now
+                string $now,
+                string $expiresOn
             ): void {
                 throw new \RuntimeException('lost connection');
             }

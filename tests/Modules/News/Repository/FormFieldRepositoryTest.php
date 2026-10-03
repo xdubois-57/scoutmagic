@@ -34,7 +34,7 @@ class FormFieldRepositoryTest extends TestCase
         $stmt->execute(['enc', 'idx']);
         $authorId = (int) $this->pdo->lastInsertId();
         $articleId = (new ArticleRepository($this->pdo))->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $authorId);
-        $this->formId = (new FormRepository($this->pdo))->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formId = (new FormRepository($this->pdo))->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
     }
 
     public function testCreateAndFindByFormIdOrderedBySortOrder(): void

@@ -26,7 +26,13 @@ final class NewsForm
         public readonly ?string $closesAt,
         public readonly bool $isForceClosed,
         public readonly string $responseRoleMin,
-        public readonly bool $dailyDigestEnabled,
+        /**
+         * Where the daily digest of new responses goes — null, or the
+         * empty string, meaning nowhere (issue #738). Never derived from
+         * the article's author: it is seeded from their address when the
+         * form is created and is its own setting from then on.
+         */
+        public readonly ?string $digestEmail,
         /**
          * The form delivers a ticket. Independent of price: an event can
          * be ticketed and free — see schema.sql.
