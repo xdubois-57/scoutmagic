@@ -83,6 +83,13 @@ class EmailTemplateControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        // What Core\Http\FrontController sets from the route's declaration
+        // in public/index.php: the generic label, and the list as ancestor.
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Email', 'parents' => ['Configuration']]);
+        $twig->addGlobal(
+            'route_breadcrumb_ancestors',
+            [['label' => "Modèles d'e-mails", 'url' => '/config/emails']]
+        );
 
         $this->registry = new EmailTemplateRegistry();
         // One module registered, so the page is exercised with the shape
@@ -403,6 +410,39 @@ class EmailTemplateControllerTest extends TestCase
             (int) $this->pdo->query('SELECT COUNT(*) FROM email_template_overrides')->fetchColumn(),
             'Opening a page is not a decision to customise: the preview must not write a row.'
         );
+    }
+
+    /**
+     * Issue #744: the trail ends on the e-mail's own name, never on the
+     * route's generic « Email », for a core template and a module's alike;
+     * « Modèles d'e-mails » stays a link to the list.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function templatesOfDifferentOrigins(): iterable
+    {
+        yield 'core' => [self::OPEN_TEMPLATE];
+        yield 'module' => ['retro.board_closed'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('templatesOfDifferentOrigins')]
+    public function testTheBreadcrumbEndsOnTheTemplatesOwnName(string $id): void
+    {
+        $template = $this->registry->find($id);
+        $this->assertNotNull($template);
+
+        $body = $this->controller->edit(
+            new Request('GET', '/config/emails/' . $id, [], [], [], []),
+            ['template' => $id]
+        )->getBody();
+
+        $this->assertStringContainsString(
+            '<li class="breadcrumb-item active text-truncate" aria-current="page">'
+                . htmlspecialchars($template->label, ENT_QUOTES) . '</li>',
+            $body
+        );
+        $this->assertStringNotContainsString('aria-current="page">Email</li>', $body);
+        $this->assertStringContainsString('<a href="/config/emails" class="text-decoration-none">', $body);
     }
 
     public function testThePreviewShowsTheExampleValues(): void

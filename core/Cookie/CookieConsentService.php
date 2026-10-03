@@ -246,7 +246,7 @@ class CookieConsentService
             'expires' => time() + (self::CONSENT_DURATION_DAYS * 86400),
             'path' => '/',
             'httponly' => false,
-            'secure' => RequestScheme::isHttps($_SERVER),
+            'secure' => RequestScheme::enforcesHttps($_SERVER),
             'samesite' => 'Lax',
         ];
 

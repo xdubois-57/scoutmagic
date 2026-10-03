@@ -267,16 +267,22 @@ final class PortableKeys
      * 7-Zip deserves to be told what they are looking at and what to do
      * with it.
      *
+     * The hints (#719) sit beside the derivation for the same reason: a
+     * bootstrap has to read them from the tail of the file before anything
+     * is uploaded or decrypted. They are indications, never facts — see
+     * {@see PortableArchiveHints}.
+     *
      * @param array<string, mixed> $params
      * @throws BackupException
      */
-    public static function comment(array $params): string
+    public static function comment(array $params, PortableArchiveHints $hints): string
     {
         $document = [
             'format' => PortableManifest::FORMAT,
             'format_version' => PortableManifest::FORMAT_VERSION,
             'note' => 'Sauvegarde portable ScoutMagic. Elle se restaure depuis une installation ScoutMagic '
                 . 'neuve, à qui vous la téléversez avec votre phrase de passe.',
+            ...$hints->toArray(),
             'key_derivation' => $params,
         ];
 
@@ -298,6 +304,34 @@ final class PortableKeys
      */
     public static function parseComment(string $comment): array
     {
+        $document = self::commentDocument($comment);
+
+        $params = $document['key_derivation'] ?? null;
+        if (!is_array($params)) {
+            throw new BackupException('L\'en-tête de cette sauvegarde portable ne déclare pas de dérivation.');
+        }
+
+        return $params;
+    }
+
+    /**
+     * The hints an archive comment carries (#719), every one mandatory in
+     * this format. Unknown keys are ignored, so a later version may add
+     * some without an older reader refusing the archive.
+     *
+     * @throws BackupException
+     */
+    public static function parseHints(string $comment): PortableArchiveHints
+    {
+        return PortableArchiveHints::fromArray(self::commentDocument($comment));
+    }
+
+    /**
+     * @return array<string, mixed>
+     * @throws BackupException
+     */
+    private static function commentDocument(string $comment): array
+    {
         $document = json_decode($comment, true);
         if (!is_array($document) || ($document['format'] ?? null) !== PortableManifest::FORMAT) {
             throw new BackupException(
@@ -313,11 +347,6 @@ final class PortableKeys
             );
         }
 
-        $params = $document['key_derivation'] ?? null;
-        if (!is_array($params)) {
-            throw new BackupException('L\'en-tête de cette sauvegarde portable ne déclare pas de dérivation.');
-        }
-
-        return $params;
+        return $document;
     }
 }

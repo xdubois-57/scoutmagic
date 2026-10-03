@@ -19,8 +19,8 @@
        Twig comment. #}
     <div class="card mb-4" id="maintenance-backups-automatic">
         <div class="card-body">
-            {{ m.section_header('maintenance-backups-automatic-body', 'Sauvegarde automatique', true) }}
-            <div class="collapse show mt-3" id="maintenance-backups-automatic-body">
+            {{ m.section_header('Sauvegarde automatique') }}
+            <div class="mt-3" id="maintenance-backups-automatic-body">
                 <p class="small text-body-secondary">
                     Deux sauvegardes automatiques, contre deux accidents différents. Elles ne partagent aucun
                     réglage, et ne produisent pas la même archive.
@@ -76,9 +76,8 @@
 
                    Keeps the #remote-backup anchor: RemoteBackupController
                    redirects to it after every round trip through Google,
-                   and the operational alerts link to it. It sits inside
-                   the box's collapse, which collapse-anchor.js opens from
-                   the outside in. #}
+                   and the operational alerts link to it. Nothing folds
+                   around it, so the browser scrolls to it on its own. #}
                 <hr class="my-4">
                 <section id="remote-backup" aria-labelledby="remote-backup-title">
                     <h3 class="h5" id="remote-backup-title">Hors site</h3>

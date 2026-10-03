@@ -175,6 +175,10 @@ $config = new AppConfig(__DIR__ . '/../config/app.php');
 // anything emits a cookie, a session or a security header — Core\Http\
 // RequestScheme is the single source of truth every one of those consults.
 \Core\Http\RequestScheme::setTrustForwardedProto((bool) $config->get('trust_forwarded_proto', false));
+// HTTPS is required unless this deployment explicitly tolerates HTTP
+// (#751). A config/app.php that predates the key gets the production
+// policy, never the development exception.
+\Core\Http\RequestScheme::setHttpsRequired($config->get('https_required', true) !== false);
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -7671,6 +7675,10 @@ if ($isEnabled('documents')) {
             (string) ($settingService->get('base_url') ?? '')
         )
     );
+
+    // « 3 documents sont expirés » (#731): one aggregated point, leading to
+    // the list where each expired document carries a red tag.
+    $attentionProviders[] = new \Modules\Documents\Service\DocumentsAttentionProvider($documentService);
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
@@ -10202,6 +10210,15 @@ if ($isEnabled('camps')) {
         $auditService,
         $galleryDelegatedAlbumManager ?? null,
         $journalService
+    );
+    // And the name gallery's storage-administration page shows for that
+    // same album — "Grand camp — Ferme de la Hulotte — 12–19 juillet 2028"
+    // rather than "camp_camp #10" (issue #749). Read-only and separate on
+    // purpose, exactly like the groups describer further down: naming an
+    // album for an administrator is not the same permission as opening it.
+    $galleryDelegatedAlbumDescribers[] = new \Modules\Camps\Service\CampDelegatedAlbumDescriber(
+        $campsCampRepo,
+        $campsPlaceRepo
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(

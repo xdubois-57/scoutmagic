@@ -24,9 +24,19 @@ namespace Modules\Gallery\Api;
  * "discussion_group #7"), and gallery must not learn what a discussion
  * group is to produce one. Hence this: the owning module answers, or — when
  * it is disabled, or the owner row is gone — nobody does and the registry
- * falls back to the owner_type itself. A missing describer never hides the
- * album; an album an administrator cannot see is an album whose storage
- * bill nobody can explain.
+ * says which of those two happened, in words, with the owner_type and id
+ * kept after it as diagnostic detail (issue #749: an identifier is not a
+ * name, and an administrator accounting for storage needs to know whether
+ * the album is orphaned or merely unclaimed for now). A missing describer
+ * never hides the album; an album an administrator cannot see is an album
+ * whose storage bill nobody can explain.
+ *
+ * **Every owner_type a module actually creates albums for wants one of
+ * these.** The fallback exists for the disabled module and the deleted
+ * owner, not as a substitute for a describer nobody wrote — which is how
+ * `camp_camp #10` reached a real administration page.
+ * Tests\Architecture\DelegatedAlbumOwnerTypesAreDescribedTest refuses the
+ * next one.
  */
 interface DelegatedAlbumDescriber
 {
