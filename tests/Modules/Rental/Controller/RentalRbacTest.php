@@ -528,6 +528,22 @@ class RentalRbacTest extends TestCase
         $this->assertStringContainsString('Local Saint-Georges', (string) $response->getBody());
     }
 
+    /**
+     * The asset's page no longer carries the full conditions: the request
+     * form shows them, with a link, where the renter accepts them; their
+     * permanent page stays (#708, IT-02).
+     */
+    public function testTheAssetPageNoLongerCarriesTheConditionsCard(): void
+    {
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', isPublic: true);
+
+        $body = (string) $this->dispatchPublicAsset('local-saint-georges')->getBody();
+
+        $this->assertStringNotContainsString('>Conditions de location</h2>', $body);
+        $this->assertStringNotContainsString('Adresse permanente de cette version', $body);
+        $this->assertSame(200, $this->dispatchConditions('local-saint-georges')->getStatusCode());
+    }
+
     public function testTheFragmentEndpointAnswersWithBothBlocks(): void
     {
         // What a calendar tap and « Estimer » fetch instead of reloading the
@@ -1372,22 +1388,6 @@ class RentalRbacTest extends TestCase
         // réinitialiser ». That disclosure is itself the tell — it only
         // renders when the asset's own text is in force.
         $this->assertStringContainsString('Voir les conditions standard avant de réinitialiser', $body);
-    }
-
-    /**
-     * The public page RENDERS the conditions and no longer offers to edit
-     * them in place: that door was the configuration mode's, which belongs
-     * to a superadmin rather than to the people who let the hall (§22.5).
-     */
-    public function testThePublicAssetPageShowsTheConditionsWithoutOfferingToEditThem(): void
-    {
-        $this->createAsset('Local', 'local');
-
-        $body = (string) $this->dispatchPublicAsset('local')->getBody();
-
-        $this->assertStringContainsString('Conditions de location', $body);
-        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
-        $this->assertStringNotContainsString('data-key="rental_asset_', $body);
     }
 
     public function testTheManageButtonIsShownToAManager(): void

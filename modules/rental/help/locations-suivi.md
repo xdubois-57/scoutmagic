@@ -27,8 +27,9 @@ attendre un nouvel email. Tant qu'aucun tarif n'est publié pour ce bien,
 la page l'écrit — « Tarif sur demande » — au lieu d'afficher un total de
 zéro qui ne voudrait rien dire.
 
-En bas, les personnes à contacter et le numéro d'urgence pour la durée du
-séjour.
+En bas, les personnes de l'unité qui gèrent votre location, à contacter
+pour toute question sur la réservation, et le numéro d'urgence pour la
+durée du séjour.
 
 ## Demander un changement
 
