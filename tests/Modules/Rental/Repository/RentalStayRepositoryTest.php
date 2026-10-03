@@ -7,6 +7,7 @@ namespace Tests\Modules\Rental\Repository;
 use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
@@ -195,21 +196,65 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testInventoryItemsComeBackInOrderAndSkipTheDeactivated(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', 2);
-        $keep = $this->repository->createInventoryItem($this->assetId, 'Extincteur', 1);
-        $gone = $this->repository->createInventoryItem($this->assetId, 'Ancien poêle', 3);
+        $dishes = $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
+        $keep = $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
+        $gone = $this->repository->createInventoryItem($this->assetId, 'Ancien poêle', InventoryKind::QUANTITY, 1);
 
         $this->repository->deactivateInventoryItem($gone);
+        $this->repository->reorderInventoryItems($this->assetId, [$keep, $dishes]);
 
         $labels = array_column($this->repository->findInventoryItems($this->assetId), 'label');
         $this->assertSame(['Extincteur', 'Vaisselle'], $labels);
-        $this->assertNotSame(0, $keep);
+    }
+
+    /** No position field any more (#708, IT-10): a new item goes last. */
+    public function testANewItemGoesToTheEndOfTheList(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Clés', InventoryKind::QUANTITY, 3);
+        $this->repository->createInventoryItem($this->assetId, 'Cuisine propre', InventoryKind::YES_NO, null);
+
+        $items = $this->repository->findInventoryItems($this->assetId);
+        $this->assertSame(['Clés', 'Cuisine propre'], array_column($items, 'label'));
+        $this->assertSame([0, 1], array_column($items, 'sort_order'));
+    }
+
+    /** A reorder names ids; one of another asset's is never moved. */
+    public function testAReorderCannotMoveAnotherAssetsItem(): void
+    {
+        $mine = $this->repository->createInventoryItem($this->assetId, 'Clés', InventoryKind::QUANTITY, 3);
+        $this->pdo->prepare('INSERT INTO rental_assets (asset_type, name, slug) VALUES (?, ?, ?)')
+            ->execute(['Local', 'Autre', 'autre']);
+        $otherAsset = (int) $this->pdo->lastInsertId();
+        $theirs = $this->repository->createInventoryItem($otherAsset, 'Chaises', InventoryKind::QUANTITY, 40);
+
+        $this->repository->reorderInventoryItems($this->assetId, [$theirs, $mine]);
+
+        $this->assertSame(0, $this->repository->findInventoryItems($otherAsset)[0]['sort_order']);
+        $this->assertNull($this->repository->findInventoryItem($this->assetId, $theirs));
+        $this->assertNotNull($this->repository->findInventoryItem($otherAsset, $theirs));
+    }
+
+    /** The sort and the count travel with the label into the booking. */
+    public function testTheSnapshotCopiesTheSortAndTheExpectedCount(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Chaises', InventoryKind::QUANTITY, 40);
+        $item = $this->repository->createInventoryItem($this->assetId, 'Cuisine propre', InventoryKind::QUANTITY, 1);
+        $this->repository->updateInventoryItemKind($item, InventoryKind::YES_NO, null);
+
+        $this->repository->snapshotInventory($this->bookingId, $this->assetId);
+        $this->repository->updateInventoryItemKind($item, InventoryKind::QUANTITY, 2);
+
+        $lines = $this->repository->findBookingInventory($this->bookingId);
+        $this->assertSame(InventoryKind::QUANTITY, $lines[0]['kind']);
+        $this->assertSame(40, $lines[0]['expected_count']);
+        $this->assertSame(InventoryKind::YES_NO, $lines[1]['kind']);
+        $this->assertNull($lines[1]['expected_count']);
     }
 
     public function testTheSnapshotCopiesTheChecklistOnce(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Extincteur', 1);
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', 2);
+        $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
 
         $this->assertTrue($this->repository->snapshotInventory($this->bookingId, $this->assetId));
         $this->assertFalse($this->repository->snapshotInventory($this->bookingId, $this->assetId));
@@ -228,7 +273,7 @@ class RentalStayRepositoryTest extends TestCase
     public function testAnEmptyChecklistStillCountsAsSnapshotted(): void
     {
         $this->assertTrue($this->repository->snapshotInventory($this->bookingId, $this->assetId));
-        $this->repository->createInventoryItem($this->assetId, 'Ajouté après coup', 1);
+        $this->repository->createInventoryItem($this->assetId, 'Ajouté après coup', InventoryKind::QUANTITY, 1);
 
         $this->assertFalse($this->repository->snapshotInventory($this->bookingId, $this->assetId));
         $this->assertSame([], $this->repository->findBookingInventory($this->bookingId));
@@ -240,7 +285,7 @@ class RentalStayRepositoryTest extends TestCase
      */
     public function testRenamingAnItemAfterTheSnapshotDoesNotRewriteHistory(): void
     {
-        $itemId = $this->repository->createInventoryItem($this->assetId, 'Extincteur', 1);
+        $itemId = $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
 
         $this->pdo->prepare('UPDATE rental_inventory_items SET label = ? WHERE id = ?')
@@ -254,7 +299,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testAnUncheckedItemReadsAsNotCheckedRatherThanAsBlank(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Extincteur', 1);
+        $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
 
         $line = $this->repository->findBookingInventory($this->bookingId)[0];
@@ -264,7 +309,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testEachPhaseKeepsItsOwnStateAndNote(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
@@ -285,7 +330,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testABlankInventoryNoteIsStoredAsAbsent(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
@@ -301,7 +346,7 @@ class RentalStayRepositoryTest extends TestCase
      */
     public function testAnInventoryLineNamesTheBookingItBelongsTo(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 

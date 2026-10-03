@@ -12034,7 +12034,10 @@ if ($isEnabled('rental')) {
             $rentalSignedContractService,
             $rentalSignatureRepository,
             // A contract the booking has outgrown is marked void (#708, IT-20).
-            $rentalContractValidity
+            $rentalContractValidity,
+            // Dates the version of the conditions in force on the Gabarits
+            // list, and links to it from their page (#708, IT-10).
+            $rentalConditionsService
         )
     );
     $frontController->registerController(

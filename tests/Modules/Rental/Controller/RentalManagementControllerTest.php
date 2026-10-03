@@ -98,6 +98,8 @@ class RentalManagementControllerTest extends TestCase
     private RentalChangeRequestRepository $changeRequestRepository;
     private RentalBookingCommentRepository $commentRepository;
     private RentalBlockRepository $blockRepository;
+
+    private ?\Modules\Rental\Service\RentalComplianceService $complianceService = null;
     private RentalOperationsService $operationsService;
     private RentalPricingService $pricingService;
     private EncryptionService $encryption;
@@ -261,7 +263,7 @@ class RentalManagementControllerTest extends TestCase
             null,
             null,
             // The paperwork register: the compliance page 404s without it.
-            new \Modules\Rental\Service\RentalComplianceService(
+            $this->complianceService = new \Modules\Rental\Service\RentalComplianceService(
                 new \Modules\Rental\Repository\RentalComplianceRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 $journal,
@@ -317,6 +319,11 @@ class RentalManagementControllerTest extends TestCase
                 $bookingAudit,
                 $this->paymentService,
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo)
+            ),
+            // Dates the conditions on the Gabarits list (#708, IT-10).
+            new \Modules\Rental\Service\RentalConditionsService(
+                new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
             )
         );
 
@@ -497,8 +504,9 @@ class RentalManagementControllerTest extends TestCase
 
     /**
      * @param array<string, string> $body
+     * @param array<string, string> $params placeholders of $path, filled into the request path
      */
-    private function post(string $path, string $action, array $body): Response
+    private function post(string $path, string $action, array $body, array $params = []): Response
     {
         $body['_csrf_token'] ??= CsrfGuard::generateToken();
         $_POST = $body;
@@ -506,7 +514,19 @@ class RentalManagementControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('POST', $path, RentalManagementController::class, $action, 'identified');
 
-        return $this->dispatch($router, new Request('POST', $path, [], $body, [], []));
+        $requestPath = $path;
+        foreach ($params as $name => $value) {
+            $requestPath = str_replace('{' . $name . '}', $value, $requestPath);
+        }
+
+        return $this->dispatch($router, new Request('POST', $requestPath, [], $body, [], []));
+    }
+
+    private function complianceService(): \Modules\Rental\Service\RentalComplianceService
+    {
+        $this->assertNotNull($this->complianceService);
+
+        return $this->complianceService;
     }
 
     /**
@@ -2772,11 +2792,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
+        $body = $this->templateDocumentPage('contrat');
 
         // The editor shows the text generation would actually use…
         $this->assertStringContainsString('Convention de location', $body);
@@ -2798,14 +2814,120 @@ class RentalManagementControllerTest extends TestCase
             1
         );
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
+        $body = $this->templateDocumentPage('contrat');
 
         $this->assertStringContainsString('Nos propres conditions de location', $body);
         $this->assertStringContainsString('Réinitialiser au modèle standard', $body);
+    }
+
+    // ── The Gabarits page as a list (#708, IT-10) ───────────────────────
+
+    /**
+     * Three documents, their state, a pencil each — and none of the three
+     * editors on the list itself.
+     */
+    public function testTheTemplatePageListsTheThreeDocumentsWithTheirState(): void
+    {
+        $this->loginAsManager();
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+        $this->documentService->saveTemplate(
+            $asset,
+            \Modules\Rental\Document\DocumentType::INVOICE,
+            '<p>Facture {{ prix_ttc }}</p>',
+            1
+        );
+
+        $body = $this->templatesPage();
+
+        foreach (['contrat', 'facture', 'conditions'] as $document) {
+            $this->assertStringContainsString(
+                'href="/mes-locations/local-saint-georges/gabarits/' . $document . '"',
+                $body,
+                $document
+            );
+        }
+        $this->assertStringContainsString('Modèle standard', $body);
+        $this->assertStringContainsString('Personnalisé', $body);
+        $this->assertStringContainsString('Conditions standard', $body);
+        $this->assertStringContainsString('version en vigueur depuis le', $body);
+        // The invoice asks for a keyword that does not exist.
+        $this->assertStringContainsString('Mots-clés non reconnus', $body);
+        // No editor and no keyword panel on the list.
+        $this->assertStringNotContainsString('Mots-clés disponibles', $body);
+        $this->assertStringNotContainsString('Convention de location', $body);
+        // The same list component, without drag or bin.
+        $this->assertStringContainsString('id="template-list"', $body);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $this->between($body, 'id="template-list"', 'id="meter-list"'));
+    }
+
+    /** The keywords are open on a template's own page, not folded. */
+    public function testATemplatesOwnPageShowsItsKeywordsOpen(): void
+    {
+        $this->loginAsManager();
+
+        foreach (['contrat', 'facture'] as $document) {
+            $body = $this->templateDocumentPage($document);
+
+            $this->assertMatchesRegularExpression('/<details class="mb-3" open>\s*<summary[^>]*>Mots-clés disponibles/', $body);
+            $this->assertStringContainsString('{{ locataire_nom }}', $body);
+            $this->assertStringContainsString('sa propre copie', $body);
+        }
+
+        $this->assertStringContainsString('vat_exemption_note', $this->templateDocumentPage('facture'));
+        $this->assertStringNotContainsString('vat_exemption_note', $this->templateDocumentPage('contrat'));
+    }
+
+    public function testAnUnknownDocumentHasNoPage(): void
+    {
+        $this->loginAsManager();
+
+        $this->assertSame(404, $this->templateDocumentResponse('photo')->getStatusCode());
+        $this->assertSame(404, $this->templateDocumentResponse('contract')->getStatusCode());
+    }
+
+    public function testATemplatesPageIsRefusedToANonManager(): void
+    {
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->templateDocumentResponse('contrat')->getStatusCode());
+        $this->assertSame(404, $this->templateDocumentResponse('conditions')->getStatusCode());
+    }
+
+    /** Saving goes back to the list, with a message. */
+    public function testSavingATemplateGoesBackToTheList(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/gabarit', 'saveTemplate', [
+            'asset_id' => (string) $this->assetId,
+            'document_type' => 'contract',
+            'body' => '<p>Notre contrat.</p>',
+        ]);
+
+        $this->assertSame('/mes-locations/local-saint-georges/gabarits', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * The reset posts the standard body; on the invoice it must carry the
+     * VAT sentence along, or resetting the text would erase it.
+     */
+    public function testResettingTheInvoiceKeepsTheVatSentence(): void
+    {
+        $this->loginAsManager();
+        $this->post('/mes-locations/gabarit', 'saveTemplate', [
+            'asset_id' => (string) $this->assetId,
+            'document_type' => 'invoice',
+            'body' => '<p>Notre facture.</p>',
+            'vat_exemption_note' => 'Non assujetti',
+        ]);
+
+        $page = $this->templateDocumentPage('facture');
+        $this->assertMatchesRegularExpression(
+            '/name="body" value="[^"]*"[^>]*>\s*<input type="hidden" name="vat_exemption_note" value="Non assujetti">/',
+            $page
+        );
     }
 
     public function testAPhotoCannotBeGeneratedBecauseItIsUploadOnly(): void
@@ -2854,14 +2976,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
-
-        $this->assertStringContainsString('Gabarits', $body);
-        $this->assertStringContainsString('{{ locataire_nom }}', $body);
+        $this->assertStringContainsString('Gabarits', $this->templatesPage());
     }
 
     public function testTheDocumentEditorIsRefusedForAnotherAssetsBooking(): void
@@ -3746,7 +3861,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTheChecklistIsSnapshottedWhenTheBookingIsConfirmed(): void
     {
         $this->loginAsManager();
-        $this->stayService->addInventoryItem($this->assetId, 'Clés', 0);
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
         $this->completeTheAgreement($booking);
 
@@ -3759,32 +3874,226 @@ class RentalManagementControllerTest extends TestCase
         $this->assertCount(1, $this->stayService->inventoryFor($booking->id));
     }
 
-    public function testAManagerConfiguresAMeterFromTheTemplatesPage(): void
+    // ── Meters and inventory, without reloading (#708, IT-10) ───────────
+
+    public function testAManagerAddsAMeterAndGetsItsRowBack(): void
     {
         $this->loginAsManager();
 
-        $this->post('/mes-locations/compteur', 'saveMeter', [
-            'asset_id' => (string) $this->assetId,
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-saint-georges', [
             'label' => 'Électricité',
             'kind' => 'electricity',
             'unit' => 'kWh',
         ]);
 
-        $this->assertCount(1, $this->stayService->metersFor($this->assetId));
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($data['success'] ?? false, (string) $response->getBody());
+        $meters = $this->stayService->metersFor($this->assetId);
+        $this->assertCount(1, $meters);
+        $this->assertStringContainsString('class="list-editor-item', (string) $data['html']);
+        $this->assertStringContainsString('data-id="' . $meters[0]->id . '"', (string) $data['html']);
+        $this->assertStringContainsString('Électricité', (string) $data['html']);
+    }
+
+    public function testAMeterWithoutANameIsRefusedInFrench(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-saint-georges', [
+            'label' => '  ',
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('nom', (string) (json_decode((string) $response->getBody(), true)['error'] ?? ''));
     }
 
     public function testAMeterCannotBeConfiguredOnAnAssetTheManagerDoesNotManage(): void
     {
         $this->loginAsManager();
 
-        $response = $this->post('/mes-locations/compteur', 'saveMeter', [
-            'asset_id' => (string) $this->otherAssetId,
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-des-autres', [
             'label' => 'Électricité',
             'kind' => 'electricity',
         ]);
 
         $this->assertSame(404, $response->getStatusCode());
         $this->assertSame([], $this->stayService->metersFor($this->otherAssetId));
+    }
+
+    public function testAManagerRetiresAMeterWithoutReloading(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter($this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null);
+
+        $response = $this->postJsonTo(
+            '/mes-locations/{slug}/gabarits/compteurs/retirer',
+            'retireMeter',
+            'local-saint-georges',
+            ['id' => $meterId]
+        );
+
+        $this->assertTrue(json_decode((string) $response->getBody(), true)['success'] ?? false);
+        $this->assertSame([], $this->stayService->metersFor($this->assetId));
+    }
+
+    /**
+     * With a meter fee, no help under the price at all; without one, a
+     * single line under the row with the link to the pricing.
+     */
+    public function testThePriceHelpDependsOnWhetherAMeterFeeExists(): void
+    {
+        $this->loginAsManager();
+        $line = 'Pour facturer la consommation, ajoutez un frais « relevé de compteur »';
+
+        $this->assertStringContainsString($line, $this->templatesPage());
+
+        $this->pricingService->addFee($this->assetId, 'Électricité', 'meter', 35, 'kWh');
+        $body = $this->templatesPage();
+
+        $this->assertStringNotContainsString($line, $body);
+        $this->assertStringContainsString('Relevé seul, non facturé', $body);
+    }
+
+    public function testAnInventoryItemIsAddedWithItsSortAndCount(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux', 'addInventoryItem', 'local-saint-georges', [
+            'label' => 'Chaises',
+            'kind' => 'quantity',
+            'expected_count' => '40',
+        ]);
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux', 'addInventoryItem', 'local-saint-georges', [
+            'label' => 'Cuisine propre',
+            'kind' => 'yes_no',
+            'expected_count' => '1',
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($data['success'] ?? false, (string) $response->getBody());
+        $this->assertStringContainsString('value="40"', (string) $data['html']);
+        $items = $this->stayService->inventoryTemplateFor($this->assetId);
+        $this->assertSame(['Chaises', 'Cuisine propre'], array_column($items, 'label'));
+        $this->assertSame(40, $items[0]['expected_count']);
+        $this->assertSame(\Modules\Rental\Stay\InventoryKind::YES_NO, $items[1]['kind']);
+        $this->assertNull($items[1]['expected_count']);
+    }
+
+    public function testAnInventoryItemIsChangedInPlace(): void
+    {
+        $this->loginAsManager();
+        $itemId = $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/modifier', 'updateInventoryItem', 'local-saint-georges', [
+            'id' => $itemId,
+            'kind' => 'quantity',
+            'expected_count' => '3',
+        ]);
+        $this->assertSame(3, $this->stayService->inventoryItem($this->assetId, $itemId)['expected_count'] ?? null);
+
+        $refused = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/modifier', 'updateInventoryItem', 'local-saint-georges', [
+            'id' => $itemId,
+            'kind' => 'quantity',
+            'expected_count' => 'trois',
+        ]);
+        $this->assertSame(422, $refused->getStatusCode());
+        $this->assertSame(3, $this->stayService->inventoryItem($this->assetId, $itemId)['expected_count'] ?? null);
+    }
+
+    public function testTheInventoryIsReorderedAndRemovedWithoutReloading(): void
+    {
+        $this->loginAsManager();
+        $keys = $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $chairs = $this->stayService->addInventoryItem($this->assetId, 'Chaises');
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/ordre', 'reorderInventory', 'local-saint-georges', [
+            'ids' => [(string) $chairs, (string) $keys],
+        ]);
+        $this->assertSame(['Chaises', 'Clés'], array_column($this->stayService->inventoryTemplateFor($this->assetId), 'label'));
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/retirer', 'removeInventoryItem', 'local-saint-georges', [
+            'id' => $chairs,
+        ]);
+        $this->assertSame(['Clés'], array_column($this->stayService->inventoryTemplateFor($this->assetId), 'label'));
+    }
+
+    /** An item id alone must not reach another asset's checklist. */
+    public function testAnotherAssetsInventoryItemCannotBeRemovedFromHere(): void
+    {
+        $this->loginAsManager();
+        $theirs = $this->stayService->addInventoryItem($this->otherAssetId, 'Chaises');
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/retirer', 'removeInventoryItem', 'local-saint-georges', [
+            'id' => $theirs,
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertCount(1, $this->stayService->inventoryTemplateFor($this->otherAssetId));
+    }
+
+    /** The old « Ordre » field is gone; the inventory list is draggable. */
+    public function testTheInventoryListIsSortableAndHasNoOrderField(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $body = $this->templatesPage();
+        $inventory = $this->between($body, 'id="inventory-list"', '</form>');
+
+        $this->assertStringNotContainsString('name="sort_order"', $body);
+        $this->assertStringContainsString('list-editor-drag-handle', $inventory);
+        $this->assertStringContainsString('data-in-place="true"', $inventory);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $this->between($body, 'id="meter-list"', 'id="inventory-list"'));
+    }
+
+    /** The stay page shows what each frozen line expects. */
+    public function testTheStayPageShowsWhatEachItemExpects(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Chaises', \Modules\Rental\Stay\InventoryKind::QUANTITY, 40);
+        $this->stayService->addInventoryItem($this->assetId, 'Cuisine propre', \Modules\Rental\Stay\InventoryKind::YES_NO);
+        $booking = $this->createBooking();
+        $this->stayService->snapshotInventory($booking, $this->assetId);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->stayPage('local-saint-georges', $booking->id)->getBody());
+
+        $this->assertStringContainsString('Quantité — attendu : 40', $body);
+        $this->assertStringContainsString('Oui / Non — attendu : Oui', $body);
+    }
+
+    private function templatesPage(): string
+    {
+        return (string) $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getBody();
+    }
+
+    private function templateDocumentResponse(string $document): Response
+    {
+        return $this->get(
+            '/mes-locations/{slug}/gabarits/{document}',
+            '/mes-locations/local-saint-georges/gabarits/' . $document,
+            'templateDocument'
+        );
+    }
+
+    private function templateDocumentPage(string $document): string
+    {
+        $response = $this->templateDocumentResponse($document);
+        $this->assertSame(200, $response->getStatusCode(), $document);
+
+        return (string) $response->getBody();
+    }
+
+    private function between(string $haystack, string $from, string $to): string
+    {
+        $start = strpos($haystack, $from);
+        $this->assertNotFalse($start, $from);
+        $end = strpos($haystack, $to, $start + strlen($from));
+
+        return substr($haystack, $start, $end === false ? null : $end - $start);
     }
 
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
@@ -3959,16 +4268,156 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
+        $html = (string) $this->complianceFormPage('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('aria-describedby="compliance-document-help"', $html);
+        $this->assertStringContainsString('<div class="form-text" id="compliance-document-help">', $html);
+        // The datalist the intitulé field reads still reaches it.
+        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        // An entry without a due date triggers nothing, and the field says so.
+        $this->assertStringContainsString('ne déclenche aucun rappel', $html);
+    }
+
+    // ── The compliance register on the shared list (#708, IT-09) ───────
+
+    public function testTheRegisterIsAListSortedByDueDateWithoutDragHandles(): void
+    {
+        $this->loginAsManager();
+        $service = $this->complianceService();
+        $service->add($this->assetId, 'Sans date', null, null);
+        $service->add($this->assetId, 'Chaudière', '2027-09-01', null);
+        $service->add($this->assetId, 'Extincteurs', '2027-03-01', 'Société Feu Sûr');
+
         $html = (string) $this->get(
             '/mes-locations/{slug}/conformite',
             '/mes-locations/local-saint-georges/conformite',
             'compliance'
         )->getBody();
 
-        $this->assertStringContainsString('aria-describedby="new-document-help"', $html);
-        $this->assertStringContainsString('<div class="form-text" id="new-document-help">', $html);
-        // The datalist the intitulé field reads still reaches it.
-        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        $this->assertStringContainsString('id="compliance-list"', $html);
+        $this->assertStringContainsString('data-sortable="false"', $html);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $html);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/conformite/nouvelle"', $html);
+        $this->assertStringNotContainsString('action="/mes-locations/conformite-ajouter"', $html);
+        $first = strpos($html, 'Extincteurs');
+        $this->assertNotFalse($first);
+        $this->assertGreaterThan($first, strpos($html, 'Chaudière'));
+        $this->assertGreaterThan(strpos($html, 'Chaudière'), strpos($html, 'Sans date'));
+        $this->assertStringContainsString('Supprimer « Extincteurs » du registre ?', $html);
+    }
+
+    public function testAnEntryIsAddedFromItsOwnPageAndTheManagerIsSentBackToTheList(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => 'Extincteurs',
+            'expires_on' => '2027-03-01',
+            'remark' => 'Société Feu Sûr',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mes-locations/local-saint-georges/conformite', $response->getHeaders()['Location'] ?? null);
+        $items = $this->complianceService()->forAsset($this->assetId);
+        $this->assertCount(1, $items);
+        $this->assertSame('2027-03-01', $items[0]->expiresOn);
+    }
+
+    public function testARefusedEntryComesBackWithWhatWasTyped(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => '',
+            'remark' => 'Ma remarque',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Ma remarque', (string) $response->getBody());
+    }
+
+    public function testAnEntryIsChangedFromItsOwnPageKeepingItsDocument(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $page = (string) $this->complianceFormPage('local-saint-georges', $id)->getBody();
+        $this->assertStringContainsString('value="Extincteurs"', $page);
+
+        $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Extincteurs (rez)',
+            'expires_on' => '',
+            'remark' => '',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $id]);
+
+        $entry = $this->complianceService()->find($this->assetId, $id);
+        $this->assertSame('Extincteurs (rez)', $entry?->label);
+        $this->assertNull($entry?->expiresOn);
+    }
+
+    public function testAnEntryIsDeletedThroughTheListBin(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', [
+            'id' => $id,
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame([], $this->complianceService()->forAsset($this->assetId));
+    }
+
+    public function testTheEntryPagesAreClosedToAnotherAssetsEntriesAndToNonManagers(): void
+    {
+        $foreign = $this->complianceService()->add($this->otherAssetId, 'Chaudière', null, null);
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges')->getStatusCode());
+
+        $this->loginAsManager();
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges', $foreign)->getStatusCode());
+        $this->assertSame(404, $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Pris',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $foreign])->getStatusCode());
+        $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', ['id' => $foreign]);
+        $this->assertNotNull($this->complianceService()->find($this->otherAssetId, $foreign));
+    }
+
+    private function complianceFormPage(string $slug, ?int $id = null): Response
+    {
+        return $id === null
+            ? $this->get('/mes-locations/{slug}/conformite/nouvelle', '/mes-locations/' . $slug . '/conformite/nouvelle', 'complianceForm')
+            : $this->get(
+                '/mes-locations/{slug}/conformite/{id}/modifier',
+                '/mes-locations/' . $slug . '/conformite/' . $id . '/modifier',
+                'complianceForm'
+            );
+    }
+
+    /**
+     * A list editor's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postJsonTo(string $routePath, string $action, string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $router = new Router();
+        $router->addRoute('POST', $routePath, RentalManagementController::class, $action, 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                str_replace('{slug}', $slug, $routePath),
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── The « Rappels » section of the settings page (IT-07, §6.29) ──────

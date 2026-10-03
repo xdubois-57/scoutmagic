@@ -104,6 +104,11 @@ class ModuleManifestTest extends TestCase
      * 1.32.2 loads components.css on the two pages whose select bar and
      * rich-text surface used its classes without it (issue #602).
      *
+     * 1.34.0 gives each inventory item a sort and an expected count, in the
+     * asset's template and in the booking's copy (`kind`,
+     * `expected_count`), and moves the Gabarits page to lists edited in
+     * place (#708, IT-10).
+     *
      * 1.35.0 retires the `reviewing` status (#708, IT-11) — a row still
      * carrying it reads back as `received` — and goes on through the rest
      * of #708's fourth lot: the automatic hold in days, the « Contrat
@@ -115,10 +120,12 @@ class ModuleManifestTest extends TestCase
      *
      * 1.37.0 voids a contract the booking has outgrown (#708, IT-20): its
      * fingerprint at generation, and when it stopped holding.
+     *
+     * 1.38.0 brings lots 3 and 6 of #708 together.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.37.0', $this->manifest->version);
+        $this->assertSame('1.38.0', $this->manifest->version);
     }
 
     /**
@@ -145,8 +152,12 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/document-ajouter',
             '/mes-locations/document-supprimer',
             '/mes-locations/facturation',
-            '/mes-locations/compteur',
-            '/mes-locations/inventaire-modele',
+            '/mes-locations/{slug}/gabarits/compteurs',
+            '/mes-locations/{slug}/gabarits/compteurs/retirer',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/modifier',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/ordre',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/retirer',
             '/mes-locations/releve',
             '/mes-locations/inventaire',
             '/mes-locations/incident',
@@ -166,7 +177,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/reglages/frais',
             '/mes-locations/{slug}/reglages/frais-supprimer',
             '/mes-locations/{slug}/reglages/paiements',
-            '/mes-locations/{slug}/reglages/conditions',
+            '/mes-locations/{slug}/gabarits/conditions',
             '/admin/locations/compte',
             '/admin/locations/create',
             '/admin/locations/general',
