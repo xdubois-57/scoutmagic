@@ -57,19 +57,12 @@ affiché tel quel : ce n'est pas une erreur, c'est une réponse.
 
 ## La relecture par IA, si vous l'avez
 
-Quand le module Intelligence artificielle est actif, **« Répartir »**
-commence par relire les commentaires libres des familles des personnes
-à répartir — et d'elles seules. La fenêtre le dit avant que vous ne
-cliquiez. Chaque commentaire n'est envoyé **qu'une seule fois** (il ne
-repart que si la famille l'a modifié).
-
-L'IA y relève une section ou des amis souhaités. Ils ne comptent que
-s'ils désignent sans doute possible une section de la branche
-d'arrivée ou un enfant précis ; un prénom porté par deux enfants est
-laissé de côté. Ils passent après votre choix et après les champs remplis
-par la famille. Ce que l'IA a lu reste affiché sous la ligne, marqué « à
-vérifier », et vous pouvez le confirmer d'un clic. Si l'IA ne répond
-pas, la répartition se fait avec ce qui est déjà connu.
+Avec le module Intelligence artificielle, **« Répartir »** relit d'abord
+les commentaires libres des familles des seules personnes à répartir,
+chacun **une seule fois**, pour y relever une section ou des amis
+souhaités. Ce qui est ambigu est ignoré, et ces souhaits passent après
+les vôtres et ceux des champs de la famille. Le détail est dans
+*Répartir automatiquement les passages*.
 
 ## Ce que ces choix font — et ne font pas
 
