@@ -147,7 +147,7 @@ class RetroBoardControllerTest extends TestCase
         )->getBody());
 
         $this->assertMatchesRegularExpression(
-            '#Espace animateurs</li>.*<a href="/retro" [^>]*>Rétrospectives</a>.*<a href="/retro/' . $id . '/edit" [^>]*>Camp</a></li>.*aria-current="page">Board</li>#',
+            '#Espace animateurs</li>.*<a href="/retro" [^>]*>Rétrospectives</a>.*<a href="/retro/' . $id . '/edit" [^>]*>Camp</a></li>.*aria-current="page">Tableau</li>#',
             $body
         );
     }

@@ -204,13 +204,13 @@ class RetroBoardController extends AbstractController
             : $this->boardService->publicUrl($board);
 
         return [
-            'route_breadcrumb' => ['label' => 'Board', 'parents' => ['Espace animateurs']],
+            'route_breadcrumb' => ['label' => 'Tableau', 'parents' => ['Espace animateurs']],
             'route_breadcrumb_ancestors' => [],
             'breadcrumb_trail' => [
                 ['label' => 'Rétrospectives', 'url' => '/retro'],
                 ['label' => $board->title, 'url' => $nameUrl],
             ],
-            'breadcrumb_current' => 'Board',
+            'breadcrumb_current' => 'Tableau',
         ];
     }
 
