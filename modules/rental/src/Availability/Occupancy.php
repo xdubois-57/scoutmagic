@@ -53,6 +53,9 @@ final class Occupancy
      * @param bool $isFirm Whether this is a commitment or merely a temporary hold. See the note below.
      * @param bool $endDateIsHeld Whether `$departureDate` is itself taken, whatever the billing unit. See the note
      *     below.
+     * @param bool $wholeAsset Whether it takes every unit of the asset, however many there are — a period the unit
+     *     blocks (#708, IT-07). Not a large `$units`: an asset that grows from 10 to 12 units must stay closed on a
+     *     period meant to be closed, which a stored count could never promise.
      */
     public function __construct(
         public readonly string $arrivalDate,
@@ -60,7 +63,8 @@ final class Occupancy
         public readonly int $units = 1,
         public readonly ?string $reference = null,
         public readonly bool $isFirm = true,
-        public readonly bool $endDateIsHeld = false
+        public readonly bool $endDateIsHeld = false,
+        public readonly bool $wholeAsset = false
     ) {
     }
 }

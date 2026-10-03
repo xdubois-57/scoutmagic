@@ -1030,6 +1030,39 @@
         var(--bs-danger-bg-subtle, #f8d7da) 50% 100%
     );
 }
+/* The managed rental calendar (#708, IT-07): a day the unit blocks is
+   hatched OVER whatever the bookings make of it, so a day held by both
+   shows both. A pseudo-element rather than a background, because the
+   half-day states already use the background for their diagonal. Keyed on
+   the data attribute only that page sets — every other grid is untouched. */
+.daygrid-day[data-unit-block="1"] {
+    position: relative;
+}
+.daygrid-day[data-unit-block="1"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.28) 0 2px,
+        transparent 2px 7px
+    );
+}
+.daygrid-day--free[data-unit-block="1"] {
+    --daygrid-day-color: var(--bs-secondary-bg, #e9ecef);
+}
+/* While a gesture runs: the days it covers, and no text selection or
+   system menu under the finger. */
+.rental-block-calendar .daygrid {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+.rental-block-calendar.is-selecting .daygrid-day.is-gesture {
+    outline: 3px solid var(--bs-primary, #0d6efd);
+    outline-offset: -3px;
+}
 /* Past, inside a notice window, or beyond the horizon — greyed out, and
    pointedly NOT the occupied colour: telling a visitor "taken" for a day
    that is merely too late to request makes them give up on a free day. */

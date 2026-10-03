@@ -28,6 +28,7 @@ use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Availability\ManagedCalendarDays;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
@@ -1749,11 +1750,22 @@ class RentalManagementController extends AbstractController
             // "Date passée" — hiding the very bookings the calendar exists
             // to show. Same for a day inside the notice period, which is not
             // in the past at all.
-            discloseOccupancy: true
+            discloseOccupancy: true,
+            // The unit's own blocks are laid over the bookings rather than
+            // merged into them, so a day shows both and a gesture can tell
+            // which days the unit holds (#708, IT-07).
+            withoutUnitBlocks: true
         );
 
         $from = $window->firstDay()->modify('-7 days');
         $to = $window->lastDay()->modify('+7 days');
+        $states = (new ManagedCalendarDays())->decorate(
+            $states,
+            $this->blockService->between($asset->id, $from, $to),
+            $window->year,
+            $window->month,
+            $today
+        );
 
         return $this->render('@rental/management/calendar.html.twig', [
             'asset' => $asset,
@@ -1770,6 +1782,8 @@ class RentalManagementController extends AbstractController
                 $today
             ),
             'calendar_label' => $window->label(),
+            'calendar_month' => sprintf('%04d-%02d', $window->year, $window->month),
+            'today' => $today->format('Y-m-d'),
             'previous_month' => $window->previous(),
             'next_month' => $window->next(),
             // The three are listed separately rather than merged into one
@@ -2581,11 +2595,79 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/blocage — a manual block (§6.18).
+     * POST /mes-locations/{slug}/calendrier/jours — block or release days
+     * straight on the calendar (#708, IT-07), as JSON.
+     *
+     * One request per gesture, at release: the days and the mode. The
+     * service turns them back into periods and answers with what actually
+     * changed — each day with its reason, which is what « Annuler » sends
+     * back — and the list under the grid is re-rendered from the same
+     * partial the page uses.
      *
      * @param array<string, string> $params
      */
-    public function createBlock(Request $request, array $params): Response
+    public function calendarDays(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+
+        $days = array_values(array_filter(
+            is_array($data['days'] ?? null) ? $data['days'] : [],
+            'is_string'
+        ));
+        $reasons = [];
+        if (is_array($data['reasons'] ?? null)) {
+            foreach ($data['reasons'] as $day => $reason) {
+                if (is_string($day) && (is_string($reason) || $reason === null)) {
+                    $reasons[$day] = $reason;
+                }
+            }
+        }
+
+        $today = new \DateTimeImmutable('today');
+        try {
+            $changed = $this->blockService->applyDays(
+                $asset->id,
+                $days,
+                (string) ($data['mode'] ?? ''),
+                $reasons,
+                $today,
+                $this->actorMemberId()
+            );
+        } catch (RentalException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            // An object, even when empty: the page reads its keys.
+            'changed' => (object) $changed,
+            'list' => $this->renderToString('@rental/management/_block_list.html.twig', [
+                'asset' => $asset,
+                'blocks' => $this->blockService->upcomingFor($asset->id, $today->modify('-7 days')),
+            ]),
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/blocage-motif — give or change a period's reason,
+     * from the list under the calendar: a period blocked by a gesture is
+     * created without one.
+     *
+     * @param array<string, string> $params
+     */
+    public function blockReason(Request $request, array $params): Response
     {
         if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
             return $guard;
@@ -2597,32 +2679,12 @@ class RentalManagementController extends AbstractController
         }
 
         try {
-            $this->blockService->create(
+            $this->blockService->setReason(
                 $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', ''),
-                max(1, (int) $request->getBody('units', 1)),
-                Support::optionalString($request->getBody('reason')),
-                $this->actorMemberId()
+                (int) $request->getBody('block_id', 0),
+                Support::optionalString($request->getBody('reason'))
             );
-
-            // Accepted, never refused, even over a booked period (§6.18) —
-            // but said out loud, so an accidental overlap is visible rather
-            // than silent.
-            $overlapping = $this->bookingRepository->findOccupyingBetween(
-                $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', '')
-            );
-
-            FlashMessage::set(
-                $overlapping === [] ? 'success' : 'warning',
-                $overlapping === []
-                    ? 'Blocage enregistré.'
-                    : 'Blocage enregistré. Attention : ' . count($overlapping)
-                        . ' réservation(s) occupent déjà tout ou partie de cette période. '
-                        . 'Les deux coexistent — traitez chaque réservation individuellement.'
-            );
+            FlashMessage::set('success', 'Motif enregistré.');
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

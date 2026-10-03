@@ -39,26 +39,69 @@ class RentalBlockRepository implements OccupancyProvider
         int $assetId,
         string $startDate,
         string $endDate,
-        int $units,
         ?string $reason,
         ?int $createdByMemberId
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_blocks (asset_id, start_date, end_date, units, reason, created_by_member_id, '
-                . 'created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO rental_blocks (asset_id, start_date, end_date, reason, created_by_member_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $assetId,
             $startDate,
             $endDate,
-            max(1, $units),
             $reason,
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function updateReason(int $id, ?string $reason): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE rental_blocks SET reason = ? WHERE id = ?');
+        $stmt->execute([$reason, $id]);
+    }
+
+    /**
+     * Every block of an asset, past ones included — what a calendar gesture
+     * is planned against (Availability\BlockDayPlanner), since a gesture may
+     * extend a period that began before today.
+     *
+     * @return RentalBlock[]
+     */
+    public function findAllForAsset(int $assetId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM rental_blocks WHERE asset_id = ? ORDER BY start_date ASC, id ASC');
+        $stmt->execute([$assetId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Swap $removeIds for $periods in one transaction: a gesture either
+     * lands whole or not at all, never as a half-rebuilt calendar.
+     *
+     * @param int[] $removeIds
+     * @param list<array{start: string, end: string, reason: string|null}> $periods
+     */
+    public function replace(int $assetId, array $removeIds, array $periods, ?int $createdByMemberId): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $delete = $this->pdo->prepare('DELETE FROM rental_blocks WHERE id = ? AND asset_id = ?');
+            foreach ($removeIds as $id) {
+                $delete->execute([$id, $assetId]);
+            }
+            foreach ($periods as $period) {
+                $this->create($assetId, $period['start'], $period['end'], $period['reason'], $createdByMemberId);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function findById(int $id): ?RentalBlock
@@ -164,7 +207,6 @@ class RentalBlockRepository implements OccupancyProvider
             assetId: (int) $row['asset_id'],
             startDate: (string) $row['start_date'],
             endDate: (string) $row['end_date'],
-            units: (int) $row['units'],
             reason: $row['reason'] !== null ? (string) $row['reason'] : null,
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')

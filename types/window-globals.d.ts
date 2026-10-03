@@ -143,7 +143,7 @@ interface Window {
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
     ScoutMagicToast?: {
-        show: (message: string, options?: { variant?: 'success' | 'error' | 'warning' | 'info', delayMs?: number }) => HTMLElement;
+        show: (message: string, options?: { variant?: 'success' | 'error' | 'warning' | 'info', delayMs?: number, action?: { label: string, onClick: () => void } }) => HTMLElement;
     };
     // public/assets/js/confirm.js — the site's one confirmation dialog and
     // the non-native replacement for confirm() (design.md §7.5), loaded by

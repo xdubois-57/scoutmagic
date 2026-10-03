@@ -185,7 +185,8 @@ class RentalAvailabilityService
         int $month,
         \DateTimeImmutable $today,
         ?array $selection = null,
-        bool $discloseOccupancy = false
+        bool $discloseOccupancy = false,
+        bool $withoutUnitBlocks = false
     ): array {
         // Widened either side, matching the whole-weeks grid the caller
         // renders — a stay crossing the month boundary must not appear to
@@ -200,6 +201,18 @@ class RentalAvailabilityService
             $first->modify('last day of this month')->modify('+' . $pad . ' days'),
             $today
         );
+
+        if ($withoutUnitBlocks) {
+            // The managed calendar lays the unit's blocks over the bookings
+            // as a marker of their own, so a day can show both (#708, IT-07).
+            $occupancies = array_values(array_filter(
+                $occupancies,
+                static fn(\Modules\Rental\Availability\Occupancy $occupancy): bool => !str_starts_with(
+                    (string) $occupancy->reference,
+                    \Modules\Rental\Repository\RentalBlock::OCCUPANCY_REFERENCE_PREFIX
+                )
+            ));
+        }
 
         return $this->calculator->monthDayStates(
             $year,

@@ -63,6 +63,9 @@ class AvailabilityCalculator
 
         foreach ($occupancies as $occupancy) {
             if ($this->occupancyCoversDay($occupancy, $date, $billingUnit, $bufferNights)) {
+                if ($occupancy->wholeAsset) {
+                    return 0;
+                }
                 $taken += max(1, $occupancy->units);
             }
         }
