@@ -109,11 +109,45 @@ class HttpOnlyEnvironmentsDeclareTheExceptionTest extends TestCase
      */
     private function runDevConfig(): array
     {
+        require_once $this->repoRoot . '/scripts/dev-config.php';
         if ($this->tempDir === '') {
             $this->tempDir = sys_get_temp_dir() . '/sm-dev-config-' . bin2hex(random_bytes(4));
             mkdir($this->tempDir . '/config', 0700, true);
             copy($this->repoRoot . '/config/app.php.dist', $this->tempDir . '/config/app.php.dist');
         }
+
+        [$exitCode, $message] = devConfigSeed($this->tempDir);
+        $this->assertSame(0, $exitCode, $message);
+
+        /** @var array<string, mixed> $config */
+        $config = require $this->tempDir . '/config/app.php';
+
+        return $config;
+    }
+
+    public function testTheScriptRefusesWhenTheTemplateNoLongerDeclaresTheKey(): void
+    {
+        require_once $this->repoRoot . '/scripts/dev-config.php';
+        $this->tempDir = sys_get_temp_dir() . '/sm-dev-config-' . bin2hex(random_bytes(4));
+        mkdir($this->tempDir . '/config', 0700, true);
+
+        [$missing, $message] = devConfigSeed($this->tempDir);
+        $this->assertSame(1, $missing);
+        $this->assertStringContainsString('introuvable', $message);
+
+        file_put_contents($this->tempDir . '/config/app.php.dist', "<?php\n\nreturn ['debug' => false];\n");
+        [$stale, $message] = devConfigSeed($this->tempDir);
+        $this->assertSame(1, $stale);
+        $this->assertStringContainsString('script à mettre à jour', $message);
+        $this->assertFileDoesNotExist($this->tempDir . '/config/app.php');
+    }
+
+    /** And it still runs as the command composer calls. */
+    public function testItRunsAsACommand(): void
+    {
+        $this->tempDir = sys_get_temp_dir() . '/sm-dev-config-' . bin2hex(random_bytes(4));
+        mkdir($this->tempDir . '/config', 0700, true);
+        copy($this->repoRoot . '/config/app.php.dist', $this->tempDir . '/config/app.php.dist');
 
         exec(
             escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($this->repoRoot . '/scripts/dev-config.php')
@@ -121,11 +155,8 @@ class HttpOnlyEnvironmentsDeclareTheExceptionTest extends TestCase
             $output,
             $exitCode
         );
+
         $this->assertSame(0, $exitCode, implode("\n", $output));
-
-        /** @var array<string, mixed> $config */
-        $config = require $this->tempDir . '/config/app.php';
-
-        return $config;
+        $this->assertFileExists($this->tempDir . '/config/app.php');
     }
 }

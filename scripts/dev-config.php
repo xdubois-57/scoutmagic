@@ -23,33 +23,45 @@ declare(strict_types=1);
  * Usage: php scripts/dev-config.php [install root, default: this checkout]
  */
 
-$root = $argv[1] ?? dirname(__DIR__);
-$distPath = $root . '/config/app.php.dist';
-$configPath = $root . '/config/app.php';
+/**
+ * Writes the development config/app.php under $root, unless one exists.
+ *
+ * @return array{0: int, 1: string} exit code and the sentence to print
+ */
+function devConfigSeed(string $root): array
+{
+    $distPath = $root . '/config/app.php.dist';
+    $configPath = $root . '/config/app.php';
 
-if (is_file($configPath)) {
-    fwrite(STDOUT, "config/app.php existe déjà : laissé tel quel.\n");
-    exit(0);
+    if (is_file($configPath)) {
+        return [0, "config/app.php existe déjà : laissé tel quel.\n"];
+    }
+
+    $dist = is_file($distPath) ? file_get_contents($distPath) : false;
+    if ($dist === false) {
+        return [1, "config/app.php.dist introuvable sous {$root}.\n"];
+    }
+
+    $count = 0;
+    $config = preg_replace(
+        "/'https_required'\\s*=>\\s*true\\s*,/",
+        "'https_required' => false, // development checkout: served over http://localhost",
+        $dist,
+        1,
+        $count
+    );
+    if ($config === null || $count !== 1) {
+        return [1, "config/app.php.dist ne déclare plus 'https_required' => true : script à mettre à jour.\n"];
+    }
+
+    file_put_contents($configPath, $config);
+
+    return [0, "config/app.php créé pour le développement local (HTTP toléré).\n"];
 }
 
-$dist = file_get_contents($distPath);
-if ($dist === false) {
-    fwrite(STDERR, "config/app.php.dist introuvable sous {$root}.\n");
-    exit(1);
+// Run only when invoked as a script, so the test can load the function.
+if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
+    [$exitCode, $message] = devConfigSeed($argv[1] ?? dirname(__DIR__));
+    fwrite($exitCode === 0 ? STDOUT : STDERR, $message);
+    exit($exitCode);
 }
-
-$count = 0;
-$config = preg_replace(
-    "/'https_required'\\s*=>\\s*true\\s*,/",
-    "'https_required' => false, // development checkout: served over http://localhost",
-    $dist,
-    1,
-    $count
-);
-if ($config === null || $count !== 1) {
-    fwrite(STDERR, "config/app.php.dist ne déclare plus 'https_required' => true : script à mettre à jour.\n");
-    exit(1);
-}
-
-file_put_contents($configPath, $config);
-fwrite(STDOUT, "config/app.php créé pour le développement local (HTTP toléré).\n");
