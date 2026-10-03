@@ -27,10 +27,14 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
+use Core\View\EditableContentService;
 use Twig\Environment;
 
 class StaffsController extends AbstractController
 {
+    /** The key prefix of a section's own text: permanent, not per year (#725). */
+    public const SECTION_TEXT_KEY_PREFIX = 'staff_text_';
+
     public function __construct(
         protected Environment $twig,
         private SectionService $sectionService,
@@ -41,7 +45,8 @@ class StaffsController extends AbstractController
         private UnitStaffSectionService $unitStaffSectionService,
         private SectionDocumentService $sectionDocumentService,
         private SettingService $settingService,
-        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
+        private EditableContentService $editableContentService
     ) {
     }
 
@@ -152,9 +157,15 @@ class StaffsController extends AbstractController
         }
         $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
 
+        // The section's own text (#725): one key per section, no year in
+        // it, so it stays from one year to the next until somebody edits it.
+        $sectionTextKey = $currentSection !== null ? self::SECTION_TEXT_KEY_PREFIX . (int) $currentSection['id'] : null;
+
         $context = [
             'sections' => $sections,
             'current_section' => $currentSection,
+            'section_text_key' => $sectionTextKey,
+            'section_text' => $sectionTextKey !== null ? (string) $this->editableContentService->get($sectionTextKey, '') : '',
             'staff' => $staff,
             'is_chief' => $isChief,
             'can_edit_section' => $canEditSection,
@@ -179,6 +190,81 @@ class StaffsController extends AbstractController
         }
 
         return $this->render('chefs/staffs.html.twig', $context);
+    }
+
+    /**
+     * POST /chefs/staffs/text — a section's own rich text (#725), in the
+     * body shape rich-text-field.js sends ({key, value, type}).
+     *
+     * Its own endpoint on purpose: /api/rich-text-content stays admin-only.
+     * Here the question is the one the page asks to show the button — does
+     * this account animate THIS section (an admin animates every one) — and
+     * it is asked again, because a hidden button is not a boundary. The
+     * global edit mode plays no part.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSectionText(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $key = (string) ($data['key'] ?? '');
+        if (preg_match('/^' . self::SECTION_TEXT_KEY_PREFIX . '([1-9]\d*)$/', $key, $match) !== 1
+            || ($data['type'] ?? 'rich_text') !== 'rich_text'
+        ) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        $sectionId = (int) $match[1];
+
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null || !$this->mayEditSection($sectionId)) {
+            return $this->json(['success' => false, 'error' => "Vous n'animez pas cette section."], 403);
+        }
+
+        $stored = $this->editableContentService->set($key, (string) ($data['value'] ?? ''), 'rich_text', $userId);
+
+        $this->journalService->log(
+            'core',
+            'section_text_updated',
+            'info',
+            'Texte de section modifié',
+            ['section_id' => $sectionId],
+            $userId
+        );
+
+        return $this->json(['success' => true, 'value' => $stored]);
+    }
+
+    /**
+     * The page's own rule for every write that follows the section: a chief
+     * who animates it this year, or an admin (who animates every section).
+     */
+    private function mayEditSection(int $sectionId): bool
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        if (!$role->hasAccess(Role::CHIEF) || $this->sectionService->getSection($sectionId) === null) {
+            return false;
+        }
+        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+        $staffed = $this->sectionStaffAuthorizationService->getStaffedSections(
+            AuthSession::getEmail() ?? '',
+            $role->value,
+            $scoutYearId
+        );
+
+        foreach ($staffed as $section) {
+            if ((int) $section['id'] === $sectionId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
