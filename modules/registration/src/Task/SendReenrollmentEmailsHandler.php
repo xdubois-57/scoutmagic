@@ -64,6 +64,10 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         $type = (string) ($payload['type'] ?? '');
         $campaignKey = (string) ($payload['campaign'] ?? '');
         $afterKey = (int) ($payload['after_key'] ?? 0);
+        // A manual reminder's own occurrence (issue #732): set, this run is
+        // that reminder and nothing else — its own claims, no automatic
+        // marker. Empty, it is one of the four scheduled e-mails.
+        $occurrence = (string) ($payload['occurrence'] ?? '');
 
         if ($type === '' || $campaignKey === '') {
             return;
@@ -72,6 +76,12 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $scoutYearService = new ScoutYearService($pdo);
         $campaign = ReenrollmentCampaignHandler::campaignService($context);
+
+        // Switched off after this was queued: it stops here, unsent and
+        // unmarked.
+        if (!$campaign->emailsEnabled()) {
+            return;
+        }
 
         $publicYear = (new \Core\ScoutYear\ScoutYearResolver(
             $scoutYearService,
@@ -114,7 +124,9 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         );
 
         if ($families === []) {
-            $campaign->markDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey);
+            if ($occurrence === '') {
+                $campaign->markDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey);
+            }
 
             return;
         }
@@ -124,7 +136,7 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         $closeDate = DateInput::parse('!Y-m-d', $campaignKey);
 
         $claims = new SentEmailClaimRepository($pdo);
-        $scope = self::claimScope($type, $campaignKey);
+        $scope = self::claimScope($type, $campaignKey, $occurrence);
 
         $sent = 0;
         $skipped = 0;
@@ -178,24 +190,39 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
             'Envoi de la campagne de réinscription',
             // `skipped` is what a replay looks like from outside: the
             // families this run found already written to.
-            ['type' => $type, 'campaign' => $campaignKey, 'families' => $sent, 'skipped' => $skipped]
+            [
+                'type' => $type,
+                'campaign' => $campaignKey,
+                'manual' => $occurrence !== '',
+                'families' => $sent,
+                'skipped' => $skipped,
+            ]
         );
 
         $scheduler = new SchedulerService(new SchedulerRepository($pdo));
         if (count($families) < self::BATCH_SIZE) {
-            $campaign->markDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey);
+            if ($occurrence === '') {
+                $campaign->markDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey);
+            }
 
             return;
         }
 
         // More to do: the reference carries the cursor so a re-run of the
-        // same batch cannot be queued twice.
+        // same batch cannot be queued twice — and a manual reminder keeps
+        // its own prefix and occurrence, so it is never taken for the
+        // automatic one.
+        $payloadNext = ['type' => $type, 'campaign' => $campaignKey, 'after_key' => $lastKey];
+        if ($occurrence !== '') {
+            $payloadNext['occurrence'] = $occurrence;
+        }
         $scheduler->schedule(
             'registration',
             'send_reenrollment_emails',
             new \DateTimeImmutable(),
-            ['type' => $type, 'campaign' => $campaignKey, 'after_key' => $lastKey],
-            $type . ':' . $campaignKey . ':' . $lastKey
+            $payloadNext,
+            ($occurrence !== '' ? 'manual:' . $campaignKey . ':' . $occurrence : $type . ':' . $campaignKey)
+                . ':' . $lastKey
         );
     }
 
@@ -229,9 +256,15 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
      * the occurrence's own close date, so the four e-mails of 2026 never
      * collide with the four of 2027 and a purged claim can never suppress
      * a later year's send.
+     *
+     * A manual reminder adds its own occurrence (issue #732): sharing the
+     * automatic reminder's scope meant a family reminded by hand was
+     * already « claimed » when the scheduled reminder came, and skipped —
+     * and a second manual reminder a week later reached nobody at all.
      */
-    public static function claimScope(string $type, string $campaignKey): string
+    public static function claimScope(string $type, string $campaignKey, string $occurrence = ''): string
     {
-        return 'registration.reenrollment.' . $type . ':' . $campaignKey;
+        return 'registration.reenrollment.' . ($occurrence !== '' ? 'manual.' . $occurrence . '.' : '')
+            . $type . ':' . $campaignKey;
     }
 }

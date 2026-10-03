@@ -424,6 +424,156 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertCount(1, $this->queued(), 'Two clicks, one reminder — counted in rows.');
     }
 
+    // ── the e-mails switch and the opening question (issue #732) ─────
+
+    public function testThePageExplainsWhichEmailsLeaveAndOffersTheSwitchOnByDefault(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Envoyer les e-mails de la campagne', $body);
+        $this->assertMatchesRegularExpression('/id="emails-enabled"[^>]*checked/s', $body);
+        $this->assertStringContainsString('aucun de ces e-mails ne part', $body);
+        $this->assertStringContainsString('reenrollment-config.js', $body);
+    }
+
+    public function testSwitchingTheEmailsOffIsSaved(): void
+    {
+        $this->save([ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0']);
+
+        $this->assertFalse($this->campaign->emailsEnabled());
+    }
+
+    public function testAPostWithoutTheEmailsFieldLeavesItAsItWas(): void
+    {
+        $this->save([ReenrollmentCampaignService::SETTING_CLOSE_AT => '06-30']);
+
+        $this->assertTrue($this->campaign->emailsEnabled());
+    }
+
+    public function testAnOpeningDateOfTodayIsNotSavedWithoutTheChiefsYes(): void
+    {
+        $this->save($this->openingToday());
+
+        $this->assertFalse($this->campaign->isOpen(), 'cancelled: the campaign stays closed');
+        $this->assertSame('03-01', $this->stored(ReenrollmentCampaignService::SETTING_OPEN_AT), 'and nothing is saved');
+        $this->assertSame([], $this->queued());
+        $this->assertStringContainsString("envoie l'e-mail d'ouverture", $this->flash('error'));
+    }
+
+    public function testAnOpeningDateOfTodayConfirmedOpensNowAndQueuesTheOpeningEmailOnce(): void
+    {
+        $this->save($this->openingToday() + ['confirm_opening' => '1']);
+
+        $key = $this->todaysCampaignKey();
+        $this->assertTrue($this->campaign->isOpen(), 'opened now, not at the next hourly pass');
+        $this->assertTrue(
+            $this->campaign->alreadyDone(ReenrollmentCampaignService::MARKER_OPENED, $key),
+            'through the marker the clock reads, so it never opens it a second time'
+        );
+        $queued = $this->queued();
+        $this->assertCount(1, $queued);
+        $this->assertSame(ReenrollmentCampaignService::EMAIL_OPENING, json_decode((string) $queued[0]['payload'], true)['type']);
+    }
+
+    public function testWithTheEmailsOffAnOpeningNeedsNoQuestionAndWritesToNobody(): void
+    {
+        $this->save([ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'] + $this->openingToday());
+
+        $this->assertTrue($this->campaign->isOpen());
+        $this->assertSame([], $this->queued());
+    }
+
+    public function testOpeningByHandAsksFirstThenSendsTheOpeningEmail(): void
+    {
+        // Today's scheduled opening already applied: only the switch opens.
+        $fields = $this->openingToday();
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, $this->todaysCampaignKey());
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, $fields[ReenrollmentCampaignService::SETTING_OPEN_AT], 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '12-31', 'registration');
+
+        $this->save(['is_open' => '1']);
+        $this->assertFalse($this->campaign->isOpen(), 'no yes, no opening');
+        $this->flash('error');
+
+        $this->save(['is_open' => '1', 'confirm_opening' => '1']);
+        $this->assertTrue($this->campaign->isOpen());
+        $this->assertCount(1, $this->queued());
+    }
+
+    public function testThePreviewAsksExactlyWhenTheSaveWouldWriteToFamilies(): void
+    {
+        $this->assertSame(
+            "Cette configuration va ouvrir la campagne de réinscription immédiatement. "
+                . "Un e-mail d'ouverture sera envoyé aux familles concernées. Voulez-vous continuer ?",
+            $this->preview($this->openingToday())['confirm']
+        );
+        $this->assertNull(
+            $this->preview([ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'] + $this->openingToday())['confirm'],
+            'e-mails off: nothing to warn about'
+        );
+        $this->assertNull(
+            $this->preview([ReenrollmentCampaignService::SETTING_CLOSE_AT => '06-30'])['confirm'],
+            'a save that opens nothing asks nothing'
+        );
+        $this->assertSame([], $this->queued(), 'and asking saved nothing');
+        $this->assertFalse($this->campaign->isOpen());
+    }
+
+    public function testAReminderIsRefusedWhileTheEmailsAreOff(): void
+    {
+        $this->campaign->open();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $this->remind();
+
+        $this->assertSame([], $this->queued());
+        $this->assertStringContainsString('désactivés', $this->flash('error'));
+    }
+
+    public function testAManualReminderCarriesItsOwnOccurrence(): void
+    {
+        $this->campaign->open();
+
+        $this->remind();
+
+        $queued = $this->queued();
+        $payload = json_decode((string) $queued[0]['payload'], true);
+        $this->assertNotEmpty($payload['occurrence']);
+        $this->assertStringStartsWith('manual:', (string) $queued[0]['reference']);
+        $this->assertStringEndsWith((string) $payload['occurrence'], (string) $queued[0]['reference']);
+    }
+
+    public function testTheReminderQuestionSaysAnEmailLeavesAndWhereTheAutomaticOnesStand(): void
+    {
+        $this->campaign->open();
+
+        $body = html_entity_decode(
+            $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody(),
+            ENT_QUOTES
+        );
+
+        $this->assertStringContainsString("Un e-mail de relance va être envoyé à chaque famille qui n'a pas encore répondu.", $body);
+        $this->assertMatchesRegularExpression(
+            "/(Aucun rappel automatique n'a encore été envoyé|Dernier rappel automatique envoyé le)/",
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            "/(Aucun autre rappel automatique n'est prévu|Prochain rappel automatique prévu le)/",
+            $body
+        );
+    }
+
+    public function testWithTheEmailsOffTheReminderButtonIsDisabledAndSaysWhy(): void
+    {
+        $this->campaign->open();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $body = $this->controller->index(new Request('GET', '/config/reinscription', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('action="/config/reinscription/relance"', $body);
+        $this->assertStringContainsString('les e-mails de la campagne sont désactivés', $body);
+    }
+
     // ── the boundary ──────────────────────────────────────────────────
 
     public function testASaveWithoutACsrfTokenChangesNothing(): void
@@ -473,6 +623,48 @@ class ReenrollmentConfigControllerTest extends TestCase
     private function post(string $path, array $fields): Request
     {
         return new Request('POST', $path, [], $fields + ['_csrf_token' => CsrfGuard::generateToken()], [], []);
+    }
+
+    /**
+     * A window that opens TODAY and closes on 31 December — whatever day
+     * the suite runs, without straddling a new year.
+     *
+     * @return array<string, string>
+     */
+    private function openingToday(): array
+    {
+        return [
+            ReenrollmentCampaignService::SETTING_OPEN_AT => (new \DateTimeImmutable())->format('m-d'),
+            ReenrollmentCampaignService::SETTING_CLOSE_AT => '12-31',
+            ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '1',
+        ];
+    }
+
+    private function todaysCampaignKey(): string
+    {
+        return (new \DateTimeImmutable())->format('Y') . '-12-31';
+    }
+
+    /**
+     * @param array<string, string> $fields
+     * @return array<string, mixed>
+     */
+    private function preview(array $fields): array
+    {
+        $response = $this->controller->preview(
+            new \Tests\RequestWithInput(
+                'POST',
+                '/config/reinscription/apercu',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($fields + ['_csrf_token' => CsrfGuard::generateToken()])
+            ),
+            []
+        );
+
+        return (array) json_decode($response->getBody(), true);
     }
 
     private function stored(string $key): string
