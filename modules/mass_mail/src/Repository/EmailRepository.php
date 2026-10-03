@@ -155,9 +155,9 @@ class EmailRepository
 
                 return false;
             }
-            foreach (['mass_mail_email_scout_years', 'mass_mail_recipients', 'mass_mail_attachments'] as $table) {
-                $this->pdo->prepare("DELETE FROM {$table} WHERE email_id = ?")->execute([$id]);
-            }
+            $this->pdo->prepare('DELETE FROM mass_mail_email_scout_years WHERE email_id = ?')->execute([$id]);
+            $this->pdo->prepare('DELETE FROM mass_mail_recipients WHERE email_id = ?')->execute([$id]);
+            $this->pdo->prepare('DELETE FROM mass_mail_attachments WHERE email_id = ?')->execute([$id]);
             $this->pdo->commit();
         } catch (\Throwable $e) {
             if ($this->pdo->inTransaction()) {
