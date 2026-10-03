@@ -11343,13 +11343,15 @@ if ($isEnabled('registration')) {
             ),
             $registrationPassageNoteRepository,
             $registrationReenrollmentRepository,
-            // IT-17 — the optional AI re-reading of family comments. The
-            // one connector every consuming module reads, nullable: with
-            // llm_connector disabled this is null and the page renders
-            // exactly as it did before (ARCHITECTURE.md §7.5).
+            // IT-17 — the optional AI re-reading of family comments, run by
+            // « Répartir » before it distributes (issue #733). The one
+            // connector every consuming module reads, nullable: with
+            // llm_connector disabled this is null and the optimisation runs
+            // on what is already known (ARCHITECTURE.md §7.5).
             new \Modules\Registration\Service\PassageCommentReviewService(
                 $registrationReenrollmentRepository,
                 $registrationPassageNoteRepository,
+                $registrationReenrollmentService,
                 $llmConnectorForOthers
             ),
             // IT-18 — « Optimiser la répartition ». Synchronous, in the

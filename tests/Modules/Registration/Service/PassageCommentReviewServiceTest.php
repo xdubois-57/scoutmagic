@@ -16,16 +16,18 @@ use Modules\LlmConnector\Api\LlmTier;
 use Modules\Registration\Repository\PassageNoteRepository;
 use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Service\PassageCommentReviewService;
+use Modules\Registration\Service\ReenrollmentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
 
 /**
- * IT-17's optional AI re-reading of what families wrote in free text.
+ * The AI re-reading of what families wrote in free text (IT-17), run by
+ * « Répartir » before it distributes (issue #733).
  *
- * The three properties that matter are not about the model's answer at
- * all — they are about how little the site sends and how little it
- * trusts what comes back.
+ * What matters is how little the site sends — only the people about to be
+ * placed, each comment once — and how little it trusts what comes back:
+ * a section or a name becomes an id only when it designates exactly one.
  *
  * @group database
  */
@@ -37,7 +39,11 @@ class PassageCommentReviewServiceTest extends TestCase
     private ReenrollmentRepository $repository;
     private PassageNoteRepository $notes;
     private int $targetYearId;
+    private int $currentYearId;
     private int $memberId;
+
+    private const SECTION_A = 41;
+    private const SECTION_B = 42;
 
     protected function setUp(): void
     {
@@ -46,7 +52,7 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $scoutYears = new ScoutYearService($this->pdo);
-        $scoutYears->ensureYear('2026-2027');
+        $this->currentYearId = $scoutYears->ensureYear('2026-2027');
         $this->targetYearId = $scoutYears->ensureYear('2027-2028');
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_ONE')");
@@ -60,11 +66,10 @@ class PassageCommentReviewServiceTest extends TestCase
     {
         $this->answerWithComment('On aimerait qu’il reste avec les copains de sa patrouille.');
 
-        $service = new PassageCommentReviewService($this->repository, $this->notes, null);
+        $service = $this->service(null);
 
         $this->assertFalse($service->isAvailable());
-        $this->assertSame(0, $service->pendingCount($this->targetYearId));
-        $this->assertSame(0, $service->reviewPending($this->targetYearId));
+        $this->assertSame(0, $this->review($service));
         $this->assertNull($this->notes->find($this->memberId, $this->targetYearId));
     }
 
@@ -73,17 +78,29 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->answerWithComment('On aimerait qu’il reste avec les copains de sa patrouille.');
 
         $connector = $this->connector(['has_wish' => true, 'summary' => 'Rester avec sa patrouille.']);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
+        $service = $this->service($connector);
 
-        $this->assertSame(1, $service->pendingCount($this->targetYearId));
-        $this->assertSame(1, $service->reviewPending($this->targetYearId));
+        $this->assertSame(1, $this->review($service));
         $this->assertSame(1, $connector->calls);
 
-        // The second round is the point: the page will be opened many
-        // times, and the button pressed again.
-        $this->assertSame(0, $service->pendingCount($this->targetYearId));
-        $this->assertSame(0, $service->reviewPending($this->targetYearId));
+        // The second round is the point: « Répartir » is pressed again.
+        $this->assertSame(0, $this->review($service));
         $this->assertSame(1, $connector->calls);
+    }
+
+    public function testOnlyThePeopleAboutToBePlacedHaveTheirCommentSent(): void
+    {
+        $this->answerWithComment('Avec Zoé, svp.');
+
+        $connector = $this->connector(['has_wish' => true, 'summary' => 'Avec Zoé.', 'friends' => ['Zoé']]);
+        $service = $this->service($connector);
+
+        $this->assertSame(
+            0,
+            $service->reviewArrivals($this->targetYearId, $this->currentYearId, [999 => $this->arrival()]),
+            'a child who is not changing branch in this run never has their family read'
+        );
+        $this->assertSame(0, $connector->calls);
     }
 
     public function testAFamilyEditingTheirCommentIsReadExactlyOnceMore(): void
@@ -91,15 +108,32 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->answerWithComment('Première version.');
 
         $connector = $this->connector(['has_wish' => true, 'summary' => 'Un souhait.']);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
-        $service->reviewPending($this->targetYearId);
+        $service = $this->service($connector);
+        $this->review($service);
 
         $this->answerWithComment('Deuxième version, tout autre chose.');
 
-        $this->assertSame(1, $service->reviewPending($this->targetYearId));
+        $this->assertSame(1, $this->review($service));
         $this->assertSame(2, $connector->calls);
-        $this->assertSame(0, $service->reviewPending($this->targetYearId));
+        $this->assertSame(0, $this->review($service));
         $this->assertSame(2, $connector->calls);
+    }
+
+    public function testACommentReadBeforeTheStructuredReadingIsReadOnceMore(): void
+    {
+        // A hash written by the IT-17 reading, which had no section and no
+        // friends: without a fresh read, that comment would never count.
+        $this->answerWithComment('Avec Zoé, svp.');
+        $this->notes->setAiSuggestion(
+            $this->memberId,
+            $this->targetYearId,
+            hash('sha256', 'Avec Zoé, svp.'),
+            'Avec Zoé.'
+        );
+
+        $connector = $this->connector(['has_wish' => true, 'summary' => 'Avec Zoé.']);
+
+        $this->assertSame(1, $this->review($this->service($connector)));
     }
 
     public function testTheChildIsNeverNamedInWhatIsSent(): void
@@ -107,8 +141,7 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->answerWithComment('Léa voudrait rester avec Zoé.');
 
         $connector = $this->connector(['has_wish' => true, 'summary' => 'Rester avec une amie.']);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
-        $service->reviewPending($this->targetYearId);
+        $this->review($this->service($connector));
 
         $this->assertNotNull($connector->lastRequest);
         $this->assertSame(
@@ -121,38 +154,83 @@ class PassageCommentReviewServiceTest extends TestCase
             $connector->lastRequest->systemPrompt ?? '',
             'nothing identifies whose comment it is'
         );
+        $this->assertStringContainsString(
+            'Louveteaux A, Louveteaux B',
+            $connector->lastRequest->systemPrompt ?? '',
+            'the section names go along, so the answer can be resolved'
+        );
     }
 
-    public function testASuggestionArrivesUnconfirmedAndStaysThatWayUntilAHumanSaysOtherwise(): void
+    public function testTheReadingIsStoredStructuredAndResolvedToIds(): void
     {
-        $this->answerWithComment('On aimerait la même section que son frère.');
+        $this->answerWithComment('Elle aimerait aller chez les Louveteaux B avec Zoé et Paul.');
 
-        $service = new PassageCommentReviewService(
-            $this->repository,
-            $this->notes,
-            $this->connector(['has_wish' => true, 'summary' => 'La même section que son frère.'])
+        $service = $this->service(
+            $this->connector([
+                'has_wish' => true,
+                'summary' => 'Louveteaux B, avec Zoé et Paul.',
+                'section' => 'louveteaux b',
+                'friends' => ['Zoé', 'Paul'],
+            ]),
+            ['Zoé' => [501], 'Paul' => [502]]
         );
-        $service->reviewPending($this->targetYearId);
+        $this->review($service);
 
         $stored = $this->notes->find($this->memberId, $this->targetYearId);
         $this->assertNotNull($stored);
-        $this->assertSame('La même section que son frère.', $stored['ai_suggestion']);
+        $this->assertSame('Louveteaux B, avec Zoé et Paul.', $stored['ai_suggestion']);
+        $this->assertSame(self::SECTION_B, $stored['ai_section_id']);
+        $this->assertSame([501, 502], $stored['ai_friend_member_ids']);
         $this->assertFalse($stored['ai_confirmed']);
+    }
 
-        $this->notes->confirmAiSuggestion($this->memberId, $this->targetYearId, true);
-        $this->assertTrue($this->notes->find($this->memberId, $this->targetYearId)['ai_confirmed']);
+    public function testAnAmbiguousReadingNeverBecomesAChoice(): void
+    {
+        $this->answerWithComment('Chez les Louveteaux, avec Léo et un copain.');
+
+        $service = $this->service(
+            $this->connector([
+                'has_wish' => true,
+                'summary' => 'Louveteaux, avec Léo.',
+                // Both sections of the branch are « Louveteaux … ».
+                'section' => 'Louveteaux',
+                // Two Léos, and a name nobody carries.
+                'friends' => ['Léo', 'Inconnu'],
+            ]),
+            ['Léo' => [601, 602], 'Inconnu' => []]
+        );
+        $this->review($service);
+
+        $stored = $this->notes->find($this->memberId, $this->targetYearId);
+        $this->assertNotNull($stored);
+        $this->assertNull($stored['ai_section_id']);
+        $this->assertSame([], $stored['ai_friend_member_ids']);
+    }
+
+    public function testASectionOutsideTheArrivalBranchIsDropped(): void
+    {
+        $this->answerWithComment('Chez les Éclaireurs.');
+
+        $this->review($this->service($this->connector([
+            'has_wish' => true,
+            'summary' => 'Éclaireurs.',
+            'section' => 'Éclaireurs',
+            'friends' => [],
+        ])));
+
+        $this->assertNull($this->notes->find($this->memberId, $this->targetYearId)['ai_section_id']);
     }
 
     public function testAConfirmationDoesNotSurviveTheCommentItWasAbout(): void
     {
         $this->answerWithComment('Première version.');
         $connector = $this->connector(['has_wish' => true, 'summary' => 'Un souhait.']);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
-        $service->reviewPending($this->targetYearId);
+        $service = $this->service($connector);
+        $this->review($service);
         $this->notes->confirmAiSuggestion($this->memberId, $this->targetYearId, true);
 
         $this->answerWithComment('Deuxième version.');
-        $service->reviewPending($this->targetYearId);
+        $this->review($service);
 
         $this->assertFalse(
             $this->notes->find($this->memberId, $this->targetYearId)['ai_confirmed'],
@@ -164,19 +242,24 @@ class PassageCommentReviewServiceTest extends TestCase
     {
         $this->answerWithComment('Merci pour tout, très belle année !');
 
-        $connector = $this->connector(['has_wish' => false, 'summary' => null]);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
-        $service->reviewPending($this->targetYearId);
+        $connector = $this->connector(['has_wish' => false, 'summary' => null, 'section' => 'Louveteaux B']);
+        $service = $this->service($connector);
+        $this->review($service);
 
-        $this->assertNull($this->notes->find($this->memberId, $this->targetYearId)['ai_suggestion']);
-        $this->assertSame(0, $service->pendingCount($this->targetYearId), 'read is read, wish or no wish');
+        $stored = $this->notes->find($this->memberId, $this->targetYearId);
+        $this->assertNull($stored['ai_suggestion']);
+        $this->assertNull($stored['ai_section_id'], 'no wish means no section, whatever else came back');
+        $this->assertSame(0, $this->review($service), 'read is read, wish or no wish');
+        $this->assertSame(1, $connector->calls);
     }
 
-    public function testAFailingProviderCostsTheChiefNothingButTheHint(): void
+    public function testAFailingProviderCostsNothingAndIsAskedAgainNextTime(): void
     {
         $this->answerWithComment('Un commentaire quelconque.');
 
         $connector = new class implements LlmConnectorInterface {
+            public int $calls = 0;
+
             public function isAvailable(): bool
             {
                 return true;
@@ -189,14 +272,17 @@ class PassageCommentReviewServiceTest extends TestCase
 
             public function complete(LlmRequest $request): LlmResponse
             {
+                $this->calls++;
                 throw new LlmException('Le fournisseur ne répond pas.');
             }
         };
 
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
+        $service = $this->service($connector);
 
-        $this->assertSame(1, $service->reviewPending($this->targetYearId));
-        $this->assertNull($this->notes->find($this->memberId, $this->targetYearId)['ai_suggestion']);
+        $this->assertSame(0, $this->review($service));
+        $this->assertNull($this->notes->find($this->memberId, $this->targetYearId));
+        $this->assertSame(0, $this->review($service));
+        $this->assertSame(2, $connector->calls, 'a failed read is not a read: the next run tries again');
     }
 
     public function testAnAnswerWithoutACommentIsNeverSentAnywhere(): void
@@ -204,11 +290,49 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->repository->saveAnswer($this->memberId, $this->targetYearId, 'reenrolled', null, null, null, []);
 
         $connector = $this->connector(['has_wish' => true, 'summary' => 'Quelque chose.']);
-        $service = new PassageCommentReviewService($this->repository, $this->notes, $connector);
 
-        $this->assertSame(0, $service->pendingCount($this->targetYearId));
-        $this->assertSame(0, $service->reviewPending($this->targetYearId));
+        $this->assertSame(0, $this->review($this->service($connector)));
         $this->assertSame(0, $connector->calls);
+    }
+
+    /**
+     * @param array<string, array<int, int>> $candidatesByName the member
+     *        ids the module's name matcher finds for each name
+     */
+    private function service(?LlmConnectorInterface $connector, array $candidatesByName = []): PassageCommentReviewService
+    {
+        $reenrollment = $this->createStub(ReenrollmentService::class);
+        $reenrollment->method('candidatesFor')->willReturnCallback(
+            static fn(string $name): array => array_map(
+                static fn(int $id): array => ['member_id' => $id, 'label' => 'Membre ' . $id],
+                $candidatesByName[$name] ?? []
+            )
+        );
+
+        return new PassageCommentReviewService($this->repository, $this->notes, $reenrollment, $connector);
+    }
+
+    private function review(PassageCommentReviewService $service): int
+    {
+        return $service->reviewArrivals(
+            $this->targetYearId,
+            $this->currentYearId,
+            [$this->memberId => $this->arrival()]
+        );
+    }
+
+    /**
+     * @return array{branch_id: int, sections: array<int, array<string, mixed>>}
+     */
+    private function arrival(): array
+    {
+        return [
+            'branch_id' => 2,
+            'sections' => [
+                ['id' => self::SECTION_A, 'name' => 'Louveteaux A', 'desk_code' => 'LA', 'age_branch_id' => 2],
+                ['id' => self::SECTION_B, 'name' => 'Louveteaux B', 'desk_code' => 'LB', 'age_branch_id' => 2],
+            ],
+        ];
     }
 
     private function answerWithComment(string $comment): void
