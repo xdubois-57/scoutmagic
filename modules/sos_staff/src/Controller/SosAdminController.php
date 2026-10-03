@@ -60,6 +60,17 @@ class SosAdminController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $role = Role::fromString(AuthSession::getRole());
+
+        // Issue #750: with no telephony provider, nothing below has any
+        // effect — a planning would route calls to nowhere. One warning,
+        // a link for whoever can configure it, and nothing else.
+        if ($this->providerConfigService->getActiveProvider() === null) {
+            return $this->render('@sos_staff/admin.html.twig', [
+                'provider_configured' => false,
+                'can_configure' => $role->hasAccess(Role::SUPERADMIN),
+            ]);
+        }
+
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
 
         $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
@@ -82,6 +93,7 @@ class SosAdminController extends AbstractController
         $today = (new \DateTimeImmutable())->format('Y-m-d');
 
         return $this->render('@sos_staff/admin.html.twig', [
+            'provider_configured' => true,
             'sos_number' => $this->providerConfigService->getSosNumber(),
             'live_state' => $this->resolveLiveState($effectiveYear->id),
             'staff_options' => $staffOptions,
@@ -132,8 +144,8 @@ class SosAdminController extends AbstractController
      * §2.6 roster-order rule, never recomputed from the states grid), how
      * many people are marked so the page can flag a day where the extra
      * marks change nothing, the day written out in full for the edit
-     * sheet's title, and the sections' activity flattened into one
-     * subtitle.
+     * sheet's title, and the sections' activity as « Section — titre »
+     * lines for the day sheet.
      *
      * **Range**: the CURRENT month starts at today. Past days of the
      * running month are not editable in practice and pushing the useful
@@ -164,10 +176,12 @@ class SosAdminController extends AbstractController
     ): array {
         $rows = [];
         foreach ($grid['days'] as $day) {
+            // « Section — titre »: the day sheet lists them one per line,
+            // and a title alone (« Réunion ») does not say whose (#750).
             $activity = [];
             foreach ($sectionActivity as $column) {
                 foreach ($column['events_by_day'][$day['date']] ?? [] as $title) {
-                    $activity[] = $title;
+                    $activity[] = $column['label'] . ' — ' . $title;
                 }
             }
 

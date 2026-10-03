@@ -3,13 +3,14 @@
 {% block title %}Gérer le téléphone d'urgence — {{ site_name }}{% endblock %}
 
 {% block stylesheets %}
+{% if provider_configured %}
 {# Desktop duty grid only. The phone layout below is plain Bootstrap
    utilities on purpose: it needs no rule of its own, and a rule of its
    own would have to live in public/assets/css/ (AGENTS.md § CSS). #}
 <style nonce="{{ csp_nonce }}">
 .sos-grid-wrapper { overflow-x: auto; }
-.sos-grid { border-collapse: collapse; font-size: 0.75rem; width: 100%; table-layout: fixed; }
-.sos-grid th, .sos-grid td { border: 1px solid var(--bs-border-color, #dee2e6); padding: 0.3rem; text-align: center; }
+.sos-grid { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.sos-grid th, .sos-grid td { border: 1px solid var(--bs-border-color, #dee2e6); padding: 0.25rem; text-align: center; }
 .sos-grid th.sos-col-header { padding: 0.3rem 0.1rem 0; height: 7rem; width: 1.6rem; max-width: 1.6rem; vertical-align: bottom; font-weight: 600; }
 .sos-grid th.sos-col-header .sos-col-header-label {
     writing-mode: vertical-rl;
@@ -18,7 +19,7 @@
     display: inline-block;
     white-space: nowrap;
 }
-.sos-grid td.sos-day-label, .sos-grid th.sos-day-label-header { text-align: left; white-space: nowrap; font-weight: 600; width: 5rem; }
+.sos-grid td.sos-day-label, .sos-grid th.sos-day-label-header { text-align: left; white-space: nowrap; font-weight: 600; width: 4.5rem; }
 .sos-grid tbody tr.is-weekend td:not(.has-event):not(.state-oncall):not(.state-unavailable) { background-color: var(--bs-tertiary-bg, #f8f9fa); }
 .sos-grid tbody tr.is-today td:not(.has-event):not(.state-oncall):not(.state-unavailable) { background-color: var(--bs-warning-bg-subtle, #fff3cd); }
 .sos-section-divider { border-left: 3px solid var(--bs-secondary-color, #6c757d) !important; }
@@ -29,18 +30,34 @@
 .sos-oncall-cell.state-unavailable { background-color: #ef5350; color: #fff; }
 .sos-next-transition { background-color: var(--bs-warning-bg-subtle, #fff3cd); border-left: 4px solid var(--bs-warning, #ffc107) !important; }
 </style>
+{% endif %}
 {% endblock %}
 
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: "Gérer le téléphone d'urgence" } only %}
 
+    {% if not provider_configured %}
+        {# Issue #750: without a provider nothing on this page has any
+           effect, so it says so once and shows nothing else. #}
+        <div class="alert alert-warning" role="status" id="sos-not-configured">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            La téléphonie n'est pas encore configurée : le numéro SOS ne peut être redirigé vers personne.
+            {% if can_configure %}
+                <a href="/config/sos" class="alert-link">Configurer SOS Staff d'U</a>.
+            {% else %}
+                Un super-administrateur doit d'abord la configurer (Configuration › SOS Staff d'U).
+            {% endif %}
+        </div>
+    {% else %}
+
     {# ------------------------------------------------------------------
-       Status banner — the SOS number and the live redirection state, two
-       lines and a coloured dot. Replaces the two-column block that used
-       to push the planning below the fold on a phone.
+       Where the calls go RIGHT NOW, as read from the provider — not what
+       the planning says they should (issue #750). The planning below is
+       the rule; this is the fact.
        ------------------------------------------------------------------ #}
-    <div class="border rounded-3 p-3 mb-3 d-flex align-items-start gap-2" id="sos-status-banner">
-        {% if live_state.error or not sos_number %}
+    <section class="border rounded-3 p-3 mb-4 d-flex align-items-start gap-2" id="sos-status-banner"
+             aria-labelledby="sos-status-title">
+        {% if live_state.error %}
             {% set dot_class = 'text-danger' %}
         {% elseif live_state.active %}
             {% set dot_class = 'text-success' %}
@@ -49,22 +66,30 @@
         {% endif %}
         <i class="bi bi-circle-fill small mt-1 {{ dot_class }}" aria-hidden="true"></i>
         <div>
-            {% if sos_number %}
-                <div class="fw-semibold">Numéro SOS {{ sos_number }}</div>
-            {% else %}
-                <div class="fw-semibold text-danger">Aucun fournisseur configuré (voir Configuration &gt; SOS Staff d'U).</div>
-            {% endif %}
             {% if live_state.error %}
-                <div class="small text-danger">{{ live_state.error }}</div>
+                <h2 class="h6 mb-1 text-danger" id="sos-status-title">État de la redirection illisible chez le fournisseur</h2>
+                <p class="small mb-0">{{ live_state.error }}</p>
             {% elseif live_state.active %}
-                <div class="small text-body-secondary">
-                    Redirection active vers {{ live_state.number }}{% if live_state.label %} ({{ live_state.label }}){% endif %}
-                </div>
+                <h2 class="h6 mb-1" id="sos-status-title">Redirection active chez le fournisseur</h2>
+                <p class="small mb-0">
+                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} sont actuellement redirigés vers
+                    <strong>{% if live_state.label %}{{ live_state.label }} — {% endif %}{{ live_state.number }}</strong>.
+                </p>
             {% else %}
-                <div class="small text-body-secondary">Redirection inactive</div>
+                <h2 class="h6 mb-1" id="sos-status-title">Redirection inactive chez le fournisseur</h2>
+                <p class="small mb-0">
+                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} ne sont actuellement redirigés vers aucun
+                    téléphone.
+                </p>
             {% endif %}
         </div>
-    </div>
+    </section>
+
+    <h2 class="h5 mb-2">Planning des gardes</h2>
+    <p class="small text-body-secondary mb-3" id="sos-planning-explanation">
+        Les appels sont redirigés vers le numéro par défaut (dans les réglages plus bas), sauf les jours où quelqu'un
+        est de garde dans le planning. L'enregistrement est automatique.
+    </p>
 
     {# ------------------------------------------------------------------
        Month navigation — shared by both layouts.
@@ -74,7 +99,7 @@
            class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
             <i class="bi bi-chevron-left" aria-hidden="true"></i>
         </a>
-        <h2 class="h5 mb-0">{{ month_label }}</h2>
+        <h3 class="h6 mb-0">{{ month_label }}</h3>
         <a href="/admin/sos?month={{ next_month_param }}{% if mobile_tab == 'me' %}&amp;tab=me{% endif %}"
            class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
             <i class="bi bi-chevron-right" aria-hidden="true"></i>
@@ -109,7 +134,6 @@
         <p class="small text-body-secondary d-flex flex-wrap gap-3 mb-2" id="sos-legend">
             <span><i class="bi bi-circle-fill text-success" aria-hidden="true"></i> de garde</span>
             <span><i class="bi bi-circle-fill text-danger" aria-hidden="true"></i> indisponible</span>
-            <span><i class="bi bi-circle-fill text-warning" aria-hidden="true"></i> activité</span>
         </p>
 
         {% if mobile_tab == 'me' %}
@@ -155,36 +179,53 @@
                when nobody is on call — server-rendered, because the
                script may never carry a member's name (the JSON island is
                ids, dates and states only). #}
-            <div class="list-group" id="sos-day-list"
-                 data-default-target="Par défaut — {{ default_number_label|default('aucun membre') }}">
-                {% for day in mobile_days %}
-                    <button type="button"
-                            class="list-group-item list-group-item-action sos-day-row{{ day.is_today ? ' list-group-item-warning' : '' }}"
+            {# Issue #750: a plain two-column table — the date, and who
+               receives the calls that day. Section events are not
+               columns here; they head the day's sheet instead. #}
+            {% set default_target = default_number_label ? 'Par défaut — ' ~ default_number_label : 'Aucun' %}
+            <table class="table table-sm align-middle mb-0" id="sos-day-list"
+                   data-default-target="{{ default_target }}"
+                   data-default-has-member="{{ default_number_label ? '1' : '0' }}">
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col">Personne de garde</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for day in mobile_days %}
+                        {% if day.target_label %}
+                            {% set dot = 'text-success' %}
+                        {% elseif default_number_label %}
+                            {% set dot = 'text-body-secondary' %}
+                        {% else %}
+                            {% set dot = 'text-danger' %}
+                        {% endif %}
+                        <tr class="sos-day-row{{ day.is_today ? ' table-warning' : '' }}"
                             id="sos-day-{{ day.date }}"
                             data-date="{{ day.date }}"
                             data-date-label="{{ day.date_label }}"
-                            data-activity="{{ day.activity|join(' · ') }}">
-                        <span class="d-flex justify-content-between align-items-start gap-2 text-start">
-                            <span>
-                                <span class="d-block fw-semibold">{{ day.day_name }} {{ day.day_number }}</span>
-                                <span class="d-block small{{ day.target_label ? '' : ' text-body-secondary' }}" data-day-target>
-                                    {% if day.target_label %}{{ day.target_label }}{% else %}Par défaut — {{ default_number_label|default('aucun membre') }}{% endif %}
-                                </span>
-                                {% if day.activity|length > 0 %}
-                                    <span class="d-block small text-warning-emphasis">{{ day.activity|join(' · ') }}</span>
-                                {% endif %}
-                            </span>
-                            <span class="text-nowrap">
-                                <i class="bi bi-people{{ day.oncall_count > 1 ? '' : ' d-none' }}"
-                                   data-day-multiple
-                                   title="Plusieurs personnes sont de garde ce jour — seule la première de la liste reçoit les appels."
-                                   aria-hidden="true"></i>
-                                <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
-                            </span>
-                        </span>
-                    </button>
-                {% endfor %}
-            </div>
+                            data-activity="{{ day.activity|json_encode }}">
+                            <th scope="row" class="text-nowrap fw-semibold">
+                                {% if day.is_today %}<span class="d-block small">Aujourd'hui</span>{% endif %}
+                                {{ day.day_name }} {{ day.day_number }}
+                            </th>
+                            <td>
+                                <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none w-100 d-flex align-items-center gap-2"
+                                        aria-label="Modifier les gardes du {{ day.date_label }}">
+                                    <i class="bi bi-circle-fill small {{ dot }}" data-day-dot aria-hidden="true"></i>
+                                    <span class="flex-grow-1{{ day.target_label ? '' : ' text-body-secondary' }}" data-day-target>{{ day.target_label ?: default_target }}</span>
+                                    <i class="bi bi-people{{ day.oncall_count > 1 ? '' : ' d-none' }}"
+                                       data-day-multiple
+                                       title="Plusieurs personnes sont de garde ce jour — seule la première de la liste reçoit les appels."
+                                       aria-hidden="true"></i>
+                                    <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         {% endif %}
     </div>
 
@@ -197,7 +238,13 @@
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
         </div>
         <div class="offcanvas-body">
-            <p class="small text-warning-emphasis d-none" id="sos-day-sheet-activity"></p>
+            {# The sections' events that day — the context a chief needs
+               while choosing who is on call (issue #750). Filled by
+               sos-admin.js from the tapped row; hidden when there are none. #}
+            <div class="mb-3 d-none" id="sos-day-sheet-activity">
+                <h3 class="h6 mb-1">Événements ce jour-là</h3>
+                <ul class="small mb-0" id="sos-day-sheet-activity-list"></ul>
+            </div>
             {% if staff_options is empty %}
                 {% include 'partials/empty_state.html.twig' with {
                     message: "Aucun membre du Staff d'U n'a de numéro de mobile enregistré.",
@@ -264,20 +311,13 @@
     </div>
 
     {# ==================================================================
-       SETTINGS — collapsed, at the bottom. Rarely touched, and each
-       control still saves exactly as it did (design.md §7.13).
+       SETTINGS — at the bottom, in plain sight (issue #750: no accordion,
+       a click to reach three controls was one too many). Each control
+       still saves exactly as it did (design.md §7.13).
        ================================================================== #}
-    <div class="accordion mt-4 mb-4" id="sos-settings-accordion">
-        <div class="accordion-item">
-            <h2 class="accordion-header">
-                <button class="accordion-button collapsed" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#sos-settings-body"
-                        aria-expanded="false" aria-controls="sos-settings-body">
-                    <i class="bi bi-sliders me-2" aria-hidden="true"></i> Réglages
-                </button>
-            </h2>
-            <div id="sos-settings-body" class="accordion-collapse collapse" data-bs-parent="#sos-settings-accordion">
-                <div class="accordion-body">
+    <section class="mt-4 mb-4" id="sos-settings" aria-labelledby="sos-settings-title">
+        <h2 class="h5 mb-3" id="sos-settings-title">Réglages</h2>
+                <div>
                     <p class="text-body-secondary small">L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer », sauf pour le numéro par défaut.</p>
                     <div class="row g-3">
                         <div class="col-12 col-md-6">
@@ -346,23 +386,30 @@
                                 type: 'time', value: transition_hour, size: 'sm', wrapper_class: '',
                             } only %}
                         </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label small d-block" for="email-notifications-toggle">Notifications de garde</label>
+                        <div class="col-12 col-md-3">
+                            {# The switch and its label inside ONE .form-check:
+                               a label outside it left the switch drawn over the
+                               start of the sentence below (issue #750). #}
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="email-notifications-toggle" {{ email_notifications_enabled ? 'checked' : '' }}>
+                                <input class="form-check-input" type="checkbox" role="switch" id="email-notifications-toggle"
+                                       aria-checked="{{ email_notifications_enabled ? 'true' : 'false' }}"
+                                       aria-describedby="email-notifications-help"
+                                       {{ email_notifications_enabled ? 'checked' : '' }}>
+                                <label class="form-check-label small" for="email-notifications-toggle">Notifications de garde</label>
                             </div>
-                            <p class="text-body-secondary small mt-1 mb-0">
-                                Interrupteur global. Chacun choisit ensuite ses canaux dans ses préférences de notifications.
+                            <p class="text-body-secondary small mt-1 mb-0" id="email-notifications-help">
+                                Prévient la personne vers qui le numéro SOS est redirigé quand sa garde commence, et celle
+                                dont la garde se termine. Chacun choisit ses canaux dans ses préférences de notifications.
                             </p>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
+    </section>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if provider_configured %}
 {# Server data as a JSON ISLAND, read by sos-admin.js through
    ScoutMagicApi.pageData(). The payload is dates, member ids and duty
    states only — never a phone number, and never a member's name either
@@ -380,4 +427,5 @@
 }|json_encode(json_flags)|raw }}
 </script>
 <script src="{{ asset('/assets/js/sos-admin.js') }}" defer></script>
+{% endif %}
 {% endblock %}
