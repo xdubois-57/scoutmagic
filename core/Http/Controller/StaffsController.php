@@ -27,6 +27,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
+use Core\Member\Repository\MemberSectionTotemRepository;
 use Twig\Environment;
 
 class StaffsController extends AbstractController
@@ -41,7 +42,8 @@ class StaffsController extends AbstractController
         private UnitStaffSectionService $unitStaffSectionService,
         private SectionDocumentService $sectionDocumentService,
         private SettingService $settingService,
-        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
+        private MemberSectionTotemRepository $sectionTotems
     ) {
     }
 
@@ -227,6 +229,62 @@ class StaffsController extends AbstractController
     }
 
     /**
+     * POST /chefs/staffs/totem-de-section — the totem a staff member carries
+     * in the section shown, this year (« Akela », issue #722).
+     *
+     * Same people as the badges: the route is `chief`, like
+     * /chefs/staffs/badge-toggle, and a chief sees every section on this
+     * page. What is checked here is that the pair makes sense — the member
+     * really holds a function in that section — so a hand-made request
+     * cannot give anybody a totem in a section they are not in. A blank
+     * totem removes it.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSectionTotem(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $memberYearId = (int) ($data['member_year_id'] ?? 0);
+        $sectionId = (int) ($data['section_id'] ?? 0);
+        $totem = trim((string) ($data['totem'] ?? ''));
+        if ($memberYearId <= 0 || $sectionId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (mb_strlen($totem) > 100) {
+            return $this->json(['success' => false, 'error' => 'Ce totem de section est trop long.'], 422);
+        }
+
+        $section = $this->sectionService->getSection($sectionId);
+        if ($section === null || !$this->sectionService->isMemberYearInSection($memberYearId, (string) $section['desk_code'])) {
+            return $this->json(
+                ['success' => false, 'error' => "Ce membre n'est pas dans le staff de cette section."],
+                422
+            );
+        }
+
+        $this->sectionTotems->set($memberYearId, $sectionId, $totem, AuthSession::getUserAccountId());
+
+        // What changed and for whom, never the totem itself: it is a name.
+        $this->journalService->log(
+            'core',
+            $totem === '' ? 'section_totem_removed' : 'section_totem_set',
+            'info',
+            $totem === '' ? 'Totem de section retiré' : 'Totem de section enregistré',
+            ['member_year_id' => $memberYearId, 'section_id' => $sectionId],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
      * Filter sections based on user role.
      * Intendants see only sections they are linked to.
      * Chiefs/admins see all sections.
@@ -299,7 +357,8 @@ class StaffsController extends AbstractController
                 addresses: [],
                 functions: $member->functions,
                 scoutYearLabel: $member->scoutYearLabel,
-                badges: $member->badges
+                badges: $member->badges,
+                sectionTotems: $member->sectionTotems
             );
         }
         return $stripped;

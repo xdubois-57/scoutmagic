@@ -101,14 +101,18 @@ class MemberNameFilterExtension extends AbstractExtension
         return (string) $member;
     }
 
-    public static function displayNameFull(mixed $member): string
+    /**
+     * `$sectionId`: the section the page is about, when it knows — so a
+     * leader is « Guépard – Akela » on their own section's page (#722).
+     */
+    public static function displayNameFull(mixed $member, mixed $sectionId = null): string
     {
         // The rule lives on the model, so a page that assembles its
         // labels in PHP says the same thing as one that assembles them in
         // a template — which is how the re-registration form came to show
         // a bare totem.
         if ($member instanceof MemberProfile) {
-            return $member->getDisplayNameFull();
+            return $member->getDisplayNameFull(is_numeric($sectionId) ? (int) $sectionId : null);
         }
 
         $full = self::fullName($member);

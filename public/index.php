@@ -2722,7 +2722,8 @@ $sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo, $encry
 $sectionRosterService = new \Core\Member\SectionRosterService(
     $sectionRosterRepository,
     $memberEmailRepository,
-    $memberMovementClassifier
+    $memberMovementClassifier,
+    new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
 );
 $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
@@ -5790,6 +5791,9 @@ $router->addRoute(
     ['label' => 'Staffs et badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+// The totem a staff member carries in one section this year (issue #722):
+// the same people as the badges, so the same role.
+$router->addRoute('POST', '/chefs/staffs/totem-de-section', StaffsController::class, 'saveSectionTotem', 'chief');
 $router->addRoute(
     'GET',
     '/chefs/membres',
@@ -6776,7 +6780,8 @@ $frontController->registerController(
         $unitStaffSectionService,
         $sectionDocumentService,
         $settingService,
-        $sectionStaffAuthorizationService
+        $sectionStaffAuthorizationService,
+        new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
     )
 );
 $frontController->registerController(
