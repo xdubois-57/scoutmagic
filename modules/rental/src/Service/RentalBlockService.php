@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Modules\Rental\Availability\BlockDayPlanner;
 use Modules\Rental\Repository\RentalBlock;
 use Modules\Rental\Repository\RentalBlockRepository;
 use Modules\Rental\Support;
@@ -27,10 +28,17 @@ use Modules\Rental\Support;
  */
 class RentalBlockService
 {
+    /** How many days one gesture may carry: a month, with room to spare. */
+    public const MAX_DAYS_PER_GESTURE = 62;
+
+    private BlockDayPlanner $planner;
+
     public function __construct(
         private RentalBlockRepository $blockRepository,
-        private JournalService $journal
+        private JournalService $journal,
+        ?BlockDayPlanner $planner = null
     ) {
+        $this->planner = $planner ?? new BlockDayPlanner();
     }
 
     /**
@@ -40,7 +48,6 @@ class RentalBlockService
         int $assetId,
         string $startDate,
         string $endDate,
-        int $units,
         ?string $reason,
         ?int $createdByMemberId
     ): int {
@@ -52,14 +59,11 @@ class RentalBlockService
             throw new RentalException('La date de fin ne peut pas précéder la date de début.');
         }
 
-        $reason = $reason !== null ? trim($reason) : null;
-
         $id = $this->blockRepository->create(
             $assetId,
             $startDate,
             $endDate,
-            max(1, $units),
-            $reason !== '' ? $reason : null,
+            self::cleanReason($reason),
             $createdByMemberId
         );
 
@@ -75,6 +79,86 @@ class RentalBlockService
         );
 
         return $id;
+    }
+
+    /**
+     * Block or release days from the managed calendar (#708, IT-07), and
+     * turn them back into periods.
+     *
+     * **Past days are refused, not skipped.** The grid never offers them, so
+     * one arriving here is a stale page or a hand-made request — and quietly
+     * applying the rest would tell the manager « 5 jours bloqués » about a
+     * gesture that was not what they did.
+     *
+     * Overlapping a booking is accepted, as a period always was (§6.18): the
+     * two coexist and the calendar shows both.
+     *
+     * @param string[] $days `Y-m-d`
+     * @param array<string, string|null> $reasons Each day's reason — an undo's; a fresh gesture gives none.
+     * @return array<string, string|null> What changed: each day, with the reason it carries now (blocked) or carried
+     *     before (released) — exactly what an undo sends back.
+     * @throws RentalException
+     */
+    public function applyDays(
+        int $assetId,
+        array $days,
+        string $mode,
+        array $reasons,
+        \DateTimeImmutable $today,
+        ?int $actorMemberId
+    ): array {
+        if (!in_array($mode, [BlockDayPlanner::MODE_BLOCK, BlockDayPlanner::MODE_RELEASE], true)) {
+            throw new RentalException('Action inconnue sur le calendrier.');
+        }
+
+        if ($days === [] || count($days) > self::MAX_DAYS_PER_GESTURE) {
+            throw new RentalException('Aucun jour à traiter.');
+        }
+
+        $todayKey = $today->format('Y-m-d');
+        foreach ($days as $day) {
+            if (!Support::isDate($day)) {
+                throw new RentalException('Une des dates n\'est pas valide.');
+            }
+            if ($day < $todayKey) {
+                throw new RentalException('Un jour passé ne peut plus être bloqué ni libéré.');
+            }
+        }
+
+        $plan = $this->planner->plan($this->blockRepository->findAllForAsset($assetId), $days, $mode, $reasons);
+        if ($plan->isEmpty()) {
+            return [];
+        }
+
+        $this->blockRepository->replace($assetId, $plan->replacedBlockIds, $plan->periods, $actorMemberId);
+
+        $changed = array_keys($plan->changed);
+        $this->journal->log(
+            'rental',
+            $mode === BlockDayPlanner::MODE_BLOCK ? 'rental_block_days_blocked' : 'rental_block_days_released',
+            'info',
+            ($mode === BlockDayPlanner::MODE_BLOCK ? 'Jours bloqués' : 'Jours libérés')
+                . ' du ' . $changed[0] . ' au ' . $changed[count($changed) - 1],
+            ['asset_id' => $assetId, 'days' => count($changed)]
+        );
+
+        return $plan->changed;
+    }
+
+    /**
+     * Give or change a period's reason, from the list under the calendar:
+     * a period blocked by a gesture is created without one.
+     *
+     * @throws RentalException
+     */
+    public function setReason(int $assetId, int $blockId, ?string $reason): void
+    {
+        $block = $this->blockRepository->findById($blockId);
+        if ($block === null || $block->assetId !== $assetId) {
+            throw new RentalException("Ce blocage n'existe pas.");
+        }
+
+        $this->blockRepository->updateReason($blockId, self::cleanReason($reason));
     }
 
     /**
@@ -101,10 +185,28 @@ class RentalBlockService
     }
 
     /**
+     * The blocks overlapping a window — what the managed calendar lays over
+     * its days.
+     *
+     * @return RentalBlock[]
+     */
+    public function between(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return $this->blockRepository->findBetween($assetId, $from->format('Y-m-d'), $to->format('Y-m-d'));
+    }
+
+    /**
      * @return RentalBlock[]
      */
     public function upcomingFor(int $assetId, \DateTimeImmutable $from): array
     {
         return $this->blockRepository->findUpcoming($assetId, $from->format('Y-m-d'));
+    }
+
+    private static function cleanReason(?string $reason): ?string
+    {
+        $reason = $reason !== null ? trim($reason) : null;
+
+        return $reason !== null && $reason !== '' ? mb_substr($reason, 0, 255) : null;
     }
 }

@@ -203,7 +203,6 @@ class RentalTestHelper
             asset_id INTEGER NOT NULL,
             start_date TEXT NOT NULL,
             end_date TEXT NOT NULL,
-            units INTEGER NOT NULL DEFAULT 1,
             reason TEXT,
             created_by_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
