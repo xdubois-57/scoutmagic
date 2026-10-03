@@ -32,6 +32,7 @@ final class DocumentsTestHelper
             visibility TEXT NOT NULL DEFAULT 'public',
             file_id INTEGER NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
+            expires_on TEXT NULL,
             created_by INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_by INTEGER NULL,
