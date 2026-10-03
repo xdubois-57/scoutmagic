@@ -387,7 +387,9 @@
                 return;
             }
             checkbox.checked = !checkbox.checked;
-            window.ScoutMagicNav?.syncSwitchAriaChecked?.(checkbox);
+            if (checkbox.getAttribute('role') === 'switch') {
+                window.ScoutMagicNav?.syncSwitchAriaChecked?.(checkbox);
+            }
             toastFailure(res);
         });
     });

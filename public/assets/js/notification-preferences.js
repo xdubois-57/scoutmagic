@@ -85,6 +85,15 @@
     // put back a baseline older than what the server already confirmed.
     var saveSequence = 0;
     var savedSequence = 0;
+    /** The newest save whose own answer has come back, accepted or not. */
+    var settledSequence = 0;
+
+    function paintSaved() {
+        startInput.value = saved.start;
+        endInput.value = saved.end;
+        discretionToggle.checked = saved.discretion;
+        syncAriaChecked(discretionToggle);
+    }
 
     function saveAccountSettings() {
         var sent = {
@@ -93,9 +102,14 @@
             discretion: discretionToggle.checked
         };
         // Quiet hours are a pair: half of one is not a setting yet, and
-        // the server would refuse it. Wait for the other half.
+        // the server would refuse it. The recorded pair goes instead, so a
+        // discretion flip meanwhile still reaches the server.
         if ((sent.start === '') !== (sent.end === '')) {
-            return;
+            if (sent.discretion === saved.discretion) {
+                return;
+            }
+            sent.start = saved.start;
+            sent.end = saved.end;
         }
         var sequence = ++saveSequence;
         void window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
@@ -108,18 +122,23 @@
                 if (recorded && sequence > savedSequence) {
                     saved = sent;
                     savedSequence = sequence;
+                    // The newest save was already refused and put the
+                    // controls back on what was confirmed then. This older
+                    // one is confirmed now: show it, or the screen lags.
+                    if (sequence !== saveSequence && settledSequence === saveSequence) {
+                        paintSaved();
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    }
                 }
                 if (sequence !== saveSequence) {
                     return;
                 }
+                settledSequence = sequence;
                 if (recorded) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }
-                startInput.value = saved.start;
-                endInput.value = saved.end;
-                discretionToggle.checked = saved.discretion;
-                syncAriaChecked(discretionToggle);
+                paintSaved();
                 toastFailure(res);
             });
     }

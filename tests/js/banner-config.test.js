@@ -126,6 +126,20 @@ describe('banner-config.js', () => {
             expect(select.value).toBe('member');
         });
 
+        it('holds the select for the round trip, so two picks never cross', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+            const select = document.querySelector('.banner-role-min-select');
+            select.value = '';
+            select.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(select.disabled).toBe(true);
+            answer(await jsonResponse({ success: true }));
+            await vi.waitFor(() => expect(select.disabled).toBe(false));
+        });
+
         it('shows the server\'s own message on a refusal answered with HTTP 200', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Rôle inconnu.' }));
             await boot();

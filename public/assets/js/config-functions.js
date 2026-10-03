@@ -96,6 +96,30 @@
     }
 
     /**
+     * A text field saved on blur — only when its value differs from the
+     * one the server last accepted, so tabbing through untouched fields
+     * sends nothing and says nothing.
+     *
+     * @param {HTMLInputElement} input
+     * @param {(value: string) => Promise<any>} send resolves to the parsed
+     *     body on success, null otherwise (what save() returns)
+     */
+    function saveOnChangedBlur(input, send) {
+        var saved = input.value;
+        input.addEventListener('blur', function () {
+            var value = input.value;
+            if (value === saved) {
+                return;
+            }
+            void send(value).then(function (data) {
+                if (data) {
+                    saved = value;
+                }
+            });
+        });
+    }
+
+    /**
      * A switch the admin just flipped: a refused save flips it back.
      *
      * @param {HTMLInputElement} input
@@ -165,8 +189,8 @@
         var colorReset = /** @type {HTMLButtonElement|null} */ (row.querySelector('.section-color-reset'));
 
         if (nameInput) {
-            nameInput.addEventListener('blur', function () {
-                save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: nameInput.value });
+            saveOnChangedBlur(nameInput, function (value) {
+                return save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: value });
             });
         }
 
@@ -175,11 +199,11 @@
             var emailWarningText = /** @type {HTMLElement|null} */ (
                 row.querySelector('.section-email-warning-text')
             );
-            emailInput.addEventListener('blur', function () {
-                save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: emailInput.value })
+            saveOnChangedBlur(emailInput, function (value) {
+                return save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: value })
                     .then(function (data) {
                         if (!data || !emailWarning || !emailWarningText) {
-                            return;
+                            return data;
                         }
                         // The sentence comes from the server, which owns the
                         // rule: this only shows or hides what it answered.
@@ -189,6 +213,7 @@
                         var warning = data.alignment_warning || '';
                         emailWarningText.textContent = warning;
                         emailWarning.classList.toggle('d-none', warning === '');
+                        return data;
                     });
             });
         }
@@ -238,8 +263,8 @@
         if (!urlInput) {
             return;
         }
-        urlInput.addEventListener('blur', function () {
-            save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: urlInput.value });
+        saveOnChangedBlur(urlInput, function (value) {
+            return save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: value });
         });
     });
 })();

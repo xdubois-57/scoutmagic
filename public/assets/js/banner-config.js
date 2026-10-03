@@ -52,17 +52,21 @@
         var saved = select.value;
         select.addEventListener('change', function () {
             var chosen = select.value;
-            api.postJson('/config/banner/role-min', {
-                id: Number.parseInt(select.dataset.id || '', 10),
-                role_min: chosen
-            }).then(function (res) {
-                if (res.data?.success) {
-                    saved = chosen;
-                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
-                    return;
-                }
-                select.value = saved;
-                toastError(res, 'Erreur.');
+            // One pick at a time: a second answer could otherwise land on
+            // a select the first one just put back.
+            void api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (select)), function () {
+                return api.postJson('/config/banner/role-min', {
+                    id: Number.parseInt(select.dataset.id || '', 10),
+                    role_min: chosen
+                }).then(function (res) {
+                    if (res.data?.success) {
+                        saved = chosen;
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                        return;
+                    }
+                    select.value = saved;
+                    toastError(res, 'Erreur.');
+                });
             });
         });
     });

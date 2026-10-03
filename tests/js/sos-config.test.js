@@ -480,6 +480,8 @@ describe('sos-config.js', () => {
 
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Section inconnue.', { variant: 'error' });
             expect(checkbox.checked).toBe(false);
+            // A plain checkbox, not a switch: no aria-checked to go stale.
+            expect(checkbox.hasAttribute('aria-checked')).toBe(false);
         });
     });
 });

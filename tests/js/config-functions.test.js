@@ -82,7 +82,9 @@ describe('config-functions.js', () => {
         it('wires the sections even when the functions list is empty (no import yet)', async () => {
             document.body.innerHTML = SECTION_ROW;
             await boot();
-            document.querySelector('.section-name-input').dispatchEvent(new Event('blur'));
+            const name = document.querySelector('.section-name-input');
+            name.value = 'Meute renommée';
+            name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().url).toBe('/config/functions/section-name');
         });
@@ -329,6 +331,7 @@ describe('config-functions.js', () => {
         it('confirms a saved name with a toast, and keeps a refused one on screen', async () => {
             await boot();
             const name = document.querySelector('.section-name-input');
+            name.value = 'Meute renommée';
             name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
 
@@ -337,6 +340,20 @@ describe('config-functions.js', () => {
             name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Nom invalide.', { variant: 'error' }));
             expect(name.value).toBe('Nouveau nom');
+        });
+
+        it('sends nothing and says nothing when a text field is left as it was', async () => {
+            await boot();
+            const name = document.querySelector('.section-name-input');
+            name.dispatchEvent(new Event('blur'));
+            name.value = 'Meute renommée';
+            name.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            name.dispatchEvent(new Event('blur'));
+            document.querySelector('.section-email-input')?.dispatchEvent(new Event('blur'));
+            await Promise.resolve();
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1);
         });
 
         it('adopts the effective colour the server answers with and enables the reset button', async () => {

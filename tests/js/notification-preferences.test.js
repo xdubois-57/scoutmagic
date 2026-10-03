@@ -187,6 +187,55 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         expect(end.value).toBe('06:00');
     });
 
+    it('still sends a discretion flip while the quiet range is half-filled, with the recorded pair', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+        const discretion = document.getElementById('notification-discretion');
+
+        start.value = '';
+        start.dispatchEvent(new Event('change'));
+        discretion.checked = true;
+        discretion.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+        const body = JSON.parse(fetch.mock.calls[0][1].body);
+        expect(body.quiet_hours_start).toBe('21:00');
+        expect(body.quiet_hours_end).toBe('07:00');
+        expect(body.discretion).toBe(true);
+    });
+
+    it('shows an older accepted save that answers after a newer refusal put the controls back', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox">';
+        const pending = [];
+        global.fetch = vi.fn(() => new Promise((resolve) => pending.push(resolve)));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+        const discretion = document.getElementById('notification-discretion');
+
+        start.value = '22:00';
+        start.dispatchEvent(new Event('change'));
+        discretion.checked = true;
+        discretion.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+        pending[1]({ json: () => Promise.resolve({ success: false }) });
+        await vi.waitFor(() => expect(start.value).toBe('21:00'));
+        pending[0]({ json: () => Promise.resolve({ success: true }) });
+
+        await vi.waitFor(() => expect(start.value).toBe('22:00'));
+        expect(discretion.checked).toBe(false);
+        const toasts = [...document.querySelectorAll('.toast-body')].map((el) => el.textContent);
+        expect(toasts).toContain('Enregistré.');
+    });
+
     it('says so with an error toast when the quiet-hours save fails', async () => {
         document.body.innerHTML +=
             '<input id="quiet-hours-start" value="21:00">' +
