@@ -165,7 +165,9 @@ class StaffsController extends AbstractController
             'sections' => $sections,
             'current_section' => $currentSection,
             'section_text_key' => $sectionTextKey,
-            'section_text' => $sectionTextKey !== null ? (string) $this->editableContentService->get($sectionTextKey, '') : '',
+            'section_text' => $sectionTextKey !== null
+                ? (string) $this->editableContentService->get($sectionTextKey, '')
+                : '',
             'staff' => $staff,
             'is_chief' => $isChief,
             'can_edit_section' => $canEditSection,
