@@ -8,7 +8,6 @@ use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\SettlementLine;
@@ -297,35 +296,32 @@ class RentalStayRepositoryTest extends TestCase
         );
     }
 
-    public function testAnUncheckedItemReadsAsNotCheckedRatherThanAsBlank(): void
+    public function testAnUncheckedItemHasNoValueRatherThanAPrefilledOne(): void
     {
+        // The value is the check (#708, IT-17): a pre-filled value would read
+        // as checked without anybody having looked.
         $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
 
         $line = $this->repository->findBookingInventory($this->bookingId)[0];
-        $this->assertSame(InventoryState::NOT_CHECKED, $line['arrival_state']);
-        $this->assertSame(InventoryState::NOT_CHECKED, $line['departure_state']);
+        $this->assertNull($line['arrival_value']);
+        $this->assertNull($line['departure_value']);
     }
 
-    public function testEachPhaseKeepsItsOwnStateAndNote(): void
+    public function testEachPhaseKeepsItsOwnValueAndNote(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
-        $this->repository->setInventoryState($inventoryId, ReadingPhase::ARRIVAL, InventoryState::OK, null);
-        $this->repository->setInventoryState(
-            $inventoryId,
-            ReadingPhase::DEPARTURE,
-            InventoryState::MISSING,
-            'Six assiettes manquantes'
-        );
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null);
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::DEPARTURE, '34', 'Six assiettes cassées');
 
         $line = $this->repository->findBookingInventory($this->bookingId)[0];
-        $this->assertSame(InventoryState::OK, $line['arrival_state']);
+        $this->assertSame('40', $line['arrival_value']);
         $this->assertNull($line['arrival_note']);
-        $this->assertSame(InventoryState::MISSING, $line['departure_state']);
-        $this->assertSame('Six assiettes manquantes', $line['departure_note']);
+        $this->assertSame('34', $line['departure_value']);
+        $this->assertSame('Six assiettes cassées', $line['departure_note']);
     }
 
     public function testABlankInventoryNoteIsStoredAsAbsent(): void
@@ -334,9 +330,26 @@ class RentalStayRepositoryTest extends TestCase
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
-        $this->repository->setInventoryState($inventoryId, ReadingPhase::ARRIVAL, InventoryState::OK, '  ');
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '1', '  ');
 
         $this->assertNull($this->repository->findBookingInventory($this->bookingId)[0]['arrival_note']);
+    }
+
+    public function testAPhaseIsValidatedOnceAndCarriesItsDocument(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-01 10:00:00');
+
+        $this->assertTrue($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+        $this->assertFalse($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+        $this->repository->setInventoryValidationDocument($this->bookingId, ReadingPhase::ARRIVAL, 7);
+
+        $validations = $this->repository->findInventoryValidations($this->bookingId);
+        $this->assertSame(['arrival'], array_keys($validations));
+        $this->assertSame(7, $validations['arrival']['document_id']);
+        $this->assertSame('2027-07-01 10:00', $validations['arrival']['validated_at']->format('Y-m-d H:i'));
+
+        $this->repository->forgetInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL);
+        $this->assertSame([], $this->repository->findInventoryValidations($this->bookingId));
     }
 
     /**

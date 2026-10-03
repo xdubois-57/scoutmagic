@@ -1,0 +1,163 @@
+{% extends '@rental/management/_booking_frame.html.twig' %}
+{#
+  « État des lieux » (Booking\BookingPage::INVENTORY, #708 IT-17): one
+  inventory at a time — the arrival until it is validated, then the
+  departure, then a read-only summary with both PDFs — with the meters read
+  for that phase and the incidents.
+
+  **The value is the check.** Nothing is pre-filled: an empty field is
+  « nobody has looked yet », and every line would otherwise read as checked
+  without anybody having looked. « = » takes the reference in one gesture
+  when all is as expected. A yes/no item is a list, never a box: an
+  unticked box cannot tell « non » from « pas encore regardé ».
+
+  Each line is its own form and saves as it is typed
+  (`rental-inventory.js`), without reloading — `data-async="off"` keeps
+  rental-booking.js out of it, so the page does not re-render under the
+  field being typed in. Without JavaScript, each line's « Enregistrer »
+  posts it.
+
+  **Not cached for offline use**, like every page of this module: these are
+  write pages, and a cached form filled in a cellar with no signal would be
+  lost on the way home.
+
+  Requires the context of RentalManagementController::inventoryContext().
+#}
+{% block booking_content %}
+    <div id="{{ boxes.inventory.anchor }}">
+        <div data-booking-panel="inventory">
+            {% if inventory_phase %}
+                {% set phase = inventory_phase %}
+                {% set phase_name = phase.value == 'arrival' ? "d'entrée" : 'de sortie' %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-2">État des lieux {{ phase_name }}</h2>
+                        <p class="text-body-secondary small">
+                            Saisissez ce que vous constatez. Un champ vide veut dire « pas encore regardé ».
+                            Le bouton « = » reprend la référence quand tout est conforme. Chaque ligne
+                            s'enregistre seule.
+                        </p>
+                        {% if phase.value == 'departure' and arrival_by_hand and inventory_validations.arrival is not defined %}
+                            <p class="small alert alert-secondary">
+                                L'état des lieux d'entrée a été coché à la main : il n'y a pas de référence
+                                d'entrée à reprendre.
+                            </p>
+                        {% endif %}
+
+                        {% if inventory_lines is not empty %}
+                            <div class="list-group list-group-flush mb-3" data-inventory-lines>
+                                {% for line in inventory_lines %}
+                                    {% set field_id = 'inventory-' ~ line.id ~ '-' ~ phase.value %}
+                                    <form method="post" action="/mes-locations/etat-des-lieux/ligne"
+                                          class="list-group-item px-0 row g-2 align-items-end mx-0"
+                                          data-async="off" data-inventory-line>
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                        <input type="hidden" name="booking_page" value="inventory">
+                                        <input type="hidden" name="inventory_id" value="{{ line.id }}">
+                                        <input type="hidden" name="phase" value="{{ phase.value }}">
+                                        <div class="col-12 col-md-4">
+                                            <label class="form-label mb-0 fw-semibold" for="{{ field_id }}">{{ line.label }}</label>
+                                            <span class="d-block small text-body-secondary">
+                                                {{ phase.value == 'arrival' ? 'Attendu' : "À l'entrée" }} :
+                                                {{ line.kind.display(line.reference) }}
+                                            </span>
+                                        </div>
+                                        <div class="col-8 col-md-3 d-flex gap-1">
+                                            {% if line.kind.value == 'yes_no' %}
+                                                <select class="form-select form-select-sm" id="{{ field_id }}" name="value"
+                                                        data-inventory-value>
+                                                    <option value="" {{ line.value is null ? 'selected' : '' }}>—</option>
+                                                    <option value="yes" {{ line.value == 'yes' ? 'selected' : '' }}>Oui</option>
+                                                    <option value="no" {{ line.value == 'no' ? 'selected' : '' }}>Non</option>
+                                                </select>
+                                            {% else %}
+                                                <input type="number" min="0" step="1" inputmode="numeric"
+                                                       class="form-control form-control-sm" id="{{ field_id }}" name="value"
+                                                       value="{{ line.value }}" data-inventory-value>
+                                            {% endif %}
+                                            {% if line.reference is not null %}
+                                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                        data-inventory-copy="{{ line.reference }}"
+                                                        aria-label="Reprendre la référence pour {{ line.label }}"
+                                                        title="Reprendre la référence pour {{ line.label }}">=</button>
+                                            {% endif %}
+                                        </div>
+                                        <div class="col-12 col-md-4">
+                                            <label class="visually-hidden" for="{{ field_id }}-note">Commentaire — {{ line.label }}</label>
+                                            <input type="text" class="form-control form-control-sm" id="{{ field_id }}-note"
+                                                   name="note" value="{{ line.note }}" placeholder="Commentaire" maxlength="255">
+                                        </div>
+                                        <div class="col-4 col-md-1 text-end">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary" data-inventory-save>
+                                                Enregistrer
+                                            </button>
+                                            <output class="small d-block" data-inventory-status aria-live="polite"></output>
+                                        </div>
+                                    </form>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        {% include '@rental/management/_inventory_meters.html.twig' with {
+                            consumptions: consumptions, phase: phase, asset: asset, booking: booking,
+                        } only %}
+
+                        {% if missing_readings is not empty %}
+                            <output class="alert alert-warning small d-block" data-missing-readings>
+                                Il manque le relevé de : {{ missing_readings|join(', ') }}. L'état des lieux ne se
+                                valide qu'avec tous ses relevés : validé, il ne se complète plus.
+                            </output>
+                        {% endif %}
+
+                        {% set base_question = 'Valider et envoyer au locataire ? Un PDF sera ajouté aux documents de la location et envoyé à ' ~ booking.renterEmail ~ ". L'état des lieux ne pourra plus être modifié." %}
+                        <form method="post" action="/mes-locations/etat-des-lieux/valider" class="mt-3"
+                              data-inventory-validate
+                              data-confirm-base="{{ base_question }}"
+                              data-confirm="{{ base_question }}{% if unchecked_count > 0 %} {{ unchecked_count }} élément{{ unchecked_count > 1 ? 's' : '' }} sans valeur : le PDF {{ unchecked_count > 1 ? 'les' : 'le' }} marquera « non vérifié ».{% endif %}"
+                              data-confirm-label="Valider et envoyer">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                            <input type="hidden" name="booking_page" value="inventory">
+                            <input type="hidden" name="phase" value="{{ phase.value }}">
+                            <button type="submit" class="btn btn-primary" {{ missing_readings is not empty ? 'disabled' : '' }}>
+                                Valider l'état des lieux {{ phase_name }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if inventory_validations is not empty %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-2">{{ inventory_phase ? 'Déjà validé' : 'Les deux états des lieux sont validés' }}</h2>
+                        <ul class="list-unstyled mb-0">
+                            {% for validated_phase, validation in inventory_validations %}
+                                {% set document = inventory_documents[validated_phase]|default(null) %}
+                                <li class="py-1">
+                                    État des lieux {{ validated_phase == 'arrival' ? "d'entrée" : 'de sortie' }},
+                                    validé le {{ validation.validated_at|datetime_fr }}
+                                    {% if document %}
+                                        — <a href="{{ file_url(document.fileId) }}" target="_blank" rel="noopener">ouvrir le PDF</a>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+
+            {% include '@rental/management/_incidents.html.twig' with {
+                incidents: incidents, incident_decisions: incident_decisions, incidents_open: incidents_open,
+                asset: asset, booking: booking,
+            } only %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block booking_scripts %}
+    <script type="module" src="{{ asset('/assets/js/rental-inventory.js') }}"></script>
+{% endblock %}

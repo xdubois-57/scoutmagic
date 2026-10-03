@@ -15,7 +15,6 @@ use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Reminder\DueReminder;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Reminder\ReminderPlanner;
 use Modules\Rental\Reminder\ReminderSchedule;
@@ -430,27 +429,17 @@ class RentalReminderService
             return ['arrival' => true, 'departure' => true];
         }
 
-        $entries = $this->stayService->inventoryFor($booking->id);
-        if ($entries === []) {
-            // No checklist was snapshotted for this booking — an asset with
-            // an empty inventory template snapshots legitimately into zero
-            // rows (§6.23). There is nothing to record, so nothing to chase.
+        // Nothing to walk on an asset with neither items nor meters, so
+        // nothing to chase — as before (#708, IT-17).
+        if (!$this->stayService->keepsInventory($booking->assetId)) {
             return ['arrival' => true, 'departure' => true];
         }
 
-        // `NOT_CHECKED` is a real state, distinct from `OK`: "nobody looked"
-        // and "somebody looked and it was fine" are different facts (§6.23).
-        // An inventory counts as done once anything at all has been looked
-        // at — chasing a manager who filled in nine items out of ten would
-        // be pedantry, and the tenth is visible on the page.
-        $arrival = false;
-        $departure = false;
-        foreach ($entries as $entry) {
-            $arrival = $arrival || $entry['arrival_state'] !== InventoryState::NOT_CHECKED;
-            $departure = $departure || $entry['departure_state'] !== InventoryState::NOT_CHECKED;
-        }
+        // Done means VALIDATED (#708, IT-17): a line filled in is not an
+        // inventory the renter has been sent.
+        $validations = $this->stayService->inventoryValidations($booking->id);
 
-        return ['arrival' => $arrival, 'departure' => $departure];
+        return ['arrival' => isset($validations['arrival']), 'departure' => isset($validations['departure'])];
     }
 
     /**

@@ -13,8 +13,6 @@ use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
-use Modules\Rental\Stay\InventoryState;
-use Modules\Rental\Stay\MeterConsumption;
 use Modules\Rental\Stay\Settlement;
 
 /**
@@ -92,11 +90,11 @@ final class MilestoneEvidence
     /**
      * @param RentalDocument[]|null $documents null when documents are unavailable
      * @param array<string, mixed> $payment RentalManagementController::paymentStatus()'s shape
-     * @param array<int, array{arrival_state: InventoryState, departure_state: InventoryState}>|null $inventory
-     *   the booking's inventory snapshot; null when the stay module is unavailable
-     * @param MeterConsumption[]|null $consumptions null when the stay module is unavailable
-     * @param bool $assetKeepsInventory whether the asset has an inventory the
-     *   stay page walks line by line — false when it has no template at all
+     * @param array<string, mixed>|null $inventoryValidations the phases validated
+     *   on this booking, keyed 'arrival' / 'departure' (#708, IT-17); null when
+     *   the stay module is unavailable
+     * @param bool $assetKeepsInventory whether the asset's inventories are
+     *   kept on the site — items to check or meters to read
      * @param array<string, array{at: \DateTimeImmutable, by: ?string}> $marks
      *   the lines a manager ticked by hand, keyed by milestone
      * @param ?\DateTimeImmutable $today what a due date is measured against;
@@ -108,8 +106,7 @@ final class MilestoneEvidence
         RentalBooking $booking,
         ?array $documents,
         array $payment,
-        ?array $inventory,
-        ?array $consumptions,
+        ?array $inventoryValidations,
         ?Settlement $settlement,
         bool $assetKeepsInventory = true,
         array $marks = [],
@@ -231,28 +228,33 @@ final class MilestoneEvidence
 
         // The walk-throughs happen whether or not the site keeps an
         // inventory. Where it keeps none — the stay module is off, or the
-        // asset has no inventory template — nothing here can derive them,
-        // so they are the lines a manager ticks by hand (issue #462, D5);
-        // where it keeps one, the stay page's lines decide — and a hand
-        // tick still counts while they do not (#708, IT-14).
-        if ($inventory === null || !$assetKeepsInventory) {
+        // asset has neither items to check nor meters to read — nothing
+        // here can derive them, so they are the lines a manager ticks by
+        // hand (issue #462, D5); where it keeps one, they are done when
+        // they are VALIDATED, not before (#708, IT-17) — and a hand tick
+        // still counts while they are not (IT-14).
+        if ($inventoryValidations === null || !$assetKeepsInventory) {
             foreach ([BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY] as $key) {
                 $offsite[] = $key;
                 $record($key, false);
             }
-        } elseif ($inventory !== []) {
-            $record(BookingMilestones::ARRIVAL_INVENTORY, self::allChecked($inventory, 'arrival_state'));
-            $record(BookingMilestones::DEPARTURE_INVENTORY, self::allChecked($inventory, 'departure_state'));
-        }
-
-        if ($consumptions !== null && $consumptions !== []) {
-            $record(BookingMilestones::METER_READINGS, self::allRead($consumptions));
+        } else {
+            foreach (['arrival' => BookingMilestones::ARRIVAL_INVENTORY, 'departure' => BookingMilestones::DEPARTURE_INVENTORY] as $phase => $key) {
+                $validated = $inventoryValidations[$phase] ?? null;
+                $record(
+                    $key,
+                    $validated !== null,
+                    is_array($validated) && ($validated['validated_at'] ?? null) instanceof \DateTimeImmutable
+                        ? 'validé le ' . $validated['validated_at']->format('d/m/Y')
+                        : null
+                );
+            }
         }
 
         // The settlement line is applicable as soon as the stay module can
-        // produce one — unlike the meters and the inventory, every booking
-        // ends with a reckoning even when there is nothing metered.
-        if ($inventory !== null) {
+        // produce one — unlike the inventory, every booking ends with a
+        // reckoning even when there is nothing metered.
+        if ($inventoryValidations !== null) {
             $record(
                 BookingMilestones::FINAL_SETTLEMENT,
                 $settlement !== null && $settlement->isValidated,
@@ -388,40 +390,6 @@ final class MilestoneEvidence
         }
 
         return null;
-    }
-
-    /**
-     * Whether every line of the snapshot has actually been looked at for
-     * this phase. `NOT_CHECKED` is a real state, never a placeholder
-     * (Stay\InventoryState): an inventory nobody finished must not read as
-     * a finished one, and a line found broken or missing IS a completed
-     * observation.
-     *
-     * @param array<int, array<string, mixed>> $inventory
-     */
-    private static function allChecked(array $inventory, string $column): bool
-    {
-        foreach ($inventory as $line) {
-            if (($line[$column] ?? InventoryState::NOT_CHECKED) === InventoryState::NOT_CHECKED) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @param MeterConsumption[] $consumptions
-     */
-    private static function allRead(array $consumptions): bool
-    {
-        foreach ($consumptions as $consumption) {
-            if ($consumption->arrival === null || $consumption->departure === null) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static function frenchDate(mixed $value): ?string

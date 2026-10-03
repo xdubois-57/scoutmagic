@@ -1004,18 +1004,39 @@ CREATE TABLE IF NOT EXISTS rental_booking_inventory (
     expected_count SMALLINT UNSIGNED NULL,
     sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
-    -- 'not_checked' | 'ok' | 'issue' | 'missing'. `not_checked` is the
-    -- honest default and is distinct from `ok`: "nobody looked" and
-    -- "somebody looked and it was fine" are different facts, and conflating
-    -- them is how a missing set of keys becomes nobody's fault.
-    arrival_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
-    departure_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
+    -- What was found, at arrival and at departure (#708, IT-17): a number
+    -- for a quantity, 'yes' or 'no' for a yes/no item. The value IS the
+    -- check: NULL is "nobody looked", never "fine" — which is why nothing
+    -- is ever pre-filled. A shortage reads in the number, a « non » in the
+    -- answer, a problem in the note beside it.
+    arrival_value VARCHAR(20) NULL,
+    departure_value VARCHAR(20) NULL,
     arrival_note VARCHAR(255) NULL,
     departure_note VARCHAR(255) NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_rental_booking_inventory (booking_id, sort_order),
     CONSTRAINT fk_rental_booking_inventory_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- rental_inventory_validations: an inventory validated, phase by phase
+-- (#708, IT-17). Validating produces the PDF the renter is sent, and from
+-- that moment the phase is frozen — it is what they hold. One row per
+-- phase, which the unique key enforces: two managers pressing « Valider »
+-- at once produce one PDF, not two.
+CREATE TABLE IF NOT EXISTS rental_inventory_validations (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    -- 'arrival' | 'departure'
+    phase VARCHAR(20) NOT NULL,
+    validated_at DATETIME NOT NULL,
+    validated_by_member_id INT UNSIGNED NULL,
+    -- The PDF filed in rental_documents (DocumentType::INVENTORY).
+    document_id INT UNSIGNED NULL,
+    UNIQUE KEY uq_rental_inventory_validations (booking_id, phase),
+    CONSTRAINT fk_rental_inventory_validations_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

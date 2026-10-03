@@ -8,13 +8,15 @@ question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
 paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/modifications
-related: locations-parcours, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
+related: locations-parcours, locations-etat-des-lieux, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
 Une réservation tient en plusieurs pages, reliées par les onglets sous
 son titre : **Tableau de bord**, **Modifications**, **Finances**,
-**Documents** et **Courrier**. La pastille « Courrier » n'apparaît que si une boîte
-e-mail est dédiée aux locations, et une seule.
+**Documents**, **État des lieux** et **Courrier**. La pastille
+« État des lieux » n'apparaît que si le bien a un modèle d'état des
+lieux ou des compteurs ; la pastille « Courrier », que si une boîte e-mail est dédiée
+aux locations, et une seule.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
 d'Ariane en haut de la page : chacune de ses étapes est un lien.

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.38.0",
+  "version": "1.39.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -459,19 +459,28 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/releve",
+      "path": "/mes-locations/etat-des-lieux/ligne",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "recordReading",
+      "action": "saveInventoryLine",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/mes-locations/inventaire",
+      "path": "/mes-locations/etat-des-lieux/valider",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "recordInventory",
+      "action": "validateInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/releve",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "recordReading",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -699,6 +708,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Documents",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/etat-des-lieux",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "État des lieux",
         "parents": [
           "Espace membres"
         ]

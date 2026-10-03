@@ -40,6 +40,11 @@ enum BookingPage: string
     case CHANGES = 'changes';
     case FINANCES = 'finances';
     case DOCUMENTS = 'documents';
+    /**
+     * The inventories, the meters and the incidents (#708, IT-17) — right
+     * after Documents, in the order things happen.
+     */
+    case INVENTORY = 'inventory';
     case MAIL = 'mail';
 
     public function label(): string
@@ -52,6 +57,7 @@ enum BookingPage: string
             self::CHANGES => 'Modifications',
             self::FINANCES => 'Finances',
             self::DOCUMENTS => 'Documents',
+            self::INVENTORY => 'État des lieux',
             self::MAIL => 'Courrier',
         };
     }
@@ -68,6 +74,7 @@ enum BookingPage: string
             self::CHANGES => '/modifications',
             self::FINANCES => '/finances',
             self::DOCUMENTS => '/documents',
+            self::INVENTORY => '/etat-des-lieux',
             self::MAIL => '/courrier',
         };
     }

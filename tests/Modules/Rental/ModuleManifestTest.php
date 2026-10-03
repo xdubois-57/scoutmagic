@@ -124,10 +124,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.38.0 voids a contract the booking has outgrown (#708, IT-20): its
      * fingerprint at generation, and when it stopped holding.
+     *
+     * 1.39.0 replaces the inventory's states with what was found
+     * (`arrival_value`, `departure_value`) and freezes each phase once
+     * validated (`rental_inventory_validations`) (#708, IT-17).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.38.0', $this->manifest->version);
+        $this->assertSame('1.39.0', $this->manifest->version);
     }
 
     /**
@@ -162,7 +166,8 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/gabarits/etat-des-lieux/ordre',
             '/mes-locations/{slug}/gabarits/etat-des-lieux/retirer',
             '/mes-locations/releve',
-            '/mes-locations/inventaire',
+            '/mes-locations/etat-des-lieux/ligne',
+            '/mes-locations/etat-des-lieux/valider',
             '/mes-locations/incident',
             '/mes-locations/incident-decision',
             '/mes-locations/decompte',

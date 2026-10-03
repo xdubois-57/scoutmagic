@@ -87,7 +87,6 @@ enum BookingPhase: string
             BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => self::BEFORE_STAY,
             BookingMilestones::ARRIVAL_INVENTORY,
-            BookingMilestones::METER_READINGS,
             BookingMilestones::DEPARTURE_INVENTORY => self::STAY,
             BookingMilestones::FINAL_SETTLEMENT,
             BookingMilestones::SECURITY_DEPOSIT_RETURNED,

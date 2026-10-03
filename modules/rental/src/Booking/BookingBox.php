@@ -32,6 +32,8 @@ enum BookingBox: string
     case PAYMENT = 'payment';
     case DOCUMENTS = 'documents';
     case MAIL = 'mail';
+    /** The inventories, their meters and the incidents (#708, IT-17). */
+    case INVENTORY = 'inventory';
     case STAY = 'stay';
     case COMMENTS = 'comments';
     case HISTORY = 'history';
@@ -43,6 +45,7 @@ enum BookingBox: string
             self::PAYMENT => 'Paiements',
             self::DOCUMENTS => 'Documents',
             self::MAIL => 'Courrier',
+            self::INVENTORY => 'État des lieux',
             self::STAY => 'Séjour',
             self::COMMENTS => 'Commentaires internes',
             self::HISTORY => 'Historique',
@@ -76,6 +79,7 @@ enum BookingBox: string
             self::PRICE, self::PAYMENT => BookingPage::FINANCES,
             self::DOCUMENTS => BookingPage::DOCUMENTS,
             self::MAIL => BookingPage::MAIL,
+            self::INVENTORY => BookingPage::INVENTORY,
             self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
             self::STAY => null,
         };

@@ -70,3 +70,12 @@ DROP TABLE IF EXISTS rental_booking_events;
 -- would leave units bookable on a closed period the day the asset grew.
 -- The site is in test: partial blocks are not carried over.
 ALTER TABLE rental_blocks DROP COLUMN units;
+
+-- The inventory states (#708, IT-17): « Non vérifié / Conforme / Problème /
+-- Manquant ». The value found is the check now — a number for what is
+-- counted, « oui » or « non » for what is observed — so the state said
+-- twice what the value says once, and could disagree with it. Nothing is
+-- carried over: a state was never a value, and the instance this ships to
+-- is a test one.
+ALTER TABLE rental_booking_inventory DROP COLUMN arrival_state;
+ALTER TABLE rental_booking_inventory DROP COLUMN departure_state;

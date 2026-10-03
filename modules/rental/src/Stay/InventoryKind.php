@@ -49,6 +49,54 @@ enum InventoryKind: string
     }
 
     /**
+     * What a manager typed, as it is stored (#708, IT-17): a whole number
+     * for a quantity, 'yes' or 'no' for a yes/no item, and null for an
+     * empty field — nobody has looked yet, which is never « fine ».
+     *
+     * @throws \InvalidArgumentException with a French message for what is
+     *   not a value of this sort
+     */
+    public function parseValue(string $input): ?string
+    {
+        $input = trim($input);
+        if ($input === '') {
+            return null;
+        }
+
+        if ($this === self::YES_NO) {
+            return in_array($input, ['yes', 'no'], true)
+                ? $input
+                : throw new \InvalidArgumentException('Répondez « Oui » ou « Non ».');
+        }
+
+        return preg_match('/^\d{1,5}$/', $input) === 1 && (int) $input <= 65535
+            ? (string) (int) $input
+            : throw new \InvalidArgumentException('Indiquez un nombre entier, 0 ou plus.');
+    }
+
+    /**
+     * The reference a value is checked against at arrival: the expected
+     * count, or « oui » — what the template says must be true.
+     */
+    public function arrivalReference(?int $expectedCount): ?string
+    {
+        return match ($this) {
+            self::QUANTITY => $expectedCount !== null ? (string) $expectedCount : null,
+            self::YES_NO => 'yes',
+        };
+    }
+
+    /** A stored value in words: « 38 », « Oui », « Non », or « — » for nothing yet. */
+    public function display(?string $value): string
+    {
+        return match (true) {
+            $value === null => '—',
+            $this === self::YES_NO => $value === 'yes' ? 'Oui' : 'Non',
+            default => $value,
+        };
+    }
+
+    /**
      * The count to store for this sort: the one given, or 1, for a
      * quantity; none for a yes/no item, whose answer is never a number.
      * Whether a given count is acceptable is the service's call.
