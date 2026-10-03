@@ -85,6 +85,8 @@
     var saveSequence = 0;
     /** The newest save the server has confirmed — the one savedStates holds. */
     var savedSequence = 0;
+    /** The newest save whose own answer has come back, accepted or not. */
+    var settledSequence = 0;
     var currentYear = data.year;
     var currentMonth = data.month;
     var monthParam = data.monthParam || '';
@@ -325,10 +327,17 @@
             // that would put back a month older than the server's.
             savedStates = sent;
             savedSequence = sequence;
+            // The newest save already answered with a refusal and put the
+            // grid back — on what was confirmed THEN. This older answer is
+            // confirmed now: show it, or the screen lags the server.
+            if (sequence !== saveSequence && settledSequence === saveSequence) {
+                restoreSavedStates();
+            }
         }
         if (sequence !== saveSequence) {
             return;
         }
+        settledSequence = sequence;
 
         showSaveStatus('');
         if (succeeded(res)) {

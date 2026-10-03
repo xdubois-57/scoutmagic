@@ -81,20 +81,38 @@
         discretion: discretionToggle ? discretionToggle.checked : false
     };
 
+    // Answers can cross: an older one must neither undo a newer change nor
+    // put back a baseline older than what the server already confirmed.
+    var saveSequence = 0;
+    var savedSequence = 0;
+
     function saveAccountSettings() {
         var sent = {
             start: startInput.value,
             end: endInput.value,
             discretion: discretionToggle.checked
         };
-        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
+        // Quiet hours are a pair: half of one is not a setting yet, and
+        // the server would refuse it. Wait for the other half.
+        if ((sent.start === '') !== (sent.end === '')) {
+            return;
+        }
+        var sequence = ++saveSequence;
+        void window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
             quiet_hours_start: sent.start,
             quiet_hours_end: sent.end,
             discretion: sent.discretion
         })
             .then(function (res) {
-                if (res.data?.success) {
+                var recorded = !!res.data?.success;
+                if (recorded && sequence > savedSequence) {
                     saved = sent;
+                    savedSequence = sequence;
+                }
+                if (sequence !== saveSequence) {
+                    return;
+                }
+                if (recorded) {
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }

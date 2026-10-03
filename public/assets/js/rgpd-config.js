@@ -133,6 +133,10 @@
             generateBtn.disabled = false;
 
             if (data.status === 'done') {
+                // A finished generation records the AI mode server-side
+                // (RgpdGenerationRunner): from now on a refused switch
+                // goes back to it.
+                savedMode = 'ai';
                 if (typeof data.content === 'string') {
                     preview.innerHTML = data.content;
                 }
@@ -232,7 +236,7 @@
 
             if (mode === 'default') {
                 // Reset to default content, then persist mode + content
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
                     if (!res.data?.success) {
                         refuseModeSwitch(res.data);
                         return;
@@ -242,7 +246,7 @@
                 });
             } else if (mode === 'ai') {
                 // Reset to default first, then auto-generate if prompt exists
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
                     if (!res.data?.success) {
                         refuseModeSwitch(res.data);
                         return;

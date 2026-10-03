@@ -132,7 +132,7 @@
             payload[select.dataset.field || ''] = Number.parseInt(select.value, 10);
             var chosen = select.value;
 
-            api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (select)), function () {
+            void api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (select)), function () {
                 return api.postJson(select.dataset.endpoint || '', payload);
             }).then(function (res) {
                 if (res.data?.success) {
@@ -196,7 +196,12 @@
             var payload = {};
             payload[field.dataset.field || 'preferred_section_id'] = Number.parseInt(field.value, 10);
             var chosen = field.value;
-            autoSave(field, payload).then(function (recorded) {
+            // Disabled while in flight, like the picker above: two answers
+            // crossing could otherwise revert to a value the server no
+            // longer holds.
+            void api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (field)), function () {
+                return autoSave(field, payload);
+            }).then(function (recorded) {
                 if (recorded) {
                     saved = chosen;
                 } else {
@@ -212,8 +217,18 @@
         // and a save per keystroke would be a request per keystroke. A
         // refused note keeps its text on screen: putting the old one back
         // would throw away what the chief just wrote.
+        // A note left as it was sends nothing, and says nothing.
+        var savedNote = field.value;
         field.addEventListener('blur', function () {
-            autoSave(field, { note: field.value });
+            var written = field.value;
+            if (written === savedNote) {
+                return;
+            }
+            void autoSave(field, { note: written }).then(function (recorded) {
+                if (recorded) {
+                    savedNote = written;
+                }
+            });
         });
     });
 

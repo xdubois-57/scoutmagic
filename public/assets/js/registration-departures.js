@@ -98,8 +98,18 @@
     });
 
     comments.forEach(function (field) {
+        // A comment left as it was sends nothing, and says nothing.
+        var savedComment = field.value;
         field.addEventListener('blur', function () {
-            save(field.dataset.memberYearId || '', { comment: field.value });
+            var written = field.value;
+            if (written === savedComment) {
+                return;
+            }
+            void save(field.dataset.memberYearId || '', { comment: written }).then(function (recorded) {
+                if (recorded) {
+                    savedComment = written;
+                }
+            });
         });
     });
 })();

@@ -104,7 +104,11 @@
     function flipBack(input) {
         return function () {
             input.checked = !input.checked;
-            window.ScoutMagicNav?.syncSwitchAriaChecked?.(input);
+            // Only a real switch carries aria-checked; a plain checkbox
+            // (the lead flag) must not grow one.
+            if (input.getAttribute('role') === 'switch') {
+                window.ScoutMagicNav?.syncSwitchAriaChecked?.(input);
+            }
         };
     }
 
@@ -208,7 +212,7 @@
              */
             var savedColor = colorInput.value;
             var saveColor = function (color) {
-                save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color }, function () {
+                void save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color }, function () {
                     colorInput.value = savedColor;
                 })
                     .then(function (data) {

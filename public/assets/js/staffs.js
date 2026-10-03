@@ -73,6 +73,26 @@
     // No save button on these two fields (module addendum), and separate
     // from list-editor.js's own reorder/delete wiring, which has no concept
     // of per-item editable fields.
+    // What each document row last saved, so a blur over untouched text
+    // (tabbing from the title into the description) sends nothing.
+    /** @type {Record<string, string>} */
+    var savedDocuments = {};
+    /**
+     * @param {HTMLInputElement} titleInput
+     * @param {HTMLTextAreaElement} descriptionInput
+     * @returns {string}
+     */
+    function documentSnapshot(titleInput, descriptionInput) {
+        return JSON.stringify([titleInput.value, descriptionInput.value]);
+    }
+    documentFields.forEach(function (field) {
+        var row = /** @type {HTMLElement|null} */ (field.closest('.section-document-row'));
+        var title = /** @type {HTMLInputElement|null} */ (row?.querySelector('.section-document-title-input') ?? null);
+        var description = /** @type {HTMLTextAreaElement|null} */ (row?.querySelector('.section-document-description-input') ?? null);
+        if (row && title && description) {
+            savedDocuments[row.dataset.id || ''] = documentSnapshot(title, description);
+        }
+    });
     documentFields.forEach(function (field) {
         field.addEventListener('blur', function () {
             var row = /** @type {HTMLElement|null} */ (field.closest('.section-document-row'));
@@ -85,11 +105,18 @@
                 return;
             }
 
-            api.postJson('/chefs/staffs/documents/' + encodeURIComponent(row.dataset.id), {
+            var documentId = row.dataset.id || '';
+            var snapshot = documentSnapshot(titleInput, descriptionInput);
+            if (savedDocuments[documentId] === snapshot) {
+                return;
+            }
+
+            void api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
                 title: titleInput.value,
                 description: descriptionInput.value
             }).then(function (res) {
                 if (res.data?.success) {
+                    savedDocuments[documentId] = snapshot;
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }

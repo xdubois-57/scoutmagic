@@ -219,6 +219,21 @@ describe('config-functions.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
             expect(lead.checked).toBe(false);
         });
+
+        it('does not give the lead checkbox — not a switch — an aria-checked when flipping it back', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            window.ScoutMagicNav = {
+                syncSwitchAriaChecked: (input) => input.setAttribute('aria-checked', String(input.checked)),
+            };
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(lead.checked).toBe(false));
+            expect(lead.hasAttribute('aria-checked')).toBe(false);
+            delete window.ScoutMagicNav;
+        });
     });
 
     describe('sections', () => {

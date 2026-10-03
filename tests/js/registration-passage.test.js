@@ -416,6 +416,28 @@ describe('registration-passage.js', () => {
             await vi.waitFor(() => toasted('Enregistré.', 'success'));
         });
 
+        it('sends nothing and says nothing for a note left as it was', async () => {
+            await boot();
+            note().dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('disables the staff wish while its save is in flight', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+
+            wishSelect().value = '0';
+            wishSelect().dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(wishSelect().disabled).toBe(true);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(wishSelect().disabled).toBe(false));
+        });
+
         it('keeps a refused note on screen, so nothing the chief wrote is lost', async () => {
             global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
             await boot();

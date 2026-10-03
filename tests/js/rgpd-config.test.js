@@ -245,6 +245,35 @@ describe('rgpd-config.js: which controls each generation mode shows', () => {
     });
 });
 
+describe('rgpd-config.js: a finished generation is the recorded mode', () => {
+    it('a refused switch after a finished AI generation goes back to AI, not the mode before it', async () => {
+        global.fetch = vi.fn((url) => {
+            const u = String(url);
+            if (u.endsWith('/generate/status')) {
+                return jsonResponse({ success: true, running: false, status: 'done', content: '<p>Texte IA.</p>' });
+            }
+            if (u.endsWith('/save')) {
+                return jsonResponse({ success: false, error: 'Mode invalide.' });
+            }
+            return jsonResponse({ success: true, content: '<p>Texte par défaut.</p>' });
+        });
+        await boot('default');
+        /** @type {HTMLTextAreaElement} */ (document.getElementById('ai-prompt')).value = 'Association scoute';
+        const ai = /** @type {HTMLInputElement} */ (document.querySelector('input[value="ai"]'));
+        ai.checked = true;
+        ai.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe('<p>Texte IA.</p>'));
+
+        const custom = /** @type {HTMLInputElement} */ (document.querySelector('input[value="custom"]'));
+        custom.checked = true;
+        custom.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mode invalide.', { variant: 'error' }));
+
+        expect(ai.checked).toBe(true);
+        expect(custom.checked).toBe(false);
+    });
+});
+
 describe('rgpd-config.js: the generate button', () => {
     it('re-enables itself and reports the server error line on a refusal', async () => {
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Aucun connecteur IA actif.' }));

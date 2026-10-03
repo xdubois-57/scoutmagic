@@ -566,6 +566,37 @@ describe('sos-admin.js', () => {
             expect(cell().className).toBe(afterSecond.className);
         });
 
+        it('shows an older save confirmed AFTER the newest one was refused', async () => {
+            // Tap A, tap B; B is refused first (the grid goes back), then A
+            // is accepted: the grid must show A's month, which the server
+            // now holds — not the month from before both taps.
+            const pending = [];
+            global.fetch = vi.fn((url) => {
+                if (String(url).includes('/admin/sos/transitions')) {
+                    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') });
+                }
+                return new Promise((resolve) => pending.push(resolve));
+            });
+            await boot();
+            const answer = (index, body) =>
+                pending[index]({ ok: true, status: 200, json: () => Promise.resolve(body) });
+            const cell = () => document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            const afterFirst = { text: cell().textContent, className: cell().className };
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+            answer(1, { success: false, error: 'Non.' });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            answer(0, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(cell().textContent).toBe(afterFirst.text);
+            expect(cell().className).toBe(afterFirst.className);
+        });
+
         it('reports an HTTP 500 error page instead of reading it as saved', async () => {
             global.fetch = vi.fn(() => htmlErrorResponse());
             await boot();
