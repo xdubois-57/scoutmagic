@@ -596,10 +596,15 @@
                 Générer un paquet de support
             </button>
 
-            <output class="d-none align-items-center gap-2" id="support-package-progress">
-                <output class="spinner-border spinner-border-sm" aria-hidden="true"></output></output>
+            {# The spinner AND its sentence inside the one container
+               support-package.js shows and hides (issue #744): the
+               container used to close right after the spinner, leaving
+               « Génération en cours… » outside it — always visible — and a
+               stray </span> behind. #}
+            <output class="d-none d-inline-flex align-items-center gap-2" id="support-package-progress">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
                 <span class="small">Génération en cours…</span>
-            </span>
+            </output>
 
             <a class="btn btn-primary{% if not package_file_id %} d-none{% endif %}" id="support-package-download"
                href="{% if package_file_id %}/files/{{ package_file_id }}{% else %}#{% endif %}">
