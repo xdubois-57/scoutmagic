@@ -25,6 +25,7 @@ use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
+use Tests\Support\PortableHints;
 
 /**
  * The other entry point: a portable archive uploaded to a site that is
@@ -383,7 +384,7 @@ final class PortableMaintenanceRestoreTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '0.0.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample('0.0.1'), self::ORIGIN_ID);
         $this->cleanupPaths[] = $result['dbDumpPath'];
 
         $uploaded = $this->siteBase . '/storage/temp/uploaded_' . bin2hex(random_bytes(6)) . '.zip';
