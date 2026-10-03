@@ -9325,7 +9325,8 @@ if ($isEnabled('gallery')) {
         $galleryOgScraperService,
         $galleryLinkPreviewCacheRepo
     );
-    $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
+    // The cron's answer, never this request's (#700).
+    $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability($settingService);
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);

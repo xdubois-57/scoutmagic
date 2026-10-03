@@ -194,6 +194,13 @@ $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
 // interval needs two timestamps (Core\Scheduler\CronRunHistory).
 \Core\Scheduler\CronRunHistory::register($settingService);
 \Core\Scheduler\CronRunHistory::record($cronSettingRepository, time());
+
+// What THIS PHP can execute (#700): the web PHP of a shared host is often
+// sandboxed without a shell while the CLI running this crontab is not, and
+// video transcoding runs here. Measured here, read by the web — the
+// gallery's video switch and Santé de l'hébergement.
+\Core\System\CronExecutionFacts::register($settingService);
+\Core\System\CronExecutionFacts::recordIfDue($cronSettingRepository, time());
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 
