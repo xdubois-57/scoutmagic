@@ -451,7 +451,92 @@ class SendReenrollmentEmailsHandlerTest extends TestCase
         $this->assertSame([], $this->queued());
     }
 
+    // ── the e-mails switch and the manual reminder (issue #732) ──────
+
+    public function testWithTheEmailsSwitchedOffNothingLeavesAndNothingIsMarked(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        foreach ([
+            ReenrollmentCampaignService::EMAIL_OPENING,
+            ReenrollmentCampaignService::EMAIL_REMINDER_1,
+            ReenrollmentCampaignService::EMAIL_REMINDER_2,
+            ReenrollmentCampaignService::EMAIL_CLOSING,
+        ] as $type) {
+            $this->deliver($type);
+            $this->assertSame('', $this->marker($type), "{$type}: nothing went out, so nothing is recorded as sent");
+        }
+        $this->deliverManual('2027-05-02-10-00');
+
+        $this->assertSame([], $this->sent);
+    }
+
+    public function testAManualReminderNeverStandsInForTheAutomaticOne(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+
+        $this->deliverManual('2027-04-20-10-00');
+        $this->assertCount(1, $this->sent, 'the manual reminder reached the silent family');
+        $this->assertSame(
+            '',
+            $this->marker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            'a manual reminder does not mark the first automatic reminder as sent'
+        );
+
+        $this->sent = [];
+        $this->deliver(ReenrollmentCampaignService::EMAIL_REMINDER_1);
+        $this->assertCount(1, $this->sent, 'the automatic reminder still reaches the family a manual one did');
+    }
+
+    public function testTwoManualRemindersAtDifferentMomentsBothGoOut(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+
+        $this->deliverManual('2027-04-20-10-00');
+        $this->deliverManual('2027-04-27-18-30');
+
+        $this->assertCount(2, $this->sent);
+    }
+
+    public function testTheSameManualReminderReplayedWritesToNobodyTwice(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+
+        $this->deliverManual('2027-04-20-10-00');
+        $this->deliverManual('2027-04-20-10-00');
+
+        $this->assertCount(1, $this->sent, 'a technical replay of one operation stays one e-mail');
+    }
+
+    public function testAManualReminderContinuesUnderItsOwnReferenceAndOccurrence(): void
+    {
+        for ($i = 0; $i < 26; $i++) {
+            $this->createAnime('Enfant' . $i, 'f' . $i . '@example.be');
+        }
+
+        $this->deliverManual('2027-04-20-10-00');
+
+        $queued = $this->queued();
+        $this->assertCount(1, $queued);
+        $this->assertStringStartsWith('manual:' . self::CAMPAIGN . ':2027-04-20-10-00:', (string) $queued[0]['reference']);
+        $this->assertSame('2027-04-20-10-00', json_decode((string) $queued[0]['payload'], true)['occurrence']);
+    }
+
     // ── harness ───────────────────────────────────────────────────────
+
+    private function deliverManual(string $occurrence): void
+    {
+        (new SendReenrollmentEmailsHandler())->handle(
+            [
+                'type' => ReenrollmentCampaignService::EMAIL_REMINDER_1,
+                'campaign' => self::CAMPAIGN,
+                'after_key' => 0,
+                'occurrence' => $occurrence,
+            ],
+            $this->context
+        );
+    }
 
     private function deliver(string $type, int $afterKey = 0): void
     {
