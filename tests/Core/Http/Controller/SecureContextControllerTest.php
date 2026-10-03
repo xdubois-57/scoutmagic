@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Config\AppConfig;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Http\Controller\SecureContextController;
+use Core\Http\FrontController;
 use Core\Http\InsecureBrowserAccess;
 use Core\Http\Request;
 use Core\Http\RequestScheme;
+use Core\Http\Router;
 use Core\Security\CsrfGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -89,5 +92,55 @@ class SecureContextControllerTest extends TestCase
 
         $this->assertSame(204, $this->post(CsrfGuard::generateToken()));
         $this->assertNull((new InsecureBrowserAccess($this->settings))->lastObservedAt());
+    }
+
+    /**
+     * RBAC boundary (AGENTS.md § Tests): role_min identified — a public
+     * visitor is sent to the login page, an identified one reaches the
+     * controller, through the real router and front controller.
+     */
+    private function throughTheRouter(string $token): \Core\Http\Response
+    {
+        $router = new Router();
+        $router->addRoute(
+            'POST',
+            InsecureBrowserAccess::BEACON_PATH,
+            SecureContextController::class,
+            'report',
+            'identified'
+        );
+
+        $configFile = sys_get_temp_dir() . '/test_secure_context_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $front = new FrontController($router, \Tests\TestTwig::create(), new AppConfig($configFile));
+        $front->registerController(SecureContextController::class, $this->controller);
+        $response = $front->handle(
+            new Request('POST', InsecureBrowserAccess::BEACON_PATH, [], ['_csrf_token' => $token], [], [])
+        );
+        @unlink($configFile);
+
+        return $response;
+    }
+
+    public function testAPublicVisitorIsSentToTheLoginPage(): void
+    {
+        RequestScheme::setHttpsRequired(true);
+        \Core\Security\AuthSession::logout();
+
+        $response = $this->throughTheRouter('x');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/login', $response->getHeaders()['Location']);
+        $this->assertNull((new InsecureBrowserAccess($this->settings))->lastObservedAt());
+    }
+
+    public function testAnIdentifiedMemberReachesTheController(): void
+    {
+        RequestScheme::setHttpsRequired(true);
+
+        $response = $this->throughTheRouter(CsrfGuard::generateToken());
+
+        $this->assertSame(204, $response->getStatusCode());
+        $this->assertNotNull((new InsecureBrowserAccess($this->settings))->lastObservedAt());
     }
 }
