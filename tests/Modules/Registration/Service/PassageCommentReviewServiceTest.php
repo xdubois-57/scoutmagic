@@ -253,6 +253,47 @@ class PassageCommentReviewServiceTest extends TestCase
         $this->assertSame(1, $connector->calls);
     }
 
+    /**
+     * Whatever drives the placement is what the page shows under the line,
+     * and the page shows the summary: a wish without one is no wish.
+     */
+    public function testAWishWithoutASummaryStoresNoSectionAndNoFriend(): void
+    {
+        $this->answerWithComment('Louveteaux B avec Zoé.');
+
+        $this->review($this->service(
+            $this->connector(['has_wish' => true, 'summary' => '  ', 'section' => 'Louveteaux B', 'friends' => ['Zoé']]),
+            ['Zoé' => [501]]
+        ));
+
+        $stored = $this->notes->find($this->memberId, $this->targetYearId);
+        $this->assertNull($stored['ai_suggestion']);
+        $this->assertNull($stored['ai_section_id']);
+        $this->assertSame([], $stored['ai_friend_member_ids']);
+    }
+
+    /**
+     * A family taking their comment back takes the wish with it — even
+     * with the AI switched off since: forgetting needs no reading.
+     */
+    public function testAWithdrawnCommentStopsSteeringThePlacement(): void
+    {
+        $this->answerWithComment('Chez les Louveteaux B, avec Zoé.');
+        $this->review($this->service(
+            $this->connector(['has_wish' => true, 'summary' => 'Louveteaux B, avec Zoé.', 'section' => 'Louveteaux B', 'friends' => ['Zoé']]),
+            ['Zoé' => [501]]
+        ));
+        $this->assertSame(self::SECTION_B, $this->notes->find($this->memberId, $this->targetYearId)['ai_section_id']);
+
+        $this->repository->saveAnswer($this->memberId, $this->targetYearId, 'reenrolled', null, null, null, []);
+        $this->assertSame(0, $this->review($this->service(null)));
+
+        $stored = $this->notes->find($this->memberId, $this->targetYearId);
+        $this->assertNull($stored['ai_suggestion']);
+        $this->assertNull($stored['ai_section_id']);
+        $this->assertSame([], $stored['ai_friend_member_ids']);
+    }
+
     public function testAFailingProviderCostsNothingAndIsAskedAgainNextTime(): void
     {
         $this->answerWithComment('Un commentaire quelconque.');

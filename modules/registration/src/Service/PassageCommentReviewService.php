@@ -120,10 +120,11 @@ class PassageCommentReviewService
      */
     public function reviewArrivals(int $targetYearId, int $currentYearId, array $arrivals): int
     {
-        if (!$this->isAvailable() || $arrivals === []) {
+        if ($arrivals === []) {
             return 0;
         }
 
+        $available = $this->isAvailable();
         $notes = $this->passageNoteRepository->findForYear($targetYearId);
         $reviewed = 0;
 
@@ -134,6 +135,16 @@ class PassageCommentReviewService
 
             $comment = $answer->familyComment;
             if ($comment === null || trim($comment) === '') {
+                // A comment the family took back takes its reading with it:
+                // a withdrawn wish must stop steering the placement. No AI
+                // is needed to forget, so this runs with the connector off.
+                $storedHash = $notes[$memberId]['ai_source_hash'] ?? null;
+                if ($storedHash !== null && $storedHash !== self::hashOf('')) {
+                    $this->passageNoteRepository->setAiSuggestion($memberId, $targetYearId, self::hashOf(''), null);
+                }
+                continue;
+            }
+            if (!$available) {
                 continue;
             }
 
@@ -307,6 +318,11 @@ class PassageCommentReviewService
         }
 
         $summary = $parsed['summary'] ?? null;
+        // No summary, no wish: what steers the placement must be what the
+        // page shows under the line, and the page shows the summary.
+        if (!is_string($summary) || trim($summary) === '') {
+            return ['summary' => null, 'section' => null, 'friends' => []];
+        }
         $section = $parsed['section'] ?? null;
         $friends = [];
         foreach (is_array($parsed['friends'] ?? null) ? $parsed['friends'] : [] as $name) {
@@ -316,7 +332,7 @@ class PassageCommentReviewService
         }
 
         return [
-            'summary' => is_string($summary) && trim($summary) !== '' ? trim($summary) : null,
+            'summary' => trim($summary),
             'section' => is_string($section) && trim($section) !== '' ? trim($section) : null,
             'friends' => $friends,
         ];
