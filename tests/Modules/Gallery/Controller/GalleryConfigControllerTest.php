@@ -50,6 +50,7 @@ class GalleryConfigControllerTest extends TestCase
 
     private \PDO $pdo;
     private GalleryConfigController $controller;
+    private string $ffmpegState = FfmpegAvailability::MISSING;
     private SettingService $settingService;
     private StorageLocationRepository $storageLocationRepository;
     private StorageLocationService $storageLocationService;
@@ -90,6 +91,7 @@ class GalleryConfigControllerTest extends TestCase
         $this->galleryLocationService = $storageWiring->galleryLocations;
         $ffmpegAvailability = $this->createStub(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
+        $ffmpegAvailability->method('state')->willReturnCallback(fn (): string => $this->ffmpegState);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $accessService = $this->createStub(GalleryAccessService::class);
@@ -166,6 +168,25 @@ class GalleryConfigControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('FFmpeg', $response->getBody());
+    }
+
+    public function testIndexSaysFfmpegIsMissingOnceTheCronHasMeasuredIt(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("FFmpeg n'est pas disponible pour la tâche planifiée.", $body);
+        $this->assertStringNotContainsString("FFmpeg n'a pas encore été vérifié.", $body);
+    }
+
+    /** Never measured by the cron (#700): « not checked yet », never « missing ». */
+    public function testIndexSaysFfmpegIsNotCheckedYetBeforeTheCronHasMeasuredIt(): void
+    {
+        $this->ffmpegState = FfmpegAvailability::UNKNOWN;
+
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("FFmpeg n'a pas encore été vérifié.", $body);
+        $this->assertStringNotContainsString("FFmpeg n'est pas disponible pour la tâche planifiée.", $body);
     }
 
     public function testIndexNoLongerRendersTheRemovedAllowLocalSetting(): void
