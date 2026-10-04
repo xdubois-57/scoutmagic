@@ -127,14 +127,16 @@
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h5 mb-3">Réglages</h2>
-        {# reenrollment-config.js asks /config/reinscription/apercu before
-           submitting: a save that opens the campaign and writes to every
-           family is confirmed first (#732). save() refuses it without
-           `confirm_opening`, so the question cannot be skipped. #}
+        {# Every save that changes something is confirmed (issue #796, D2):
+           reenrollment-config.js asks /config/reinscription/apercu for the
+           plan, shows it, and submits with the plan's fingerprint. save()
+           writes nothing without a fingerprint matching the plan it
+           computes then — a browser without the script is shown the same
+           confirmation as a page instead (D7). #}
         <form method="post" action="/config/reinscription" id="reenrollment-config-form"
               data-preview-endpoint="/config/reinscription/apercu">
             {{ csrf_field()|raw }}
-            <input type="hidden" name="confirm_opening" value="">
+            <input type="hidden" name="plan_fingerprint" value="">
 
             <div class="row g-3">
                 <div class="col-12 col-md-6">
@@ -184,10 +186,15 @@
                        aria-checked="{{ is_open ? 'true' : 'false' }}" {{ is_open ? 'checked' : '' }}>
                 <label class="form-check-label" for="is-open">Campagne ouverte</label>
                 <div class="form-text">
-                    Interrupteur manuel : il force l'état quelles que soient les dates ci-dessus. L'ouvrir ici envoie
-                    l'e-mail d'ouverture s'il n'est pas encore parti pour cette campagne, et la fermer envoie l'e-mail
-                    de clôture aux familles sans réponse, comme le feraient les dates — si les e-mails sont actifs.
-                    Une confirmation est demandée avant tout enregistrement qui ouvre la campagne et écrit aux familles.
+                    {% if campaign_label %}
+                        Interrupteur manuel pour la campagne de réinscription pour <strong>{{ campaign_label }}</strong>.
+                    {% else %}
+                        Interrupteur manuel de la campagne de réinscription.
+                    {% endif %}
+                    L'ouvrir ici l'ouvre tout de suite : l'e-mail d'ouverture part s'il n'est pas encore parti pour
+                    cette campagne, et sa fermeture, ses rappels et sa clôture restent ceux des réglages. La fermer
+                    envoie l'e-mail de clôture aux familles sans réponse, s'il n'est pas déjà parti et si les e-mails
+                    sont actifs. Une confirmation est demandée avant tout enregistrement.
                 </div>
             </div>
 

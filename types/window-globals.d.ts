@@ -168,6 +168,16 @@ interface Window {
             confirmLabel?: string;
             cancelLabel?: string;
             variant?: 'danger' | 'primary';
+            // Structured blocks under the message, rendered as text only:
+            // what an action concerns, what it changes, its consequence.
+            content?: Array<{
+                kind?: 'box' | 'list';
+                tone?: 'muted' | 'warning' | 'success';
+                title?: string;
+                text?: string;
+                items?: string[];
+                note?: string;
+            }>;
         }) => Promise<boolean>;
         // The replacement for prompt(): resolves to what was typed, or
         // null when the dialog was dismissed.

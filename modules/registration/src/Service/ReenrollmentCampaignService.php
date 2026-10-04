@@ -262,10 +262,14 @@ class ReenrollmentCampaignService
      * opened on 10-01 → `2027-2028`). Every e-mail of the campaign carries
      * this label, never one recomputed from whatever the public year is
      * when it leaves (issue #796).
+     *
+     * `$openAt` is the opening date the campaign is read by — the one being
+     * saved when a save is described, not the stored one it is about to
+     * replace.
      */
-    public function targetLabelOf(string $key): string
+    public function targetLabelOf(string $key, ?string $openAt = null): string
     {
-        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
+        $openAt = self::validMonthDay($openAt ?? $this->monthDay(self::SETTING_OPEN_AT));
         $openOn = $openAt !== null ? self::openingDateOf($key, $openAt) : null;
         $start = $openOn !== null
             ? (int) $openOn->format('Y') + ($openAt >= self::SCOUT_YEAR_START ? 1 : 0)

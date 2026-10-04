@@ -176,7 +176,8 @@ class ReenrollmentConfigControllerTest extends TestCase
             \Modules\Registration\Service\ReenrollmentSavePlanner::countingWith(
                 $this->campaign,
                 $this->settingService,
-                $this->recipients
+                $this->recipients,
+                new SchedulerService(new SchedulerRepository($this->pdo))
             ),
             static fn (): \DateTimeImmutable => $now
         );
@@ -340,7 +341,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testOpeningTheCampaignByHandOpensIt(): void
     {
-        $this->save(['is_open' => '1', 'confirm_opening' => '1']);
+        $this->save(['is_open' => '1']);
 
         $this->assertTrue($this->campaign->isOpen());
     }
@@ -363,6 +364,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testClosingTheCampaignByHandOwesTheFamiliesTheirClosingEmail(): void
     {
+        $this->createAnime('Alix', 'famille@example.be');
         $this->campaign->open();
 
         $this->save(['is_open' => '0']);
@@ -386,8 +388,7 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->createAnime('Alix', 'famille@example.be');
         $this->campaign->open();
 
-        $this->controllerAt(new \DateTimeImmutable('2026-10-04 10:35:00'))
-            ->save($this->post('/config/reinscription', ['is_open' => '0']), []);
+        $this->save(['is_open' => '0'], $this->controllerAt(new \DateTimeImmutable('2026-10-04 10:35:00')));
 
         $this->assertFalse($this->campaign->isOpen(), 'the switch itself still works');
         $this->assertSame([], $this->queued(), 'and no send_reenrollment_emails task exists');
@@ -395,6 +396,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testTheClosingEmailIsQueuedOncePerCampaignHoweverOftenItIsClosed(): void
     {
+        $this->createAnime('Alix', 'famille@example.be');
         $this->campaign->open();
         $this->save(['is_open' => '0']);
         $this->campaign->open();
@@ -496,19 +498,163 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertTrue($this->campaign->emailsEnabled());
     }
 
-    public function testAnOpeningDateOfTodayIsNotSavedWithoutTheChiefsYes(): void
-    {
-        $this->save($this->openingToday());
+    // ── the universal confirmation (issue #796, IT-03) ───────────────
 
-        $this->assertFalse($this->campaign->isOpen(), 'cancelled: the campaign stays closed');
-        $this->assertSame('03-01', $this->stored(ReenrollmentCampaignService::SETTING_OPEN_AT), 'and nothing is saved');
-        $this->assertSame([], $this->queued());
-        $this->assertStringContainsString("envoie l'e-mail d'ouverture", $this->flash('error'));
+    /**
+     * Without the plan's fingerprint nothing is written: the server shows
+     * the confirmation itself — what a browser without the script gets.
+     */
+    public function testASaveThatChangesSomethingIsNotWrittenWithoutConfirmation(): void
+    {
+        $html = html_entity_decode(
+            $this->saveUnconfirmed([ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS => '10']),
+            ENT_QUOTES
+        );
+
+        $this->assertSame('14', $this->stored(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS), 'nothing saved');
+        $this->assertStringContainsString("Confirmer l'enregistrement", $html);
+        $this->assertStringContainsString('Premier rappel : 14 → 10 jours avant la fermeture', $html);
+        $this->assertStringContainsString('Aucun e-mail ne partira.', $html);
+        $this->assertStringContainsString('name="plan_fingerprint"', $html);
+        $this->assertStringContainsString('value="10"', $html, 'the form travels back unchanged');
+    }
+
+    public function testTheServersConfirmationPagePostsBackAndSaves(): void
+    {
+        $html = $this->saveUnconfirmed([ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS => '10']);
+        preg_match('/name="plan_fingerprint" value="([0-9a-f]{64})"/', $html, $m);
+
+        $this->controller->save($this->post('/config/reinscription', [
+            ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS => '10',
+            'plan_fingerprint' => $m[1] ?? '',
+        ]), []);
+
+        $this->assertSame('10', $this->stored(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS));
+    }
+
+    /**
+     * A plan that moved between the question and the answer is refused,
+     * and the chief reads the new one.
+     */
+    public function testAStalePlanIsRefusedAndShownAgain(): void
+    {
+        $this->campaign->open();
+        $this->createAnime('Alix', 'famille@example.be');
+        $fingerprint = (string) $this->preview(['is_open' => '0'])['fingerprint'];
+
+        // Between the dialog and the click, the closing e-mail left.
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker('closing'), $this->currentCampaignKey());
+
+        $html = (string) $this->controller->save(
+            $this->post('/config/reinscription', ['is_open' => '0', 'plan_fingerprint' => $fingerprint]),
+            []
+        )->getBody();
+
+        $this->assertTrue($this->campaign->isOpen(), 'nothing written');
+        $this->assertStringContainsString('La situation a changé', $html);
+        $this->assertStringContainsString("L'e-mail de clôture de cette campagne est déjà parti", html_entity_decode($html, ENT_QUOTES));
+    }
+
+    public function testASaveThatChangesNothingAsksNothingAndSaysSo(): void
+    {
+        $preview = $this->preview([]);
+        $this->assertFalse($preview['changed']);
+
+        $this->controller->save($this->post('/config/reinscription', []), []);
+
+        $this->assertSame('Aucun changement à enregistrer.', $this->flash('warning'));
+    }
+
+    /**
+     * **One line per row of the maquette's matrix**: the dialog announces
+     * exactly what the save then does — no e-mail announced that does not
+     * leave, none leaving that was not announced.
+     *
+     * @return array<string, array{0: string, 1: array<string, string>, 2: ?string, 3: string}>
+     */
+    public static function matrix(): array
+    {
+        return [
+            'opening between two campaigns' => ['2026-10-04 10:35', ['is_open' => '1'], 'opening', ''],
+            'opening date of today' => ['2027-04-20 10:00', [ReenrollmentCampaignService::SETTING_OPEN_AT => '04-20'], 'opening', ''],
+            'closing a campaign in progress' => ['2027-04-20 10:00', ['open' => '1', 'is_open' => '0'], 'closing', ''],
+            'closing with the e-mails off' => ['2027-04-20 10:00', ['open' => '1', 'is_open' => '0', ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'], null, 'désactivés'],
+            'opening before the opening date' => ['2027-02-20 09:00', ['is_open' => '1'], 'opening', ''],
+            'changing a reminder' => ['2027-04-20 10:00', [ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS => '10'], null, 'ne change que des réglages'],
+            'switching the e-mails off' => ['2027-04-20 10:00', [ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'], null, 'Plus aucun e-mail ne partira'],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $fields
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('matrix')]
+    public function testTheDialogAnnouncesExactlyWhatTheSaveDoes(string $now, array $fields, ?string $type, string $reason): void
+    {
+        $this->createAnime('Alix', 'famille@example.be');
+        if (($fields['open'] ?? '') === '1') {
+            $this->campaign->open();
+        }
+        unset($fields['open']);
+        $controller = $this->controllerAt(new \DateTimeImmutable($now));
+
+        $dialog = $this->preview($fields, $controller)['dialog'];
+        $this->save($fields, $controller);
+        $queued = array_map(
+            static fn (array $row): string => (string) json_decode((string) $row['payload'], true)['type'],
+            $this->queued()
+        );
+
+        if ($type === null) {
+            $this->assertNull($dialog['mail']);
+            $this->assertStringContainsString($reason, $dialog['none']['reason']);
+            $this->assertSame('Enregistrer', $dialog['confirm_label']);
+            $this->assertSame([], $queued);
+        } else {
+            $this->assertSame('1 e-mail va partir', $dialog['mail']['headline']);
+            $this->assertSame('Enregistrer et envoyer', $dialog['confirm_label']);
+            $this->assertSame([$type], $queued);
+        }
+    }
+
+    /**
+     * The dialog names the campaign — the year and its dates (D6): a
+     * « 2027-2028 » can no longer sit beside a 2026 date.
+     */
+    public function testTheDialogNamesTheCampaignItOpens(): void
+    {
+        $dialog = $this->preview(['is_open' => '1'], $this->controllerAt(new \DateTimeImmutable('2026-10-04 10:35')))['dialog'];
+
+        $this->assertSame('Ouvre la campagne de réinscription pour 2027-2028', $dialog['campaign']['title']);
+        $this->assertStringContainsString('Fermeture le 15/05/2027, rappels le 01/05/2027 et le 13/05/2027.', $dialog['campaign']['detail']);
+        $this->assertStringContainsString("restera ouverte jusqu'au 15/05/2027, soit plus de 7 mois", $dialog['campaign']['detail']);
+        $this->assertContains('Campagne : fermée → ouverte', $dialog['changes']);
+    }
+
+    /**
+     * After the save, the page says what left and what did not (D8).
+     */
+    public function testAfterTheSaveThePageSaysWhatLeftAndWhatDidNot(): void
+    {
+        $this->createAnime('Alix', 'famille@example.be');
+        $this->save(['is_open' => '1']);
+        $this->assertSame(
+            "Enregistré. L'e-mail d'ouverture est programmé pour 1 famille : il part dans quelques minutes.",
+            $this->flash('success')
+        );
+
+        $this->save(['is_open' => '0']);
+        $this->save(['is_open' => '1']);
+        $this->assertSame(
+            "Enregistré. Aucun e-mail n'est parti : l'e-mail d'ouverture de cette campagne est déjà parti : la rouvrir n'écrit à personne.",
+            $this->flash('success')
+        );
     }
 
     public function testAnOpeningDateOfTodayConfirmedOpensNowAndQueuesTheOpeningEmailOnce(): void
     {
-        $this->save($this->openingToday() + ['confirm_opening' => '1']);
+        $this->createAnime('Alix', 'famille@example.be');
+        $this->save($this->openingToday());
 
         $key = $this->todaysCampaignKey();
         $this->assertTrue($this->campaign->isOpen(), 'opened now, not at the next hourly pass');
@@ -521,7 +667,7 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertSame(ReenrollmentCampaignService::EMAIL_OPENING, json_decode((string) $queued[0]['payload'], true)['type']);
     }
 
-    public function testWithTheEmailsOffAnOpeningNeedsNoQuestionAndWritesToNobody(): void
+    public function testWithTheEmailsOffAnOpeningWritesToNobody(): void
     {
         $this->save([ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'] + $this->openingToday());
 
@@ -529,40 +675,12 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertSame([], $this->queued());
     }
 
-    public function testOpeningByHandAsksFirstThenSendsTheOpeningEmail(): void
+    public function testAnOpeningIsNeverWrittenUnasked(): void
     {
-        // Today's scheduled opening already applied: only the switch opens.
-        $fields = $this->openingToday();
-        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, $this->todaysCampaignKey());
-        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, $fields[ReenrollmentCampaignService::SETTING_OPEN_AT], 'registration');
-        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '12-31', 'registration');
+        $this->saveUnconfirmed(['is_open' => '1']);
 
-        $this->save(['is_open' => '1']);
         $this->assertFalse($this->campaign->isOpen(), 'no yes, no opening');
-        $this->flash('error');
-
-        $this->save(['is_open' => '1', 'confirm_opening' => '1']);
-        $this->assertTrue($this->campaign->isOpen());
-        $this->assertCount(1, $this->queued());
-    }
-
-    public function testThePreviewAsksExactlyWhenTheSaveWouldWriteToFamilies(): void
-    {
-        $this->assertSame(
-            "Cette configuration va ouvrir la campagne de réinscription immédiatement. "
-                . "Un e-mail d'ouverture sera envoyé aux familles concernées. Voulez-vous continuer ?",
-            $this->preview($this->openingToday())['confirm']
-        );
-        $this->assertNull(
-            $this->preview([ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '0'] + $this->openingToday())['confirm'],
-            'e-mails off: nothing to warn about'
-        );
-        $this->assertNull(
-            $this->preview([ReenrollmentCampaignService::SETTING_CLOSE_AT => '06-30'])['confirm'],
-            'a save that opens nothing asks nothing'
-        );
-        $this->assertSame([], $this->queued(), 'and asking saved nothing');
-        $this->assertFalse($this->campaign->isOpen());
+        $this->assertSame([], $this->queued());
     }
 
     public function testAReminderIsRefusedWhileTheEmailsAreOff(): void
@@ -651,11 +769,27 @@ class ReenrollmentConfigControllerTest extends TestCase
     // ── harness ───────────────────────────────────────────────────────
 
     /**
+     * A save as the chief makes it: the plan asked first, then the form
+     * posted with the plan's fingerprint (issue #796).
+     *
      * @param array<string, string> $fields
      */
-    private function save(array $fields): void
+    private function save(array $fields, ?ReenrollmentConfigController $controller = null): void
     {
-        $this->controller->save($this->post('/config/reinscription', $fields), []);
+        $controller ??= $this->controller;
+        $fingerprint = (string) ($this->preview($fields, $controller)['fingerprint'] ?? '');
+        $controller->save($this->post('/config/reinscription', $fields + ['plan_fingerprint' => $fingerprint]), []);
+    }
+
+    /**
+     * A save posted without the plan's fingerprint — what a browser
+     * without the script sends. Answers with the page it gets back.
+     *
+     * @param array<string, string> $fields
+     */
+    private function saveUnconfirmed(array $fields): string
+    {
+        return (string) $this->controller->save($this->post('/config/reinscription', $fields), [])->getBody();
     }
 
     private function remind(): void
@@ -743,9 +877,9 @@ class ReenrollmentConfigControllerTest extends TestCase
      * @param array<string, string> $fields
      * @return array<string, mixed>
      */
-    private function preview(array $fields): array
+    private function preview(array $fields, ?ReenrollmentConfigController $controller = null): array
     {
-        $response = $this->controller->preview(
+        $response = ($controller ?? $this->controller)->preview(
             new \Tests\RequestWithInput(
                 'POST',
                 '/config/reinscription/apercu',

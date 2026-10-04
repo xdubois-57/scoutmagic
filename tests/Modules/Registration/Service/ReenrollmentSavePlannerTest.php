@@ -203,6 +203,29 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
     }
 
+    /**
+     * Queued and on its way, not yet marked: handOver() would not queue it
+     * a second time, so the plan does not announce it a second time.
+     */
+    public function testAnEmailAlreadyOnItsWayIsNotAnnouncedAgain(): void
+    {
+        $planner = new ReenrollmentSavePlanner(
+            $this->campaign,
+            $this->settingService,
+            static fn (bool $silentOnly): int => 27,
+            static fn (string $type, string $key): bool => $type === 'closing' && $key === '2027-05-15'
+        );
+        $this->campaign->open();
+
+        $plan = $planner->plan([
+            'open_at' => null, 'close_at' => null, 'reminder_1_days' => null, 'reminder_2_days' => null,
+            'is_open' => false, 'emails_enabled' => true,
+        ], new \DateTimeImmutable('2027-04-20 10:00'));
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
+    }
+
     // ── opening ───────────────────────────────────────────────────────
 
     public function testAnOpeningDateOfTodayOpensNowAndWritesToEveryFamily(): void
@@ -364,6 +387,49 @@ class ReenrollmentSavePlannerTest extends TestCase
 
         $this->assertSame([], $plan->emails);
         $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
+    }
+
+    public function testTheCampaignLabelFollowsTheDatesBeingSavedNotTheStoredOnes(): void
+    {
+        // Stored 03-01 → 05-15; saved as 10-01 → 12-15 with the switch on.
+        // The campaign for 2027-2028 is the one of autumn 2026, and the
+        // label the chief confirms says so.
+        $plan = $this->plan(
+            ['is_open' => true, 'open_at' => '10-01', 'close_at' => '12-15'],
+            '2026-10-02 10:00'
+        );
+
+        $this->assertSame('2026-12-15', $plan->campaign['key'] ?? null);
+        $this->assertSame('2027-2028', $plan->campaign['label'] ?? null);
+        $this->assertSame('2026-10-01', $plan->campaign['opens'] ?? null);
+    }
+
+    public function testAnEmailDueToNobodyIsNotAnnounced(): void
+    {
+        // Every family has already answered: the closing is due, and there
+        // is nobody to write to — nothing leaves, and the plan says why.
+        $this->campaign->open();
+        $this->planner = new ReenrollmentSavePlanner(
+            $this->campaign,
+            $this->settingService,
+            static fn (bool $silentOnly): int => 0
+        );
+
+        $plan = $this->plan(['is_open' => false], '2027-04-20 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertFalse($plan->sendsEmail());
+        $this->assertSame(ReenrollmentSavePlan::REASON_NO_FAMILIES, $plan->noEmailReason);
+    }
+
+    public function testAReminderAlreadyBehindIsNotAnnouncedInTheCampaignBox(): void
+    {
+        // Opening by hand on 2027-05-10 a campaign closing 2027-05-15 with
+        // reminders 14 and 2 days before: the first fell on 05-01, behind
+        // us, and the clock never catches up; only the second will go.
+        $plan = $this->plan(['is_open' => true], '2027-05-10 10:00');
+
+        $this->assertSame(['2027-05-13'], $plan->campaign['reminders'] ?? null);
     }
 
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void

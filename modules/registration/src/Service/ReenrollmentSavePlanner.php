@@ -42,7 +42,9 @@ class ReenrollmentSavePlanner
      *        silent ones for the rest
      * @param \Closure(string $type, string $campaignKey): bool|null $inFlight whether
      *        that e-mail of that campaign is queued and has not finished: a
-     *        marker is only written once the batch has gone out
+     *        marker is only written once the batch has gone out, and
+     *        handOver() would not queue it again, so the plan must neither
+     *        announce it nor treat its campaign as unopened
      */
     public function __construct(
         private ReenrollmentCampaignService $campaign,
@@ -169,14 +171,50 @@ class ReenrollmentSavePlanner
         }
 
         $reasons = array_values(array_filter($reasons));
+        $concerned = $opening['key'] ?? $closing['campaign'] ?? null;
 
         return new ReenrollmentSavePlan(
             $changes,
             $opening !== null ? ['campaign' => $opening['key'], 'scheduled' => $opening['scheduled']] : null,
             $closing,
             $emails,
-            $emails === [] ? ($reasons[0] ?? ReenrollmentSavePlan::REASON_SETTINGS_ONLY) : null
+            $emails === [] ? ($reasons[0] ?? ReenrollmentSavePlan::REASON_SETTINGS_ONLY) : null,
+            $concerned !== null ? $this->campaignSummary($concerned, $after, $today) : null
         );
+    }
+
+    /**
+     * The campaign `$key` as it will run once `$state` is saved: the year it
+     * asks about, the day it opens and closes, and the reminders that will
+     * actually go: a reminder falling before the opening is skipped, and so
+     * is one already behind `$today` — the clock fires a reminder on its
+     * day only, with no catch-up.
+     *
+     * @param array{open_at: ?string, close_at: ?string, reminder_1_days: ?string,
+     *     reminder_2_days: ?string, is_open: bool, emails_enabled: bool} $state
+     * @return array{key: string, label: string, opens: ?string, closes: string, reminders: list<string>}
+     */
+    private function campaignSummary(string $key, array $state, \DateTimeImmutable $today): array
+    {
+        $close = DateInput::parse('!Y-m-d', $key);
+        $reminders = [];
+        if ($close !== null) {
+            foreach ([$state['reminder_1_days'], $state['reminder_2_days']] as $days) {
+                $date = ReenrollmentCampaignService::reminderDueOn($close, $state['open_at'], (string) $days);
+                if ($date !== null && $date >= $today) {
+                    $reminders[] = $date->format('Y-m-d');
+                }
+            }
+        }
+        sort($reminders);
+
+        return [
+            'key' => $key,
+            'label' => $this->campaign->targetLabelOf($key, $state['open_at']),
+            'opens' => ReenrollmentCampaignService::openingDateOf($key, (string) $state['open_at'])?->format('Y-m-d'),
+            'closes' => $key,
+            'reminders' => $reminders,
+        ];
     }
 
     /**
@@ -201,7 +239,12 @@ class ReenrollmentSavePlanner
         if (!$emailsEnabled) {
             return ReenrollmentSavePlan::REASON_EMAILS_DISABLED;
         }
-        if ($this->campaign->alreadyDone(ReenrollmentCampaignService::emailMarker($type), $key)) {
+        if (
+            $this->campaign->alreadyDone(ReenrollmentCampaignService::emailMarker($type), $key)
+            || ($this->inFlight !== null && ($this->inFlight)($type, $key))
+        ) {
+            // Gone, or on its way: either way handOver() will not queue it
+            // a second time, so neither does the plan announce it.
             return ReenrollmentSavePlan::REASON_ALREADY_SENT;
         }
         if ($key < $today->format('Y-m-d')) {
@@ -213,10 +256,17 @@ class ReenrollmentSavePlanner
             }
         }
 
+        $families = (int) ($this->familyCounter)($type !== ReenrollmentCampaignService::EMAIL_OPENING);
+        if ($families === 0) {
+            // Due, and nobody to write to — every family has already
+            // answered, or none is rostered yet: nothing leaves.
+            return ReenrollmentSavePlan::REASON_NO_FAMILIES;
+        }
+
         $emails[] = [
             'type' => $type,
             'campaign' => $key,
-            'families' => ($this->familyCounter)($type !== ReenrollmentCampaignService::EMAIL_OPENING),
+            'families' => $families,
             'deferred' => $deferred,
         ];
 

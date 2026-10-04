@@ -38,19 +38,25 @@ final class ReenrollmentSavePlan
     public const REASON_NOT_STARTED = 'not_started';
     /** The dates designate no campaign at all. */
     public const REASON_NO_CAMPAIGN = 'no_campaign';
+    /** The e-mail is due, and there is nobody left to send it to. */
+    public const REASON_NO_FAMILIES = 'no_families';
 
     /**
      * @param list<array{setting: string, from: string, to: string}> $changes
      * @param array{campaign: ?string, scheduled: bool}|null $opening
      * @param array{campaign: ?string}|null $closing
      * @param list<array{type: string, campaign: string, families: int, deferred: bool}> $emails
+     * @param array{key: string, label: string, opens: ?string, closes: string, reminders: list<string>}|null $campaign
+     *        the campaign an opening or a closing concerns, with the dates it
+     *        will run on once saved — what the dialog names (D6)
      */
     public function __construct(
         public readonly array $changes,
         public readonly ?array $opening,
         public readonly ?array $closing,
         public readonly array $emails,
-        public readonly ?string $noEmailReason
+        public readonly ?string $noEmailReason,
+        public readonly ?array $campaign = null
     ) {
     }
 
@@ -86,7 +92,14 @@ final class ReenrollmentSavePlan
      */
     public function fingerprint(): string
     {
-        $asked = [$this->changes, $this->opening, $this->closing, $this->emails, $this->noEmailReason];
+        $asked = [
+            $this->changes,
+            $this->opening,
+            $this->closing,
+            $this->emails,
+            $this->noEmailReason,
+            $this->campaign,
+        ];
 
         return hash('sha256', (string) json_encode($asked));
     }
