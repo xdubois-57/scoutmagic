@@ -40,9 +40,10 @@ final class BookingAudit
     public const HOLD_PLACED = 'hold_placed';
     public const HOLD_CLEARED = 'hold_cleared';
     /**
-     * The dates held longer when the contract goes out — not an option:
-     * an automatic hold that lapses frees the dates, it does not expire
-     * the booking the way a manager's option does.
+     * The dates held longer when the contract goes out (#708, IT-13). The
+     * hold keeps its origin — an option stays an option, an automatic hold
+     * stays automatic — so « Option posée » would record a manager decision
+     * nobody took, and with it an expiry an automatic hold does not have.
      */
     public const HOLD_EXTENDED = 'hold_extended';
     public const PRICE_CHANGED = 'price_changed';

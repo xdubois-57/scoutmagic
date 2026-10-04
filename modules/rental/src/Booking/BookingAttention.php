@@ -93,8 +93,14 @@ final class BookingAttention
 
         // The step the booking's page puts forward (#708, IT-12). Never on
         // a final booking, and not twice for a request whose status already
-        // says a decision is expected.
-        if ($next !== null && !$booking->status->isFinal() && $reasons === []) {
+        // says a decision is expected. Nor while a proposal waits on the
+        // renter's answer: the page says so (BookingJourney::headline()),
+        // and the unit's next line cannot start before that answer.
+        if ($next !== null
+            && !$booking->status->isFinal()
+            && $booking->status !== BookingStatus::PROPOSED
+            && $reasons === []
+        ) {
             if ($next->actor === StepActor::UNIT) {
                 $reasons[] = AttentionReason::UNIT_STEP;
                 $stepLines[AttentionReason::UNIT_STEP->value] = 'À faire : ' . self::unitTask($next);

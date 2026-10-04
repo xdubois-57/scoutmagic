@@ -279,6 +279,19 @@ class BookingAttentionTest extends TestCase
         $this->assertSame(['En retard : acompte attendu depuis le 01/06/2027'], $attention?->lines());
     }
 
+    /**
+     * A proposal waits on the renter: the list must not tell the unit to
+     * send a contract the page itself says is not due yet.
+     */
+    public function testAProposalWaitingOnTheRenterIsNotAUnitStep(): void
+    {
+        $booking = $this->booking(BookingStatus::PROPOSED);
+        $next = $this->nextOf($booking, [BookingMilestones::CONTRACT_SENT => false]);
+        $this->assertSame(StepActor::UNIT, $next?->actor);
+
+        $this->assertNull(BookingAttention::of($booking, [], $next));
+    }
+
     /** « Caution » is feminine: the line agrees with it. */
     public function testALateSecurityDepositAgreesWithItsNoun(): void
     {
