@@ -1104,6 +1104,8 @@ A cancelled booking is published as cancelled rather than removed, so a subscrib
 
 **A manual block over an already-booked period is accepted.** It neither fails nor overwrites the booking: a caretaker away during a letting is a real thing to record, and the two simply coexist. The public calendar shows the day as taken either way, which is all it ever says.
 
+**Managers block and release dates straight on the asset's calendar** (#708, IT-07). A tap toggles one day; a long press then a slide (or a mouse drag) treats every day between the first and the last together, the first day deciding whether the gesture blocks or releases. Past days do not react, and a gesture stops at the edge of the month shown. One request per gesture, at release; the days are turned back into periods — extended, cut in two, removed, merged only when their reasons match — and « Annuler » undoes the gesture exactly. A period always takes the whole asset, whatever its number of units: there is no quantity. Its reason is given and changed in the list under the grid; a day held by both a booking and the unit shows both.
+
 ### 22.9 Correspondence
 
 With the Courrier entrant module, replies are attached to the right booking automatically: by the signed reply address the site's own mail carried, then by the reference in the subject, then by the thread headers, then by the sender's address inside a window around the stay. **An ambiguous match attaches nothing** — a manager reading the wrong file has no way to know it is the wrong one. Every attachment says how it was made, and a sender match is labelled as the guess it is.

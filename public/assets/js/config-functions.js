@@ -24,6 +24,12 @@
 //     shows the origin above the message and labels its button in the
 //     browser's language, not French.
 //
+// Every save answers with a toast, success included (design.md §7.13,
+// issue #739): the role row used to flash green and the other controls
+// succeeded in silence. A refused pick or switch goes back to the value
+// the server still holds; a refused free-text field keeps what was typed,
+// so nothing the admin wrote is thrown away.
+//
 // The section « Visible » control is a role="switch" checkbox: its
 // aria-checked is rendered server-side and kept in sync by nav.js's
 // delegated change listener (ScoutMagicNav.syncSwitchAriaChecked). Nothing
@@ -62,37 +68,89 @@
 
     /**
      * One field save: the control is disabled for the round trip, the
-     * server's error is toasted, and the parsed body comes back only on
+     * result is toasted either way, and the parsed body comes back only on
      * business success so callers can read what it returned (the colour
      * endpoint answers with the effective colour).
      *
      * @param {HTMLInputElement|HTMLSelectElement|null} control
      * @param {string} url
      * @param {Object} body
+     * @param {() => void} [revert] puts the control back on the
+     *     value the server still holds, when the save is refused
      * @returns {Promise<any>} the parsed body on success, null otherwise
      */
-    function save(control, url, body) {
+    function save(control, url, body, revert) {
         return api.withDisabled(/** @type {HTMLInputElement} */ (/** @type {unknown} */ (control)), function () {
             return api.postJson(url, body);
         }).then(function (res) {
             if (res.data?.success) {
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 return res.data;
+            }
+            if (revert) {
+                revert();
             }
             toastError(res);
             return null;
         });
     }
 
+    /**
+     * A text field saved on blur — only when its value differs from the
+     * one the server last accepted, so tabbing through untouched fields
+     * sends nothing and says nothing.
+     *
+     * @param {HTMLInputElement} input
+     * @param {(value: string) => Promise<any>} send resolves to the parsed
+     *     body on success, null otherwise (what save() returns)
+     */
+    function saveOnChangedBlur(input, send) {
+        var saved = input.value;
+        input.addEventListener('blur', function () {
+            var value = input.value;
+            if (value === saved) {
+                return;
+            }
+            void send(value).then(function (data) {
+                if (data) {
+                    saved = value;
+                }
+            });
+        });
+    }
+
+    /**
+     * A switch the admin just flipped: a refused save flips it back.
+     *
+     * @param {HTMLInputElement} input
+     * @returns {() => void}
+     */
+    function flipBack(input) {
+        return function () {
+            input.checked = !input.checked;
+            // Only a real switch carries aria-checked; a plain checkbox
+            // (the lead flag) must not grow one.
+            if (input.getAttribute('role') === 'switch') {
+                window.ScoutMagicNav?.syncSwitchAriaChecked?.(input);
+            }
+        };
+    }
+
     // --- Function roles ---
     roleSelects.forEach(function (select) {
+        var savedRole = select.value;
         select.addEventListener('change', function () {
+            var chosen = select.value;
             save(select, '/config/functions/update', {
                 function_id: Number.parseInt(select.dataset.id, 10),
-                role: select.value
+                role: chosen
+            }, function () {
+                select.value = savedRole;
             }).then(function (data) {
                 if (!data) {
                     return;
                 }
+                savedRole = chosen;
                 var row = /** @type {HTMLElement|null} */ (select.closest('.function-row'));
                 if (!row) {
                     return;
@@ -103,9 +161,6 @@
                 if (pending) {
                     pending.remove();
                 }
-                // Brief visual feedback — the row flashes green.
-                row.style.backgroundColor = 'var(--bs-success-bg-subtle)';
-                setTimeout(function () { row.style.backgroundColor = ''; }, 1000);
             });
         });
     });
@@ -120,7 +175,7 @@
             save(leadInput, '/config/functions/flags', {
                 function_id: Number.parseInt(group.dataset.id, 10),
                 lead: leadInput.checked
-            });
+            }, flipBack(leadInput));
         });
     });
 
@@ -134,8 +189,8 @@
         var colorReset = /** @type {HTMLButtonElement|null} */ (row.querySelector('.section-color-reset'));
 
         if (nameInput) {
-            nameInput.addEventListener('blur', function () {
-                save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: nameInput.value });
+            saveOnChangedBlur(nameInput, function (value) {
+                return save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: value });
             });
         }
 
@@ -144,20 +199,20 @@
             var emailWarningText = /** @type {HTMLElement|null} */ (
                 row.querySelector('.section-email-warning-text')
             );
-            emailInput.addEventListener('blur', function () {
-                save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: emailInput.value })
+            saveOnChangedBlur(emailInput, function (value) {
+                return save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: value })
                     .then(function (data) {
-                        if (!data || !emailWarning || !emailWarningText) {
-                            return;
-                        }
                         // The sentence comes from the server, which owns the
                         // rule: this only shows or hides what it answered.
                         // An absent key is « nothing to warn about », the
                         // same as an empty one, so an older answer cannot
                         // leave a stale warning on screen.
-                        var warning = data.alignment_warning || '';
-                        emailWarningText.textContent = warning;
-                        emailWarning.classList.toggle('d-none', warning === '');
+                        if (data && emailWarning && emailWarningText) {
+                            var warning = data.alignment_warning || '';
+                            emailWarningText.textContent = warning;
+                            emailWarning.classList.toggle('d-none', warning === '');
+                        }
+                        return data;
                     });
             });
         }
@@ -167,7 +222,7 @@
                 save(visibleInput, '/config/functions/section-visibility', {
                     section_id: sectionId,
                     visible: visibleInput.checked
-                });
+                }, flipBack(visibleInput));
             });
         }
 
@@ -179,13 +234,17 @@
              *
              * @param {string|null} color
              */
+            var savedColor = colorInput.value;
             var saveColor = function (color) {
-                save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color })
+                void save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color }, function () {
+                    colorInput.value = savedColor;
+                })
                     .then(function (data) {
                         if (!data) {
                             return;
                         }
                         colorInput.value = data.color;
+                        savedColor = data.color;
                         colorInput.dataset.hasOverride = color ? '1' : '0';
                         colorReset.disabled = !color;
                     });
@@ -203,8 +262,8 @@
         if (!urlInput) {
             return;
         }
-        urlInput.addEventListener('blur', function () {
-            save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: urlInput.value });
+        saveOnChangedBlur(urlInput, function (value) {
+            return save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: value });
         });
     });
 })();
