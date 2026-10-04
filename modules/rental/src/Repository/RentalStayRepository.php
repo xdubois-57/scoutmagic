@@ -12,6 +12,7 @@ use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
@@ -233,41 +234,108 @@ class RentalStayRepository
 
     // ── Inventory template (§6.23) ──────────────────────────────────────
 
-    public function createInventoryItem(int $assetId, string $label, int $sortOrder = 0): int
+    /**
+     * A new item goes to the END of the list (#708, IT-10): there is no
+     * position field any more, the order is the manager's drag.
+     */
+    public function createInventoryItem(int $assetId, string $label, InventoryKind $kind, ?int $expectedCount): int
     {
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_inventory_items (asset_id, label, sort_order, created_at) VALUES (?, ?, ?, ?)'
+        $next = $this->pdo->prepare(
+            'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM rental_inventory_items WHERE asset_id = ? AND is_active = 1'
         );
-        $stmt->execute([$assetId, $label, $sortOrder, (new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
+        $next->execute([$assetId]);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rental_inventory_items (asset_id, label, kind, expected_count, sort_order, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $assetId,
+            $label,
+            $kind->value,
+            $expectedCount,
+            (int) $next->fetchColumn(),
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+        ]);
 
         return (int) $this->pdo->lastInsertId();
     }
 
     /**
-     * @return array<int, array{id: int, label: string, sort_order: int}>
+     * @return array<int, array{id: int, label: string, kind: InventoryKind, expected_count: ?int, sort_order: int}>
      */
     public function findInventoryItems(int $assetId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, label, sort_order FROM rental_inventory_items
+            'SELECT id, label, kind, expected_count, sort_order FROM rental_inventory_items
              WHERE asset_id = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC'
         );
         $stmt->execute([$assetId]);
 
         return array_map(
-            static fn(array $row) => [
-                'id' => (int) $row['id'],
-                'label' => (string) $row['label'],
-                'sort_order' => (int) $row['sort_order'],
-            ],
+            static fn(array $row) => self::hydrateInventoryItem($row),
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
+    }
+
+    /**
+     * One active item of THIS asset's template, or null — the guard every
+     * write on an item goes through, so an id alone cannot reach another
+     * asset's list.
+     *
+     * @return array{id: int, label: string, kind: InventoryKind, expected_count: ?int, sort_order: int}|null
+     */
+    public function findInventoryItem(int $assetId, int $itemId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, label, kind, expected_count, sort_order FROM rental_inventory_items
+             WHERE id = ? AND asset_id = ? AND is_active = 1'
+        );
+        $stmt->execute([$itemId, $assetId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? self::hydrateInventoryItem($row) : null;
+    }
+
+    public function updateInventoryItemKind(int $itemId, InventoryKind $kind, ?int $expectedCount): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE rental_inventory_items SET kind = ?, expected_count = ? WHERE id = ?');
+        $stmt->execute([$kind->value, $expectedCount, $itemId]);
+    }
+
+    /**
+     * Rewrites the positions of an asset's items in the order given. Ids
+     * that are not this asset's are ignored by the WHERE, never moved.
+     *
+     * @param int[] $itemIds
+     */
+    public function reorderInventoryItems(int $assetId, array $itemIds): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE rental_inventory_items SET sort_order = ? WHERE id = ? AND asset_id = ?');
+        foreach (array_values($itemIds) as $position => $itemId) {
+            $stmt->execute([$position, $itemId, $assetId]);
+        }
     }
 
     public function deactivateInventoryItem(int $itemId): void
     {
         $stmt = $this->pdo->prepare('UPDATE rental_inventory_items SET is_active = 0 WHERE id = ?');
         $stmt->execute([$itemId]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array{id: int, label: string, kind: InventoryKind, expected_count: ?int, sort_order: int}
+     */
+    private static function hydrateInventoryItem(array $row): array
+    {
+        return [
+            'id' => (int) $row['id'],
+            'label' => (string) $row['label'],
+            'kind' => InventoryKind::tryFrom((string) $row['kind']) ?? InventoryKind::QUANTITY,
+            'expected_count' => $row['expected_count'] !== null ? (int) $row['expected_count'] : null,
+            'sort_order' => (int) $row['sort_order'],
+        ];
     }
 
     // ── Inventory snapshot (§6.23) ──────────────────────────────────────
@@ -293,14 +361,23 @@ class RentalStayRepository
 
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $insert = $this->pdo->prepare(
-            'INSERT INTO rental_booking_inventory (booking_id, label, sort_order, updated_at) VALUES (?, ?, ?, ?)'
+            'INSERT INTO rental_booking_inventory (booking_id, label, kind, expected_count, sort_order, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
 
         foreach ($this->findInventoryItems($assetId) as $item) {
             // The LABEL is copied, not referenced: an item renamed in June
             // must not rewrite what was checked in March, and one deleted
-            // must not erase a finding.
-            $insert->execute([$bookingId, $item['label'], $item['sort_order'], $now]);
+            // must not erase a finding. The sort and the count travel with
+            // it for the same reason (#708, IT-10).
+            $insert->execute([
+                $bookingId,
+                $item['label'],
+                $item['kind']->value,
+                $item['expected_count'],
+                $item['sort_order'],
+                $now,
+            ]);
         }
 
         $flag = $this->pdo->prepare(
@@ -317,6 +394,8 @@ class RentalStayRepository
      *     array{
      *         id: int,
      *         label: string,
+     *         kind: InventoryKind,
+     *         expected_count: ?int,
      *         sort_order: int,
      *         arrival_state: InventoryState,
      *         departure_state: InventoryState,
@@ -336,6 +415,8 @@ class RentalStayRepository
             static fn(array $row) => [
                 'id' => (int) $row['id'],
                 'label' => (string) $row['label'],
+                'kind' => InventoryKind::tryFrom((string) $row['kind']) ?? InventoryKind::QUANTITY,
+                'expected_count' => $row['expected_count'] !== null ? (int) $row['expected_count'] : null,
                 'sort_order' => (int) $row['sort_order'],
                 'arrival_state' => InventoryState::tryFrom((string) $row['arrival_state'])
                     ?? InventoryState::NOT_CHECKED,

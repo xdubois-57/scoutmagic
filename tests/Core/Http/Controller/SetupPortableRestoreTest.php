@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Tests\UsesProductionEngine;
+use Tests\Support\PortableHints;
 
 /**
  * Who may reach the wizard's portable restore, and who may not.
@@ -624,7 +625,7 @@ final class SetupPortableRestoreTest extends TestCase
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::RESTORED_FROM_SETTING, '');
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '0.0.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample('0.0.1'), self::ORIGIN_ID);
         $this->cleanupPaths[] = $result['dbDumpPath'];
         $this->cleanupPaths[] = $result['zipPath'];
 

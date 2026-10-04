@@ -169,33 +169,30 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // somebody already signed off (§6.23).
         await page.goto(`/mes-locations/${ASSET_SLUG}/gabarits`, { waitUntil: 'load' });
 
-        // Both forms below share their action with the « Retirer » button of
-        // every row already listed, so each is picked out by the field only
-        // the ADD form carries.
-        const meterForm = page.locator('form[action="/mes-locations/compteur"]')
-            .filter({ has: page.locator('#meter-label') });
-        await meterForm.locator('#meter-label').fill(METER_LABEL);
-        await meterForm.locator('#meter-kind').selectOption('electricity');
-        await meterForm.locator('#meter-unit').fill('kWh');
-        await submitAndReload(
-            page,
-            '/mes-locations/compteur',
-            meterForm.getByRole('button', { name: 'Ajouter', exact: true }),
-        );
+        // Both lists add in place (#708, IT-10): the add form posts JSON and
+        // the new row appears without a reload — which is what is awaited.
+        const meters = page.locator('#meter-list');
+        await meters.locator('#meter-label').fill(METER_LABEL);
+        await meters.locator('#meter-kind').selectOption('electricity');
+        await meters.locator('#meter-unit').fill('kWh');
+        await meters.getByRole('button', { name: 'Ajouter', exact: true }).click();
+        await expect(meters.locator('.list-editor-item', { hasText: METER_LABEL })).toBeVisible();
 
         // TWO lines, not one: "every line has been looked at" is the rule
         // the milestone encodes (`MilestoneEvidence::allChecked()`), and a
         // single-line checklist cannot tell it apart from "some line has".
-        for (const label of [INVENTORY_KEYS, INVENTORY_KITCHEN]) {
-            const template = page.locator('form[action="/mes-locations/inventaire-modele"]')
-                .filter({ has: page.locator('#item-label') });
-            await template.locator('#item-label').fill(label);
-            await submitAndReload(
-                page,
-                '/mes-locations/inventaire-modele',
-                template.getByRole('button', { name: 'Ajouter', exact: true }),
-            );
+        // The kitchen is observed, not counted: a « Oui / Non » item.
+        const inventory = page.locator('#inventory-list');
+        for (const [label, kind] of [[INVENTORY_KEYS, 'quantity'], [INVENTORY_KITCHEN, 'yes_no']]) {
+            await inventory.locator('#item-label').fill(label);
+            await inventory.locator('#item-kind').selectOption(kind);
+            await inventory.getByRole('button', { name: 'Ajouter', exact: true }).click();
+            await expect(inventory.locator('.list-editor-item', { hasText: label })).toBeVisible();
         }
+        // Added in place, and really stored: a reload shows both, in order.
+        await page.reload({ waitUntil: 'load' });
+        await expect(page.locator('#inventory-list .list-editor-item')).toHaveCount(2);
+        await expect(page.locator('#inventory-list .list-editor-item').first()).toContainText(INVENTORY_KEYS);
 
         // The request itself, by somebody with no account — in a browser of
         // its own, so the manager's session survives and this spec pays for

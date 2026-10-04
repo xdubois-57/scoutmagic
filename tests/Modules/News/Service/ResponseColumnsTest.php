@@ -210,7 +210,7 @@ class ResponseColumnsTest extends TestCase
     {
         return new NewsForm(
             1, 1, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, $issuesTicket,
+            null, null, false, 'chief', null, $issuesTicket,
             null, null, null, null, '2026-01-01 09:00:00'
         );
     }

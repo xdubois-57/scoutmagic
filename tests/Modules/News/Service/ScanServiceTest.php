@@ -72,7 +72,7 @@ class ScanServiceTest extends TestCase
         $articleId = $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, $issuesTicket, $eventDate, null
+            null, null, false, 'chief', null, null, $issuesTicket, $eventDate, null
         );
 
         return [$articleId, $formId];
@@ -150,7 +150,7 @@ class ScanServiceTest extends TestCase
         $articleId = $this->articles->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, '2020-01-01', true, 'chief', false, null, true, '2026-03-14', null
+            null, '2020-01-01', true, 'chief', null, null, true, '2026-03-14', null
         );
         $this->booking($formId, [], 'a@test.com');
 

@@ -20,7 +20,12 @@ function buildDom() {
     document.body.innerHTML = '';
     [
         el('<button type="button" id="support-package-generate">Générer</button>'),
-        el('<span class="d-none" id="support-package-progress"><span class="small">Génération…</span></span>'),
+        // The shape the real template renders (issue #744, pinned on the
+        // rendered page by SupportControllerTest): spinner and sentence
+        // inside the one container this script shows and hides.
+        el('<output class="d-none d-inline-flex" id="support-package-progress">'
+            + '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>'
+            + '<span class="small">Génération en cours…</span></output>'),
         el('<a class="btn d-none" id="support-package-download" href="#">Télécharger</a>'),
         el('<p class="d-none" id="support-package-generated-at"></p>'),
         el('<div class="alert d-none" id="support-package-error" role="alert"></div>'),
@@ -124,6 +129,8 @@ describe('support-package.js: starting a generation', () => {
         expect(ids().error.textContent).toBe('Jeton de sécurité invalide.');
         expect(ids().error.classList.contains('d-none')).toBe(false);
         expect(ids().button.disabled).toBe(false);
+        // Spinner and sentence go together (issue #744).
+        expect(ids().progress.classList.contains('d-none')).toBe(true);
     });
 
     it('reports a network failure on the scheduling call', async () => {
@@ -170,6 +177,7 @@ describe('support-package.js: polling to completion', () => {
         expect(ids().download.classList.contains('d-none')).toBe(false);
         expect(ids().generatedAt.classList.contains('d-none')).toBe(false);
         expect(ids().button.disabled).toBe(false);
+        expect(ids().progress.classList.contains('d-none')).toBe(true);
     });
 
     it('stops polling once the download is offered', async () => {

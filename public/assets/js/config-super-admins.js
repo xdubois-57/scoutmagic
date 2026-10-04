@@ -14,9 +14,9 @@
 // the last usable super admin, and refuses anyone deactivating
 // themselves; this file only reports what came back and puts the switch
 // where the server left it. A refusal that only greyed a control out
-// would be no refusal at all — which is why the row the visitor cannot
-// act on is rendered without a switch server-side, rather than with a
-// disabled one this script could re-enable.
+// would be no refusal at all. The row the visitor cannot act on shows a
+// disabled switch without the class this file binds to, so nothing is
+// ever sent from it — and the server refuses the change regardless.
 //
 // The « Actif » control is a role="switch" checkbox. Bootstrap's switch is
 // purely visual, so the aria-checked a screen reader announces is the
@@ -48,8 +48,8 @@
     }
 
     /**
-     * Reflects the row's state in the badge beside the switch, so the
-     * written state and the control never disagree after a save.
+     * Reflects the row's state in its dimming — the switch is the only
+     * written state left on the row (issue #744 removed the badge).
      *
      * @param {HTMLInputElement} control
      * @param {boolean} isActive
@@ -57,17 +57,8 @@
      */
     function paintRow(control, isActive) {
         var row = control.closest('tr');
-        if (!row) {
-            return;
-        }
-
-        row.classList.toggle('opacity-50', !isActive);
-
-        var badge = row.querySelector('.super-admin-state-badge');
-        if (badge) {
-            badge.textContent = isActive ? 'Actif' : 'Désactivé';
-            badge.classList.toggle('text-bg-success', isActive);
-            badge.classList.toggle('text-bg-secondary', !isActive);
+        if (row) {
+            row.classList.toggle('opacity-50', !isActive);
         }
     }
 

@@ -117,23 +117,6 @@ final class RentalBooking
      * lapsed a minute ago frees its dates on this page load, not on the next
      * run of the task.
      */
-    /**
-     * Since when the dates are no longer held, for a request still
-     * waiting on the unit whose automatic hold ran out (#708, IT-01) —
-     * null while a hold runs, or once the booking is confirmed or final.
-     *
-     * Read from the hold itself before the expiry task has run, and from
-     * `$holdLapsedAt` after it.
-     */
-    public function holdLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
-    {
-        if ($this->status->firmlyOccupiesTheAsset() || $this->status->isFinal() || $this->holdIsActive($now)) {
-            return null;
-        }
-
-        return $this->holdUntil ?? $this->holdLapsedAt;
-    }
-
     public function occupiesTheAsset(\DateTimeImmutable $now): bool
     {
         if (!$this->status->occupiesTheAsset()) {
@@ -145,6 +128,47 @@ final class RentalBooking
         }
 
         return $this->holdIsActive($now);
+    }
+
+    /**
+     * Since when the dates are no longer held, for a request still
+     * waiting on the unit whose automatic hold ran out (#708, IT-01) —
+     * null while a hold runs, or once the booking is confirmed or final.
+     *
+     * Read from the hold itself before the expiry task has run, and from
+     * `$holdLapsedAt` after it. A manager's option is not this: its lapse
+     * ends the booking — see optionLapsedSince().
+     */
+    public function holdLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($this->holdOrigin === HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+            return null;
+        }
+
+        return $this->holdUntil ?? $this->holdLapsedAt;
+    }
+
+    /**
+     * Since when a manager's option has run out on a booking the expiry
+     * task has not yet expired — null otherwise.
+     *
+     * The window is short (until the next run of the task), but the page
+     * must not tell the manager to « poser une option » on a booking whose
+     * option has just lapsed and is about to end it (specifications.md
+     * §22.5).
+     */
+    public function optionLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($this->holdOrigin !== HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+            return null;
+        }
+
+        return $this->holdUntil;
+    }
+
+    private function stillWaitsOnAHold(\DateTimeImmutable $now): bool
+    {
+        return !$this->status->firmlyOccupiesTheAsset() && !$this->status->isFinal() && !$this->holdIsActive($now);
     }
 
     /**

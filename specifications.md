@@ -1780,7 +1780,7 @@ One form per article, at most. Its fields are built one by one — short and lon
 - a **maximum capacity**, which makes the form display how many places are left and close that option once it is full;
 - a **unit price**, which is what makes the form a paying one.
 
-The form's own settings are: who may answer (anybody, or identified visitors only), how many answers one person may give (unlimited, one per account, one per member), the opening and closing dates plus a manual force-close, who may read the responses (intendant, chief or chef d'unité), the receiving bank account when the finance module is active, and a daily digest to the author.
+The form's own settings are: who may answer (anybody, or identified visitors only), how many answers one person may give (unlimited, one per account, one per member), the opening and closing dates plus a manual force-close, who may read the responses (intendant, chief or chef d'unité), the receiving bank account when the finance module is active, and the address that receives the daily digest of new responses.
 
 **A public form cannot limit answers per person**, and the site enforces it rather than trusting the setting: an anonymous submission is tied to no account and no member, so there is nothing to count against. For the same reason, a field whose options are "the members linked to this account" is unavailable there.
 
@@ -1806,7 +1806,7 @@ One line per response, one column per question, opened at the role the form's ow
 
 **The Excel export is a mail-merge audience as it stands** (§24.4): it downloads the whole set, payment states included, with headers the mail-merge importer recognizes — no editing between the two screens. « Écrire aux répondants » does the same thing without the round trip through a file: it prepares a mail-merge draft addressed to everybody who answered, each form field available as a variable, and leaves the composer open — nothing is sent. It uses the address each person answered with, counts two answers from one address as one recipient, requires the `chief` role (the responses page itself opens at `intendant`), and is absent when the mass-mail module is disabled.
 
-**The daily digest** mails the article's author how many new responses arrived since the last one, and sends nothing at all on a day with none.
+**The daily digest** mails **the address the form carries** how many new responses arrived since the last one, and sends nothing at all on a day with none. An empty address is how the digest is turned off, and it is the only way: there is no separate switch. A new form's address starts at its creator's, because that is where the digest used to go and the address they would otherwise type — but it is a default and nothing more. From then on it is the form's own setting: it can be a function's mailbox rather than a person's (« intendance@… », the mailbox of the camp), and changing the article's author, or having somebody else edit the article, never moves it.
 
 ### 32.6 Out of scope
 
@@ -1845,7 +1845,7 @@ Each local location displays the free space on the disk that holds it, with the 
 
 ### 33.5 Albums this module hosts for somebody else
 
-Another module may own an album that gallery merely stores — a discussion group's photos (§20). Such an album is **excluded from every one of gallery's own listings, pickers and public interfaces**; it is reachable only through its owning module, which is also what decides who may see it. **One exception, and it is an administration one**: Configuration > Galerie, onglet « Albums » lists delegated albums beside the others, superadmin-only, because they occupy real space on a real location and an administrator reconciling « pourquoi ce volume est-il plein » would otherwise be looking at an account of the space that does not add up — and because migrating an album off a location has to be possible for those too. That list names the owning module and offers the migration; it opens no album, serves no medium, and is not a path to their contents. The link-preview cache this module maintains is shared the same way: it caches a URL's metadata, never the image, so that one group's private preview can never be served to somebody with no membership in it.
+Another module may own an album that gallery merely stores — a discussion group's photos (§20). Such an album is **excluded from every one of gallery's own listings, pickers and public interfaces**; it is reachable only through its owning module, which is also what decides who may see it. **One exception, and it is an administration one**: Configuration > Galerie, onglet « Albums » lists delegated albums beside the others, superadmin-only, because they occupy real space on a real location and an administrator reconciling « pourquoi ce volume est-il plein » would otherwise be looking at an account of the space that does not add up — and because migrating an album off a location has to be possible for those too. That list names the owning module and offers the migration; it opens no album, serves no medium, and is not a path to their contents. **Each delegated album is named by its owner, as its owner stands now** — « Groupe Staff d'U », « Grand camp — Ferme de la Hulotte — 12–19 juillet 2028 » — never by the identifier of a row: the name is recomputed on every page load, so renaming a group or correcting a stay's dates moves it with nothing recreated and no medium moved. An album whose owner has been deleted, or whose module is switched off, stays listed and says which of the two happened, keeping its technical identifier after the sentence for diagnosis: it may still be occupying space, and an album an administrator cannot see is an album whose storage bill nobody can explain. The link-preview cache this module maintains is shared the same way: it caches a URL's metadata, never the image, so that one group's private preview can never be served to somebody with no membership in it.
 
 ### 33.6 Notification, and what is out of scope
 
@@ -3240,9 +3240,11 @@ membres ne voient jamais l'historique.
 
 - **La liste**, dans l'ordre de la page publique, se réordonne au
   glisser-déposer (des flèches sur un écran étroit). Chaque ligne montre
-  le titre, la visibilité, le type, la taille, la date et l'adresse à
-  partager ; sous un document remplacé au moins une fois, ses versions
-  précédentes, repliées, chacune téléchargeable.
+  le titre, la visibilité, la date du fichier lui-même (une modification
+  du titre ou de la visibilité ne la change pas), un bouton qui copie
+  l'adresse à partager, et le tag rouge « Expiré » le cas échéant ; sous
+  un document remplacé au moins une fois, ses versions précédentes,
+  repliées, chacune téléchargeable (#731).
 - **Un seul formulaire** pour ajouter comme pour modifier : titre,
   description facultative, visibilité, fichier (obligatoire à l'ajout,
   facultatif ensuite). L'avertissement sur le remplacement n'apparaît
@@ -3254,6 +3256,14 @@ membres ne voient jamais l'historique.
 - **Journal** : ajout, modification, remplacement de fichier,
   suppression d'une version, suppression — identifiants seulement,
   jamais un titre.
+- **Validité** (#731) : chaque document a une date d'expiration, deux ans
+  après sa création par défaut, modifiable dans le formulaire ; la
+  repousser suffit à confirmer qu'il reste valable. Remplacer le fichier
+  repart sur deux ans, sauf si la même modification fixe une date ; une
+  modification des seules informations ne la touche pas. Expiré, le
+  document reste en ligne et accessible ; un point d'attention agrégé
+  (« 3 documents sont expirés ») renvoie vers la liste et disparaît quand
+  il n'en reste aucun.
 
 
 ## 47. Réseaux sociaux (module social)

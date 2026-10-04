@@ -92,7 +92,7 @@ class FormService
      *     closes_at: ?string,
      *     is_force_closed: bool,
      *     response_role_min: string,
-     *     daily_digest_enabled: bool,
+     *     digest_email: ?string,
      *     finance_account_id: ?int,
      *     issues_ticket?: bool,
      *     event_date?: ?string,
@@ -127,6 +127,7 @@ class FormService
             ? $settings['response_role_min']
             : 'chief';
 
+        $digestEmail = $this->normalizeDigestEmail($settings['digest_email'] ?? null);
         $issuesTicket = (bool) ($settings['issues_ticket'] ?? false);
         $eventDate = self::normalizeEventDate($settings['event_date'] ?? null);
         $eventLocation = self::normalizeEventLocation($settings['event_location'] ?? null);
@@ -142,7 +143,7 @@ class FormService
                 $settings['closes_at'],
                 $settings['is_force_closed'],
                 $responseRoleMin,
-                $settings['daily_digest_enabled'],
+                $digestEmail,
                 $settings['finance_account_id'],
                 $issuesTicket,
                 $eventDate,
@@ -158,7 +159,7 @@ class FormService
                 $settings['closes_at'],
                 $settings['is_force_closed'],
                 $responseRoleMin,
-                $settings['daily_digest_enabled'],
+                $digestEmail,
                 $settings['finance_account_id'],
                 $issuesTicket,
                 $eventDate,
@@ -222,6 +223,40 @@ class FormService
     private static function normalizeEventDate(?string $value): ?string
     {
         return DateInput::isoStringOrNull($value);
+    }
+
+    /**
+     * The digest's recipient, or null for « do not send » (issue #738).
+     *
+     * An empty field is the OFF switch, and it is the only way to turn
+     * the digest off now, so a blank must be accepted and stored as
+     * nothing rather than refused. Anything else has to be an address:
+     * a typo saved in silence is a digest that never arrives and says
+     * nothing about why, which is worse than the refusal.
+     *
+     * `FILTER_VALIDATE_EMAIL` is the same check the rest of this codebase
+     * uses, and it is also what keeps the value inside `schema.sql`'s
+     * `VARCHAR(255)`: it enforces RFC 5321's own ceiling, measured at 254
+     * characters on PHP 8.4, so nothing it accepts can overflow the
+     * column. An explicit length guard beside it would be unreachable —
+     * this one had one, and removing it is what writing a test for it
+     * showed to be right.
+     */
+    private static function normalizeDigestEmail(?string $value): ?string
+    {
+        $value = $value !== null ? trim($value) : '';
+        if ($value === '') {
+            return null;
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_EMAIL) === false) {
+            throw new NewsException(
+                'L\'adresse e-mail du résumé quotidien n\'est pas valide. '
+                . 'Laissez le champ vide pour ne pas recevoir de résumé.'
+            );
+        }
+
+        return $value;
     }
 
     private static function normalizeEventLocation(?string $value): ?string

@@ -109,6 +109,9 @@ class EmailTemplateController extends AbstractController
         $override = $this->overrides->find($template->id);
 
         return $this->render('config/email_edit.html.twig', [
+            // The trail ends on the template's own name, the page's title
+            // (issue #744) — never the route's generic « Email ».
+            'breadcrumb_current' => $template->label,
             'template' => $template,
             'editable' => $template->editable,
             'customised' => $override !== null,

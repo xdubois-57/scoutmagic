@@ -81,32 +81,42 @@
                             <td>{{ row.created_at ? row.created_at|date_fr : '—' }}</td>
                             <td>{{ account.lastLoginAt ? account.lastLoginAt|datetime_fr : 'Jamais' }}</td>
                             <td>
-                                {% if not can_toggle[account.id]|default(false) %}
-                                    {# No switch at all where the server would refuse the
-                                       change: a disabled control is something a script can
-                                       re-enable, and the refusal has to read as a refusal
-                                       rather than as a control that does not respond. #}
-                                    <span class="badge super-admin-state-badge {{ account.isActive ? 'text-bg-success' : 'text-bg-secondary' }}">
-                                        {{ account.isActive ? 'Actif' : 'Désactivé' }}
-                                    </span>
-                                {% else %}
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="form-check form-switch mb-0">
-                                            <input type="checkbox" role="switch"
-                                                   class="form-check-input super-admin-active-toggle"
-                                                   id="super-admin-active-{{ account.id }}"
-                                                   data-account-id="{{ account.id }}"
-                                                   {{ account.isActive ? 'checked' : '' }}
-                                                   aria-checked="{{ account.isActive ? 'true' : 'false' }}">
-                                            <label class="form-check-label visually-hidden" for="super-admin-active-{{ account.id }}">
-                                                Compte actif
-                                            </label>
-                                        </div>
-                                        <span class="badge super-admin-state-badge {{ account.isActive ? 'text-bg-success' : 'text-bg-secondary' }}">
-                                            {{ account.isActive ? 'Actif' : 'Désactivé' }}
-                                        </span>
-                                    </div>
-                                {% endif %}
+                                {# The switch alone (issue #744): the column heading says
+                                   « Actif », and a badge repeating it on every row only
+                                   widened the table. The row's dimming still marks a
+                                   deactivated account. #}
+                                <div class="form-check form-switch mb-0">
+                                    {% if can_toggle[account.id]|default(false) %}
+                                        <input type="checkbox" role="switch"
+                                               class="form-check-input super-admin-active-toggle"
+                                               id="super-admin-active-{{ account.id }}"
+                                               data-account-id="{{ account.id }}"
+                                               {{ account.isActive ? 'checked' : '' }}
+                                               aria-checked="{{ account.isActive ? 'true' : 'false' }}">
+                                        <label class="form-check-label visually-hidden" for="super-admin-active-{{ account.id }}">
+                                            Compte actif
+                                        </label>
+                                    {% else %}
+                                        {# Where the server would refuse the change — your own
+                                           account, or the last active super admin — the same
+                                           switch, disabled, and without the class
+                                           config-super-admins.js binds to, so nothing is ever
+                                           sent from it. Re-enabling it in the browser would
+                                           still meet the server's refusal: this is a display,
+                                           never the protection. #}
+                                        <input type="checkbox" role="switch" class="form-check-input"
+                                               id="super-admin-active-{{ account.id }}"
+                                               {{ account.isActive ? 'checked' : '' }} disabled
+                                               aria-checked="{{ account.isActive ? 'true' : 'false' }}">
+                                        <label class="form-check-label visually-hidden" for="super-admin-active-{{ account.id }}">
+                                            {% if is_self %}
+                                                État de votre propre compte, non modifiable
+                                            {% else %}
+                                                Compte actif, non modifiable : dernier accès superadmin actif
+                                            {% endif %}
+                                        </label>
+                                    {% endif %}
+                                </div>
                             </td>
                             <td class="text-end">
                                 {% if not can_revoke[account.id]|default(false) %}
@@ -125,8 +135,12 @@
                                           data-confirm="Retirer le droit superadmin à {{ account.email }} ? Cette personne perdra l'accès à la configuration du site. Son compte, son mot de passe et ses clés numériques sont conservés.">
                                         {{ csrf_field()|raw }}
                                         <input type="hidden" name="user_account_id" value="{{ account.id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                                            <i class="bi bi-trash" aria-hidden="true"></i> Retirer le droit
+                                        {# Icon only (issue #744); the accessible name keeps
+                                           the whole action and names the account. #}
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                title="Retirer le droit superadmin"
+                                                aria-label="Retirer le droit superadmin à {{ account.email }}">
+                                            <i class="bi bi-trash" aria-hidden="true"></i>
                                         </button>
                                     </form>
                                 {% endif %}

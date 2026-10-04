@@ -18,6 +18,7 @@ use Core\Maintenance\Portable\PortableManifest;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
+use Tests\Support\PortableHints;
 
 /**
  * The reader, tested against archives the writer actually produced.
@@ -327,7 +328,11 @@ final class PortableArchiveTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, self::ARCHIVE_VERSION, self::ORIGIN_ID);
+        $result = $service->createPortableBackup(
+            self::PASSPHRASE,
+            PortableHints::sample(self::ARCHIVE_VERSION),
+            self::ORIGIN_ID
+        );
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
