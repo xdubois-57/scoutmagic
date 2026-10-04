@@ -243,7 +243,8 @@ class ReenrollmentCampaignService
 
         $next = self::keyForManualOpening($today, $openAt, $closeAt);
 
-        $opened = $next !== null && ($this->openedBefore($next) || ($openingInFlight !== null && $openingInFlight($next)));
+        $opened = $next !== null
+            && ($this->openedBefore($next) || ($openingInFlight !== null && $openingInFlight($next)));
 
         return $opened ? $next : $current;
     }
