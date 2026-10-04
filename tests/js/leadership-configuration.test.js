@@ -10,9 +10,9 @@
 // supprimé. ».
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-function row(raw, selected) {
+function row(raw, selected, holders = 0) {
     const options = ['t1', 't2', 't3'].map((v) => `<option value="${v}"${v === selected ? ' selected' : ''}>${v.toUpperCase()}</option>`).join('');
-    return `<li class="list-group-item leadership-mapping-row" data-raw-value="${raw}">
+    return `<li class="list-group-item leadership-mapping-row" data-raw-value="${raw}" data-holders="${holders}">
         <code>${raw}</code>
         <select class="form-select leadership-mapping-select" aria-label="Étape pour « ${raw} »">
             ${selected ? '' : '<option value="" selected>Choisir une étape…</option>'}${options}
@@ -21,12 +21,12 @@ function row(raw, selected) {
     </li>`;
 }
 
-function page({ unresolved = ['Zorglub'], decided = [['Wording maison', 't2']] } = {}) {
+function page({ unresolved = ['Zorglub'], decided = [['Wording maison', 't2']], holders = 0 } = {}) {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
         <ul id="leadership-mapping-unresolved">${unresolved.map((r) => row(r, null)).join('')}</ul>
         <p class="leadership-mapping-empty${unresolved.length ? ' d-none' : ''}" data-empty-for="leadership-mapping-unresolved">Tout est reconnu.</p>
-        <ul id="leadership-mapping-decided">${decided.map(([r, s]) => row(r, s)).join('')}</ul>
+        <ul id="leadership-mapping-decided">${decided.map(([r, s]) => row(r, s, holders)).join('')}</ul>
         <p class="leadership-mapping-empty${decided.length ? ' d-none' : ''}" data-empty-for="leadership-mapping-decided">Aucun rattachement.</p>`;
 }
 
@@ -113,6 +113,21 @@ describe('leadership-configuration.js (#727)', () => {
         expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Supprimer' }));
         expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ raw_value: 'Wording maison', step: '', _csrf_token: 'tok' });
         expect(rowOf('Wording maison')).toBeNull();
+        expect(emptyShown('leadership-mapping-decided')).toBe(true);
+    });
+
+    it('sends a wording someone still carries back to « À configurer », placeholder restored', async () => {
+        page({ unresolved: [], holders: 3 });
+        await boot();
+
+        rowOf('Wording maison').querySelector('.leadership-mapping-delete').click();
+
+        await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+            .toHaveBeenCalledWith('Rattachement supprimé.', { variant: 'success' }));
+        expect(rowOf('Wording maison').parentElement.id).toBe('leadership-mapping-unresolved');
+        expect(selectOf('Wording maison').value).toBe('');
+        expect(rowOf('Wording maison').querySelector('.leadership-mapping-delete').classList.contains('d-none')).toBe(true);
+        expect(emptyShown('leadership-mapping-unresolved')).toBe(false);
         expect(emptyShown('leadership-mapping-decided')).toBe(true);
     });
 

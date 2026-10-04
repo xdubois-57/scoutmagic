@@ -11,6 +11,7 @@
 //
 // A wording attached from « À configurer » moves to « Correspondances
 // existantes » as it is: same row, placeholder option dropped, trash shown.
+// Its trash does the reverse for a wording someone still carries.
 (function () {
     var unresolved = document.getElementById('leadership-mapping-unresolved');
     var decided = document.getElementById('leadership-mapping-decided');
@@ -74,27 +75,40 @@
             });
         });
 
-        trash.addEventListener('click', function () {
-            void window.ScoutMagicConfirm.ask({
+        trash.addEventListener('click', async function () {
+            var confirmed = await window.ScoutMagicConfirm.ask({
                 message: 'Supprimer le rattachement de « ' + rawValue + ' » ? Cette valeur redeviendra non '
                     + "reconnue tant qu'elle ne sera pas rattachée à nouveau.",
                 confirmLabel: 'Supprimer',
-            }).then(function (confirmed) {
-                if (!confirmed) {
-                    return undefined;
-                }
-                return api.withDisabled(trash, function () {
-                    return api.postJson(ENDPOINT, { raw_value: rawValue, step: '' });
-                }).then(function (res) {
-                    if (!res.data?.success) {
-                        toastFailure(res, 'Erreur lors de la suppression.');
-                        return;
-                    }
-                    row.remove();
-                    refreshEmpties();
-                    window.ScoutMagicToast.show('Rattachement supprimé.', { variant: 'success' });
-                });
             });
+            if (!confirmed) {
+                return;
+            }
+            var res = await api.withDisabled(trash, function () {
+                return api.postJson(ENDPOINT, { raw_value: rawValue, step: '' });
+            });
+            if (!res.data?.success) {
+                toastFailure(res, 'Erreur lors de la suppression.');
+                return;
+            }
+            if (Number.parseInt(row.dataset.holders || '0', 10) > 0) {
+                // Someone still carries this wording this year: it is
+                // unrecognised again, so it goes back to « À configurer »
+                // as the server will show it on the next load.
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choisir une étape…';
+                select.prepend(placeholder);
+                select.value = '';
+                saved = '';
+                trash.classList.add('d-none');
+                unresolved.appendChild(row);
+            } else {
+                // Nobody carries it any more: it belongs in neither list.
+                row.remove();
+            }
+            refreshEmpties();
+            window.ScoutMagicToast.show('Rattachement supprimé.', { variant: 'success' });
         });
     }
 
