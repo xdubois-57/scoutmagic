@@ -809,6 +809,25 @@ the page. The one case that needs undoing is the back button restoring a
 locked page from the history cache, which `pageshow` handles; without it,
 going back shows a button nobody can ever press again.
 
+**A submit has a third ending, and the page says so rather than guessing.**
+The visitor can abort the navigation while it is still in flight —
+Escape, the browser's stop button. The document is never left, so
+`pageshow` never fires and nothing releases the form: the button reads
+« Envoi en cours… » and the file input is disabled too, so the file
+cannot even be picked again. Only a reload recovers. So after a minute of
+a lock that is still standing, the form reveals one line — « L'envoi est
+plus long que prévu. S'il ne se termine pas, rechargez la page pour
+réessayer. » — as a `role="status"`, taken away again by any release.
+**It deliberately does not unlock**, and a timer that did would hand the
+bug back: nothing distinguishes « aborted » from « still uploading » for
+a form that posts and navigates, there being no event for an abort and no
+reply to await, so an unlock on a timer would fire in the middle of
+exactly the slow uploads this mechanism was written for and let the unit
+receive the photo twice. A state a reload fixes is better than a
+duplicate nobody can undo. The delay is long so the sentence never
+appears over a merely slow upload, and it is true in both cases: it
+reports the wait and offers the reload, it does not claim a failure.
+
 **A submit refused after the lock engaged releases it, and reading that
 one turn later is load-bearing too.** A form may carry both
 `data-submit-lock` and `data-confirm`, and `confirm.js` refuses on

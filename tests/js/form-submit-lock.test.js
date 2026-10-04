@@ -232,6 +232,77 @@ describe('form-submit-lock.js', () => {
         expect(submit('photo-form')).toBe(false);
     });
 
+    it('says how to recover when a lock has plainly stopped going anywhere', async () => {
+        // The third ending to a submit: the visitor aborts the navigation
+        // (Escape, the stop button) while it is still in flight. The
+        // document is never left, so `pageshow` never fires, and nothing
+        // releases the form — the button reads « Envoi en cours… » and
+        // the file input is disabled too. Only a reload recovers, and
+        // before this nothing on the page said so.
+        vi.useFakeTimers();
+        try {
+            await load();
+            submit('photo-form');
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Not over a wait that is merely long.
+            expect(form('photo-form').querySelector('.form-submit-lock-hint')).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(60000);
+
+            const note = form('photo-form').querySelector('.form-submit-lock-hint');
+            expect(note).not.toBeNull();
+            expect(note?.textContent).toContain('rechargez la page');
+            expect(note?.getAttribute('role')).toBe('status');
+            // And it does NOT unlock: an unlock on a timer cannot tell an
+            // abort from a slow upload, so it would hand back the double
+            // submit this file exists to close.
+            expect(form('photo-form').hasAttribute('data-submit-lock-engaged')).toBe(true);
+            expect(button('photo-form').disabled).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('takes the recovery note away once the form is released', async () => {
+        vi.useFakeTimers();
+        try {
+            await load();
+            submit('photo-form');
+            await vi.advanceTimersByTimeAsync(60000);
+            expect(form('photo-form').querySelector('.form-submit-lock-hint')).not.toBeNull();
+
+            window.dispatchEvent(new Event('pageshow'));
+
+            expect(form('photo-form').querySelector('.form-submit-lock-hint')).toBeNull();
+            expect(button('photo-form').disabled).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('never shows the note on a submit that was refused', async () => {
+        // Refused means nothing is in flight, so there is nothing to wait
+        // for and nothing to explain.
+        vi.useFakeTimers();
+        try {
+            await load();
+            const refuse = (/** @type {Event} */ event) => event.preventDefault();
+            document.addEventListener('submit', refuse);
+            try {
+                submit('photo-form');
+                await vi.advanceTimersByTimeAsync(60000);
+            } finally {
+                document.removeEventListener('submit', refuse);
+            }
+
+            expect(form('photo-form').querySelector('.form-submit-lock-hint')).toBeNull();
+            expect(button('photo-form').disabled).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('restores the form when the back button brings a locked page into view', async () => {
         // The one way a locked form can be seen again: these forms post
         // and navigate, so success and server refusal both replace the

@@ -52,12 +52,29 @@
     var DEFAULT_LABEL = 'Envoi en cours…';
 
     /**
+     * How long a lock may stand before the page says how to get out of
+     * it. See `hint()` for why this reveals a sentence and does NOT
+     * unlock, and why the delay is this generous.
+     */
+    var HINT_AFTER_MS = 60000;
+
+    var HINT_CLASS = 'form-submit-lock-hint';
+
+    /**
      * What each locked button held before it said « Envoi en cours… »,
      * as NODES. See lock() for why not as markup.
      *
      * @type {WeakMap<Element, ChildNode[]>}
      */
     var idleNodes = new WeakMap();
+
+    /**
+     * The pending « it is taking a while » timer of each locked form, so
+     * unlocking cancels it and a second submit does not stack a second.
+     *
+     * @type {WeakMap<HTMLFormElement, number>}
+     */
+    var hintTimers = new WeakMap();
 
     /**
      * Every control that can send this form. `(HTMLButtonElement|
@@ -87,12 +104,69 @@
     }
 
     /**
+     * Says how to get out of a lock that is never going to end, WITHOUT
+     * unlocking — and the difference is the whole point.
+     *
+     * There is a third ending to a submit, besides « the page is replaced »
+     * and « the back button brings it back ». The visitor can abort the
+     * navigation while it is still in flight: Escape, the browser's stop
+     * button. The current document is then never left, so `pageshow` never
+     * fires, and nothing else here would ever release the form: the button
+     * reads « Envoi en cours… » and the file input is disabled too, so
+     * the file cannot even be picked again. Only a reload recovers, and
+     * nothing on the page says so. Raised in review on the pull request
+     * for issue #756, on the camp-photos form — a multi-megabyte upload
+     * on a phone, which is this file's own reason for existing.
+     *
+     * **A timer that unlocked instead would give the bug back.** Nothing
+     * distinguishes « aborted » from « still uploading » for a form that
+     * posts and navigates: there is no event for an abort, and no reply to
+     * wait for. An unlock on a timer would therefore fire in the middle of
+     * the slow uploads this file was written for, re-enable the button,
+     * and let the unit receive the photo twice — trading a state a reload
+     * fixes for a duplicate nobody can undo. So the lock stands, and the
+     * page explains itself.
+     *
+     * The delay is long on purpose: the sentence must not appear over an
+     * upload that is merely slow, only over one that is plainly not
+     * finishing. It is true either way — it reports the wait and offers
+     * the reload, it does not claim a failure.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {void}
+     */
+    function hint(form) {
+        if (form.querySelector('.' + HINT_CLASS) !== null) {
+            return;
+        }
+
+        var note = document.createElement('p');
+        note.className = HINT_CLASS + ' small text-muted mt-2 mb-0';
+        // Announced when it appears, not read over the whole form: the
+        // visitor is waiting and watching, and this is the one new thing.
+        note.setAttribute('role', 'status');
+        note.textContent =
+            'L\'envoi est plus long que prévu. S\'il ne se termine pas, '
+            + 'rechargez la page pour réessayer.';
+        form.appendChild(note);
+    }
+
+    /**
      * @param {HTMLFormElement} form
      * @returns {void}
      */
     function lock(form) {
         form.setAttribute(LOCKED, '1');
         form.setAttribute('aria-busy', 'true');
+
+        window.clearTimeout(hintTimers.get(form));
+        hintTimers.set(form, window.setTimeout(function () {
+            // Still locked a minute later: either a very slow upload or
+            // an abort nothing can see. The sentence suits both.
+            if (form.hasAttribute(LOCKED)) {
+                hint(form);
+            }
+        }, HINT_AFTER_MS));
 
         var label = form.dataset.submitLockLabel || DEFAULT_LABEL;
 
@@ -173,6 +247,13 @@
     function unlock(form) {
         form.removeAttribute(LOCKED);
         form.removeAttribute('aria-busy');
+
+        window.clearTimeout(hintTimers.get(form));
+        hintTimers.delete(form);
+        var note = form.querySelector('.' + HINT_CLASS);
+        if (note !== null) {
+            note.remove();
+        }
 
         submitButtons(form).forEach(function (button) {
             var idle = idleNodes.get(button);
