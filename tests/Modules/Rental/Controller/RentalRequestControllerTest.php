@@ -2077,6 +2077,7 @@ class RentalRequestControllerTest extends TestCase
         $response = $download($token);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertSame('noindex', $response->getHeaders()['X-Robots-Tag'] ?? null, 'SECURITY.md §6: a capability URL is never indexed');
         $this->assertStringStartsWith('%PDF-', (string) $response->getBody());
         $this->assertStringContainsString('Télécharger le contrat signé', (string) $this->track($bookingId, $token)->getBody());
     }
