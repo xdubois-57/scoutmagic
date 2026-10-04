@@ -12,8 +12,22 @@ paths: /setup
 related: reglages, sauvegardes, config-notifications
 ---
 
-« Installation & serveur » sert à la première installation puis aux réglages
-qui dépendent directement de l'hébergement.
+La page « Installation & serveur » regroupe les fondations du site.
+C'est elle qui sert d'assistant à la toute première installation, puis
+reste la page de l'identité du site, de la base de données et de la
+tâche cron.
+
+Une fois le site installé, elle ne garde que ce qui relève du serveur :
+l'envoi d'e-mails et les comptes ont chacun leur page.
+
+## L'identité du site
+
+Le nom de l'unité, le nom court (cinq caractères au plus — il préfixe
+l'objet de tous les e-mails, par exemple « [25SV] ») et l'adresse du
+site. Le logo de l'unité se téléverse ici : il devient l'icône de
+l'application installée et le favicon. Après un changement de logo, un
+lien permet de prévenir les membres sur iPhone, qui doivent
+réinstaller l'application pour voir la nouvelle icône.
 
 ## La base de données
 
@@ -28,14 +42,17 @@ tant qu'un test n'a pas réussi.
 
 ## L'envoi d'e-mails, pendant l'installation seulement
 
-L'assistant demande le mode d'envoi et ses accès. « Envoyer un test » les
-essaie sans enregistrer et « Configuration DNS requise » donne les
-enregistrements à créer chez votre hébergeur de domaine.
+L'assistant demande le mode d'envoi et ses accès, parce qu'un site
+doit pouvoir écrire avant qu'on puisse ouvrir une page de
+configuration. « Envoyer un test » les essaie sans enregistrer, et
+« Configuration DNS requise » donne les enregistrements à créer chez
+votre hébergeur de domaine.
 
 **Ensuite, ces réglages ne sont plus ici.** Le relais se règle dans
 « Courrier sortant › Fournisseurs » ; un test s'envoie depuis la
-« Sonde » ; les adresses, la clé de signature et la vérification DNS vivent
-dans « Courrier sortant › Authentification ».
+« Sonde », qui passe par la vraie chaîne ; les adresses, la clé de
+signature, sa régénération et la vérification DNS vivent dans
+« Courrier sortant › Authentification ».
 
 ## La tâche cron
 
