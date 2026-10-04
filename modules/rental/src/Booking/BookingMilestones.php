@@ -247,6 +247,7 @@ final class BookingMilestones
         if ($missing === []) {
             return $shaped;
         }
+        $missingLabels = array_map(static fn(BookingMilestone $x): string => '« ' . $x->label . ' »', $missing);
 
         return array_map(
             static fn(BookingMilestone $m): BookingMilestone => $m->key !== 'confirmed' ? $m : new BookingMilestone(
@@ -256,12 +257,7 @@ final class BookingMilestones
                 $m->isApplicable,
                 $m->detail,
                 $m->kind,
-                'Se confirme quand l\'accord est complet. Il manque : '
-                    . implode(', ', array_map(
-                        static fn(BookingMilestone $x): string => '« ' . $x->label . ' »',
-                        $missing
-                    ))
-                    . '.',
+                'Se confirme quand l\'accord est complet. Il manque : ' . implode(', ', $missingLabels) . '.',
                 null,
                 $m->isState,
                 $m->warning,
