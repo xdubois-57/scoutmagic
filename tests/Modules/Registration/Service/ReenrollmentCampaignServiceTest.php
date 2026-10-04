@@ -356,10 +356,33 @@ class ReenrollmentCampaignServiceTest extends TestCase
         );
     }
 
+    /**
+     * A window wholly in autumn (open 10-01, close 12-15) closes before the
+     * year it asks about begins: the autumn before, never a year ahead.
+     */
+    public function testAnAutumnWindowOpensAndClosesInTheAutumnBeforeTheTargetYear(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '12-15', 'registration');
+
+        $this->usePublicYear('2026-2027');
+        $this->assertSame('2026-12-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2026-10-01')));
+        $this->assertSame('2026-12-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2026-10-01')));
+        $this->assertSame('2026-12-15', $this->campaign->closingDueToday(new \DateTimeImmutable('2026-12-15')));
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2026-12-15'));
+
+        // The year after, once the public year has moved on.
+        $this->usePublicYear('2027-2028');
+        $this->assertSame('2027-12-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-10-01')));
+        $this->assertSame('2027-12-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2027-10-01')));
+    }
+
     public function testTheYearACampaignAsksAboutIsTheOneStartingTheYearItCloses(): void
     {
-        $this->assertSame('2027-2028', ReenrollmentCampaignService::targetLabelOf('2027-05-15'));
-        $this->assertSame('2027-2028', ReenrollmentCampaignService::targetLabelOf('2027-02-15'));
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2027-05-15'));
+        // A February close belongs to a window opened the November before.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '11-01', 'registration');
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2027-02-15'));
     }
 
     private function usePublicYear(string $label): void

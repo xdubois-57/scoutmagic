@@ -50,6 +50,9 @@ class ReenrollmentCampaignService
      */
     public const SETTING_EMAILS_ENABLED = 'registration_reenrollment_emails_enabled';
 
+    /** The day a scout year starts, month and day. */
+    private const SCOUT_YEAR_START = '09-01';
+
     public const MARKER_OPENED = 'registration_reenrollment_open_applied_on';
     public const MARKER_CLOSED = 'registration_reenrollment_close_applied_on';
 
@@ -187,9 +190,10 @@ class ReenrollmentCampaignService
         }
 
         $targetStart = (int) explode('-', $this->years()['target_label'])[0];
-        $key = self::dateIn($targetStart, $closeAt)?->format('Y-m-d');
+        $key = self::dateIn(self::closeYearFor($targetStart, $openAt, $closeAt), $closeAt)?->format('Y-m-d');
 
-        $previous = self::dateIn($targetStart - 1, $closeAt)?->format('Y-m-d');
+        $previous = self::dateIn(self::closeYearFor($targetStart - 1, $openAt, $closeAt), $closeAt)
+            ?->format('Y-m-d');
         if ($previous !== null && $previous >= $now->format('Y-m-d') && $this->stillRunning($previous)) {
             return $previous;
         }
@@ -253,16 +257,39 @@ class ReenrollmentCampaignService
     }
 
     /**
-     * The scout year label a campaign asks about: the one starting in the
-     * calendar year the campaign closes (`2027-05-15` → `2027-2028`). Every
-     * e-mail of the campaign carries this label, never one recomputed from
-     * whatever the public year is when it leaves (issue #796).
+     * The scout year label a campaign asks about: the one that starts after
+     * the campaign opened — in the calendar year it opens in for a spring
+     * opening (`2027-05-15` opened on 03-01 → `2027-2028`), in the next one
+     * for an autumn opening, which falls after 1 September (`2026-12-15`
+     * opened on 10-01 → `2027-2028`). Every e-mail of the campaign carries
+     * this label, never one recomputed from whatever the public year is
+     * when it leaves (issue #796).
      */
-    public static function targetLabelOf(string $key): string
+    public function targetLabelOf(string $key): string
     {
-        $year = (int) substr($key, 0, 4);
+        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
+        $openOn = $openAt !== null ? self::openingDateOf($key, $openAt) : null;
+        $start = $openOn !== null
+            ? (int) $openOn->format('Y') + ($openAt >= self::SCOUT_YEAR_START ? 1 : 0)
+            : (int) substr($key, 0, 4);
 
-        return sprintf('%d-%d', $year, $year + 1);
+        return sprintf('%d-%d', $start, $start + 1);
+    }
+
+    /**
+     * The calendar year the campaign for the scout year starting in
+     * `$targetStart` closes in. The campaign is the last window that opens
+     * before that year begins on 1 September: opened in the same calendar
+     * year for a spring opening, in the autumn before for an autumn one, and
+     * closed the year after it opened when it straddles New Year. Keyed on
+     * the close date alone, a window lying wholly in autumn would sit a year
+     * ahead of itself and never open.
+     */
+    private static function closeYearFor(int $targetStart, string $openAt, string $closeAt): int
+    {
+        $openYear = $openAt >= self::SCOUT_YEAR_START ? $targetStart - 1 : $targetStart;
+
+        return $closeAt >= $openAt ? $openYear : $openYear + 1;
     }
 
     /**
