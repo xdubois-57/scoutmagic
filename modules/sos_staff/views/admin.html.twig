@@ -130,10 +130,18 @@
             </p>
         {% endif %}
 
-        {# Legend — the three things a day can carry. #}
+        {# Legend — one per tab, because the dots do not say the same
+           thing: on « Le mois » a day's dot is who receives the calls,
+           on « Ma disponibilité » it is the signed-in member's own state. #}
         <p class="small text-body-secondary d-flex flex-wrap gap-3 mb-2" id="sos-legend">
-            <span><i class="bi bi-circle-fill text-success" aria-hidden="true"></i> de garde</span>
-            <span><i class="bi bi-circle-fill text-danger" aria-hidden="true"></i> indisponible</span>
+            {% if mobile_tab == 'me' %}
+                <span><i class="bi bi-circle-fill text-success" aria-hidden="true"></i> de garde</span>
+                <span><i class="bi bi-circle-fill text-danger" aria-hidden="true"></i> indisponible</span>
+            {% else %}
+                <span><i class="bi bi-circle-fill text-success" aria-hidden="true"></i> quelqu'un de garde</span>
+                <span><i class="bi bi-circle-fill text-body-secondary" aria-hidden="true"></i> numéro par défaut</span>
+                <span><i class="bi bi-circle-fill text-danger" aria-hidden="true"></i> aucun numéro</span>
+            {% endif %}
         </p>
 
         {% if mobile_tab == 'me' %}

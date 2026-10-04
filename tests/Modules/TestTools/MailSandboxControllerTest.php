@@ -416,6 +416,28 @@ class MailSandboxControllerTest extends TestCase
         ], $entries);
     }
 
+    public function testAdminIsRejectedFromTheSimulatedTelephonySwitch(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $response = $this->frontController(
+            '/test-tools/simulated-telephony',
+            TestToolsController::class,
+            'toggleSimulatedTelephony',
+            'POST'
+        )->handle(new Request(
+            'POST',
+            '/test-tools/simulated-telephony',
+            [],
+            ['armed' => '1', '_csrf_token' => CsrfGuard::generateToken()],
+            [],
+            []
+        ));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->simulatedTelephony->armed());
+    }
+
     public function testTheSimulatedTelephonySwitchRefusesABadToken(): void
     {
         AuthSession::login(1, 'superadmin@test.com', 'superadmin');

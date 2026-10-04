@@ -943,6 +943,25 @@ class SosAdminControllerTest extends TestCase
     }
 
     /**
+     * A dot means a different thing on each tab, so each tab carries its
+     * own legend: who receives the calls on « Le mois » (including the
+     * default number, the most common day), the member's own state on
+     * « Ma disponibilité ».
+     */
+    public function testEachPhoneTabExplainsItsOwnDots(): void
+    {
+        $legend = function (array $query): string {
+            $body = $this->controller->index(new Request('GET', '/admin/sos', $query, [], [], []), [])->getBody();
+            $this->assertSame(1, preg_match('/<p[^>]+id="sos-legend"[^>]*>(.*?)<\/p>/s', $body, $m));
+
+            return trim((string) preg_replace('/\s+/', ' ', strip_tags($m[1])));
+        };
+
+        $this->assertSame("quelqu'un de garde numéro par défaut aucun numéro", $legend([]));
+        $this->assertSame('de garde indisponible', $legend(['tab' => 'me']));
+    }
+
+    /**
      * The tab is a convenience, never an authorization rule (SECURITY.md
      * §3): a signed-in admin who is not on the Staff d'U roster gets an
      * empty state there and can still edit anybody from « Le mois ».
