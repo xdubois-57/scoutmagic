@@ -222,6 +222,16 @@ class Request
     }
 
     /**
+     * Whether the HTTPS-only protections and an `https://` public URL
+     * apply to this request: always while HTTPS is required, otherwise
+     * what isHttps() detects. See RequestScheme::enforcesHttps().
+     */
+    public function enforcesHttps(): bool
+    {
+        return RequestScheme::enforcesHttps($this->server);
+    }
+
+    /**
      * Get the HTTP_REFERER header.
      */
     public function getReferer(): ?string

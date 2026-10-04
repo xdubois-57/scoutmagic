@@ -177,18 +177,13 @@ class SwitchAriaCheckedTest extends TestCase
         $this->assertSwitchAriaChecked($htmlUnchecked, 'id="field_1"', false);
     }
 
-    public function testNewsFormSettingsDailyDigestSwitchAriaCheckedTracksValue(): void
-    {
-        $twig = $this->createTwig(['news' => dirname(__DIR__, 3) . '/modules/news/views']);
-
-        $htmlEnabled = $twig->render('@news/partials/_form_settings.html.twig', [
-            'form' => (object) ['dailyDigestEnabled' => true],
-        ]);
-        $this->assertSwitchAriaChecked($htmlEnabled, 'id="form_daily_digest_enabled"', true);
-
-        $htmlDisabled = $twig->render('@news/partials/_form_settings.html.twig', [
-            'form' => null,
-        ]);
-        $this->assertSwitchAriaChecked($htmlDisabled, 'id="form_daily_digest_enabled"', false);
-    }
+    /**
+     * The news form's daily-digest switch used to be the ninth case here.
+     * It is not a switch any more: issue #738 replaced it with an e-mail
+     * address, since a switch could say that somebody wanted the digest
+     * and never where to send it. There is nothing left to announce, so
+     * the case is gone rather than weakened — and what replaced it is
+     * covered by Tests\\Modules\\News\\Controller\\FormDigestEmailFieldTest,
+     * which also holds the switch's absence.
+     */
 }

@@ -22,34 +22,41 @@
                 </span>
             {% endif %}
         </div>
+        {# Icons only, one row even on a phone (issue #736): each action
+           keeps its name for a screen reader and on hover. #}
         <div class="d-flex flex-wrap gap-2 pt-2 border-top">
-            <a href="{{ entry.public_url }}" class="btn btn-outline-secondary btn-sm flex-fill">
-                <i class="bi bi-eye" aria-hidden="true"></i> Voir le board
+            <a href="{{ entry.public_url }}" class="btn btn-outline-secondary btn-sm"
+               title="Voir le tableau" aria-label="Voir le tableau « {{ board.title }} »">
+                <i class="bi bi-eye" aria-hidden="true"></i>
             </a>
-            <a href="/retro/{{ board.id }}/edit" class="btn btn-outline-secondary btn-sm flex-fill">
-                <i class="bi bi-gear" aria-hidden="true"></i> Configurer
+            <a href="/retro/{{ board.id }}/edit" class="btn btn-outline-secondary btn-sm"
+               title="Configurer" aria-label="Configurer « {{ board.title }} »">
+                <i class="bi bi-gear" aria-hidden="true"></i>
             </a>
             {% if can_close %}
                 {% if board.status == 'closed' %}
                     <form method="post" action="/retro/{{ board.id }}/reopen"
                           data-confirm="Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.">
                         {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-unlock" aria-hidden="true"></i> Réouvrir
+                        <button type="submit" class="btn btn-outline-success btn-sm"
+                                title="Réouvrir" aria-label="Réouvrir « {{ board.title }} »">
+                            <i class="bi bi-unlock" aria-hidden="true"></i>
                         </button>
                     </form>
                     <form method="post" action="/retro/{{ board.id }}/archive"
                           data-confirm="Archiver « {{ board.title }} » ? Le tableau quitte la liste principale et rejoint les archives.">
                         {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-archive" aria-hidden="true"></i> Archiver
+                        <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                title="Archiver" aria-label="Archiver « {{ board.title }} »">
+                            <i class="bi bi-archive" aria-hidden="true"></i>
                         </button>
                     </form>
                 {% elseif board.status == 'archived' %}
                     <form method="post" action="/retro/{{ board.id }}/unarchive">
                         {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-box-arrow-up" aria-hidden="true"></i> Désarchiver
+                        <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                title="Désarchiver" aria-label="Désarchiver « {{ board.title }} »">
+                            <i class="bi bi-box-arrow-up" aria-hidden="true"></i>
                         </button>
                     </form>
                 {% endif %}

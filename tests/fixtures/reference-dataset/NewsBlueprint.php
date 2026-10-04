@@ -62,7 +62,7 @@ final class NewsBlueprint
      *     access: string,
      *     responseLimit: string,
      *     responseRoleMin: string,
-     *     dailyDigest: bool,
+     *     digestEmail: ?string,
      *     fields: list<array{field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}>,
      *     responses: list<array{tiers: ?string, email: ?string, answers: array<int, string>}>
      *   }
@@ -99,7 +99,10 @@ final class NewsBlueprint
                 'access' => NewsForm::ACCESS_PUBLIC,
                 'responseLimit' => NewsForm::RESPONSE_LIMIT_UNLIMITED,
                 'responseRoleMin' => 'chief',
-                'dailyDigest' => true,
+                // An address rather than a flag (issue #738), and a
+                // function's mailbox rather than a person's — which is
+                // the case the field exists for.
+                'digestEmail' => 'intendance@unite.test',
                 'fields' => [
                     ['field_type' => FormField::TYPE_SHORT_TEXT, 'label' => 'Nom de famille', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
                     ['field_type' => FormField::TYPE_NUMBER, 'label' => 'Nombre de personnes', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
@@ -132,7 +135,7 @@ final class NewsBlueprint
                 'access' => NewsForm::ACCESS_IDENTIFIED,
                 'responseLimit' => NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT,
                 'responseRoleMin' => 'admin',
-                'dailyDigest' => false,
+                'digestEmail' => null,
                 'fields' => [
                     ['field_type' => FormField::TYPE_SHORT_TEXT, 'label' => 'Totem ou prénom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
                     // Nearly full on purpose: seventeen of the twenty places

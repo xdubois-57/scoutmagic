@@ -69,7 +69,13 @@ final class RentalBooking
         public readonly ?\DateTimeImmutable $conditionsAcceptedAt,
         public readonly ?string $privacyVersion,
         public readonly ?string $privacyHash,
-        public readonly ?\DateTimeImmutable $privacyAcknowledgedAt
+        public readonly ?\DateTimeImmutable $privacyAcknowledgedAt,
+        /**
+         * When an automatic hold lapsed while the request was still waiting
+         * (#708, IT-01) — kept after the expiry task clears `$holdUntil`, so
+         * the page can still say since when the dates are free again.
+         */
+        public readonly ?\DateTimeImmutable $holdLapsedAt = null
     ) {
     }
 
@@ -96,12 +102,12 @@ final class RentalBooking
      *   moment the decision is taken.
      * - **Confirmed or closed** — always. It is a commitment; no deadline
      *   enters into it.
-     * - **Anything still provisional** (received, under review, information
-     *   requested, an option proposed) — **only while a hold is running**.
+     * - **Anything still provisional** (received, information requested,
+     *   an option proposed) — **only while a hold is running**.
      *   A request holds the dates for a configurable period so two visitors
      *   cannot both be told yes, and when that period lapses the dates are
      *   free again while the request itself stays waiting (spec §22.5). The
-     *   `automatic_hold_hours` setting says so in as many words, down to
+     *   `automatic_hold_days` setting says so in as many words, down to
      *   what 0 means.
      *
      * Reading it off the status alone made the hold decorative: an abandoned
@@ -122,6 +128,47 @@ final class RentalBooking
         }
 
         return $this->holdIsActive($now);
+    }
+
+    /**
+     * Since when the dates are no longer held, for a request still
+     * waiting on the unit whose automatic hold ran out (#708, IT-01) —
+     * null while a hold runs, or once the booking is confirmed or final.
+     *
+     * Read from the hold itself before the expiry task has run, and from
+     * `$holdLapsedAt` after it. A manager's option is not this: its lapse
+     * ends the booking — see optionLapsedSince().
+     */
+    public function holdLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($this->holdOrigin === HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+            return null;
+        }
+
+        return $this->holdUntil ?? $this->holdLapsedAt;
+    }
+
+    /**
+     * Since when a manager's option has run out on a booking the expiry
+     * task has not yet expired — null otherwise.
+     *
+     * The window is short (until the next run of the task), but the page
+     * must not tell the manager to « poser une option » on a booking whose
+     * option has just lapsed and is about to end it (specifications.md
+     * §22.5).
+     */
+    public function optionLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
+    {
+        if ($this->holdOrigin !== HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+            return null;
+        }
+
+        return $this->holdUntil;
+    }
+
+    private function stillWaitsOnAHold(\DateTimeImmutable $now): bool
+    {
+        return !$this->status->firmlyOccupiesTheAsset() && !$this->status->isFinal() && !$this->holdIsActive($now);
     }
 
     /**

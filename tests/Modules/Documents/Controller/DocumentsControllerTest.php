@@ -255,19 +255,72 @@ final class DocumentsControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testTheManagementPageShowsTheAddressToShare(): void
+    /**
+     * #731: the address is copied with a button rather than printed on
+     * every row; no type, no size, no « mis à jour le » — the file's date
+     * alone.
+     */
+    public function testTheManagementPageCopiesTheAddressRatherThanPrintingIt(): void
     {
         $this->loginAs('admin');
 
         $body = $this->handle('GET', '/admin/documents', 'index', 'admin', '/admin/documents')->getBody();
 
-        $this->assertStringContainsString('https://unite.example/documents/reglement', $body);
+        $this->assertStringContainsString('data-copy-link="https://unite.example/documents/reglement"', $body);
+        $this->assertStringContainsString('aria-label="Copier le lien de « Règlement »"', $body);
+        $this->assertStringContainsString('/assets/js/documents-manage.js', $body);
+        $this->assertStringNotContainsString('>https://unite.example/documents/reglement<', $body);
+        $this->assertStringNotContainsString('font-monospace">https://', $body);
+        $this->assertStringNotContainsString('mis à jour le', $body);
+        // Neither the type nor the size.
+        $this->assertDoesNotMatchRegularExpression('~PDF · \d~', $body);
+        $this->assertStringNotContainsString(' octets', $body);
         $this->assertStringContainsString('aria-label="Modifier « Règlement »"', $body);
         $this->assertStringContainsString('Qui voit quoi', $body);
         // The list editor's drag, chevrons and delete are these two
         // scripts; the partial does not load them itself.
         $this->assertStringContainsString('/assets/js/sortable.js', $body);
         $this->assertStringContainsString('/assets/js/list-editor.js', $body);
+    }
+
+    /** #731: past its date, a document carries a red « Expiré » — and stays listed. */
+    public function testAnExpiredDocumentIsTaggedInTheList(): void
+    {
+        $this->pdo->exec("UPDATE documents SET expires_on = '2020-01-31' WHERE id = " . $this->documentId);
+        $this->loginAs('admin');
+
+        $body = $this->handle('GET', '/admin/documents', 'index', 'admin', '/admin/documents')->getBody();
+
+        $this->assertStringContainsString('<span class="badge text-bg-danger" title="Valable jusqu\'au', $body);
+        $this->assertStringContainsString('>Expiré</span>', $body);
+        $this->assertStringContainsString('Règlement', $body);
+
+        $this->pdo->exec("UPDATE documents SET expires_on = '2999-01-31' WHERE id = " . $this->documentId);
+        $fresh = $this->handle('GET', '/admin/documents', 'index', 'admin', '/admin/documents')->getBody();
+        $this->assertStringNotContainsString('>Expiré</span>', $fresh);
+    }
+
+    /** #731: the form proposes two years on creation, and the current date on edit. */
+    public function testTheFormCarriesTheExpiryDate(): void
+    {
+        $this->loginAs('admin');
+
+        $new = $this->handle('GET', '/admin/documents/nouveau', 'createForm', 'admin', '/admin/documents/nouveau')
+            ->getBody();
+        $twoYears = \Core\Config\AppClock::now()->modify('+2 years')->format('Y-m-d');
+        $this->assertMatchesRegularExpression('~name="expires_on"[^>]*value="' . $twoYears . '"|value="' . $twoYears
+            . '"[^>]*name="expires_on"~', $new);
+
+        $this->pdo->exec("UPDATE documents SET expires_on = '2027-03-01' WHERE id = " . $this->documentId);
+        $edit = $this->handle(
+            'GET',
+            '/admin/documents/{id}/modifier',
+            'editForm',
+            'admin',
+            '/admin/documents/' . $this->documentId . '/modifier'
+        )->getBody();
+        $this->assertStringContainsString('value="2027-03-01"', $edit);
+        $this->assertStringContainsString('remplacer le fichier repart sur deux ans', $edit);
     }
 
     public function testTheManagementPageFoldsAwayPastVersionsAndSaysWhy(): void

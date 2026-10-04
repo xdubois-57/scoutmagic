@@ -700,8 +700,16 @@ class NewsController extends AbstractController
             // The daily digest of a form's responses is due at an INSTANT;
             // under the poor man's cron it goes out at the occasion of a
             // visit instead (issue #248). partials/_form_settings.html.twig
-            // says so, beside the digest switch itself.
+            // says so, beside the digest address itself.
             'cron_detected' => CronHealth::detectedForConfigScreen($this->settingService),
+            // A NEW form's digest address starts at the signed-in
+            // author's, which is where the digest used to go and is the
+            // address they would otherwise type (issue #738). It is a
+            // default and nothing more: once the form exists the field is
+            // its own, and changing the article's author never moves it.
+            'digest_email_value' => $form !== null
+                ? ($form->digestEmail ?? '')
+                : (AuthSession::getEmail() ?? ''),
             // Only meaningful for edit/update (a real article, whose title
             // is worth showing in the trail) — create/store pass $article
             // as null, so this falls back to the route's static
@@ -779,6 +787,11 @@ class NewsController extends AbstractController
         $context['is_indexed_value'] = (bool) $request->getBody('is_indexed', false);
         $context['seo_keywords_value'] = (string) $request->getBody('seo_keywords', '');
         $context['seo_stop_date_value'] = (string) $request->getBody('seo_stop_date', '');
+        // The address they typed, right or wrong: a refused address is the
+        // one case where this field's own validation is what sent us here,
+        // and re-rendering the creator's default would quietly discard
+        // what they wrote and hide the mistake (issue #738).
+        $context['digest_email_value'] = (string) $request->getBody('form_digest_email', '');
         $context['submit_error'] = $error;
 
         // Preserve the field list the author had just built (module
@@ -1000,7 +1013,7 @@ class NewsController extends AbstractController
      *     closes_at: ?string,
      *     is_force_closed: bool,
      *     response_role_min: string,
-     *     daily_digest_enabled: bool,
+     *     digest_email: ?string,
      *     finance_account_id: ?int,
      *     issues_ticket: bool,
      *     event_date: ?string,
@@ -1020,7 +1033,7 @@ class NewsController extends AbstractController
             'closes_at' => $this->nullableString($request->getBody('form_closes_at')),
             'is_force_closed' => (bool) $request->getBody('form_is_force_closed', false),
             'response_role_min' => (string) $request->getBody('form_response_role_min', 'chief'),
-            'daily_digest_enabled' => (bool) $request->getBody('form_daily_digest_enabled', false),
+            'digest_email' => $this->nullableString($request->getBody('form_digest_email')),
             'finance_account_id' => $this->resolveFormFinanceAccountId($request),
             'issues_ticket' => (bool) $request->getBody('form_issues_ticket', false),
             'event_date' => $this->nullableString($request->getBody('form_event_date')),

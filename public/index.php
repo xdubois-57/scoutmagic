@@ -175,6 +175,10 @@ $config = new AppConfig(__DIR__ . '/../config/app.php');
 // anything emits a cookie, a session or a security header — Core\Http\
 // RequestScheme is the single source of truth every one of those consults.
 \Core\Http\RequestScheme::setTrustForwardedProto((bool) $config->get('trust_forwarded_proto', false));
+// HTTPS is required unless this deployment explicitly tolerates HTTP
+// (#751). A config/app.php that predates the key gets the production
+// policy, never the development exception.
+\Core\Http\RequestScheme::setHttpsRequired($config->get('https_required', true) !== false);
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -2722,7 +2726,8 @@ $sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo, $encry
 $sectionRosterService = new \Core\Member\SectionRosterService(
     $sectionRosterRepository,
     $memberEmailRepository,
-    $memberMovementClassifier
+    $memberMovementClassifier,
+    new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
 );
 $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
@@ -5790,6 +5795,12 @@ $router->addRoute(
     ['label' => 'Staffs et badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+// A section's own text (#725): the controller narrows to the sections the
+// account animates; chief is only the floor.
+$router->addRoute('POST', '/chefs/staffs/text', StaffsController::class, 'saveSectionText', 'chief');
+// The totem a staff member carries in one section this year (issue #722):
+// the same people as the badges, so the same role.
+$router->addRoute('POST', '/chefs/staffs/totem-de-section', StaffsController::class, 'saveSectionTotem', 'chief');
 $router->addRoute(
     'GET',
     '/chefs/membres',
@@ -6776,7 +6787,9 @@ $frontController->registerController(
         $unitStaffSectionService,
         $sectionDocumentService,
         $settingService,
-        $sectionStaffAuthorizationService
+        $sectionStaffAuthorizationService,
+        $editableContentService,
+        new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
     )
 );
 $frontController->registerController(
@@ -7671,6 +7684,10 @@ if ($isEnabled('documents')) {
             (string) ($settingService->get('base_url') ?? '')
         )
     );
+
+    // « 3 documents sont expirés » (#731): one aggregated point, leading to
+    // the list where each expired document carries a red tag.
+    $attentionProviders[] = new \Modules\Documents\Service\DocumentsAttentionProvider($documentService);
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
@@ -9325,7 +9342,8 @@ if ($isEnabled('gallery')) {
         $galleryOgScraperService,
         $galleryLinkPreviewCacheRepo
     );
-    $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
+    // The cron's answer, never this request's (#700).
+    $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability($settingService);
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
@@ -10202,6 +10220,15 @@ if ($isEnabled('camps')) {
         $galleryDelegatedAlbumManager ?? null,
         $journalService
     );
+    // And the name gallery's storage-administration page shows for that
+    // same album — "Grand camp — Ferme de la Hulotte — 12–19 juillet 2028"
+    // rather than "camp_camp #10" (issue #749). Read-only and separate on
+    // purpose, exactly like the groups describer further down: naming an
+    // album for an administrator is not the same permission as opening it.
+    $galleryDelegatedAlbumDescribers[] = new \Modules\Camps\Service\CampDelegatedAlbumDescriber(
+        $campsCampRepo,
+        $campsPlaceRepo
+    );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
         $campsPlaceRepo,
@@ -10557,7 +10584,23 @@ if ($isEnabled('covoiturage')) {
                 // staff gets none on account of its role (D11).
                 new \Modules\Covoiturage\Service\CarpoolNotifier($notificationService)
             ),
-            $covoiturageViewers
+            $covoiturageViewers,
+            // The suggested departure (#703): the events' hours through the
+            // calendar's contract, and the route from the meeting point —
+            // under the same switch as the geocoding, since it starts with
+            // a lookup. Off, the 30-minute rule applies.
+            (string) $settingService->get('covoiturage_geocoding_enabled', 'covoiturage', '1') === '1'
+                ? new \Modules\Covoiturage\Service\DeparturePlanner(
+                    $calendarServiceForOthers,
+                    new \Core\Geo\AddressLocator(
+                        $pdo,
+                        new \Core\Geo\GeocodingService((string) ($settingService->get('base_url') ?? ''))
+                    ),
+                    new \Core\Geo\RoutingService((string) ($settingService->get('base_url') ?? '')),
+                    new \Core\Geo\GeocodingThrottle($pdo, null, null, \Core\Geo\GeocodingThrottle::ROUTING_LOCK_NAME)
+                )
+                : new \Modules\Covoiturage\Service\DeparturePlanner($calendarServiceForOthers),
+            (string) ($settingService->get(\Core\Config\UnitAddresses::PREMISES_ADDRESS) ?? '')
         )
     );
     $frontController->registerController(
@@ -11304,13 +11347,15 @@ if ($isEnabled('registration')) {
             ),
             $registrationPassageNoteRepository,
             $registrationReenrollmentRepository,
-            // IT-17 — the optional AI re-reading of family comments. The
-            // one connector every consuming module reads, nullable: with
-            // llm_connector disabled this is null and the page renders
-            // exactly as it did before (ARCHITECTURE.md §7.5).
+            // IT-17 — the optional AI re-reading of family comments, run by
+            // « Répartir » before it distributes (issue #733). The one
+            // connector every consuming module reads, nullable: with
+            // llm_connector disabled this is null and the optimisation runs
+            // on what is already known (ARCHITECTURE.md §7.5).
             new \Modules\Registration\Service\PassageCommentReviewService(
                 $registrationReenrollmentRepository,
                 $registrationPassageNoteRepository,
+                $registrationReenrollmentService,
                 $llmConnectorForOthers
             ),
             // IT-18 — « Optimiser la répartition ». Synchronous, in the
@@ -11546,6 +11591,19 @@ if ($isEnabled('rental')) {
             (string) ($settingService->get('asset_type_suggestions', 'rental') ?: '')
         )
     );
+    // Who hears about an asset — new requests and reminders alike (#708,
+    // IT-05): its managers with an account, the Staff d'U when none.
+    $rentalManagerRecipients = new \Modules\Rental\Service\ManagerRecipientResolver(
+        $rentalManagerRepository,
+        $memberYearRepo,
+        $userAccountRepo,
+        $journalService,
+        \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+            new \Core\Member\Repository\SectionRepository($connection),
+            $memberYearRepo,
+            $scoutYearService
+        )
+    );
     $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
         $rentalManagerRepository,
         $memberService,
@@ -11667,7 +11725,9 @@ if ($isEnabled('rental')) {
             $inboundMailForOthers,
             // Read-only here: flags the public assets nobody has priced yet,
             // so a chief learns it from this page rather than from a visitor.
-            $rentalPricingService
+            $rentalPricingService,
+            // Flags each manager who cannot be told about a request (#708, IT-05).
+            $rentalManagerRecipients
         )
     );
     // Every wording of an asset's conditions, archived (issue #494): the
@@ -11940,7 +12000,13 @@ if ($isEnabled('rental')) {
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
                 $rentalBookingAudit
-            )
+            ),
+            // The overview warns when nobody on the asset can be told about
+            // a request (#708, IT-05).
+            $rentalManagerRecipients,
+            // Dates the version of the conditions in force on the Gabarits
+            // list, and links to it from their page (#708, IT-10).
+            $rentalConditionsService
         )
     );
     $frontController->registerController(
@@ -11953,7 +12019,6 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             $rentalBookingMailService,
             $rentalManagerService,
-            $memberService,
             $scoutYearService,
             $editableContentService,
             $humanCheckService,
@@ -11969,7 +12034,11 @@ if ($isEnabled('rental')) {
             $calendarIcsBuilderForOthers,
             $calendarIcsBuilderForOthers !== null
                 ? new \Modules\Rental\Calendar\RenterFeedBuilder((string) ($settingService->get('base_url') ?: ''))
-                : null
+                : null,
+            // « Nouvelle demande de location » (#708, IT-05): a notification
+            // to the asset's reachable managers, the Staff d'U when none.
+            $notificationService,
+            $rentalManagerRecipients
         )
     );
 

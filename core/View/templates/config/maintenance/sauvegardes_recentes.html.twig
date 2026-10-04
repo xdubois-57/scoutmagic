@@ -18,8 +18,8 @@
        stylesheet (see that file). #}
     <div class="card mb-4" id="maintenance-backups-list">
         <div class="card-body">
-            {{ m.section_header('maintenance-backups-list-body', 'Sauvegardes récentes', true) }}
-            <div class="collapse show mt-3" id="maintenance-backups-list-body">
+            {{ m.section_header('Sauvegardes récentes') }}
+            <div class="mt-3" id="maintenance-backups-list-body">
                 {% if backups is empty %}
                     {% include 'partials/empty_state.html.twig' with {
                         message: 'Aucune sauvegarde pour le moment.',
@@ -54,8 +54,8 @@
        needs none, so the field only appears for an uploaded file. #}
     <div class="card mb-4" id="maintenance-restore">
         <div class="card-body">
-            {{ m.section_header('maintenance-restore-body', 'Restaurer une sauvegarde', true) }}
-            <div class="collapse show mt-3" id="maintenance-restore-body">
+            {{ m.section_header('Restaurer une sauvegarde') }}
+            <div class="mt-3" id="maintenance-restore-body">
                 <p class="text-body-secondary small">
                     Restaure la base de données et les fichiers depuis une sauvegarde existante ou un fichier
                     téléversé. Une sauvegarde de sécurité est prise automatiquement avant la restauration.

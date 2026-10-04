@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../public/assets/js/cookie-consent.js';
 
 function renderBanner() {
+    // What base.html.twig renders with the banner (#742): the space kept
+    // for it is a class on <body>, one state with the banner itself.
+    document.body.className = 'cookie-banner-visible';
     document.body.innerHTML = `
         <div id="cookie-banner">
             <button id="cookie-accept-all">Accepter tout</button>
@@ -40,6 +43,8 @@ describe('cookie-consent.js', () => {
         await vi.waitFor(() => expect(document.getElementById('cookie-banner')).toBeNull());
 
         expect(fetch).toHaveBeenCalledWith('/cookies/accept-all', expect.objectContaining({ method: 'POST' }));
+        // #742: the space kept for the banner goes with it.
+        expect(document.body.classList.contains('cookie-banner-visible')).toBe(false);
     });
 
     it('calls POST /cookies/reject-all and removes the banner when "Refuser tout" is clicked', async () => {
@@ -50,6 +55,7 @@ describe('cookie-consent.js', () => {
         await vi.waitFor(() => expect(document.getElementById('cookie-banner')).toBeNull());
 
         expect(fetch).toHaveBeenCalledWith('/cookies/reject-all', expect.objectContaining({ method: 'POST' }));
+        expect(document.body.classList.contains('cookie-banner-visible')).toBe(false);
     });
 
     it('navigates to /cookies when "Personnaliser" is clicked, without calling fetch', () => {
@@ -84,6 +90,8 @@ describe('cookie-consent.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
 
             expect(document.getElementById('cookie-banner')).not.toBeNull();
+            // #742: and the space kept for it stays too.
+            expect(document.body.classList.contains('cookie-banner-visible')).toBe(true);
         });
 
         it('says so rather than failing silently', async () => {
@@ -122,6 +130,7 @@ describe('cookie-consent.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
 
             expect(document.getElementById('cookie-banner')).not.toBeNull();
+            expect(document.body.classList.contains('cookie-banner-visible')).toBe(true);
         });
     });
 

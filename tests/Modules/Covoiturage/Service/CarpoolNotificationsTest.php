@@ -157,6 +157,82 @@ final class CarpoolNotificationsTest extends TestCase
         $this->assertStringContainsString('2 places se libèrent', $this->sent[0]['body']);
     }
 
+    /**
+     * #703: the driver may say why, and the family reads it in the refusal
+     * — the notification is the only place the word lives.
+     */
+    public function testARefusalCarriesTheDriversOptionalWord(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::PENDING_RIDER, ['Kim']));
+        $this->assertNotNull($request);
+
+        $this->service->refuse($request, $offer, H::viewer(self::DRIVER), $carpool, '  Ma voiture est pleine de matériel.  ');
+
+        $this->assertOnlySent('covoiturage.request_refused', [self::PENDING_RIDER]);
+        $this->assertStringContainsString('Message : « Ma voiture est pleine de matériel. »', $this->sent[0]['body']);
+    }
+
+    /** #703: the family may say why it withdraws, and the driver reads it. */
+    public function testAWithdrawalCarriesTheFamilysOptionalWord(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::RIDER, ['Tom']));
+        $this->assertNotNull($request);
+
+        $this->service->withdraw($request, H::viewer(self::RIDER), $carpool, $offer, 'Nous partons la veille.');
+
+        $this->assertOnlySent('covoiturage.request_withdrawn', [self::DRIVER]);
+        $this->assertStringContainsString('Message : « Nous partons la veille. »', $this->sent[0]['body']);
+    }
+
+    /** Without a word, nothing is added — not even an empty quote. */
+    public function testNoWordAddsNothing(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::PENDING_RIDER, ['Kim']));
+        $this->assertNotNull($request);
+
+        $this->service->refuse($request, $offer, H::viewer(self::DRIVER), $carpool, '   ');
+
+        $this->assertStringNotContainsString('Message', $this->sent[0]['body']);
+    }
+
+    /**
+     * 200 characters at most, on both: refused rather than cut, and the
+     * decision is not taken — a refusal half-applied would leave the family
+     * told nothing.
+     */
+    public function testAWordPastTwoHundredCharactersIsRefusedAndNothingHappens(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $pending = $this->requests->findById(H::request($this->pdo, $offer->id, self::PENDING_RIDER, ['Kim']));
+        $mine = $this->requests->findById(H::request($this->pdo, $offer->id, self::RIDER, ['Tom']));
+        $this->assertNotNull($pending);
+        $this->assertNotNull($mine);
+        $exactly = str_repeat('é', OfferService::COMMENT_MAX_LENGTH);
+
+        foreach (
+            [
+                fn() => $this->service->refuse($pending, $offer, H::viewer(self::DRIVER), $carpool, $exactly . 'x'),
+                fn() => $this->service->withdraw($mine, H::viewer(self::RIDER), $carpool, $offer, $exactly . 'x'),
+            ] as $tooLong
+        ) {
+            try {
+                $tooLong();
+                $this->fail('A 201-character word was accepted.');
+            } catch (\Modules\Covoiturage\Service\CarpoolException $e) {
+                $this->assertStringContainsString('200 caractères', $e->getMessage());
+            }
+        }
+        $this->assertSame([], $this->sent);
+        $this->assertSame(SeatRequest::PENDING, $this->requests->findById($pending->id)?->status);
+        $this->assertNotNull($this->requests->findById($mine->id), 'the withdrawal did not happen');
+
+        $this->service->refuse($pending, $offer, H::viewer(self::DRIVER), $carpool, $exactly);
+        $this->assertStringContainsString($exactly, $this->sent[0]['body'], 'exactly 200 is accepted');
+    }
+
     public function testAChangeOfTimeAndMeetingPointSaysBoth(): void
     {
         [$carpool, $offer] = $this->car();

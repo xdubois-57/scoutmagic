@@ -107,6 +107,20 @@
                         <td class="text-end text-nowrap">
                             {% if email.status in ['sending', 'sent'] %}
                                 <a href="/mass-mail/{{ email.id }}/tracking" class="btn btn-sm btn-outline-secondary" title="Suivi"><i class="bi bi-bar-chart-line"></i></a>
+                            {% elseif email.status in ['draft', 'test'] %}
+                                {# Until the real sending starts, an email can go
+                                   (issue #755) — the shared confirmation first,
+                                   and the server checks the status again. #}
+                                <form method="post" action="/mass-mail/{{ email.id }}/delete" class="d-inline"
+                                      data-confirm="Supprimer cet e-mail ? {{ email.status == 'draft' ? 'Le brouillon' : "L'e-mail" }} « {{ email.subject }} » et ses données associées seront supprimés définitivement."
+                                      data-confirm-label="Supprimer">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            title="Supprimer l'e-mail « {{ email.subject }} »"
+                                            aria-label="Supprimer l'e-mail « {{ email.subject }} »">
+                                        <i class="bi bi-trash" aria-hidden="true"></i>
+                                    </button>
+                                </form>
                             {% endif %}
                         </td>
                     </tr>

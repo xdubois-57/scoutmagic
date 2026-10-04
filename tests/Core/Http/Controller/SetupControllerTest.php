@@ -69,6 +69,8 @@ class SetupControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        // tests/bootstrap.php runs the suite with the development exception.
+        \Core\Http\RequestScheme::setHttpsRequired(false);
         $this->removeDirectory($this->tempDir);
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
@@ -183,6 +185,53 @@ class SetupControllerTest extends TestCase
         $response = $controller->index($request, []);
 
         $this->assertStringContainsString('value="https://www.unite-exemple.be"', $response->getBody());
+    }
+
+    /**
+     * Behind a TLS terminator PHP sees plain HTTP on a site visitors reach
+     * over HTTPS; while HTTPS is required the pre-filled URL must not be
+     * downgraded by that guess (#751).
+     */
+    public function testIndexPrefillsAnHttpsBaseUrlBehindATlsTerminatorWhenHttpsIsRequired(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        \Core\Http\RequestScheme::setHttpsRequired(true);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup', [], [], [], [
+            'HTTP_HOST' => 'www.unite-exemple.be',
+            'SERVER_PORT' => '80',
+        ]);
+
+        $response = $controller->index($request, []);
+
+        $this->assertStringContainsString('value="https://www.unite-exemple.be"', $response->getBody());
+    }
+
+    /**
+     * HTTPS is a precondition of a production install (#751): the wizard
+     * refuses an http:// base URL while HTTPS is required, and accepts it
+     * under the explicit development exception.
+     */
+    public function testSaveRefusesAnHttpBaseUrlOnlyWhileHttpsIsRequired(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $message = 'L&#039;URL de base doit commencer par https://';
+        $post = function () use ($controller): string {
+            $request = new Request('POST', '/setup/save', [], [
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+                'base_url' => 'http://unite.example',
+            ], [], []);
+
+            return $controller->save($request, [])->getBody();
+        };
+
+        \Core\Http\RequestScheme::setHttpsRequired(true);
+        $this->assertStringContainsString($message, $post());
+
+        \Core\Http\RequestScheme::setHttpsRequired(false);
+        $this->assertStringNotContainsString($message, $post());
     }
 
     /**

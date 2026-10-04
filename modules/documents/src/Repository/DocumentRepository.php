@@ -22,6 +22,7 @@ class DocumentRepository implements AttachedFileRepository
 {
     private const SELECT = 'SELECT d.id, d.slug, d.slug_is_random, d.title, d.description, d.visibility,'
         . ' d.file_id, d.sort_order, d.updated_at, f.mime_type, f.size_bytes, f.original_name,'
+        . ' d.expires_on, d.created_at, f.created_at AS file_created_at,'
         . ' (SELECT COALESCE(MAX(v.version_number), 0) + 1 FROM document_versions v'
         . ' WHERE v.document_id = d.id) AS version_number'
         . ' FROM documents d JOIN files f ON f.id = d.file_id';
@@ -75,12 +76,13 @@ class DocumentRepository implements AttachedFileRepository
         DocumentVisibility $visibility,
         int $fileId,
         ?int $createdBy,
-        string $now
+        string $now,
+        string $expiresOn
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO documents (slug, slug_is_random, title, description, visibility, file_id, sort_order,'
-                . ' created_by, created_at, updated_by, updated_at)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . ' created_by, created_at, updated_by, updated_at, expires_on)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $slug,
@@ -96,6 +98,7 @@ class DocumentRepository implements AttachedFileRepository
             $now,
             $createdBy,
             $now,
+            $expiresOn,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -114,13 +117,14 @@ class DocumentRepository implements AttachedFileRepository
         DocumentVisibility $visibility,
         ?int $newFileId,
         ?int $updatedBy,
-        string $now
+        string $now,
+        string $expiresOn
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE documents SET title = ?, description = ?, visibility = ?, file_id = COALESCE(?, file_id),'
-                . ' updated_by = ?, updated_at = ? WHERE id = ?'
+                . ' updated_by = ?, updated_at = ?, expires_on = ? WHERE id = ?'
         );
-        $stmt->execute([$title, $description, $visibility->value, $newFileId, $updatedBy, $now, $id]);
+        $stmt->execute([$title, $description, $visibility->value, $newFileId, $updatedBy, $now, $expiresOn, $id]);
     }
 
     /**
@@ -175,7 +179,11 @@ class DocumentRepository implements AttachedFileRepository
             (int) $row['size_bytes'],
             (string) $row['original_name'],
             (int) $row['slug_is_random'] === 1,
-            (int) $row['version_number']
+            (int) $row['version_number'],
+            (string) $row['file_created_at'],
+            $row['expires_on'] !== null && $row['expires_on'] !== ''
+                ? substr((string) $row['expires_on'], 0, 10)
+                : Document::defaultExpiry(substr((string) $row['created_at'], 0, 10))
         );
     }
 }

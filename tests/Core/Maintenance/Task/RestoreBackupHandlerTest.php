@@ -24,6 +24,7 @@ use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Support\PortableHints;
 
 /**
  * @group database
@@ -260,7 +261,9 @@ class RestoreBackupHandlerTest extends TestCase
         $zip = new \ZipArchive();
         $this->assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) === true);
         $zip->addFromString('database.sql', '-- pas vraiment un dump');
-        $this->assertTrue($zip->setArchiveComment(PortableKeys::comment(PortableKeys::newDerivation())));
+        $this->assertTrue($zip->setArchiveComment(
+            PortableKeys::comment(PortableKeys::newDerivation(), PortableHints::sample())
+        ));
         $zip->close();
 
         return $path;

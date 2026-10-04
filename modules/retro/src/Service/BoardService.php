@@ -108,6 +108,21 @@ class BoardService implements RetroEventLinkLookupInterface
     }
 
     /**
+     * The chef d'unité's authority, a superadmin included (issue #743) —
+     * the rule of Core\Member\MemberService::hasUnitChiefAuthority(), on
+     * this service's own isUnitChief(). Final so a test double still
+     * applies it.
+     */
+    final public function hasUnitChiefAuthority(Role $viewerRole, ?string $email, int $scoutYearId): bool
+    {
+        if ($viewerRole->hasAccess(Role::SUPERADMIN)) {
+            return true;
+        }
+
+        return $email !== null && $this->isUnitChief($email, $scoutYearId);
+    }
+
+    /**
      * Events available for the picker: -10/+15 days around today, scoped
      * server-side by role/section (module spec — never just hidden
      * client-side). $sectionId is ignored (every section visible) when
@@ -521,9 +536,10 @@ class BoardService implements RetroEventLinkLookupInterface
         return match ($board->linkVisibility) {
             'identified' => $viewerRole->hasAccess(Role::IDENTIFIED),
             'chief' => $viewerRole->hasAccess(Role::CHIEF),
+            // Cumulative (#743): a superadmin meets the chef d'unité's audience.
             'unit_chief' => $viewerRole->hasAccess(Role::CHIEF)
-                && $viewerEmail !== null && $scoutYearId !== null
-                && $this->isUnitChief($viewerEmail, $scoutYearId),
+                && $scoutYearId !== null
+                && $this->hasUnitChiefAuthority($viewerRole, $viewerEmail, $scoutYearId),
             'superadmin' => $viewerRole->hasAccess(Role::SUPERADMIN),
             default => false,
         };

@@ -15,6 +15,7 @@ use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\PortableHints;
 
 /**
  * The refusals that need no database, kept where no database can silence
@@ -150,6 +151,24 @@ final class PortableArchiveRefusalTest extends TestCase
             $this->fail('An archive in an unknown format version was accepted.');
         } catch (BackupException $e) {
             $this->assertStringContainsString('format', $e->getMessage());
+        }
+    }
+
+    /**
+     * #719: the clear comment chooses the release a bootstrap installs,
+     * and anyone holding the file can edit it. The encrypted manifest is
+     * what counts, so a comment announcing another version is refused.
+     */
+    public function testACommentAnnouncingAnotherVersionThanTheManifestIsRefused(): void
+    {
+        $path = $this->buildArchive(['commentVersion' => '9.9.9']);
+
+        try {
+            PortableArchive::open($path, self::PASSPHRASE);
+            $this->fail('An archive whose comment contradicts its manifest was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('9.9.9', $e->getMessage());
+            $this->assertStringContainsString('modifiée', $e->getMessage());
         }
     }
 
@@ -579,7 +598,10 @@ final class PortableArchiveRefusalTest extends TestCase
         }
         $this->addEncrypted($zip, PortableManifest::MEMBER, (string) json_encode($manifest), $password);
 
-        $this->assertTrue($zip->setArchiveComment(PortableKeys::comment($derivation)));
+        $this->assertTrue($zip->setArchiveComment(PortableKeys::comment(
+            $derivation,
+            PortableHints::sample($options['commentVersion'] ?? self::ARCHIVE_VERSION)
+        )));
         $zip->close();
 
         return $path;

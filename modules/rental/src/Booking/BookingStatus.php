@@ -25,7 +25,10 @@ enum BookingStatus: string
 {
     /** A public request has arrived and nobody has looked at it yet. */
     case RECEIVED = 'received';
-    case REVIEWING = 'reviewing';
+    // `reviewing` (« En cours d'examen ») is gone (#708, IT-11): an internal
+    // label that sent the renter nothing and silenced the « sans réponse »
+    // reminder. A row still carrying it reads back as RECEIVED — the
+    // repository falls back to it for any value this enum does not know.
     case INFO_REQUESTED = 'info_requested';
     case PROPOSED = 'proposed';
     case CONFIRMED = 'confirmed';
@@ -39,7 +42,6 @@ enum BookingStatus: string
     {
         return match ($this) {
             self::RECEIVED => 'Demande reçue',
-            self::REVIEWING => "En cours d'examen",
             self::INFO_REQUESTED => 'Informations demandées',
             self::PROPOSED => 'Proposition envoyée',
             self::CONFIRMED => 'Confirmée',
@@ -121,7 +123,7 @@ enum BookingStatus: string
     public function needsAttention(): bool
     {
         return match ($this) {
-            self::RECEIVED, self::REVIEWING, self::INFO_REQUESTED => true,
+            self::RECEIVED, self::INFO_REQUESTED => true,
             default => false,
         };
     }

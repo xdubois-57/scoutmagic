@@ -86,14 +86,29 @@ class PassageNoteRepository
      * read. A new suggestion always arrives unconfirmed — a machine
      * reading is a hint to a chief, and re-reading an edited comment
      * cannot inherit the validation of the sentence it replaced.
+     *
+     * `$sectionId` and `$friendMemberIds` are the structured half of the
+     * same reading (issue #733), already resolved by the caller to a
+     * section of the arrival branch and to member ids — never a name.
+     *
+     * @param array<int, int> $friendMemberIds
      */
-    public function setAiSuggestion(int $memberId, int $scoutYearId, string $sourceHash, ?string $suggestion): void
-    {
+    public function setAiSuggestion(
+        int $memberId,
+        int $scoutYearId,
+        string $sourceHash,
+        ?string $suggestion,
+        ?int $sectionId = null,
+        array $friendMemberIds = []
+    ): void {
         $this->ensureRow($memberId, $scoutYearId);
+
+        $friendMemberIds = array_values(array_unique(array_map('intval', $friendMemberIds)));
 
         $stmt = $this->pdo->prepare(
             'UPDATE registration_passage_notes
-                SET ai_source_hash = ?, ai_suggestion_encrypted = ?, ai_confirmed = 0
+                SET ai_source_hash = ?, ai_suggestion_encrypted = ?, ai_confirmed = 0,
+                    ai_section_id = ?, ai_friend_member_ids = ?
               WHERE member_id = ? AND scout_year_id = ?'
         );
         $stmt->execute([
@@ -101,6 +116,8 @@ class PassageNoteRepository
             $suggestion !== null && trim($suggestion) !== ''
                 ? $this->encryption->encrypt(trim($suggestion), 'registration_passage_notes.ai_suggestion')
                 : null,
+            $sectionId,
+            $friendMemberIds === [] ? null : json_encode($friendMemberIds, JSON_THROW_ON_ERROR),
             $memberId,
             $scoutYearId,
         ]);
@@ -109,8 +126,10 @@ class PassageNoteRepository
     /**
      * The chief saying « oui, c'est bien ce qu'ils demandent ».
      *
-     * Only this makes a suggestion usable downstream (IT-18). Nothing
-     * confirms itself, and nothing is confirmed by being displayed.
+     * A mark of agreement on the sentence shown to the chief. Nothing
+     * confirms itself, and nothing is confirmed by being displayed. The
+     * optimiser does not wait for it (issue #733): it ranks the resolved
+     * reading below the staff's choice and the family's own fields.
      */
     public function confirmAiSuggestion(int $memberId, int $scoutYearId, bool $confirmed): void
     {
@@ -133,7 +152,9 @@ class PassageNoteRepository
      *         staff_note: ?string,
      *         ai_source_hash: ?string,
      *         ai_suggestion: ?string,
-     *         ai_confirmed: bool
+     *         ai_confirmed: bool,
+     *         ai_section_id: ?int,
+     *         ai_friend_member_ids: array<int, int>
      *     }
      * >
      */
@@ -158,7 +179,9 @@ class PassageNoteRepository
      *     staff_note: ?string,
      *     ai_source_hash: ?string,
      *     ai_suggestion: ?string,
-     *     ai_confirmed: bool
+     *     ai_confirmed: bool,
+     *     ai_section_id: ?int,
+     *     ai_friend_member_ids: array<int, int>
      * }|null
      */
     public function find(int $memberId, int $scoutYearId): ?array
@@ -179,7 +202,9 @@ class PassageNoteRepository
      *     staff_note: ?string,
      *     ai_source_hash: ?string,
      *     ai_suggestion: ?string,
-     *     ai_confirmed: bool
+     *     ai_confirmed: bool,
+     *     ai_section_id: ?int,
+     *     ai_friend_member_ids: array<int, int>
      * }
      */
     private function hydrate(array $row): array
@@ -197,7 +222,25 @@ class PassageNoteRepository
                 )
                 : null,
             'ai_confirmed' => (bool) ($row['ai_confirmed'] ?? false),
+            'ai_section_id' => ($row['ai_section_id'] ?? null) !== null ? (int) $row['ai_section_id'] : null,
+            'ai_friend_member_ids' => self::decodeIds($row['ai_friend_member_ids'] ?? null),
         ];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private static function decodeIds(mixed $json): array
+    {
+        if (!is_string($json) || $json === '') {
+            return [];
+        }
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        return array_values(array_map('intval', array_filter($decoded, 'is_numeric')));
     }
 
     /**

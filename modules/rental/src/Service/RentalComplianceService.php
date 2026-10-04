@@ -245,6 +245,17 @@ class RentalComplianceService
     /**
      * @throws RentalException
      */
+    /**
+     * One entry of THIS asset's register, or null — what an edit page opens
+     * (#708, IT-09). Another asset's entry is null, never a leak.
+     */
+    public function find(int $assetId, int $itemId): ?ComplianceItem
+    {
+        $item = $this->repository->findById($itemId);
+
+        return $item !== null && $item->assetId === $assetId ? $item : null;
+    }
+
     private function requireItemOfAsset(int $assetId, int $itemId): ComplianceItem
     {
         $item = $this->repository->findById($itemId);

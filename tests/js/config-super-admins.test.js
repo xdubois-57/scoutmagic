@@ -15,7 +15,6 @@ const PAGE = `
                 <input class="form-check-input super-admin-active-toggle" type="checkbox"
                        role="switch" id="super-admin-active-7" data-account-id="7" checked
                        aria-checked="true">
-                <span class="badge super-admin-state-badge text-bg-success">Actif</span>
             </td>
         </tr>
         <tr id="row-9" class="opacity-50">
@@ -24,7 +23,13 @@ const PAGE = `
                 <input class="form-check-input super-admin-active-toggle" type="checkbox"
                        role="switch" id="super-admin-active-9" data-account-id="9"
                        aria-checked="false">
-                <span class="badge super-admin-state-badge text-bg-secondary">Désactivé</span>
+            </td>
+        </tr>
+        <tr id="row-3">
+            <td>moi@example.com</td>
+            <td>
+                <input class="form-check-input" type="checkbox" role="switch"
+                       id="super-admin-active-3" checked disabled aria-checked="true">
             </td>
         </tr>
     </tbody></table>`;
@@ -67,7 +72,6 @@ describe('config-super-admins.js', () => {
 
     const control = (id) => document.getElementById('super-admin-active-' + id);
     const row = (id) => document.getElementById('row-' + id);
-    const badge = (id) => row(id).querySelector('.super-admin-state-badge');
 
     // `bubbles: true` because a real user change does bubble — that is how
     // nav.js's delegated aria-checked listener ever sees it at all.
@@ -109,27 +113,40 @@ describe('config-super-admins.js', () => {
             );
         });
 
-        it('greys the row and repaints the badge', async () => {
+        it('greys the row, with the switch as its only written state', async () => {
             await boot();
             flip(7, false);
 
-            await vi.waitFor(() => expect(badge(7).textContent).toBe('Désactivé'));
+            await vi.waitFor(() => expect(row(7).classList.contains('opacity-50')).toBe(true));
             expect(control(7).getAttribute('aria-checked')).toBe('false');
-            expect(row(7).classList.contains('opacity-50')).toBe(true);
-            expect(badge(7).classList.contains('text-bg-secondary')).toBe(true);
-            expect(badge(7).classList.contains('text-bg-success')).toBe(false);
+            // Issue #744: no badge beside the switch any more.
+            expect(row(7).querySelector('.badge')).toBeNull();
+        });
+
+        it('still saves a switch that sits outside any table row', async () => {
+            document.body.innerHTML = `
+                <div>
+                    <input class="form-check-input super-admin-active-toggle" type="checkbox"
+                           role="switch" id="super-admin-active-5" data-account-id="5" checked
+                           aria-checked="true">
+                </div>`;
+            await boot();
+            flip(5, false);
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(control(5).checked).toBe(false);
         });
     });
 
     describe('reactivating', () => {
-        it('ungreys the row and repaints the badge', async () => {
+        it('ungreys the row', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true, message: 'Le compte a été réactivé.' }));
             await boot();
             flip(9, true);
 
-            await vi.waitFor(() => expect(badge(9).textContent).toBe('Actif'));
-            expect(row(9).classList.contains('opacity-50')).toBe(false);
-            expect(badge(9).classList.contains('text-bg-success')).toBe(true);
+            await vi.waitFor(() => expect(row(9).classList.contains('opacity-50')).toBe(false));
+            expect(control(9).getAttribute('aria-checked')).toBe('true');
         });
     });
 
@@ -147,7 +164,7 @@ describe('config-super-admins.js', () => {
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
             expect(control(7).checked).toBe(true);
-            expect(badge(7).textContent).toBe('Actif');
+            expect(row(7).classList.contains('opacity-50')).toBe(false);
             // A revert done in code fires no 'change', so nav.js's delegated
             // listener never runs — without an explicit sync a screen reader
             // would keep announcing the state the server just refused.
@@ -168,6 +185,19 @@ describe('config-super-admins.js', () => {
                 "Le compte n'a pas pu être modifié.",
                 { variant: 'error' }
             );
+        });
+    });
+
+    describe('your own account', () => {
+        // Issue #744: the same switch, disabled — and nothing ever leaves
+        // it, even if the browser is talked into changing it.
+        it('sends nothing, even when its state is changed in code', async () => {
+            await boot();
+            flip(3, false);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
         });
     });
 

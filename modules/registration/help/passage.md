@@ -57,12 +57,12 @@ affiché tel quel : ce n'est pas une erreur, c'est une réponse.
 
 ## La relecture par IA, si vous l'avez
 
-Quand le module Intelligence artificielle est actif, un bouton propose de relire les
-commentaires libres pour y repérer un souhait qui n'aurait pas été mis
-dans les champs prévus. Rien ne part tant que vous n'avez pas cliqué, le
-bouton dit combien de commentaires partiraient, chacun n'est envoyé
-**qu'une seule fois**, et ce que l'IA propose est marqué « à vérifier »
-tant que vous ne l'avez pas confirmé.
+Avec le module Intelligence artificielle, **« Répartir »** relit d'abord
+les commentaires libres des familles des seules personnes à répartir,
+chacun **une seule fois**, pour y relever une section ou des amis
+souhaités. Ce qui est ambigu est ignoré, et ces souhaits passent après
+les vôtres et ceux des champs de la famille. Le détail est dans
+*Répartir automatiquement les passages*.
 
 ## Ce que ces choix font — et ne font pas
 

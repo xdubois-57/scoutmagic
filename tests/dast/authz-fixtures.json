@@ -300,6 +300,7 @@
       "recipient_id": "1"
     },
     "/mes-locations/{slug}": {
+      "document": "conditions",
       "id": "1",
       "slug": "salle-des-fetes",
       "type": "contrat"
