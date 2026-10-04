@@ -293,6 +293,43 @@ class RentalContractValidityServiceTest extends TestCase
         $this->assertFalse($this->contract($booking->id)->isSuperseded());
     }
 
+    /**
+     * A closed stay keeps its contract: a renter correcting their billing
+     * address for the invoice must not void the copy signed by both parties.
+     */
+    public function testAClosedBookingVoidsNothing(): void
+    {
+        $booking = $this->bookingWithItsContractSent();
+        $countersignedId = $this->documentRepository->create($booking->id, 0, DocumentType::SIGNED_CONTRACT, 1, true, null, null);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CLOSED, new \DateTimeImmutable());
+        $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);
+
+        $this->assertFalse($this->service->recheck($this->fresh($booking->id), $this->asset(), null, new \DateTimeImmutable()));
+        $this->assertFalse($this->contract($booking->id)->isSuperseded());
+        $this->assertFalse($this->documentRepository->findById($countersignedId)?->isSuperseded());
+    }
+
+    /**
+     * A copy answers the contract filed last before it. Signed from a
+     * contract older than fingerprints — which nothing voids — it stays,
+     * even when a newer, fingerprinted version is voided around it.
+     */
+    public function testACopyOfAContractOlderThanFingerprintsOutlivesANewerVoidVersion(): void
+    {
+        $booking = $this->bookingWithItsContractSent();
+        $legacy = $this->contract($booking->id);
+        $this->pdo->prepare('UPDATE rental_documents SET fingerprint = NULL WHERE id = ?')->execute([$legacy->id]);
+        $legacyCopyId = $this->documentRepository->create($booking->id, 0, DocumentType::SIGNED_CONTRACT, 1, true, null, null);
+
+        $newer = $this->documents->generate($this->fresh($booking->id), $this->asset(), DocumentType::CONTRACT, new PaymentSettings());
+        $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);
+
+        $this->assertTrue($this->service->recheck($this->fresh($booking->id), $this->asset(), null, new \DateTimeImmutable()));
+        $this->assertTrue($this->documentRepository->findById($newer->id)?->isSuperseded());
+        $this->assertFalse($this->documentRepository->findById($legacy->id)?->isSuperseded());
+        $this->assertFalse($this->documentRepository->findById($legacyCopyId)?->isSuperseded());
+    }
+
     /** A contract made before fingerprints existed is left alone, not guessed about. */
     public function testAContractWithoutAFingerprintIsNeverVoided(): void
     {

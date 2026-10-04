@@ -54,6 +54,9 @@ use Modules\Rental\Reminder\ReminderKind;
  *   dates — and its reopened steps put it back on « À traiter ».
  *
  * A cancelled, refused or expired booking voids nothing: it has stopped.
+ * Nor does a closed one: its stay is over, its contract is what was
+ * signed for it, and a renter correcting a billing address for the invoice
+ * must not take the countersigned copy away from them.
  */
 class RentalContractValidityService
 {
@@ -86,14 +89,12 @@ class RentalContractValidityService
         ?int $actorMemberId,
         \DateTimeImmutable $now
     ): bool {
-        if ($booking->status->isAbandoned()) {
+        if ($booking->status->isAbandoned() || $booking->status === BookingStatus::CLOSED) {
             return false;
         }
 
-        $documents = array_values(array_filter(
-            $this->documentRepository->findForBooking($booking->id),
-            static fn(RentalDocument $d): bool => !$d->isSuperseded()
-        ));
+        $all = $this->documentRepository->findForBooking($booking->id);
+        $documents = array_values(array_filter($all, static fn(RentalDocument $d): bool => !$d->isSuperseded()));
         $contracts = array_values(array_filter(
             $documents,
             // A contract generated before fingerprints existed cannot be
@@ -121,20 +122,11 @@ class RentalContractValidityService
             return false;
         }
 
-        // The copies signed from a contract that still holds stay: only
-        // what was signed before it — from a contract now void — goes.
-        $validSince = null;
-        foreach ($contracts as $contract) {
-            if ($contract->fingerprint === $current && ($validSince === null || $contract->id < $validSince)) {
-                $validSince = $contract->id;
-            }
-        }
-
         $void = array_map(static fn(RentalDocument $d): int => $d->id, $stale);
         foreach ($documents as $document) {
             $signed = $document->type === DocumentType::SIGNED_COPY
                 || $document->type === DocumentType::SIGNED_CONTRACT;
-            if ($signed && ($validSince === null || $document->id < $validSince)) {
+            if ($signed && self::signedFromAVoidContract($document, $all, $void)) {
                 $void[] = $document->id;
             }
         }
@@ -191,5 +183,32 @@ class RentalContractValidityService
         }
 
         return true;
+    }
+
+    /**
+     * Whether a signed copy was signed from a contract that no longer holds.
+     *
+     * A copy answers the contract filed last before it — the one the renter
+     * had in hand. It goes when that contract is void (now or before), and
+     * stays when it still holds — including a contract older than
+     * fingerprints, which nothing here can judge. A copy filed before any
+     * contract says nothing about one, and is left alone.
+     *
+     * @param RentalDocument[] $all every document of the booking, void ones included
+     * @param int[] $voidNow the contracts voided by this pass
+     */
+    private static function signedFromAVoidContract(RentalDocument $copy, array $all, array $voidNow): bool
+    {
+        $answered = null;
+        foreach ($all as $document) {
+            if ($document->type === DocumentType::CONTRACT
+                && $document->id < $copy->id
+                && ($answered === null || $document->id > $answered->id)
+            ) {
+                $answered = $document;
+            }
+        }
+
+        return $answered !== null && ($answered->isSuperseded() || in_array($answered->id, $voidNow, true));
     }
 }
