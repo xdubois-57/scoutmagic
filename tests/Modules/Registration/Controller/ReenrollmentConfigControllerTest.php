@@ -719,6 +719,33 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertStringContainsString('Prochain rappel automatique prévu le 01/05/2027.', $body);
     }
 
+    public function testTheNextAutomaticReminderIsTheEarliestNotTheFirstOne(): void
+    {
+        // The two delays are independent: the second reminder (30 days
+        // before the close, 15/04) comes before the first (7 days, 08/05).
+        $this->createAnime('Alix', 'famille@example.be');
+        $this->campaign->open();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '7', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS, '30', 'registration');
+
+        $body = html_entity_decode(
+            $this->dashboard($this->controllerAt(new \DateTimeImmutable('2027-04-01 10:00'))),
+            ENT_QUOTES
+        );
+
+        $this->assertStringContainsString('Prochain rappel automatique prévu le 15/04/2027.', $body);
+    }
+
+    public function testTheReminderQuestionDoesNotAnnounceAnEmailWhenNoFamilyIsLeftToWriteTo(): void
+    {
+        $this->campaign->open();
+
+        $body = html_entity_decode($this->dashboard(), ENT_QUOTES);
+
+        $this->assertStringContainsString('Aucune famille ne recevra de relance.', $body);
+        $this->assertStringNotContainsString('0 e-mails', $body);
+    }
+
     /**
      * **The dialog never contradicts the box** (issue #796, D11): it said
      * « Aucun autre rappel automatique n'est prévu » while the settings

@@ -593,6 +593,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
     public function testBetweenTwoCampaignsTheBoxIsTheNextOneAndOneLineTheLast(): void
     {
         $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
 
         $this->assertSame('2027-05-15', $timeline['key']);
         $this->assertSame('2027-2028', $timeline['label']);

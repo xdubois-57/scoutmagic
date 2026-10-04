@@ -366,10 +366,13 @@ class ReenrollmentConfigController extends AbstractController
     private function remindQuestion(?array $timeline): string
     {
         $families = $this->planner->families(true);
-        $question = ($families === 1
-                ? "1 e-mail va partir : une relance à la famille qui n'a pas encore répondu. "
-                : $families . " e-mails vont partir : une relance à chaque famille qui n'a pas encore répondu. ")
-            . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.";
+        $question = match (true) {
+            $families === 0 => "Aucune famille ne recevra de relance. ",
+            $families === 1 => "1 e-mail va partir : une relance à la famille qui n'a pas encore répondu. "
+                . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.",
+            default => $families . " e-mails vont partir : une relance à chaque famille qui n'a pas encore répondu. "
+                . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.",
+        };
 
         $sent = [];
         $next = null;
@@ -381,7 +384,9 @@ class ReenrollmentConfigController extends AbstractController
             }
             if ($step['state'] === 'sent') {
                 $sent[] = $step['at'];
-            } elseif ($step['state'] === 'planned' && $next === null) {
+            } elseif ($step['state'] === 'planned' && ($next === null || $step['date'] < $next)) {
+                // The earliest date, not the first step met: the two delays
+                // are independent, so the second reminder can come first.
                 $next = $step['date'];
             }
         }
