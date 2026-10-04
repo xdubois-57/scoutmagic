@@ -697,12 +697,14 @@ CREATE TABLE IF NOT EXISTS rental_booking_comments (
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- The steps of a booking a manager ticked by hand (issue #462, D5): the
--- walk-throughs, on an asset whose inventory the site does not keep. Only
--- those — a step the site can derive is never stored, so a hand tick can
--- never sit beside the real answer. Who and when, because a tick nobody
--- can attribute is a claim nobody can check; the history carries the same
--- fact through Core\Audit.
+-- The steps of a booking a manager ticked by hand. Any step since #708
+-- (IT-14), deliberately: things happen away from the site — a contract
+-- accepted by e-mail, a deposit paid in cash — and the manager has to be
+-- able to say so. A tick counts exactly like the site's own answer (next
+-- action, « À traiter », reminders), and the site's answer wins the moment
+-- it has one: a step the site verifies is no longer a hand tick. Who and
+-- when, because a tick nobody can attribute is a claim nobody can check;
+-- the history carries the same fact through Core\Audit.
 CREATE TABLE IF NOT EXISTS rental_booking_milestone_marks (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,

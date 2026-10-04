@@ -47,6 +47,26 @@
 .step-circle--done {
     background-color: var(--bs-success);
 }
+/* A disc that is a button — completing a step by hand, or running a
+   status (#708, IT-14). A 44 px target around the 36 px disc, pulled back
+   by the difference so the column does not move. */
+.step-disc-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin: -0.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+}
+.step-disc-button:hover .step-circle,
+.step-disc-button:focus-visible .step-circle {
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
+}
 /* Vertical connector linking each step's circle to the next. */
 .step-item__marker {
     position: relative;

@@ -408,6 +408,39 @@ class RentalReminderServiceTest extends TestCase
         }
     }
 
+    /**
+     * A step ticked by hand stops its reminder (#708, IT-14): the contract
+     * sent by e-mail is not chased as « Contrat non établi ».
+     */
+    public function testAStepTickedByHandIsNotChased(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        $booking = $this->createBooking(arrival: '2027-07-10', departure: '2027-07-13');
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::CONTRACT_SENT, null, new \DateTimeImmutable('2027-06-20'));
+
+        $service = new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->notificationService(),
+            documentService: $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            markRepository: $marks
+        );
+        $service->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertNotContains(
+            ReminderKind::CONTRACT_MISSING->notificationTypeId(),
+            array_column($this->dispatched, 'typeId')
+        );
+    }
+
     public function testWithoutANotificationServiceNothingInternalIsClaimedAsSent(): void
     {
         // Nothing went out, so nothing has been said: the claim is released

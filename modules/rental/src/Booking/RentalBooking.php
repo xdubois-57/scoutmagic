@@ -136,12 +136,12 @@ final class RentalBooking
      * null while a hold runs, or once the booking is confirmed or final.
      *
      * Read from the hold itself before the expiry task has run, and from
-     * `$holdLapsedAt` after it. A manager's option is not this: its lapse
-     * ends the booking — see optionLapsedSince().
+     * `$holdLapsedAt` after it. An option whose lapse ends the booking is
+     * not this — see optionLapsedSince().
      */
     public function holdLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
     {
-        if ($this->holdOrigin === HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+        if ($this->lapseEndsTheBooking() || !$this->stillWaitsOnAHold($now)) {
             return null;
         }
 
@@ -159,11 +159,28 @@ final class RentalBooking
      */
     public function optionLapsedSince(\DateTimeImmutable $now): ?\DateTimeImmutable
     {
-        if ($this->holdOrigin !== HoldOrigin::MANAGER || !$this->stillWaitsOnAHold($now)) {
+        if (!$this->lapseEndsTheBooking() || !$this->stillWaitsOnAHold($now)) {
             return null;
         }
 
         return $this->holdUntil;
+    }
+
+    /**
+     * Whether this booking's hold, once lapsed, ends it — the one rule the
+     * expiry task and the booking page both read.
+     *
+     * A manager's option does (specifications.md §22.5): a promise with a
+     * deadline, not taken up. Except once the contract has gone out
+     * (#708, IT-13): the unit has answered, the renter is signing, and a
+     * lapse frees the dates while the booking stays « Contrat envoyé ».
+     * The option stays an option — its origin is kept — but the answer
+     * already given outweighs its deadline.
+     */
+    public function lapseEndsTheBooking(): bool
+    {
+        return $this->holdOrigin?->expiryEndsTheBooking() === true
+            && $this->status !== BookingStatus::CONTRACT_SENT;
     }
 
     private function stillWaitsOnAHold(\DateTimeImmutable $now): bool

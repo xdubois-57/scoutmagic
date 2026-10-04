@@ -58,9 +58,12 @@ class RentalStatisticsService
     }
 
     /**
+     * @param ?int $pending the « À traiter » count when the caller already
+     *   has it — the overview computes each booking's next step for its
+     *   list (#708, IT-12), and the figure must be that very list counted
      * @return array{pending: int, occupied_days: int, revenue_cents: int}
      */
-    public function forAsset(int $assetId, \DateTimeImmutable $today): array
+    public function forAsset(int $assetId, \DateTimeImmutable $today, ?int $pending = null): array
     {
         $from = $today->setDate((int) $today->format('Y'), 1, 1);
         $to = $from->modify('+1 year -1 day');
@@ -70,7 +73,7 @@ class RentalStatisticsService
         // The SAME definition as the list this figure sits above, and one
         // query for all of it. A tile saying « 2 » over a list of five is
         // the failure this shares its source to avoid.
-        $pending = BookingAttention::countIn(
+        $pending ??= BookingAttention::countIn(
             $bookings,
             $this->changeRequestRepository?->findPendingForBookings(array_map(
                 static fn(RentalBooking $booking) => $booking->id,

@@ -177,29 +177,79 @@ class BookingJourneyTest extends TestCase
     // ── « L'action suivante » ───────────────────────────────────────────
 
     /**
-     * The line the checklist never had. « Demande reçue » ticks when the
-     * request ARRIVES, so before this milestone existed a request nobody
-     * had looked at pointed the manager straight at the contract.
+     * The unit's answer to a request is its contract (#708, IT-13): the
+     * next step of a received request is « Contrat envoyé », and there is
+     * no « Décision prise sur la demande » line any more.
      */
-    public function testAnUndecidedRequestAsksForTheDecisionFirst(): void
+    public function testAReceivedRequestAsksForTheContractFirst(): void
     {
-        $journey = $this->journey(BookingStatus::RECEIVED);
+        $journey = $this->journey(BookingStatus::RECEIVED, [BookingMilestones::CONTRACT_SENT => false]);
 
-        $this->assertNotNull($journey->next());
-        $this->assertSame('decision', $journey->next()->key);
-        $this->assertFalse($journey->isComplete());
+        $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
+        $this->assertSame('Cette demande attend votre réponse : envoyez le contrat.', $journey->headline());
+        $this->assertNotContains('decision', array_map(
+            static fn(BookingMilestone $m): string => $m->key,
+            $this->milestones(BookingStatus::RECEIVED)
+        ));
+    }
+
+    /** An asset with no contract moves on to the next applicable line. */
+    public function testWithNoContractTheNextStepIsTheFollowingLine(): void
+    {
+        $this->assertSame(
+            BookingMilestones::DEPOSIT_RECEIVED,
+            $this->journey(BookingStatus::RECEIVED, [BookingMilestones::DEPOSIT_RECEIVED => false])->next()?->key
+        );
+        $this->assertSame('confirmed', $this->journey(BookingStatus::RECEIVED)->next()?->key);
     }
 
     /**
-     * A proposal sent is not a decision taken: the renter may still refuse
-     * it, and `BookingTransition` still offers confirming — which is the
-     * definition this milestone borrows rather than keeping a second list.
+     * « Réservation confirmée » closes L'accord, the unit's, and offers its
+     * button only once every applicable line before it is done (#708, IT-13).
      */
-    public function testAProposalSentIsStillAnUndecidedRequest(): void
+    public function testConfirmingIsTheLastLineOfTheAgreementAndWaitsForIt(): void
     {
-        $journey = $this->journey(BookingStatus::PROPOSED);
+        $agreement = array_values(array_filter(
+            $this->milestones(BookingStatus::CONTRACT_SENT, [
+                BookingMilestones::CONTRACT_SENT => true,
+                BookingMilestones::CONTRACT_ACCEPTED => false,
+                BookingMilestones::DEPOSIT_RECEIVED => false,
+            ]),
+            static fn(BookingMilestone $m): bool => BookingPhase::of($m->key) === BookingPhase::AGREEMENT
+        ));
+        $confirmed = $agreement[count($agreement) - 1];
 
-        $this->assertSame('decision', $journey->next()?->key);
+        $this->assertSame('confirmed', $confirmed->key);
+        $this->assertNull($confirmed->action);
+        $this->assertStringContainsString('« Conditions et contrat acceptés », « Acompte reçu »', (string) $confirmed->explanation);
+
+        $ready = array_values(array_filter(
+            $this->milestones(BookingStatus::CONTRACT_SENT, [
+                BookingMilestones::CONTRACT_SENT => true,
+                BookingMilestones::CONTRACT_ACCEPTED => true,
+                BookingMilestones::DEPOSIT_RECEIVED => true,
+            ]),
+            static fn(BookingMilestone $m): bool => $m->key === 'confirmed'
+        ))[0];
+        $this->assertSame(BookingStatus::CONFIRMED, $ready->action?->transition);
+    }
+
+    /** Confirming is never among the other decisions any more. */
+    public function testConfirmingIsNotAmongTheOtherDecisions(): void
+    {
+        foreach ([BookingStatus::RECEIVED, BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED, BookingStatus::CONTRACT_SENT] as $status) {
+            foreach ($this->journey($status, [BookingMilestones::CONTRACT_SENT => false])->otherDecisions() as $decision) {
+                $this->assertNotSame(BookingStatus::CONFIRMED, $decision->transition, $status->value);
+            }
+        }
+    }
+
+    public function testAProposalSentWaitsOnTheRenter(): void
+    {
+        $journey = $this->journey(BookingStatus::PROPOSED, [BookingMilestones::CONTRACT_SENT => false]);
+
+        $this->assertSame(BookingMilestones::CONTRACT_SENT, $journey->next()?->key);
+        $this->assertSame('Une proposition attend la réponse du locataire.', $journey->headline());
     }
 
     public function testOnceDecidedTheNextThingIsTheFirstUntickedLineAfterIt(): void
@@ -325,7 +375,7 @@ class BookingJourneyTest extends TestCase
 
     public function testTheStretchHoldingTheNextThingIsTheCurrentOne(): void
     {
-        $journey = $this->journey(BookingStatus::RECEIVED);
+        $journey = $this->journey(BookingStatus::RECEIVED, [BookingMilestones::CONTRACT_SENT => false]);
 
         $current = array_values(array_filter(
             $journey->phases(),
@@ -333,7 +383,8 @@ class BookingJourneyTest extends TestCase
         ));
 
         $this->assertCount(1, $current);
-        $this->assertSame('La demande', $current[0]->label());
+        // The contract is the answer, and it opens the agreement.
+        $this->assertSame("L'accord", $current[0]->label());
     }
 
     /**
@@ -404,10 +455,10 @@ class BookingJourneyTest extends TestCase
      */
     public function testTheStretchesAfterTheCurrentOneAreInert(): void
     {
-        $journey = $this->journey(BookingStatus::RECEIVED);
+        $journey = $this->journey(BookingStatus::RECEIVED, [BookingMilestones::CONTRACT_SENT => false]);
 
         $this->assertSame(
-            ['request' => false, 'agreement' => true, 'before_stay' => true, 'stay' => true, 'after_stay' => true],
+            ['request' => false, 'agreement' => false, 'before_stay' => true, 'stay' => true, 'after_stay' => true],
             array_combine(
                 array_map(static fn($p): string => $p->key(), $journey->phases()),
                 array_map(static fn($p): bool => $p->isFuture, $journey->phases())
@@ -445,9 +496,10 @@ class BookingJourneyTest extends TestCase
     public static function headlines(): array
     {
         return [
-            'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre décision.'],
-            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la décision attend sa réponse.'],
+            'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre réponse : confirmez la réservation.'],
+            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la suite attend sa réponse.'],
             'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
+            'contrat envoyé' => [BookingStatus::CONTRACT_SENT, "L'accord est complet : la réservation reste à confirmer."],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],
             'refusée' => [BookingStatus::REFUSED, 'Cette demande a été refusée : elle ne peut plus changer.'],
             'annulée' => [BookingStatus::CANCELLED, 'Cette réservation a été annulée : elle ne peut plus changer.'],
@@ -595,7 +647,6 @@ class BookingJourneyTest extends TestCase
         }
 
         $this->assertSame(MilestoneKind::DERIVED, $kinds['request_received']);
-        $this->assertSame(MilestoneKind::HERE, $kinds['decision']);
         $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_SENT]);
         $this->assertSame(MilestoneKind::RENTER, $kinds[BookingMilestones::CONTRACT_ACCEPTED]);
         $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::DEPOSIT_RECEIVED]);
@@ -709,6 +760,19 @@ class BookingJourneyTest extends TestCase
         $this->assertStringContainsString("L'option est échue depuis le 09/01/2027", (string) $line->warning);
         $this->assertStringNotContainsString('posez une option', (string) $line->warning);
         $this->assertFalse($line->isOutstanding());
+    }
+
+    /** Once the contract is out, a lapsed option frees the dates like any hold (IT-13). */
+    public function testALapsedOptionOnAContractSentWarnsTheDatesAreFree(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, new \DateTimeImmutable('2027-01-09 14:00:00'));
+        $now = new \DateTimeImmutable('2027-01-10 12:00:00');
+        $line = $this->holdLine($booking, '2027-01-10 12:00:00');
+
+        $this->assertFalse($booking->lapseEndsTheBooking());
+        $this->assertNull($booking->optionLapsedSince($now));
+        $this->assertStringContainsString('ne sont plus bloquées depuis le 09/01/2027', (string) $line->warning);
+        $this->assertStringContainsString('la demande reste en attente', (string) $line->explanation);
     }
 
     public function testTheHoldExplanationDependsOnItsOrigin(): void
