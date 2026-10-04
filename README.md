@@ -147,6 +147,12 @@ La documentation détaillée est volontairement séparée de ce README :
 Les règles destinées aux contributeurs et aux agents de développement se
 trouvent également dans [AGENTS.md](AGENTS.md).
 
+## Développement
+
+Les commandes et prérequis de développement sont documentés dans
+[CONTRIBUTING.md](CONTRIBUTING.md), et la carte des contrôles se trouve dans
+[docs/quality-pipeline.md](docs/quality-pipeline.md).
+
 ### Analyse statique JavaScript
 
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis) ;
@@ -164,6 +170,12 @@ la description détaillée et l'ancien inventaire des scénarios restent dans
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ;
 les explications détaillées auparavant publiées ici restent dans
 [la référence de l'ancien README](README-reference.md#analyse-de-securite-dynamique-dast-owasp-zap).
+
+## Intégration continue
+
+Le fonctionnement des jobs, des checks requis, de SonarQube et des gates de
+release est documenté dans le
+[pipeline de qualité](docs/quality-pipeline.md#continuous-integration).
 
 ## Données, sécurité et responsabilité
 
