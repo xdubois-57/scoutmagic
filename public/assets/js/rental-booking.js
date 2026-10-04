@@ -121,6 +121,9 @@
             // wiped by a network hiccup would be the worse answer.
         }).finally(function () {
             page.removeAttribute('aria-busy');
+            // Said once the panels are in: rental-inventory.js holds on to
+            // the lines a save ended on during this refresh until then.
+            page.dispatchEvent(new CustomEvent('rental-booking:refreshed', { bubbles: true }));
         });
     }
 

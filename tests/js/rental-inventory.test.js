@@ -112,6 +112,30 @@ describe('the page', () => {
         expect(form.hasAttribute('data-booking-keep')).toBe(false);
     });
 
+    /**
+     * A save that ends while a panel re-render is still on its way (the
+     * page says busy): the re-render fetched may predate it, so the line
+     * stays kept until rental-booking.js says the panels are in.
+     */
+    it('keeps a line whose save ended during a re-render until that re-render lands', async () => {
+        page();
+        document.body.innerHTML = `<div data-rental-booking aria-busy="true">${document.body.innerHTML}</div>`;
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ success: true })));
+        wire(document);
+        const form = /** @type {HTMLFormElement} */ (document.querySelector('form[data-inventory-line]'));
+
+        await saveLine(form);
+
+        expect(form.querySelector('[data-inventory-status]')?.textContent).toBe('Enregistré');
+        expect(form.hasAttribute('data-booking-keep')).toBe(true);
+
+        const root = /** @type {HTMLElement} */ (document.querySelector('[data-rental-booking]'));
+        root.removeAttribute('aria-busy');
+        root.dispatchEvent(new CustomEvent('rental-booking:refreshed', { bubbles: true }));
+
+        expect(form.hasAttribute('data-booking-keep')).toBe(false);
+    });
+
     it('says a refusal beside the line', async () => {
         page();
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(

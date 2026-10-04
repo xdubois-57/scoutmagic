@@ -98,7 +98,9 @@ function post(form) {
  *
  * While a save is in flight the line carries `data-booking-keep`:
  * rental-booking.js keeps it as it is when it re-renders the panel, since
- * the render it fetched may predate this save.
+ * the render it fetched may predate this save. A save that ends while such
+ * a re-render is still on its way keeps the mark until it lands — the page
+ * says busy meanwhile — or the older render would put the old value back.
  *
  * @param {HTMLFormElement} form
  * @returns {Promise<void>}
@@ -118,7 +120,9 @@ export function saveLine(form) {
             return;
         }
         inFlight.delete(form);
-        form.removeAttribute('data-booking-keep');
+        if (form.closest('[aria-busy="true"]') === null) {
+            form.removeAttribute('data-booking-keep');
+        }
         if (status) {
             status.textContent = message;
             status.className = 'small d-block ' + (ok ? 'text-success' : 'text-danger');
@@ -147,6 +151,16 @@ export function wire(doc) {
         return;
     }
     /** @type {any} */ (doc).scoutMagicInventoryWired = true;
+
+    // The re-render that overlapped a save has landed: the lines it kept
+    // and that are no longer saving go back to being re-rendered.
+    doc.addEventListener('rental-booking:refreshed', () => {
+        doc.querySelectorAll('form[data-inventory-line][data-booking-keep]').forEach((form) => {
+            if (!inFlight.has(/** @type {HTMLFormElement} */ (form))) {
+                form.removeAttribute('data-booking-keep');
+            }
+        });
+    });
 
     doc.addEventListener('change', (event) => {
         const form = /** @type {HTMLElement} */ (event.target).closest?.('form[data-inventory-line]');

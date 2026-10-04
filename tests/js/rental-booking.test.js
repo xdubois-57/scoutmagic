@@ -215,6 +215,29 @@ describe('rental-booking.js: posting a form without leaving the page', () => {
         expect(document.querySelectorAll('#line-1')).toHaveLength(1);
     });
 
+    /**
+     * rental-inventory.js holds on to a line whose save ended during the
+     * refresh until it hears this — so it must come once the panels are
+     * in and the page no longer says busy, never before.
+     */
+    it('says the panels are in once they are swapped and the page is no longer busy', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        global.fetch = actionThenRefresh({ success: true, message: 'Contrat envoyé.' }, pageHtml('Fait'));
+        await boot();
+        const heard = [];
+        document.addEventListener('rental-booking:refreshed', () => {
+            heard.push({
+                milestone: document.getElementById('milestone').textContent,
+                busy: document.querySelector('[data-rental-booking]').hasAttribute('aria-busy'),
+            });
+        });
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(heard).toHaveLength(1));
+        expect(heard[0]).toEqual({ milestone: 'Fait', busy: false });
+    });
+
     it('stops saying it is busy when the refresh itself fails', async () => {
         document.body.innerHTML = pageHtml('À faire');
         let call = 0;
