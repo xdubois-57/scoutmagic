@@ -59,19 +59,35 @@ class RentalManagerSignatureRepository
      * Records this account's signature, replacing the one it had — the old
      * row deleted rather than updated, so nothing of the previous image
      * survives in it.
+     *
+     * Encrypted first, then deleted and inserted as one transaction: a
+     * replacement that fails anywhere leaves the signature it was replacing,
+     * never none at all.
      */
     public function save(int $userAccountId, string $png, \DateTimeImmutable $at): void
     {
-        $this->delete($userAccountId);
+        $encrypted = $this->encryption->encrypt($png, self::CONTEXT);
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at) VALUES (?, ?, ?)'
-        );
-        $stmt->execute([
-            $userAccountId,
-            $this->encryption->encrypt($png, self::CONTEXT),
-            $at->format('Y-m-d H:i:s'),
-        ]);
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $this->delete($userAccountId);
+            $this->pdo->prepare(
+                'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at) VALUES (?, ?, ?)'
+            )->execute([$userAccountId, $encrypted, $at->format('Y-m-d H:i:s')]);
+
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /** Deletes this account's signature, whenever they ask. Returns whether there was one. */

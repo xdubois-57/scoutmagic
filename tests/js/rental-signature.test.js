@@ -1,8 +1,13 @@
 // Isolated JavaScript unit test — jsdom DOM only. Exercises the REAL
 // implementation in public/assets/js/rental-signature.js: the drawing pad
 // of « Ma signature » (#708, IT-16).
+//
+// A classic script: its two functions are reached through the namespaced
+// globalThis.ScoutMagicRentalSignatureInternals test seam it exposes.
 import { describe, expect, it, vi } from 'vitest';
-import { canvasPoint, wirePad } from '../../public/assets/js/rental-signature.js';
+import '../../public/assets/js/rental-signature.js';
+
+const { canvasPoint, wirePad } = /** @type {any} */ (globalThis).ScoutMagicRentalSignatureInternals;
 
 describe('canvasPoint()', () => {
     it('maps a pointer into the canvas’s own pixels', () => {

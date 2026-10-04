@@ -38,6 +38,19 @@ class SignatureImageTest extends TestCase
         $this->assertLessThanOrEqual(400, $info[1]);
     }
 
+    /**
+     * A small file declaring a huge canvas is refused before it is decoded:
+     * decoding allocates width × height × 4 bytes, past `memory_limit`.
+     */
+    public function testAnImageDeclaringAHugeCanvasIsRefusedBeforeDecoding(): void
+    {
+        // A 6000 × 5000 JPEG — 30 megapixels — stays far under 5 MB.
+        $this->expectException(\Modules\Rental\Service\RentalException::class);
+        $this->expectExceptionMessage('25 mégapixels');
+
+        SignatureImage::normalize(self::jpeg(6000, 5000));
+    }
+
     /** Anything after the image data — a comment, a payload — does not survive. */
     public function testOnlyThePixelsSurvive(): void
     {

@@ -37,6 +37,15 @@ final class SignatureImage
     private const ACCEPTED = [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP];
 
     /**
+     * The canvas an image may declare. Five megabytes of compressed PNG can
+     * announce a canvas far larger, and decoding allocates width × height
+     * × 4 bytes before anything here could refuse it: past `memory_limit`
+     * the request dies with a fatal error no `RentalException` catches.
+     * 25 megapixels is a phone photograph several times over.
+     */
+    private const MAX_PIXELS = 25_000_000;
+
+    /**
      * The `data:image/png;base64,…` a drawing pad produces, as PNG bytes.
      *
      * @throws RentalException when it is not one
@@ -69,6 +78,9 @@ final class SignatureImage
         $info = @getimagesizefromstring($bytes);
         if ($info === false || !in_array($info[2], self::ACCEPTED, true)) {
             throw new RentalException('La signature doit être une image PNG, JPEG ou WebP.');
+        }
+        if ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > self::MAX_PIXELS) {
+            throw new RentalException('Cette image est trop grande : 25 mégapixels au plus.');
         }
 
         $source = @imagecreatefromstring($bytes);
