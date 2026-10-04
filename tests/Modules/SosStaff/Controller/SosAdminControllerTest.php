@@ -62,8 +62,8 @@ class SosAdminControllerTest extends TestCase
      * What the stubbed provider configuration answers: a provider by
      * default (the page's ordinary state), null for « nothing configured ».
      */
-    private ?\Modules\SosStaff\Provider\PhoneProviderInterface $activeProvider = null;
-    private \Modules\SosStaff\Provider\ForwardingState|\Modules\SosStaff\Provider\ProviderException $forwarding;
+    private ?\Modules\SosStaff\Api\PhoneProviderInterface $activeProvider = null;
+    private \Modules\SosStaff\Api\ForwardingState|\Modules\SosStaff\Api\ProviderException $forwarding;
 
     protected function setUp(): void
     {
@@ -110,10 +110,10 @@ class SosAdminControllerTest extends TestCase
         // A stubbed configuration with a provider whose state each test
         // can choose (issue #750): the real one would need OVH
         // credentials, and the live state would be a network call.
-        $this->forwarding = new \Modules\SosStaff\Provider\ForwardingState(false, null);
-        $provider = $this->createStub(\Modules\SosStaff\Provider\PhoneProviderInterface::class);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(false, null);
+        $provider = $this->createStub(\Modules\SosStaff\Api\PhoneProviderInterface::class);
         $provider->method('readForwardingState')->willReturnCallback(function () {
-            if ($this->forwarding instanceof \Modules\SosStaff\Provider\ProviderException) {
+            if ($this->forwarding instanceof \Modules\SosStaff\Api\ProviderException) {
                 throw $this->forwarding;
             }
 
@@ -260,7 +260,7 @@ class SosAdminControllerTest extends TestCase
 
     public function testTheBannerSaysWhereTheCallsReallyGoToAKnownMember(): void
     {
-        $this->forwarding = new \Modules\SosStaff\Provider\ForwardingState(true, $this->firstStaffMobile());
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, $this->firstStaffMobile());
 
         $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
 
@@ -273,7 +273,7 @@ class SosAdminControllerTest extends TestCase
 
     public function testAnUnknownNumberIsShownWithoutAnInventedName(): void
     {
-        $this->forwarding = new \Modules\SosStaff\Provider\ForwardingState(true, '+32 499 99 99 99');
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32 499 99 99 99');
 
         $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
 
@@ -285,7 +285,7 @@ class SosAdminControllerTest extends TestCase
         $inactive = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
         $this->assertStringContainsString('Redirection inactive chez le fournisseur', $inactive);
 
-        $this->forwarding = new \Modules\SosStaff\Provider\ProviderException('Le fournisseur ne répond pas.');
+        $this->forwarding = new \Modules\SosStaff\Api\ProviderException('Le fournisseur ne répond pas.');
         $error = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
         $this->assertStringContainsString('État de la redirection illisible chez le fournisseur', $error);
         $this->assertStringContainsString('Le fournisseur ne répond pas.', $error);

@@ -23,7 +23,7 @@ use Core\Security\Role;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
 use Modules\Calendar\Api\CalendarEventLookupInterface;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Service\OnCallService;
 use Modules\SosStaff\Service\ProviderConfigService;

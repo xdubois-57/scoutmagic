@@ -183,49 +183,51 @@
                receives the calls that day. Section events are not
                columns here; they head the day's sheet instead. #}
             {% set default_target = default_number_label ? 'Par défaut — ' ~ default_number_label : 'Aucun' %}
-            <table class="table table-sm align-middle mb-0" id="sos-day-list"
-                   data-default-target="{{ default_target }}"
-                   data-default-has-member="{{ default_number_label ? '1' : '0' }}">
-                <thead>
-                    <tr>
-                        <th scope="col">Date</th>
-                        <th scope="col">Personne de garde</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for day in mobile_days %}
-                        {% if day.target_label %}
-                            {% set dot = 'text-success' %}
-                        {% elseif default_number_label %}
-                            {% set dot = 'text-body-secondary' %}
-                        {% else %}
-                            {% set dot = 'text-danger' %}
-                        {% endif %}
-                        <tr class="sos-day-row{{ day.is_today ? ' table-warning' : '' }}"
-                            id="sos-day-{{ day.date }}"
-                            data-date="{{ day.date }}"
-                            data-date-label="{{ day.date_label }}"
-                            data-activity="{{ day.activity|json_encode }}">
-                            <th scope="row" class="text-nowrap fw-semibold">
-                                {% if day.is_today %}<span class="d-block small">Aujourd'hui</span>{% endif %}
-                                {{ day.day_name }} {{ day.day_number }}
-                            </th>
-                            <td>
-                                <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none w-100 d-flex align-items-center gap-2"
-                                        aria-label="Modifier les gardes du {{ day.date_label }}">
-                                    <i class="bi bi-circle-fill small {{ dot }}" data-day-dot aria-hidden="true"></i>
-                                    <span class="flex-grow-1{{ day.target_label ? '' : ' text-body-secondary' }}" data-day-target>{{ day.target_label ?: default_target }}</span>
-                                    <i class="bi bi-people{{ day.oncall_count > 1 ? '' : ' d-none' }}"
-                                       data-day-multiple
-                                       title="Plusieurs personnes sont de garde ce jour — seule la première de la liste reçoit les appels."
-                                       aria-hidden="true"></i>
-                                    <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
-                                </button>
-                            </td>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" id="sos-day-list"
+                       data-default-target="{{ default_target }}"
+                       data-default-has-member="{{ default_number_label ? '1' : '0' }}">
+                    <thead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">Personne de garde</th>
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {% for day in mobile_days %}
+                            {% if day.target_label %}
+                                {% set dot = 'text-success' %}
+                            {% elseif default_number_label %}
+                                {% set dot = 'text-body-secondary' %}
+                            {% else %}
+                                {% set dot = 'text-danger' %}
+                            {% endif %}
+                            <tr class="sos-day-row{{ day.is_today ? ' table-warning' : '' }}"
+                                id="sos-day-{{ day.date }}"
+                                data-date="{{ day.date }}"
+                                data-date-label="{{ day.date_label }}"
+                                data-activity="{{ day.activity|json_encode }}">
+                                <th scope="row" class="text-nowrap fw-semibold">
+                                    {% if day.is_today %}<span class="d-block small">Aujourd'hui</span>{% endif %}
+                                    {{ day.day_name }} {{ day.day_number }}
+                                </th>
+                                <td>
+                                    <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none w-100 d-flex align-items-center gap-2"
+                                            aria-label="Modifier les gardes du {{ day.date_label }}">
+                                        <i class="bi bi-circle-fill small {{ dot }}" data-day-dot aria-hidden="true"></i>
+                                        <span class="flex-grow-1{{ day.target_label ? '' : ' text-body-secondary' }}" data-day-target>{{ day.target_label ?: default_target }}</span>
+                                        <i class="bi bi-people{{ day.oncall_count > 1 ? '' : ' d-none' }}"
+                                           data-day-multiple
+                                           title="Plusieurs personnes sont de garde ce jour — seule la première de la liste reçoit les appels."
+                                           aria-hidden="true"></i>
+                                        <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         {% endif %}
     </div>
 

@@ -92,7 +92,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Rental\Service\RentalException::class,
         \Modules\Retro\Service\RetroException::class,
         \Modules\SosStaff\Provider\Ovh\OvhApiException::class,
-        \Modules\SosStaff\Provider\ProviderException::class,
+        \Modules\SosStaff\Api\ProviderException::class,
         \Modules\SosStaff\Service\SosException::class,
     ];
 
