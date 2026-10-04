@@ -392,6 +392,60 @@ describe('staffs.js', () => {
         });
     });
 
+    describe('section totem (issue #722)', () => {
+        const TOTEM_INPUT = '<input type="text" class="section-totem-input" value="Akela"'
+            + ' data-member-year-id="77" data-section-id="4">';
+
+        async function bootTotem() {
+            document.body.innerHTML = TOTEM_INPUT;
+            await boot();
+            return document.querySelector('.section-totem-input');
+        }
+
+        it('saves a changed totem on blur and confirms it with a toast', async () => {
+            const input = await bootTotem();
+            input.value = '  Baloo ';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            const { url, body } = lastRequest();
+            expect(url).toBe('/chefs/staffs/totem-de-section');
+            expect(body).toEqual({ member_year_id: 77, section_id: 4, totem: 'Baloo', _csrf_token: 'tok-123' });
+        });
+
+        it('sends nothing when the field was left as it was', async () => {
+            const input = await bootTotem();
+            input.dispatchEvent(new Event('blur'));
+            await Promise.resolve();
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('says « retiré » when the field is emptied', async () => {
+            const input = await bootTotem();
+            input.value = '';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Totem de section retiré.', { variant: 'success' }));
+            expect(lastRequest().body.totem).toBe('');
+        });
+
+        it('toasts a refusal, keeps what was typed, and retries on the next blur', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Ce totem de section est trop long.' }, 422));
+            const input = await bootTotem();
+            input.value = 'Baloo';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Ce totem de section est trop long.', { variant: 'error' }));
+            expect(input.value).toBe('Baloo');
+
+            input.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        });
+    });
+
     describe('server text never becomes markup', () => {
         it('renders a script-carrying error message as text in the real toast', async () => {
             // The one place server-controlled text reaches the DOM here.

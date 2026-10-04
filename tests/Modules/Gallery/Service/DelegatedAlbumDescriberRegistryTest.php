@@ -57,20 +57,36 @@ class DelegatedAlbumDescriberRegistryTest extends TestCase
         // Fail-open, deliberately: the owning module may simply be disabled,
         // and the album still occupies a storage location somebody has to
         // be able to find and move.
+        //
+        // Human-led, and the type kept after it (issue #749): an
+        // administrator accounting for storage was shown `discussion_group
+        // #7`, which named neither the album nor what to do about it. The
+        // identifier stays, as diagnostic detail rather than as the name.
         $registry = new DelegatedAlbumDescriberRegistry([]);
 
-        $this->assertSame('discussion_group #7', $registry->describe('discussion_group', 7));
+        $this->assertSame(
+            'Module propriétaire indisponible — discussion_group #7',
+            $registry->describe('discussion_group', 7)
+        );
     }
 
     public function testAnAlbumThatOutlivedItsOwnerIsSaidToHaveDoneSo(): void
     {
         // The case an administrator most needs to see: the group is gone and
         // its photos are still paying rent.
+        //
+        // Worded differently from the unclaimed-type case above on
+        // purpose, because the answer differs: this album wants cleaning
+        // up, while a module merely switched off will name its own again
+        // the moment it is switched back on.
         $registry = new DelegatedAlbumDescriberRegistry([
             $this->describer('discussion_group', null),
         ]);
 
-        $this->assertSame('discussion_group #7 (supprimé)', $registry->describe('discussion_group', 7));
+        $this->assertSame(
+            'Propriétaire supprimé — discussion_group #7',
+            $registry->describe('discussion_group', 7)
+        );
     }
 
     public function testABlankLabelIsTreatedAsNoLabelAtAll(): void
@@ -79,7 +95,10 @@ class DelegatedAlbumDescriberRegistryTest extends TestCase
             $this->describer('discussion_group', '   '),
         ]);
 
-        $this->assertSame('discussion_group #7 (supprimé)', $registry->describe('discussion_group', 7));
+        $this->assertSame(
+            'Propriétaire supprimé — discussion_group #7',
+            $registry->describe('discussion_group', 7)
+        );
     }
 
     public function testTheFirstDescriberClaimingATypeDecides(): void
@@ -98,6 +117,9 @@ class DelegatedAlbumDescriberRegistryTest extends TestCase
             $this->describer('discussion_group', "Groupe Chefs d'unité"),
         ]);
 
-        $this->assertSame('rental_asset #3', $registry->describe('rental_asset', 3));
+        $this->assertSame(
+            'Module propriétaire indisponible — rental_asset #3',
+            $registry->describe('rental_asset', 3)
+        );
     }
 }

@@ -31,9 +31,11 @@ derrière « Autres décisions ». Dessous, le parcours en cinq phases,
 la phase en cours dépliée. Le sujet « Le parcours d'une réservation »
 le décrit étape par étape.
 
+Une demande bloque ses dates automatiquement, au plus 30 jours et
+jamais au-delà du début du séjour ; passé ce délai, elles se libèrent,
+la demande reste en attente et « Dates bloquées » vous en avertit.
 Poser une **option** bloque les dates jusqu'à une échéance : dépassée,
-la réservation expire et libère les dates toute seule. Le formulaire
-est dans la phase « La demande ».
+la réservation expire. Le formulaire est dans la phase « La demande ».
 
 ### 2. Les détails de la réservation
 

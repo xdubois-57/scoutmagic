@@ -666,9 +666,10 @@ existantes du composant de liste inchangées après l'ajout sans rechargement.
   depuis « Proposition envoyée » (`BookingTransition`) — **mènent désormais à « Demande reçue »**,
   sous le libellé existant « Remettre en attente ». C'est la même situation — la demande attend la
   décision de l'unité —, et le rappel « sans réponse » s'y applique.
-- **Les réservations déjà au statut `reviewing`** sont ramenées à `received` avec le relèvement de
-  version du schéma. Ce n'est pas une reprise de données : sans cela, une ligne portant un statut qui
-  n'existe plus ne peut plus être lue.
+- **Les réservations déjà au statut `reviewing`** sont traitées comme « Demande reçue » : relues
+  ainsi, et reconnues par chaque filtre du dépôt sur `received` (dates bloquées, écriture gardée
+  d'une décision). Le schéma est déclaratif — rien ne réécrit une ligne existante —, d'où ce
+  traitement à la lecture plutôt qu'une réécriture au relèvement de version.
 - **Tout ce qui nomme ce statut suit** : `BookingStatus`, `BookingTransition`, le texte de
   `BookingJourney`, le docblock de `RenterDecision`, le badge `views/_status_badge.html.twig`, le
   contrôleur de gestion, les commentaires de `schema.sql`, `docs/rental-guide.md`,

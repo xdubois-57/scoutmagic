@@ -14,7 +14,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Member\MemberService;
+use Core\Notification\NotificationService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
@@ -29,6 +29,7 @@ use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
+use Modules\Rental\Service\ManagerRecipientResolver;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalBookingService;
@@ -61,6 +62,9 @@ class RentalRequestController extends AbstractController
 {
     private const HUMAN_CHECK_FORM_KEY = 'rental_request';
 
+    /** The notification a new request raises (#708, IT-05). */
+    public const NEW_REQUEST_NOTIFICATION = 'rental.new_request';
+
     public function __construct(
         Environment $twig,
         private RentalAssetRepository $assetRepository,
@@ -69,7 +73,6 @@ class RentalRequestController extends AbstractController
         private RentalPricingService $pricingService,
         private RentalBookingMailService $mailService,
         private RentalManagerService $managerService,
-        private MemberService $memberService,
         private ScoutYearService $scoutYearService,
         private EditableContentService $editableContentService,
         private HumanCheckService $humanCheckService,
@@ -93,7 +96,14 @@ class RentalRequestController extends AbstractController
          * simply offers no ICS link.
          */
         private ?IcsFeedBuilderInterface $icsBuilder = null,
-        private ?RenterFeedBuilder $renterFeedBuilder = null
+        private ?RenterFeedBuilder $renterFeedBuilder = null,
+        /**
+         * « Nouvelle demande de location » (#708, IT-05): a notification,
+         * not a direct email, to the people the shared rule names. Null
+         * leaves the managers to find the request on their pages.
+         */
+        private ?NotificationService $notificationService = null,
+        private ?ManagerRecipientResolver $recipientResolver = null
     ) {
         parent::__construct($twig);
     }
@@ -302,7 +312,7 @@ class RentalRequestController extends AbstractController
                     'privacy_text' => $this->privacyText(),
                 ],
                 $now,
-                $this->automaticHoldHours()
+                $this->automaticHoldDays()
             );
         } catch (RentalException $e) {
             return $this->renderForm($asset, $request, [$e->getMessage()]);
@@ -767,51 +777,59 @@ class RentalRequestController extends AbstractController
             );
         }
 
+        $this->notifyManagers($booking, $asset);
+    }
+
+    /**
+     * Tells the people who run this asset that a request arrived (#708,
+     * IT-05) — through the notification system, which brings what the old
+     * direct email lacked: the account's own address, failures in the
+     * journal, one reservation per delivery against duplicates, and the
+     * account's discretion setting.
+     *
+     * **No renter identity**, like the email it replaces: the asset and the
+     * dates say what it is, and the link opens the booking behind a real
+     * permission check.
+     */
+    private function notifyManagers(RentalBooking $booking, RentalAsset $asset): void
+    {
+        if ($this->notificationService === null || $this->recipientResolver === null) {
+            return;
+        }
+
         try {
-            $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
-            $recipients = $this->managerEmails($asset->id, $scoutYearId);
-            if ($recipients !== []) {
-                $this->mailService->sendManagerNotification($booking, $asset, $recipients);
+            $recipients = $this->recipientResolver->recipientsFor($asset->id, 'new_request');
+            if ($recipients === []) {
+                return;
             }
+
+            $this->notificationService->dispatch(self::NEW_REQUEST_NOTIFICATION, $recipients, [
+                'title' => 'Nouvelle demande de location — ' . $asset->name,
+                'body' => 'Du ' . self::frenchDate($booking->arrivalDate) . ' au '
+                    . self::frenchDate($booking->departureDate) . ' (' . $booking->reference . ').',
+                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id,
+            ]);
         } catch (\Throwable) {
             // The managers' page still shows the request; a failed
             // notification must not surface to the renter as their problem.
         }
     }
 
-    /**
-     * Every manager's address for an asset — the unit staff included, since
-     * they are implicit managers of every asset (§6.3).
-     *
-     * @return string[]
-     */
-    private function managerEmails(int $assetId, int $scoutYearId): array
+    private static function frenchDate(string $isoDate): string
     {
-        $memberIds = array_map(
-            static fn(array $row): int => $row['manager']->memberId,
-            $this->managerService->listManagersForAsset($assetId, $scoutYearId)
-        );
-
-        // One query for everybody, not one profile per manager: a profile
-        // lookup costs several queries each — for addresses, functions and
-        // badges nothing here reads — and this runs on the public request
-        // form, where a unit staff of fifteen turned one visitor's
-        // submission into dozens of queries.
-        return array_values(array_unique($this->memberService->findEmailsByMemberIds($memberIds, $scoutYearId)));
+        return DateInput::iso($isoDate)?->format('d/m/Y') ?? $isoDate;
     }
 
     /**
-     * How long the automatic hold lasts (specifications.md §22.5), configurable per
-     * installation. Clamped to something sane: a zero or negative value
-     * would mean "no hold at all", which is a legitimate choice but must be
-     * made by clearing the setting, not by typing a nonsense number.
+     * How long the automatic hold lasts, in days (#708, IT-01), configurable
+     * per installation. 0 turns it off; a negative value is read as 0.
      */
-    private function automaticHoldHours(): int
+    private function automaticHoldDays(): int
     {
-        $configured = $this->settingService->get('automatic_hold_hours', 'rental');
+        $configured = $this->settingService->get('automatic_hold_days', 'rental');
 
         if ($configured === null || $configured === '') {
-            return RentalBookingService::DEFAULT_AUTOMATIC_HOLD_HOURS;
+            return RentalBookingService::DEFAULT_AUTOMATIC_HOLD_DAYS;
         }
 
         return max(0, (int) $configured);

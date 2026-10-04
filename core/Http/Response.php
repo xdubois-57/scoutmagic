@@ -206,9 +206,14 @@ class Response
             'Permissions-Policy' => 'camera=(), microphone=(), geolocation=()',
         ];
 
-        // setHttps() still wins: an explicit override is a caller
-        // stating the scheme, not a guess to be re-derived.
-        $isHttps = $this->forceHttps ?? RequestScheme::isHttps($_SERVER);
+        // While HTTPS is required (the default, #751) HSTS goes out on
+        // every response: what PHP sees behind a TLS terminator must not
+        // be able to remove it, and neither can setHttps(false). On an
+        // installation that tolerates HTTP, setHttps() still wins: an
+        // explicit override is a caller stating the scheme, not a guess
+        // to be re-derived.
+        $isHttps = RequestScheme::httpsRequired()
+            || ($this->forceHttps ?? RequestScheme::isHttps($_SERVER));
         if ($isHttps) {
             $headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
         }

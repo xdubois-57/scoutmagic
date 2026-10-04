@@ -32,8 +32,8 @@
 
     <div class="card mb-4" id="maintenance-health">
         <div class="card-body">
-            {{ m.section_header('maintenance-health-body', 'Ce dont le site dépend', true) }}
-            <div class="collapse show mt-3" id="maintenance-health-body">
+            {{ m.section_header('Ce dont le site dépend') }}
+            <div class="mt-3" id="maintenance-health-body">
                 <ul class="list-unstyled mb-0" id="host-health-checks">
                     {% for check in host_checks %}
                         <li class="d-flex gap-3 align-items-start {{ loop.last ? '' : 'mb-3' }}" id="host-check-{{ check.key }}" data-state="{{ check.state }}">

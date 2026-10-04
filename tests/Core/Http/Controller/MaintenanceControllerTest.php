@@ -304,18 +304,13 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * Every box still folds, and on its own sub-page every box arrives
-     * open (issue #619).
-     *
-     * The page used to carry eight boxes in one screen, so six arrived
-     * folded. Cut in six, a box is the reason the visitor opened its page:
-     * one that arrived folded would be a page showing nothing but a title.
-     * The folding header itself is unchanged — the heading wraps the
-     * button, so each box keeps its <h3> sections under a parent in the
-     * document outline, and the h5 sizing sits on the span because `.btn`
-     * fixes its own font-size.
+     * No box folds any more (issue #744): on its own sub-page a box is the
+     * reason the visitor opened it, so a fold could only hide what was
+     * asked for. Each box shows its content directly under a plain <h2> —
+     * still a heading, so its <h3> sections keep a parent in the outline —
+     * with no toggle, no chevron and no collapse left behind.
      */
-    public function testEveryBoxArrivesOpenOnItsOwnSubPage(): void
+    public function testEveryBoxShowsItsContentWithoutAFold(): void
     {
         $boxes = [
             'index' => ['maintenance-health'],
@@ -331,18 +326,24 @@ class MaintenanceControllerTest extends TestCase
         foreach ($boxes as $action => $ids) {
             $body = $this->page($action);
             foreach ($ids as $id) {
-                $this->assertStringContainsString(
-                    '<div class="collapse show mt-3" id="' . $id . '-body">',
-                    $body,
-                    "« {$id} » must arrive open on its sub-page."
-                );
-                $this->assertStringContainsString('aria-controls="' . $id . '-body">', $body);
+                $this->assertStringContainsString('<div class="mt-3" id="' . $id . '-body">', $body, $action);
+                $this->assertStringNotContainsString('data-bs-target="#' . $id . '-body"', $body, $action);
+                $this->assertStringNotContainsString('aria-controls="' . $id . '-body"', $body, $action);
             }
-            $this->assertMatchesRegularExpression('~<h2 class="mb-0">\s*<button type="button"~', $body);
+            $this->assertStringNotContainsString('collapse show', $body, "{$action} still folds a box.");
+            $this->assertStringNotContainsString('bi-chevron-down', $body, "{$action} still shows a chevron.");
+            $this->assertStringNotContainsString('collapse-anchor.js', $body, $action);
             // Each sub-page carries its own boxes and no other.
-            $this->assertSame(count($ids), substr_count($body, '<h2 class="mb-0">'), "{$action} carries a foreign box.");
+            $this->assertSame(
+                count($ids),
+                substr_count($body, '<h2 class="h5 mb-0 d-flex align-items-center gap-2'),
+                "{$action} carries a foreign box."
+            );
         }
-        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">Ce dont le site dépend</span>', $this->page('index'));
+        $this->assertMatchesRegularExpression(
+            '~<h2 class="h5 mb-0 d-flex align-items-center gap-2">\s*<span>Ce dont le site dépend</span>~',
+            $this->page('index')
+        );
     }
 
     /**
@@ -844,9 +845,18 @@ class MaintenanceControllerTest extends TestCase
 
         $body = $controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
-        foreach (['cron', 'ffmpeg', 'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage'] as $key) {
+        $keys = [
+            'cron', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
+            'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage',
+        ];
+        foreach ($keys as $key) {
             $this->assertStringContainsString('id="host-check-' . $key . '"', $body);
         }
+        // #700: the two PHPs are two lines, and PDF compression is never
+        // worded as blocking. No cron ever ran here: unknown, not absent.
+        $this->assertStringContainsString('Exécution de commandes (PHP du cron)', $body);
+        $this->assertStringContainsString('Pas encore vérifiée', $body);
+        $this->assertStringContainsString('Rien n&#039;est refusé.', $body);
         $this->assertStringContainsString('id="host-health-summary"', $body);
         // The cron of a fresh test storage never ran: at least that line counts.
         $this->assertStringContainsString("à régler chez l'hébergeur.", $body);

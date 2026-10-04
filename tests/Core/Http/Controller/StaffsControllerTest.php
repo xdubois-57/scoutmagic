@@ -42,6 +42,7 @@ class StaffsControllerTest extends TestCase
     private BadgeService $badgeService;
     private \Core\Member\SectionDocumentService $sectionDocumentService;
     private EncryptionService $encryption;
+    private \Core\View\EditableContentService $editableContent;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -123,7 +124,9 @@ class StaffsControllerTest extends TestCase
             new \Core\Member\SectionStaffAuthorizationService(
     new \Core\Member\Repository\StaffedSectionRepository($connection, $this->encryption, new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption)),
     $this->sectionService
-)
+),
+            $this->editableContent = new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption)
         );
 
         // Set up session as chief
@@ -572,6 +575,268 @@ class StaffsControllerTest extends TestCase
 
         $this->assertStringContainsString('id="badge-picker-' . $memberYearId . '"', $body);
         $this->assertStringContainsString('Communication', $body);
+    }
+
+    // --- Section totem (issue #722) ---
+
+    public function testSaveSectionTotemSetsChangesAndClears(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Élie', 'chief');
+        $totems = new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption);
+
+        foreach (['Akela', 'Baloo', ''] as $totem) {
+            $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($memberYearId, $sectionId, $totem), []);
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertTrue(json_decode($response->getBody(), true)['success']);
+            $expected = $totem === '' ? [] : [$memberYearId => [$sectionId => $totem]];
+            $this->assertSame($expected, $totems->forMemberYears([$memberYearId]));
+        }
+
+        // The journal says what changed for whom, never the totem itself.
+        $journal = (string) $this->pdo->query("SELECT GROUP_CONCAT(description || ' ' || COALESCE(context, '')) FROM event_log")->fetchColumn();
+        $this->assertStringContainsString('Totem de section', $journal);
+        $this->assertStringNotContainsString('Akela', $journal);
+    }
+
+    public function testSaveSectionTotemRefusesASectionTheMemberIsNotIn(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $meute = $this->createSection('LOU01', $branchId, 'Meute');
+        $autre = $this->createSection('LOU02', $branchId, 'Autre meute');
+        $memberYearId = $this->createMemberInSection($meute, 'Élie', 'chief');
+
+        $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($memberYearId, $autre, 'Akela'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
+    public function testSaveSectionTotemRefusesAnAnimeOfTheSection(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $meute = $this->createSection('LOU01', $branchId, 'Meute');
+        $anime = $this->createMemberInSection($meute, 'Lou', 'identified', 'lou@test.be');
+
+        $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($anime, $meute, 'Akela'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
+    public function testSaveSectionTotemRefusesAChiefOfAnotherScoutYear(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $meute = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($meute, 'Élie', 'chief');
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2010-2011', '2010-09-01', '2011-08-31')");
+        $pastYear = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("UPDATE member_years SET scout_year_id = {$pastYear} WHERE id = {$memberYearId}");
+
+        $response = $this->controller->saveSectionTotem($this->sectionTotemRequest($memberYearId, $meute, 'Akela'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
+    public function testSaveSectionTotemRefusesATooLongTotemAndABadToken(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Élie', 'chief');
+
+        $tooLong = $this->controller->saveSectionTotem($this->sectionTotemRequest($memberYearId, $sectionId, str_repeat('a', 101)), []);
+        $this->assertSame(422, $tooLong->getStatusCode());
+
+        $forged = $this->controller->saveSectionTotem($this->createJsonRequest([
+            'member_year_id' => $memberYearId, 'section_id' => $sectionId, 'totem' => 'Akela', '_csrf_token' => 'invalid',
+        ]), []);
+        $this->assertSame(403, $forged->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_section_totems')->fetchColumn());
+    }
+
+    public function testTheStaffCardShowsTheSectionTotemAndTheChiefCanEditIt(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Élie', 'chief');
+        (new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption))->set($memberYearId, $sectionId, 'Akela');
+
+        $body = $this->controller->index(new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Élie (Akela)', $body);
+        $this->assertMatchesRegularExpression('/class="[^"]*section-totem-input[^"]*"[^>]*value="Akela"/s', $body);
+    }
+
+    public function testAnIntendantSeesTheSectionTotemButCannotEditIt(): void
+    {
+        AuthSession::login(2, 'intendant@test.be', 'intendant');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Élie', 'chief');
+        $this->createMemberInSection($sectionId, 'Intendant', 'intendant', 'intendant@test.be');
+        (new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption))->set($memberYearId, $sectionId, 'Akela');
+
+        $body = $this->controller->index(new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Élie (Akela)', $body);
+        $this->assertStringNotContainsString('section-totem-input', $body);
+    }
+
+    private function sectionTotemRequest(int $memberYearId, int $sectionId, string $totem): Request
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        return $this->createJsonRequest([
+            'member_year_id' => $memberYearId,
+            'section_id' => $sectionId,
+            'totem' => $totem,
+            '_csrf_token' => $token,
+        ]);
+    }
+
+    // --- The section's own text (#725) ---
+
+    public function testTheSectionTextSitsBetweenThePhotoAndTheStaffAndIsTheSameEveryYear(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
+        $this->editableContent->set('staff_text_' . $sectionId, '<p>Notre staff se présente.</p>', 'rich_text', 1);
+        $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('core/section_photos/x.jpg', 'x.jpg', 'image/jpeg', 100)");
+        $fileId = (int) $this->pdo->lastInsertId();
+        (new \Core\Photo\SectionPhotoRepository($this->pdo))->upsert($sectionId, $this->scoutYearId, $fileId, null);
+
+        $body = $this->staffsPage($sectionId);
+
+        $text = strpos($body, 'Notre staff se présente.');
+        $photo = strpos($body, 'src="/files/' . $fileId . '/md"');
+        $this->assertNotFalse($text);
+        $this->assertNotFalse($photo);
+        $this->assertLessThan($text, $photo, 'the photo comes first');
+        $this->assertLessThan(strpos($body, 'Alice'), $text, 'the text comes before the staff list');
+        $this->assertStringContainsString('data-save-url="/chefs/staffs/text"', $body);
+        $this->assertStringContainsString('rich-text-field.js', $body);
+    }
+
+    public function testAReaderWithoutTextSeesNoEmptyBlock(): void
+    {
+        AuthSession::login(2, 'intendant@test.be', 'intendant');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $this->createMemberInSection($sectionId, 'Intendant', 'intendant', 'intendant@test.be');
+
+        $body = $this->staffsPage($sectionId);
+
+        $this->assertStringNotContainsString('section-text', $body);
+        $this->assertStringNotContainsString('rich-text-field-edit-btn', $body);
+    }
+
+    public function testAReaderSeesAWrittenTextButNoEditButton(): void
+    {
+        AuthSession::login(2, 'intendant@test.be', 'intendant');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $this->createMemberInSection($sectionId, 'Intendant', 'intendant', 'intendant@test.be');
+        $this->editableContent->set('staff_text_' . $sectionId, '<p>Bienvenue.</p>', 'rich_text', 1);
+
+        $body = $this->staffsPage($sectionId);
+
+        $this->assertStringContainsString('Bienvenue.', $body);
+        $this->assertStringNotContainsString('rich-text-field-edit-btn', $body);
+    }
+
+    public function testAnAnimateurWithoutTextIsInvitedToWrite(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
+
+        $body = $this->staffsPage($sectionId);
+
+        $this->assertStringContainsString('section-text-empty', $body);
+        $this->assertStringContainsString('rich-text-field-edit-btn', $body);
+    }
+
+    /** No edit mode is involved: the session has none, and the save works. */
+    public function testAnAnimateurSavesTheTextOfTheirOwnSectionOutsideEditMode(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
+        unset($_SESSION['config_mode']);
+
+        $response = $this->controller->saveSectionText($this->sectionTextRequest('staff_text_' . $sectionId, '<p>Coucou<script>x</script></p>'), []);
+
+        $this->assertSame(200, $response->getStatusCode(), $response->getBody());
+        $stored = (string) $this->editableContent->get('staff_text_' . $sectionId);
+        $this->assertStringContainsString('Coucou', $stored);
+        $this->assertStringNotContainsString('<script', $stored);
+        $this->assertSame($stored, json_decode($response->getBody(), true)['value']);
+    }
+
+    public function testAnAnimateurCannotWriteAnotherSectionsText(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $own = $this->createSection('LOU01', $branchId, 'Meute');
+        $other = $this->createSection('LOU02', $branchId, 'Autre meute');
+        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+
+        $response = $this->controller->saveSectionText($this->sectionTextRequest('staff_text_' . $other, '<p>Intrus</p>'), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->editableContent->get('staff_text_' . $other));
+        $this->assertStringNotContainsString(
+            'rich-text-field-edit-btn',
+            $this->staffsPage($other),
+            'nor is the button offered there'
+        );
+    }
+
+    public function testAChefDUniteWritesEverySectionsText(): void
+    {
+        AuthSession::login(3, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+
+        $response = $this->controller->saveSectionText($this->sectionTextRequest('staff_text_' . $sectionId, '<p>Du Staff d’U</p>'), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Du Staff d’U', (string) $this->editableContent->get('staff_text_' . $sectionId));
+    }
+
+    public function testTheEndpointWritesNoOtherKeyAndChecksTheToken(): void
+    {
+        AuthSession::login(3, 'admin@test.be', 'admin');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+
+        foreach (['home_intro', 'staff_text_0', 'staff_text_' . $sectionId . '_x', 'staff_text_999'] as $key) {
+            $status = $this->controller->saveSectionText($this->sectionTextRequest($key, '<p>x</p>'), [])->getStatusCode();
+            $this->assertContains($status, [400, 403], $key);
+            $this->assertNull($this->editableContent->get($key), $key);
+        }
+
+        $forged = $this->controller->saveSectionText($this->createJsonRequest([
+            'key' => 'staff_text_' . $sectionId, 'value' => '<p>x</p>', 'type' => 'rich_text', '_csrf_token' => 'invalid',
+        ]), []);
+        $this->assertSame(403, $forged->getStatusCode());
+        $this->assertNull($this->editableContent->get('staff_text_' . $sectionId));
+    }
+
+    private function staffsPage(int $sectionId): string
+    {
+        return $this->controller->index(new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []), [])->getBody();
+    }
+
+    private function sectionTextRequest(string $key, string $value): Request
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        return $this->createJsonRequest(['key' => $key, 'value' => $value, 'type' => 'rich_text', '_csrf_token' => $token]);
     }
 
     /**

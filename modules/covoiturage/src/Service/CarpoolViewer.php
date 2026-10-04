@@ -125,9 +125,14 @@ final class CarpoolViewer
         return $request->requesterAccountId === $this->accountId && $request->isAccepted();
     }
 
-    /** A requester's phone: to the driver, once the request is accepted. */
+    /**
+     * A requester's phone: to the driver, from the moment the request is
+     * made (#703) — a driver deciding whom to take may need to call first.
+     * The driver's own phone still waits for the acceptance
+     * ({@see seesDriverPhone()}), and the request form says both.
+     */
     public function seesRequesterPhone(Offer $offer, SeatRequest $request): bool
     {
-        return $this->drives($offer) && $request->isAccepted();
+        return $this->drives($offer) && $request->isActive();
     }
 }

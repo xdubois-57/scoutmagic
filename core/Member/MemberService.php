@@ -276,6 +276,32 @@ class MemberService
      * Modules\Retro\Service\BoardService's own moderation/visibility
      * checks, Modules\Banner\Controller\BannerConfigController).
      */
+    /**
+     * The Staff d'U's authority (issue #743): a real chef d'unité, or a
+     * superadmin — who is above that level and may well have no member
+     * behind the account at all (a technical site administrator). The
+     * hierarchy is cumulative, and this is where it says so for a rule
+     * stricter than a role.
+     *
+     * An `admin` still has to be a real chef d'unité: that role can come
+     * from any Desk function an administrator mapped to it, which is not
+     * what « Staff d'U » means. Every caller keeps its own role floor;
+     * this only answers the « chef d'unité ? » half. Resource-scoped
+     * authorities (a rental's manager, a section's staff) are a different
+     * question and do not use this.
+     *
+     * Final so that a test double of this service still applies the rule
+     * itself, on top of whatever isUnitChief() it was given.
+     */
+    final public function hasUnitChiefAuthority(Role $role, ?string $email, int $scoutYearId): bool
+    {
+        if ($role->hasAccess(Role::SUPERADMIN)) {
+            return true;
+        }
+
+        return $email !== null && $this->isUnitChief($email, $scoutYearId);
+    }
+
     public function isUnitChief(string $email, int $scoutYearId): bool
     {
         $linkedMembers = $this->getLinkedMembers($email, $scoutYearId);

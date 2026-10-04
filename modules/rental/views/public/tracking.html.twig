@@ -469,6 +469,12 @@
                       shown on a public page.
                     #}
                     {% if renter_contacts is not empty %}
+                        {# Only above a list of managers: when the section shows
+                           nothing but the emergency number, which need not be a
+                           manager's, the sentence would be false (#708, IT-04). #}
+                        <p class="text-body-secondary small">
+                            Les personnes de l'unité qui gèrent cette location. Contactez-les pour toute question sur votre réservation.
+                        </p>
                         <ul class="list-unstyled mb-2">
                             {% for contact in renter_contacts %}
                                 <li class="mb-2">

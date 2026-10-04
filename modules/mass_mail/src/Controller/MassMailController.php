@@ -527,6 +527,40 @@ class MassMailController extends AbstractController
     }
 
     /**
+     * POST /mass-mail/{id}/delete — deletes an email whose sending has not
+     * started (issue #755). Same visibility as every other action on an
+     * email: one the visitor cannot open is a 404, never a deletion. The
+     * status shown on the list is not trusted — the service asks again,
+     * and the DELETE itself asks a third time.
+     *
+     * @param array<string, string> $params
+     */
+    public function delete(Request $request, array $params): Response
+    {
+        $id = (int) $params['id'];
+        if (($guard = $this->guardCsrf($request, '/mass-mail')) !== null) {
+            return $guard;
+        }
+
+        if ($this->findVisibleEmail($id) === null) {
+            return $this->notFound();
+        }
+
+        try {
+            $this->massMailService->deleteUnsent($id, AuthSession::getUserAccountId());
+        } catch (MassMailException $e) {
+            // Back to the list, which shows the email's real status now.
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/mass-mail');
+        }
+
+        FlashMessage::set('success', 'E-mail supprimé.');
+
+        return $this->redirect('/mass-mail');
+    }
+
+    /**
      * POST /mass-mail/{id}/test-send — send a one-off test copy.
      *
      * @param array<string, string> $params

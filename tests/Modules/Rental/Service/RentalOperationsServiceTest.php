@@ -206,9 +206,9 @@ class RentalOperationsServiceTest extends TestCase
     {
         $booking = $this->createBooking();
 
-        $this->service->changeStatus($booking, BookingStatus::REVIEWING, 1, $this->now());
+        $this->service->changeStatus($booking, BookingStatus::INFO_REQUESTED, 1, $this->now());
 
-        $this->assertSame(BookingStatus::REVIEWING, $this->reload($booking)->status);
+        $this->assertSame(BookingStatus::INFO_REQUESTED, $this->reload($booking)->status);
     }
 
     public function testAnInvalidTransitionIsRefusedWithAReasonAndChangesNothing(): void
@@ -219,7 +219,7 @@ class RentalOperationsServiceTest extends TestCase
         $this->expectException(RentalException::class);
         $this->expectExceptionMessageMatches('/nouvelle demande/');
 
-        $this->service->changeStatus($this->reload($booking), BookingStatus::REVIEWING, 1, $this->now());
+        $this->service->changeStatus($this->reload($booking), BookingStatus::INFO_REQUESTED, 1, $this->now());
     }
 
     public function testConfirmationCannotGoThroughTheOrdinaryTransitionPath(): void
@@ -248,13 +248,13 @@ class RentalOperationsServiceTest extends TestCase
     public function testAStatusChangeIsRecordedInTheBookingsOwnHistory(): void
     {
         $booking = $this->createBooking();
-        $this->service->changeStatus($booking, BookingStatus::REVIEWING, 42, $this->now());
+        $this->service->changeStatus($booking, BookingStatus::INFO_REQUESTED, 42, $this->now());
 
         $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
         $this->assertCount(1, $history);
         $this->assertSame(BookingAudit::STATUS_CHANGED, $history[0]->fieldKey);
         $this->assertSame('Demande reçue', $history[0]->fromValue);
-        $this->assertSame("En cours d'examen", $history[0]->toValue);
+        $this->assertSame('Informations demandées', $history[0]->toValue);
         // A person moved it, even though this test wires no resolver to
         // say which account they log in with.
         $this->assertSame(AuditSource::Human, $history[0]->source);
@@ -263,7 +263,7 @@ class RentalOperationsServiceTest extends TestCase
     public function testTheHistoryCarriesNoRenterIdentity(): void
     {
         $booking = $this->createBooking();
-        $this->service->changeStatus($booking, BookingStatus::REVIEWING, 1, $this->now());
+        $this->service->changeStatus($booking, BookingStatus::INFO_REQUESTED, 1, $this->now());
         $this->service->addComment($this->reload($booking), 1, 'Le groupe a laissé la cuisine sale.');
 
         $raw = (string) json_encode($this->pdo->query('SELECT * FROM entity_changes')->fetchAll(\PDO::FETCH_ASSOC));
@@ -276,7 +276,7 @@ class RentalOperationsServiceTest extends TestCase
     public function testNoRenterIdentityReachesTheJournalOnAStatusChange(): void
     {
         $booking = $this->createBooking();
-        $this->service->changeStatus($booking, BookingStatus::REVIEWING, 1, $this->now());
+        $this->service->changeStatus($booking, BookingStatus::INFO_REQUESTED, 1, $this->now());
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
 
@@ -363,7 +363,7 @@ class RentalOperationsServiceTest extends TestCase
     public function testAStaleCopyCannotWinOnAnOrdinaryTransitionEither(): void
     {
         $booking = $this->createBooking();
-        $this->service->changeStatus($booking, BookingStatus::REVIEWING, 1, $this->now());
+        $this->service->changeStatus($booking, BookingStatus::INFO_REQUESTED, 1, $this->now());
 
         $this->expectException(RentalException::class);
         $this->expectExceptionMessageMatches('/Rechargez la page/');

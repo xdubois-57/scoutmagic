@@ -185,6 +185,36 @@ final class SendRemoteBackupArchiveTest extends TestCase
     }
 
     /**
+     * #719: the off-site archive says in clear which version wrote it, for
+     * which site, and which phrase generation opens it — what a bootstrap
+     * reads before anything is uploaded.
+     */
+    public function testTheArchiveCommentCarriesTheHintsABootstrapReads(): void
+    {
+        $this->skipWithoutZipEncryption();
+        $this->settings->values['base_url'] = 'https://unite.example';
+        $backend = new RecordingBackend2();
+
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
+        (new RemotePassphrase($this->settings, $this->secrets))->regenerate();
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
+
+        $hints = [];
+        foreach ($backend->sent as $sent) {
+            $zip = new \ZipArchive();
+            $this->assertTrue($zip->open($sent['path']) === true);
+            $hints[] = PortableKeys::parseHints($zip->getArchiveComment());
+            $zip->close();
+        }
+
+        $this->assertSame('2.4.1', $hints[0]->version);
+        $this->assertSame('https://unite.example', $hints[0]->siteUrl);
+        $this->assertSame('Automatique, hors site', $hints[0]->kindLabel());
+        $this->assertSame(1, $hints[0]->passphraseGeneration);
+        $this->assertSame(2, $hints[1]->passphraseGeneration, 'the hint names the phrase that opens it');
+    }
+
+    /**
      * **The photographs stay behind, and the declaration is why.**
      *
      * A gallery is measured in gibibytes; sent weekly it fills a free

@@ -187,6 +187,14 @@ final class ExternalSources
                 [self::RGPD_DEFAULT]
             ),
             self::link(
+                'osrm-demo-server-policy',
+                'https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server',
+                'The usage policy of OSRM\'s demonstration server, which the carpool form asks for a driving '
+                    . 'time (#703): one request per second, non-commercial use, no guarantee. The endpoint '
+                    . 'itself is out of this register\'s scope; the terms it is used under are not.',
+                ['core/Geo/RoutingService.php', self::RGPD_DEFAULT]
+            ),
+            self::link(
                 'federal-home',
                 'https://www.lesscouts.be',
                 'The federation\'s home page, named by the default RGPD content.',

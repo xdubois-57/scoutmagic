@@ -11,6 +11,9 @@
   because a proposal of the unit's is still unanswered. A list that grew
   without saying why reads as a list that has broken.
 
+  **The renter first, the reference second** (#708, IT-06): a manager
+  recognises a booking by the person, not by its code.
+
   Requires `attention` (Booking\BookingAttention) and `asset`.
   Optional: `show_asset_name` — « Gérer mes locations » spans several assets and
   has to name them; an asset's own overview does not.
@@ -18,11 +21,11 @@
 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ attention.booking.id }}"
    class="list-group-item list-group-item-action px-0">
     <div class="d-flex justify-content-between align-items-start gap-2">
-        <span>
-            <span class="fw-semibold">{{ attention.booking.reference }}</span>
+        <span class="text-break">
+            {% include '@rental/management/_renter_line.html.twig' with { booking: attention.booking } only %}
             <span class="text-body-secondary small d-block">
                 {% if show_asset_name|default(false) %}{{ asset.name }} · {% endif %}
-                du {{ attention.booking.arrivalDate|date_fr }} au {{ attention.booking.departureDate|date_fr }}
+                {{ attention.booking.reference }} · du {{ attention.booking.arrivalDate|date_fr }} au {{ attention.booking.departureDate|date_fr }}
             </span>
             {% for reason in attention.reasons %}
                 <span class="small d-block">

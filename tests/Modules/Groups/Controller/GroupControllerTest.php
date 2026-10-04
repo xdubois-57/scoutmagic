@@ -132,8 +132,7 @@ class GroupControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?array $routeBreadcrumb = null,
-        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
+        ?array $routeBreadcrumb = null
     ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -211,11 +210,7 @@ class GroupControllerTest extends TestCase
             $postRepo, $authorResolver, $postService, $postMediaService,
             new PostLinkRepository($this->pdo),
             $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
-            $this->readStateService,
-            // Null lookup unless a test supplies one — production's own
-            // "calendar disabled" wiring, so every other test here
-            // exercises the degraded path for free.
-            $groupsEventService = new \Modules\Groups\Service\PostEventService($eventLookup)
+            $this->readStateService
         );
 
         return new GroupController(
@@ -259,7 +254,6 @@ class GroupControllerTest extends TestCase
             // by the whole suite. The same instance the list and the feed
             // above got, so a mark written by one is seen by the others.
             $this->readStateService,
-            $groupsEventService,
             // The last three the page's desktop side column needs: who is
             // in the group (recipient resolver), how to name them
             // (identity service). Production passes both, and passing
@@ -1121,58 +1115,23 @@ class GroupControllerTest extends TestCase
         );
     }
 
-    // ---- linked calendar event ----
-
-    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
-    {
-        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
-        $lookup->method('findEventById')->willReturn($event);
-        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
-
-        return $lookup;
-    }
-
-    public function testTheComposerOffersTheCalendarPickerWhenTheCalendarHasSomethingToOffer(): void
+    /**
+     * The composer offered an optional "Lier à un événement" picker until
+     * issue #711 took the feature out. Nothing replaced it, so what is
+     * pinned here is the absence: a field whose name survived in a
+     * template or a controller would be a field with nothing behind it.
+     */
+    public function testTheComposerOffersNoCalendarEventField(): void
     {
         $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
-        $event = new \Modules\Calendar\Api\EventSummary(9, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
-
-        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup($event))
-            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
-            ->getBody();
-
-        $this->assertStringContainsString('name="calendar_event_id"', $body);
-        $this->assertStringContainsString('Réunion de section', $body);
-    }
-
-    /**
-     * With the calendar module disabled the composer never mentions the
-     * feature at all — an empty picker would advertise something this
-     * install does not have.
-     */
-    public function testTheComposerHidesThePickerWhenTheCalendarIsDisabled(): void
-    {
-        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT2');
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
 
         $body = $this->controller([$moderator])
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
             ->getBody();
 
-        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
-    }
-
-    public function testTheComposerHidesThePickerWhenTheCalendarHasNoEventInTheWindow(): void
-    {
-        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT3');
-        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator, 1);
-
-        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup(null))
-            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
-            ->getBody();
-
-        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
+        $this->assertStringNotContainsString('calendar_event_id', $body);
+        $this->assertStringNotContainsString('Lier à un événement', $body);
     }
 
     public function testShowReturns404ForAnUnknownGroup(): void

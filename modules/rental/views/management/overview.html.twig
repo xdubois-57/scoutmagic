@@ -21,6 +21,16 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
+        {% if managers_unreachable|default(false) %}
+            {# Nobody on this asset can be told about a request (#708, IT-05):
+               the shared rule falls back on the Staff d'U. #}
+            <output class="alert alert-warning d-block" data-managers-unreachable>
+                <strong>Aucun gestionnaire de ce bien ne peut être prévenu</strong> : les demandes et les
+                rappels de ce bien sont envoyés au Staff d'U. Pour y remédier, désignez comme gestionnaire
+                quelqu'un qui a un compte sur le site, dans « Espace chefs d'U &gt; Locations ».
+            </output>
+        {% endif %}
+
         {% if tariff_missing %}
             {#
               The one configuration gap a manager cannot see from here and a
@@ -98,9 +108,13 @@
                     <h2 class="h5 mb-3">En cours en ce moment</h2>
                     <ul class="list-unstyled mb-0">
                         {% for booking in in_progress %}
-                            <li class="mb-1">
-                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
-                                — jusqu'au {{ booking.departureDate|date_fr }}
+                            <li class="mb-2 text-break">
+                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}" class="link-body-emphasis text-decoration-none">
+                                    {% include '@rental/management/_renter_line.html.twig' with { booking: booking } only %}
+                                </a>
+                                <span class="text-body-secondary small d-block">
+                                    {{ booking.reference }} · jusqu'au {{ booking.departureDate|date_fr }}
+                                </span>
                             </li>
                         {% endfor %}
                     </ul>

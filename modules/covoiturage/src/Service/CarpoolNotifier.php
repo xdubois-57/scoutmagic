@@ -73,8 +73,12 @@ class CarpoolNotifier
         ]);
     }
 
-    public function requestWithdrawn(Carpool $carpool, Offer $offer, SeatRequest $request): void
-    {
+    public function requestWithdrawn(
+        Carpool $carpool,
+        Offer $offer,
+        SeatRequest $request,
+        ?string $comment = null
+    ): void {
         $this->send('covoiturage.request_withdrawn', [$offer->driverAccountId], [
             'title' => 'Une demande a été retirée',
             'body' => $request->requesterName . ' a retiré sa demande — '
@@ -83,7 +87,7 @@ class CarpoolNotifier
                         . ($request->passengerCount > 1 ? ' se libèrent' : ' se libère')
                         . ' sur ' . ($offer->isOutbound() ? 'l\'' : 'le ') . self::trip($carpool, $offer)
                     : self::trip($carpool, $offer))
-                . '.',
+                . '.' . self::comment($comment),
             'url' => self::url($carpool, $offer),
         ]);
     }
@@ -99,12 +103,16 @@ class CarpoolNotifier
         ]);
     }
 
-    public function requestRefused(Carpool $carpool, Offer $offer, SeatRequest $request): void
-    {
+    public function requestRefused(
+        Carpool $carpool,
+        Offer $offer,
+        SeatRequest $request,
+        ?string $comment = null
+    ): void {
         $this->send('covoiturage.request_refused', [$request->requesterAccountId], [
             'title' => 'Demande refusée',
             'body' => $offer->driverName . ' ne peut pas vous prendre — ' . self::trip($carpool, $offer)
-                . '. D\'autres voitures existent.',
+                . '.' . self::comment($comment) . ' D\'autres voitures existent.',
             'url' => self::url($carpool, $offer),
         ]);
     }
@@ -208,6 +216,16 @@ class CarpoolNotifier
     }
 
     /** « l'aller du samedi 7 novembre », « le retour du dimanche 8 novembre ». */
+    /**
+     * The optional word written with a refusal or a withdrawal (#703),
+     * quoted as its author wrote it — the notification is the only place
+     * it lives.
+     */
+    private static function comment(?string $comment): string
+    {
+        return $comment === null || $comment === '' ? '' : ' Message : « ' . $comment . ' ».';
+    }
+
     private static function trip(Carpool $carpool, Offer $offer): string
     {
         return $offer->isOutbound()

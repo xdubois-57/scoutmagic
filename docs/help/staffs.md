@@ -5,8 +5,9 @@ summary: Les animateurs de chaque section, la photo de groupe et les badges.
 category: Espace animateurs
 role_min: intendant
 question: Qui anime quelle section cette année ?
-question: Comment ajouter la photo de groupe d'un staff ?
+question: Comment présenter le staff d'une section (photo de groupe, texte) ?
 question: Comment attribuer un badge à un animateur ?
+question: Comment indiquer le totem de section d'un animateur (Akela, Baloo...) ?
 paths: /chefs/staffs
 related: documents-de-section, membres-par-section
 ---
@@ -35,6 +36,14 @@ puis « Changer ».
 > publique Sections, la page Contact pour le Staff d'Unité et la page
 > de chaque animé. Choisissez-la en conséquence.
 
+## Le texte de la section
+
+Sous la photo, un texte présente le staff ou donne des informations
+utiles. Il appartient à la section et reste d'une année à l'autre tant
+qu'on ne le change pas. Les animateurs de la section et le Staff d'Unité
+le modifient avec le crayon, sans passer par le mode configuration.
+Sans texte, rien ne s'affiche pour les autres.
+
 ## Les badges
 
 Un animateur peut attribuer des badges aux membres du staff : touchez
@@ -44,6 +53,19 @@ Trésorier et ceux créés par l'unité) se posent dans n'importe quelle
 section ; les badges « Référent … » ne se posent que sur la section
 Staff d'U. Les badges valent pour l'année en cours : ils sont à
 réattribuer après le passage à la nouvelle année.
+
+## Le totem de section
+
+Certaines sections donnent à leurs animateurs un nom propre à la
+section : chez les Louveteaux, « Akela » ou « Baloo ». Un animateur le
+saisit dans le champ « Totem de section » sous la carte ; il est
+enregistré en quittant le champ, et un champ vidé le retire. Il
+s'ajoute au totem : « Guépard (Akela) » sur cette page,
+« Guépard – Akela » dans les listes, et figure au trombinoscope.
+
+Il vaut pour une section et une année : il ne vient pas de la
+fédération, une mise à jour ne l'efface donc pas, et la nouvelle année
+commence sans totem de section.
 
 ## Les documents de section
 

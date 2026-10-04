@@ -91,7 +91,14 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
     {
         $this->notes->setPreferredSection($this->memberId, $this->yearId, $this->sectionId, $this->chiefAccountId);
         $this->notes->setStaffNote($this->memberId, $this->yearId, ' Avec sa sœur ', $this->chiefAccountId);
-        $this->notes->setAiSuggestion($this->memberId, $this->yearId, hash('sha256', 'commentaire'), 'Meute A');
+        $this->notes->setAiSuggestion(
+            $this->memberId,
+            $this->yearId,
+            hash('sha256', 'commentaire'),
+            'Meute A',
+            $this->sectionId,
+            [$this->memberId + 1000, $this->memberId + 1000, $this->memberId + 2000]
+        );
         $this->notes->confirmAiSuggestion($this->memberId, $this->yearId, true);
 
         $this->assertSame(1, $this->countNotes(), 'four writes to one member and year are one row');
@@ -103,6 +110,9 @@ class PassageNoteRepositoryOnMysqlTest extends TestCase
             'ai_source_hash' => hash('sha256', 'commentaire'),
             'ai_suggestion' => 'Meute A',
             'ai_confirmed' => true,
+            // Issue #733: the structured half, deduplicated on the way in.
+            'ai_section_id' => $this->sectionId,
+            'ai_friend_member_ids' => [$this->memberId + 1000, $this->memberId + 2000],
         ], $note);
     }
 

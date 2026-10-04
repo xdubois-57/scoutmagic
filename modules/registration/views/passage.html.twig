@@ -1,7 +1,9 @@
 {% extends 'base.html.twig' %}
 {% block title %}Passages de branche — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="page-wide">
+    {# The full container, not page-wide (issue #733): the distribution
+       table and its action columns need the width on a desktop. #}
+    <div>
         {% include 'partials/page_header.html.twig' with {
             title: 'Passages de branche',
             subtitle: "Répartit les arrivants de l'année " ~ target_year_label ~ " entre les sections — toujours calculé sur
@@ -50,6 +52,16 @@
                             {{ optimization.kept > 1 ? 'assignations déjà faites seront conservées' : 'assignation déjà faite sera conservée' }}.
                             Une ligne qui porte déjà une section n'est jamais touchée ; pour tout reprendre, réinitialisez d'abord.
                         </p>
+                        {% if ai_available %}
+                            {# Sending a family's words to an external provider is a
+                               transmission: the dialog says so before « Répartir ». #}
+                            <p class="small text-body-secondary">
+                                <i class="bi bi-robot" aria-hidden="true"></i>
+                                Les commentaires libres des familles des personnes à répartir, s'ils n'ont pas encore été
+                                relus, sont d'abord envoyés au fournisseur d'IA configuré pour y relever une section ou des
+                                amis souhaités.
+                            </p>
+                        {% endif %}
 
                         <div class="form-check mb-2">
                             <input class="form-check-input" type="radio" name="passage-optimize-method"
@@ -84,25 +96,6 @@
         </div>
         {% endif %}
 
-        {# IT-17 — the optional AI re-reading, offered only when the
-           llm_connector module is there AND has an active provider. The
-           button says how many comments would be sent, because sending a
-           family's words to an external provider is a transmission and
-           nobody should start one blind. #}
-        {% if ai_available %}
-            <output class="alert alert-info d-flex flex-wrap gap-2 align-items-center">
-                <span class="me-auto small">
-                    <i class="bi bi-robot" aria-hidden="true"></i>
-                    Une relecture par IA peut signaler un souhait exprimé dans un commentaire libre plutôt que dans
-                    les champs prévus. Elle envoie ces commentaires au fournisseur configuré.
-                </span>
-                <button type="button" id="passage-ai-review" class="btn btn-sm btn-outline-primary text-nowrap"
-                        data-endpoint="/passage/relire-commentaires" {{ ai_pending == 0 ? 'disabled' : '' }}>
-                    Relire {{ ai_pending }} commentaire{{ ai_pending > 1 ? 's' : '' }}
-                </button>
-                <output class="form-text w-100 mb-0" id="passage-ai-review-feedback" aria-live="polite"></output>
-            </output>
-        {% endif %}
 
         <div class="card mb-4">
             <div class="card-body">

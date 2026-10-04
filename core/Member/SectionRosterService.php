@@ -11,6 +11,7 @@ namespace Core\Member;
 use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementResult;
 use Core\Member\Movement\MemberMovementStatus;
+use Core\Member\Repository\MemberSectionTotemRepository;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -25,7 +26,8 @@ final class SectionRosterService
     public function __construct(
         private SectionRosterRepository $repository,
         private MemberEmailRepository $memberEmailRepository,
-        private MemberMovementClassifierService $movementClassifier
+        private MemberMovementClassifierService $movementClassifier,
+        private MemberSectionTotemRepository $sectionTotems
     ) {
     }
 
@@ -58,6 +60,7 @@ final class SectionRosterService
         // Decrypted by the repository (issue #551): this Service holds no
         // purpose string and no EncryptionService at all.
         $contacts = $this->repository->findRosterContacts($memberYearIds);
+        $sectionTotems = $this->sectionTotems->forMemberYears($memberYearIds);
         $validEmailsByMember = $this->memberEmailRepository->findValidByMemberIds($memberIds);
 
         $currentRoster = array_map(
@@ -75,7 +78,9 @@ final class SectionRosterService
                 $entry,
                 $contacts[$entry->memberYearId] ?? null,
                 $validEmailsByMember[$entry->memberId] ?? [],
-                $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN)
+                $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN),
+                // The totem this person carries in THIS section (#722).
+                $sectionTotems[$entry->memberYearId][$entry->sectionId] ?? null
             );
             if ($row === null) {
                 continue;
@@ -106,7 +111,8 @@ final class SectionRosterService
         SectionRosterEntry $entry,
         ?RosterContact $contact,
         array $validSecondaryEmails,
-        MemberMovementResult $movement
+        MemberMovementResult $movement,
+        ?string $sectionTotem = null
     ): ?MemberRosterRow
     {
         if ($contact === null) {
@@ -147,7 +153,10 @@ final class SectionRosterService
             bucket: $entry->bucket,
             emails: $emails,
             phones: $phones,
-            movement: $movement
+            movement: $movement,
+            sectionTotem: $sectionTotem !== null && trim($sectionTotem) !== ''
+                ? TextNormalizerService::normalizeTotem($sectionTotem)
+                : null
         );
     }
 

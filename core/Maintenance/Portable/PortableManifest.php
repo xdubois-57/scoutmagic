@@ -47,8 +47,15 @@ final class PortableManifest
      * way an older reader could misread. A reader that does not know a
      * version must refuse rather than guess, which is why the number is
      * here from the first archive ever written.
+     *
+     * 2 (#719): the archive comment carries mandatory hints
+     * ({@see PortableArchiveHints}) — the version that wrote it, the site,
+     * the date, the kind and the passphrase generation — so a bootstrap can
+     * choose the release to install before anything is uploaded. Archives
+     * of format 1 are not supported: the site was in test, with no data to
+     * carry over.
      */
-    public const FORMAT_VERSION = 1;
+    public const FORMAT_VERSION = 2;
 
     /**
      * The two files this archive carries and no other one does: where they

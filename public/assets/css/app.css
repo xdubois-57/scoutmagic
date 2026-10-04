@@ -115,38 +115,27 @@
     }
 
     /* Bootstrap switches & checkboxes: AGENTS.md's 44px rule is about the
-       tappable ZONE, not the drawn control. This block used to grow the
-       input itself to 44x44 (min-width/min-height directly on
-       .form-check-input) — that turned a checkbox into an oversized square
-       next to ~14px of label text, and a switch's 3rem/44px box into an
-       almost-square lozenge instead of Bootstrap's pill. That was the
-       actual reported bug. The control now keeps its native Bootstrap size
-       (~1em checkbox/radio, 2em-wide switch pill); the 44px zone moves to
-       .form-check-label instead — a real <label for="...">, which the
+       tappable ZONE, not the drawn control. The control keeps its native
+       Bootstrap size (~1em checkbox/radio, 2em-wide switch pill) — growing
+       the input itself to 44x44 turned a checkbox into an oversized square
+       and a switch into an almost-square lozenge. The 44px zone is the
+       .form-check-label instead: a real <label for="...">, which the
        browser already activates its control from anywhere inside its box,
-       so growing the label (not just decorative padding around it) is what
-       makes the extra height actually tappable, not just visually taller.
-       inline-flex + align-items:center keeps the label an inline-level box
-       (still wraps next to the float-positioned .form-check-input the way
-       Bootstrap lays it out) while vertically centering its text inside
-       the taller box — the checkbox/label pair's own relative alignment
-       (.form-check-input's margin-top:.25em against the label's first
-       line) is untouched by this, only the row's overall height changes.
-       flex-wrap: wrap matters once the label's content isn't a single text
-       node — a multi-sentence label with a link in the middle (e.g. the
-       registration form's RGPD consent text) splits into several flex
-       items (the text before the link, the <a> itself, the text after);
-       flex's default nowrap then keeps every item on one row instead of
-       letting text flow onto the next line the way a normal paragraph
-       would, which reads as the sentence being torn into disconnected
-       column-like fragments rather than wrapping naturally. */
+       so growing the label is what makes the extra height tappable.
+
+       inline-block, not flex. The label's text must flow like a paragraph
+       and keep its FIRST line level with the control: Bootstrap aligns the
+       floated .form-check-input on the label's first line (its
+       margin-top:.25em), and an inline-block box starts its text at the top
+       whatever its min-height. A flex label broke both — its text and its
+       links became separate flex items, which drops the white space at
+       their boundary (« J'accepte lesconditions »), and centring them in a
+       44px box pushed a one-line label half a line below its checkbox. */
     .form-check {
         min-height: 44px;
     }
     .form-check-label {
-        display: inline-flex;
-        flex-wrap: wrap;
-        align-items: center;
+        display: inline-block;
         min-height: 44px;
     }
 
@@ -200,7 +189,6 @@
     }
     .form-check-label {
         display: revert;
-        align-items: revert;
         min-height: revert;
     }
     .tap-target {
@@ -247,30 +235,31 @@ td code,
    and overlays the page; without compensation the end of every page
    (footer, last form buttons) sits underneath it and can be unreachable,
    especially on mobile where the banner is ~300px tall.
-   Chosen approach: pure CSS via body:has(), rather than a body class set
-   by the template or a JS height measurement, because
-   - the padding appears with the banner and disappears the instant
-     cookie-consent.js removes it from the DOM — no stale body class to
-     clean up and no change needed in cookie-consent.js;
-   - :has() is supported by every browser we target (all evergreen
-     browsers since 2023); where it is not, the fallback is exactly
-     today's behavior (no padding), never something worse.
+   Chosen approach: an explicit class on <body>, `cookie-banner-visible`,
+   set by base.html.twig under the same condition as the banner itself and
+   removed by cookie-consent.js in the same gesture that removes the
+   banner — and only once the server has stored the choice (#742). It used
+   to be `body:has(> #cookie-banner)`, which relied on the browser
+   re-evaluating :has() after the node was removed; a visitor was once left
+   with an empty white strip the height of the banner and nothing to close.
+   The banner and its space are now one state ScoutMagic drives, not two
+   effects that happen to coincide.
    The paddings bracket the banner's real rendered height at the banner's
    own breakpoints (checked at 360, 768 and 1280px wide), slightly
    oversized so the bottom of the page always clears it.
    ============================================================ */
-body:has(> #cookie-banner) {
+body.cookie-banner-visible {
     /* <576px: text block + three stacked full-width actions (~280px) */
     padding-bottom: 20rem;
 }
 @media (min-width: 576px) {
-    body:has(> #cookie-banner) {
+    body.cookie-banner-visible {
         /* 576-991px: text block above a single row of actions (~150px) */
         padding-bottom: 12rem;
     }
 }
 @media (min-width: 992px) {
-    body:has(> #cookie-banner) {
+    body.cookie-banner-visible {
         /* >=992px: text and actions side by side (~100px) */
         padding-bottom: 8rem;
     }
@@ -547,6 +536,15 @@ body:has(> #cookie-banner) {
 }
 .list-editor-item--dragging {
     opacity: 0.4;
+}
+/* Connected lists (issue #752): while an item is dragged, every list of
+   its group says it can take it — an empty one included, which keeps a
+   height worth aiming at. */
+.list-editor-items.sortable-drop-zone {
+    outline: 2px dashed var(--bs-primary-border-subtle);
+    outline-offset: 0.25rem;
+    border-radius: var(--bs-border-radius);
+    min-height: 3rem;
 }
 .list-editor-drag-handle:active {
     cursor: grabbing;

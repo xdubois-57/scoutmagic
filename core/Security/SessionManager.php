@@ -32,7 +32,7 @@ class SessionManager
             return;
         }
 
-        $isHttps = RequestScheme::isHttps($_SERVER);
+        $isHttps = RequestScheme::enforcesHttps($_SERVER);
 
         // Use a dedicated session save path to avoid OS-level temp cleanup issues
         $savePath = dirname(__DIR__, 2) . '/storage/temp/sessions';
