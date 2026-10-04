@@ -48,6 +48,19 @@ d'améliorer ScoutMagic avant sa première version pleinement stabilisée.
 Vous souhaitez découvrir ScoutMagic, l'utiliser dans votre unité ou poser des
 questions avant de vous lancer ? Contactez-nous à **info@scoutmagic.be**.
 
+## Prérequis
+
+Les prérequis techniques de référence sont documentés dans
+[ARCHITECTURE.md](ARCHITECTURE.md). L'installation standard vérifie elle-même
+que l'hébergement satisfait les conditions nécessaires avant de continuer.
+
+### La tâche cron
+
+ScoutMagic a besoin d'une tâche cron exécutant `php public/cron.php` chaque
+minute. La ligne exacte adaptée à l'hébergement, son contrôle et les points
+d'attention sont détaillés dans
+[Installation & serveur](docs/help/installation-serveur.md).
+
 ## Installation et premiers pas
 
 L'installation de ScoutMagic se fait à l'aide du fichier `bootstrap.php`
