@@ -138,6 +138,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/proposition',
             '/mes-locations/demande',
             '/mes-locations/blocage-motif',
+            '/mes-locations/{slug}/calendrier/jours',
             '/mes-locations/blocage-supprimer',
             '/mes-locations/caution',
             '/mes-locations/gabarit',
