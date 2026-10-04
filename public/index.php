@@ -11315,7 +11315,18 @@ if ($isEnabled('registration')) {
             $registrationReenrollmentCampaign,
             $settingService,
             $schedulerService,
-            $journalService
+            $journalService,
+            // Issue #796: the one plan of what a save writes to families,
+            // counted over the same recipients the sender writes to.
+            \Modules\Registration\Service\ReenrollmentSavePlanner::countingWith(
+                $registrationReenrollmentCampaign,
+                $settingService,
+                new \Modules\Registration\Service\ReenrollmentRecipientService(
+                    $registrationPassageRosterRepo,
+                    $registrationReenrollmentRepository,
+                    $registrationPassageService
+                )
+            )
         )
     );
     \Modules\Registration\Task\ReenrollmentCampaignHandler::ensureScheduled($schedulerService);

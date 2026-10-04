@@ -18,6 +18,8 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Registration\Service\ReenrollmentCampaignService;
+use Modules\Registration\Service\ReenrollmentSavePlan;
+use Modules\Registration\Service\ReenrollmentSavePlanner;
 use Twig\Environment;
 
 /**
@@ -51,13 +53,28 @@ class ReenrollmentConfigController extends AbstractController
     private const OPENING_QUESTION = "Cette configuration va ouvrir la campagne de réinscription immédiatement. "
         . "Un e-mail d'ouverture sera envoyé aux familles concernées. Voulez-vous continuer ?";
 
+    /** @var \Closure(): \DateTimeImmutable */
+    private \Closure $clock;
+
+    /**
+     * @param (\Closure(): \DateTimeImmutable)|null $clock « now », injectable so a
+     *        test can stand in October as well as in April
+     */
     public function __construct(
         protected Environment $twig,
         private ReenrollmentCampaignService $campaign,
         private SettingService $settingService,
         private SchedulerService $schedulerService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private ReenrollmentSavePlanner $planner,
+        ?\Closure $clock = null
     ) {
+        $this->clock = $clock ?? static fn (): \DateTimeImmutable => new \DateTimeImmutable();
+    }
+
+    private function now(): \DateTimeImmutable
+    {
+        return ($this->clock)();
     }
 
     /**
@@ -65,7 +82,7 @@ class ReenrollmentConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $closeDate = $this->campaign->closeDate();
+        $closeDate = $this->campaign->closeDate($this->now());
 
         return $this->render('@registration/reenrollment_config.html.twig', [
             'is_open' => $this->campaign->isOpen(),
@@ -120,7 +137,7 @@ class ReenrollmentConfigController extends AbstractController
      */
     private function emailStates(): array
     {
-        $campaignKey = $this->campaign->currentCampaignKey();
+        $campaignKey = $this->campaign->currentCampaignKey($this->now());
 
         $states = [];
         foreach ([
@@ -166,7 +183,9 @@ class ReenrollmentConfigController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'confirm' => $this->openingWritesToFamilies($values) ? self::OPENING_QUESTION : null,
+            'confirm' => self::needsOpeningConfirmation($this->planner->plan($values, $this->now()))
+                ? self::OPENING_QUESTION
+                : null,
         ]);
     }
 
@@ -181,14 +200,16 @@ class ReenrollmentConfigController extends AbstractController
 
         $values = $this->submittedValues(static fn(string $key): string => (string) $request->getBody($key, ''));
 
+        // One plan (issue #796, D1): what this save writes to families,
+        // computed once and applied below — never a second calculation
+        // that could disagree with the first.
+        $now = $this->now();
+        $plan = $this->planner->plan($values, $now);
+
         // Asked before anything is written (issue #732): a save that opens
         // the campaign AND writes to every family needs the chief to have
         // said yes. Without it, nothing is saved and nothing opens.
-        $opening = $this->openingFor($values);
-        if (
-            $this->campaign->openingSendsEmail($opening, $values['emails_enabled'])
-            && (string) $request->getBody('confirm_opening', '') !== '1'
-        ) {
+        if (self::needsOpeningConfirmation($plan) && (string) $request->getBody('confirm_opening', '') !== '1') {
             FlashMessage::set(
                 'error',
                 "Rien n'a été enregistré : cette configuration ouvre la campagne et envoie l'e-mail d'ouverture "
@@ -232,33 +253,32 @@ class ReenrollmentConfigController extends AbstractController
                 [],
                 AuthSession::getUserAccountId()
             );
-
-            // An opening sends the opening e-mail, a closing the closing
-            // one — however it happened. Each marker keeps its e-mail to
-            // once per campaign, and the e-mails switch can stop both.
-            if ($shouldBeOpen && $opening !== null && $opening['key'] !== null) {
-                $this->queueEmails(ReenrollmentCampaignService::EMAIL_OPENING, $opening['key']);
-            }
-            $campaignKey = $this->campaign->currentCampaignKey();
-            if (!$shouldBeOpen && $campaignKey !== null) {
-                $this->queueEmails(ReenrollmentCampaignService::EMAIL_CLOSING, $campaignKey);
-            }
-        } elseif ($opening !== null && $opening['scheduled'] && $opening['key'] !== null) {
+        } elseif ($plan->opening !== null && $plan->opening['scheduled'] && $plan->opening['campaign'] !== null) {
             // The opening date just saved is today: the scheduled opening
             // happens now rather than at the next hourly pass, so what the
             // chief confirmed is what they see — and through the same
             // marker the clock would have written, so it never fires again.
             $this->campaign->open();
-            $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, $opening['key']);
+            $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, $plan->opening['campaign']);
             $this->journalService->log(
                 'registration',
                 'reenrollment_campaign_opened',
                 'info',
                 "Campagne de réinscription ouverte (date d'ouverture du jour)",
-                ['campaign' => $opening['key']],
+                ['campaign' => $plan->opening['campaign']],
                 AuthSession::getUserAccountId()
             );
-            $this->queueEmails(ReenrollmentCampaignService::EMAIL_OPENING, $opening['key']);
+        }
+
+        // Exactly the e-mails the plan announced as leaving now, and no
+        // other. A closing whose campaign ended months ago is not among
+        // them (issue #796): nobody is told « it has just closed » about a
+        // deadline five months behind them. What the plan announced as
+        // deferred leaves at the next hourly pass, through the same guard.
+        foreach ($plan->emails as $email) {
+            if (!$email['deferred']) {
+                $this->queueEmails($email['type'], $email['campaign']);
+            }
         }
 
         FlashMessage::set('success', 'Campagne enregistrée.');
@@ -311,38 +331,14 @@ class ReenrollmentConfigController extends AbstractController
     }
 
     /**
-     * Whether saving `$values` would open a closed campaign and write the
-     * opening e-mail.
-     *
-     * @param array{open_at: ?string, close_at: ?string, is_open: bool, emails_enabled: bool} $values
+     * Whether `$plan` is the one case the opening question covers: a save
+     * that opens the campaign now and writes the opening e-mail now.
      */
-    private function openingWritesToFamilies(array $values): bool
+    private static function needsOpeningConfirmation(ReenrollmentSavePlan $plan): bool
     {
-        return $this->campaign->openingSendsEmail($this->openingFor($values), $values['emails_enabled']);
-    }
+        $email = $plan->email(ReenrollmentCampaignService::EMAIL_OPENING);
 
-    /**
-     * What saving `$values` would open. A date left empty or malformed
-     * counts as the stored one, exactly as save() keeps it.
-     *
-     * @param array{open_at: ?string, close_at: ?string, is_open: bool} $values
-     * @return array{key: ?string, scheduled: bool}|null
-     */
-    private function openingFor(array $values): ?array
-    {
-        return $this->campaign->openingOnSave(
-            $values['open_at'] ?? (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_OPEN_AT,
-                'registration',
-                ''
-            ),
-            $values['close_at'] ?? (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_CLOSE_AT,
-                'registration',
-                ''
-            ),
-            $values['is_open']
-        );
+        return $email !== null && !$email['deferred'];
     }
 
     /**
@@ -355,7 +351,7 @@ class ReenrollmentConfigController extends AbstractController
         $question = "Un e-mail de relance va être envoyé à chaque famille qui n'a pas encore répondu. "
             . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.";
 
-        $reminders = $this->campaign->automaticReminders();
+        $reminders = $this->campaign->automaticReminders($this->now());
         if ($reminders['last_at'] !== null) {
             $question .= ' Dernier rappel automatique envoyé le ' . $reminders['last_at']->format('d/m/Y') . '.';
         } elseif ($reminders['last_sent']) {
@@ -401,7 +397,7 @@ class ReenrollmentConfigController extends AbstractController
             return $this->redirect(self::PAGE_URL);
         }
 
-        $campaignKey = $this->campaign->currentCampaignKey();
+        $campaignKey = $this->campaign->currentCampaignKey($this->now());
         if ($campaignKey === null) {
             FlashMessage::set('error', "Aucune campagne en cours — vérifiez les dates d'ouverture et de fermeture.");
 
@@ -422,7 +418,7 @@ class ReenrollmentConfigController extends AbstractController
         // family's inbox. `seed()` stands down when a row of that
         // reference is already queued or running, which is precisely the
         // sentence above.
-        $occurrence = (new \DateTimeImmutable())->format('Y-m-d-H-i');
+        $occurrence = $this->now()->format('Y-m-d-H-i');
         $this->schedulerService->seed(
             'registration',
             'send_reenrollment_emails',

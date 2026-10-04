@@ -362,27 +362,16 @@ class ReenrollmentCampaignServiceTest extends TestCase
         );
     }
 
-    public function testTheSwitchShortlyAfterTheCloseReopensAFinishedCampaignAndAnnouncesNothing(): void
+    /**
+     * Whether it then writes to anybody is Service\ReenrollmentSavePlanner's
+     * answer (issue #796): a campaign with no key announces nothing.
+     */
+    public function testTheSwitchShortlyAfterTheCloseReopensAFinishedCampaignWithoutAKey(): void
     {
-        $opening = $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'));
-
-        $this->assertSame(['key' => null, 'scheduled' => false], $opening);
-        $this->assertFalse(
-            $this->campaign->openingSendsEmail($opening, true),
-            'an opening e-mail for a campaign whose deadline has passed would announce a date behind everybody'
+        $this->assertSame(
+            ['key' => null, 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'))
         );
-    }
-
-    public function testAnOpeningWritesToFamiliesOnlyWithTheEmailsOnAndNotYetSent(): void
-    {
-        $opening = ['key' => '2027-05-15', 'scheduled' => false];
-
-        $this->assertTrue($this->campaign->openingSendsEmail($opening, true));
-        $this->assertFalse($this->campaign->openingSendsEmail($opening, false), 'e-mails off: nothing leaves');
-        $this->assertFalse($this->campaign->openingSendsEmail(null, true), 'nothing opens: nothing leaves');
-
-        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_OPENING), '2027-05-15');
-        $this->assertFalse($this->campaign->openingSendsEmail($opening, true), 'once per campaign');
     }
 
     // ── where the automatic reminders stand (issue #732) ─────────────

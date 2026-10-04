@@ -95,7 +95,8 @@ class ReenrollmentCampaignService
      * Null when nothing would open (or the campaign is already open).
      * Otherwise the campaign the opening belongs to — null when the dates
      * do not designate one, in which case no e-mail can follow — and
-     * whether it is the scheduled opening rather than the switch.
+     * whether it is the scheduled opening rather than the switch. Whether
+     * an e-mail then leaves is Service\ReenrollmentSavePlanner's answer.
      *
      * @return array{key: ?string, scheduled: bool}|null
      */
@@ -129,20 +130,6 @@ class ReenrollmentCampaignService
         }
 
         return ['key' => self::keyForManualOpening($today, $openAt, $closeAt), 'scheduled' => false];
-    }
-
-    /**
-     * Whether opening the campaign `$opening` describes would write the
-     * opening e-mail — the question the confirmation is about.
-     *
-     * @param array{key: ?string, scheduled: bool}|null $opening
-     */
-    public function openingSendsEmail(?array $opening, bool $emailsEnabled): bool
-    {
-        return $opening !== null
-            && $opening['key'] !== null
-            && $emailsEnabled
-            && !$this->alreadyDone(self::emailMarker(self::EMAIL_OPENING), $opening['key']);
     }
 
     /**
@@ -213,8 +200,17 @@ class ReenrollmentCampaignService
 
     /**
      * currentCampaignKey() for any pair of dates — the saved ones, or the
-     * ones a chief is about to save.
+     * ones a chief is about to save. Null when either date is missing or
+     * malformed.
      */
+    public static function campaignKeyFor(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
+    {
+        $openAt = self::validMonthDay($openAt);
+        $closeAt = self::validMonthDay($closeAt);
+
+        return $openAt !== null && $closeAt !== null ? self::keyAt($now, $openAt, $closeAt) : null;
+    }
+
     private static function keyAt(\DateTimeImmutable $now, string $openAt, string $closeAt): ?string
     {
         $year = (int) $now->format('Y');
@@ -291,14 +287,32 @@ class ReenrollmentCampaignService
         }
 
         $setting = $which === self::EMAIL_REMINDER_1 ? self::SETTING_REMINDER_1_DAYS : self::SETTING_REMINDER_2_DAYS;
-        $raw = $this->settingService->get($setting, 'registration');
-        if (!is_numeric((string) $raw)) {
+
+        return self::reminderDueOn(
+            $close,
+            $this->monthDay(self::SETTING_OPEN_AT),
+            (string) $this->settingService->get($setting, 'registration')
+        );
+    }
+
+    /**
+     * reminderDate() for any campaign and any settings — the stored ones,
+     * or the ones a chief is about to save (Service\ReenrollmentSavePlanner).
+     * Null when the delay is not a number, or when the date falls before
+     * the campaign opened: skipped outright, never sent late.
+     */
+    public static function reminderDueOn(
+        \DateTimeImmutable $close,
+        ?string $openAt,
+        string $daysBeforeClose
+    ): ?\DateTimeImmutable {
+        if (!is_numeric($daysBeforeClose)) {
             return null;
         }
 
-        $due = $close->modify('-' . max(0, (int) $raw) . ' days');
+        $due = $close->modify('-' . max(0, (int) $daysBeforeClose) . ' days');
 
-        $openOn = $this->openDateFor((int) $close->format('Y'));
+        $openOn = $openAt !== null ? self::dateIn((int) $close->format('Y'), $openAt) : null;
         if ($openOn !== null && $due < $openOn) {
             return null;
         }
@@ -453,16 +467,16 @@ class ReenrollmentCampaignService
      */
     public function tracking(): array
     {
-        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $targetLabel = ScoutYearService::nextLabel((string) $publicYear['label']);
-        $targetYearId = $this->scoutYearService->ensureYear($targetLabel);
+        $years = $this->years();
+        $targetLabel = $years['target_label'];
+        $targetYearId = $years['target_year_id'];
 
         // includeLeaving: a departure answer ticks the departure box
         // (roadmap IT-16), so without it the total would shrink by one
         // with every « il ne revient pas » received and the answer itself
         // would be discarded below as "no longer an animé".
         $animeMemberIds = [];
-        foreach ($this->passageService->getAnimeMemberYears((int) $publicYear['id'], includeLeaving: true) as $row) {
+        foreach ($this->passageService->getAnimeMemberYears($years['public_year_id'], includeLeaving: true) as $row) {
             $animeMemberIds[(int) $row['member_id']] = true;
         }
 
@@ -491,6 +505,25 @@ class ReenrollmentCampaignService
             'leaving' => $leaving,
             'silent' => max(0, $total - $answered),
             'target_year_label' => $targetLabel,
+        ];
+    }
+
+    /**
+     * The year whose animés are asked, and the year they are asked about —
+     * one place for the tracking, the sender and the save plan, so the
+     * three can never count different families.
+     *
+     * @return array{public_year_id: int, target_year_id: int, target_label: string}
+     */
+    public function years(): array
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $targetLabel = ScoutYearService::nextLabel((string) $publicYear['label']);
+
+        return [
+            'public_year_id' => (int) $publicYear['id'],
+            'target_year_id' => $this->scoutYearService->ensureYear($targetLabel),
+            'target_label' => $targetLabel,
         ];
     }
 

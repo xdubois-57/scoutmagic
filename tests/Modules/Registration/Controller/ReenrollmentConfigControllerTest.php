@@ -62,7 +62,16 @@ use Core\Member\Repository\SectionRepository;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class ReenrollmentConfigControllerTest extends TestCase
 {
+    /**
+     * « Now », for every test that does not choose its own: inside the
+     * 2027 campaign (01-03 → 15-05), the year the fixture's public year asks
+     * about. The page used to read the wall clock, and its tests passed or
+     * failed with the season.
+     */
+    private const NOW = '2027-04-20 10:00:00';
+
     private \PDO $pdo;
+    private \Modules\Registration\Service\ReenrollmentRecipientService $recipients;
     private SettingService $settingService;
     private ReenrollmentCampaignService $campaign;
     private ReenrollmentConfigController $controller;
@@ -141,13 +150,12 @@ class ReenrollmentConfigControllerTest extends TestCase
         $twig->addGlobal('current_path', '/config/reinscription');
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
-        $this->controller = new ReenrollmentConfigController(
-            $twig,
-            $this->campaign,
-            $this->settingService,
-            new SchedulerService(new SchedulerRepository($this->pdo)),
-            new JournalService(new JournalRepository($this->pdo))
+        $this->recipients = new \Modules\Registration\Service\ReenrollmentRecipientService(
+            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption),
+            new ReenrollmentRepository($this->pdo, $encryption),
+            $passageService
         );
+        $this->controller = $this->controllerAt(new \DateTimeImmutable(self::NOW));
 
         AuthSession::login(1, 'chef@example.be', 'admin');
     }
@@ -155,6 +163,23 @@ class ReenrollmentConfigControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+    }
+
+    private function controllerAt(\DateTimeImmutable $now): ReenrollmentConfigController
+    {
+        return new ReenrollmentConfigController(
+            $this->twig,
+            $this->campaign,
+            $this->settingService,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            \Modules\Registration\Service\ReenrollmentSavePlanner::countingWith(
+                $this->campaign,
+                $this->settingService,
+                $this->recipients
+            ),
+            static fn (): \DateTimeImmutable => $now
+        );
     }
 
     // ── the page ──────────────────────────────────────────────────────
@@ -235,7 +260,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     private function currentCampaignKey(): string
     {
-        $key = $this->campaign->currentCampaignKey();
+        $key = $this->campaign->currentCampaignKey(new \DateTimeImmutable(self::NOW));
         $this->assertNotNull($key, 'the fixture must have a campaign in progress');
 
         return $key;
@@ -315,7 +340,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testOpeningTheCampaignByHandOpensIt(): void
     {
-        $this->save(['is_open' => '1']);
+        $this->save(['is_open' => '1', 'confirm_opening' => '1']);
 
         $this->assertTrue($this->campaign->isOpen());
     }
@@ -346,6 +371,26 @@ class ReenrollmentConfigControllerTest extends TestCase
         $this->assertCount(1, $queued);
         $payload = json_decode((string) $queued[0]['payload'], true);
         $this->assertSame(ReenrollmentCampaignService::EMAIL_CLOSING, $payload['type']);
+    }
+
+    /**
+     * **The incident of issue #796, replayed.** On 4 October a chef d'unité
+     * turned « Campagne ouverte » off. The campaign the page called current
+     * was still the one that had closed on 15 May, and its silent families
+     * received a closing e-mail five months late, with no question asked.
+     * A campaign whose close date is behind us is over: closing it again
+     * writes to nobody.
+     */
+    public function testClosingInOctoberACampaignThatEndedInMayWritesToNobody(): void
+    {
+        $this->createAnime('Alix', 'famille@example.be');
+        $this->campaign->open();
+
+        $this->controllerAt(new \DateTimeImmutable('2026-10-04 10:35:00'))
+            ->save($this->post('/config/reinscription', ['is_open' => '0']), []);
+
+        $this->assertFalse($this->campaign->isOpen(), 'the switch itself still works');
+        $this->assertSame([], $this->queued(), 'and no send_reenrollment_emails task exists');
     }
 
     public function testTheClosingEmailIsQueuedOncePerCampaignHoweverOftenItIsClosed(): void
@@ -627,15 +672,15 @@ class ReenrollmentConfigControllerTest extends TestCase
     }
 
     /**
-     * A window that opens TODAY and closes on 31 December — whatever day
-     * the suite runs, without straddling a new year.
+     * A window that opens TODAY (self::NOW) and closes on 31 December,
+     * without straddling a new year.
      *
      * @return array<string, string>
      */
     private function openingToday(): array
     {
         return [
-            ReenrollmentCampaignService::SETTING_OPEN_AT => (new \DateTimeImmutable())->format('m-d'),
+            ReenrollmentCampaignService::SETTING_OPEN_AT => (new \DateTimeImmutable(self::NOW))->format('m-d'),
             ReenrollmentCampaignService::SETTING_CLOSE_AT => '12-31',
             ReenrollmentCampaignService::SETTING_EMAILS_ENABLED => '1',
         ];
@@ -643,7 +688,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     private function todaysCampaignKey(): string
     {
-        return (new \DateTimeImmutable())->format('Y') . '-12-31';
+        return (new \DateTimeImmutable(self::NOW))->format('Y') . '-12-31';
     }
 
     // ── the RBAC boundary of the preview route ───────────────────────
