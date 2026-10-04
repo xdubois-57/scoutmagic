@@ -186,7 +186,7 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                 $context->journal,
                 \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
                     new \Core\Member\Repository\SectionRepository($context->connection),
-                    new \Core\Member\SectionMembershipRepository($pdo),
+                    new \Core\Import\MemberYearRepository($pdo),
                     new \Core\Config\ScoutYearService($pdo)
                 )
             )

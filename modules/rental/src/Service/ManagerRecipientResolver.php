@@ -12,7 +12,6 @@ use Core\Config\ScoutYearService;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
 use Core\Member\Repository\SectionRepository;
-use Core\Member\SectionMembershipRepository;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\UserAccountRepository;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
@@ -55,30 +54,41 @@ final class ManagerRecipientResolver
     }
 
     /**
-     * The production fallback: the members of the Staff d'U section today,
-     * within the current scout year.
+     * The production fallback: the staff of the Staff d'U section in the
+     * current scout year, read where every other screen reads it — the
+     * active member's functions (`UnitStaffSectionService::syncMembership()`
+     * puts each chef d'unité there), never `member_section_periods`, which
+     * no import fills for this section. A function the import dropped is
+     * gone from that table, so someone who left the role stops hearing
+     * about requests at the next import, as they stop being able to act.
      *
      * @return \Closure(): list<int>
      */
     public static function unitStaffOfTheCurrentYear(
         SectionRepository $sections,
-        SectionMembershipRepository $memberships,
+        MemberYearRepository $memberYears,
         ScoutYearService $scoutYears
     ): \Closure {
-        return static function () use ($sections, $memberships, $scoutYears): array {
+        return static function () use ($sections, $memberYears, $scoutYears): array {
             $section = $sections->findByDeskCode(UnitStaffSectionService::DESK_CODE);
             if ($section === null) {
                 return [];
             }
 
-            // Dated, not year-wide: someone who left the Staff d'U mid-year
-            // has a closed period and must stop hearing about requests the
-            // day they leave, as they stop being able to act on them.
-            return array_values($memberships->findMemberIdsCoveringDate(
-                [(int) $section['id']],
+            $memberIds = [];
+            $memberYearIds = $sections->memberYearIdsInSection(
+                (int) $section['id'],
                 (int) $scoutYears->getCurrentYear()['id'],
-                (new \DateTimeImmutable('today'))->format('Y-m-d')
-            ));
+                staff: true
+            );
+            foreach ($memberYearIds as $memberYearId) {
+                $row = $memberYears->findById($memberYearId);
+                if ($row !== null) {
+                    $memberIds[(int) $row['member_id']] = true;
+                }
+            }
+
+            return array_keys($memberIds);
         };
     }
 

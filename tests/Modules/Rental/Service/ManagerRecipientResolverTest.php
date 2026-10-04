@@ -118,6 +118,52 @@ class ManagerRecipientResolverTest extends TestCase
         $this->assertStringNotContainsString('staffdu@unite.be', $journal);
     }
 
+    /**
+     * The production fallback reads the Staff d'U where the rest of the
+     * site does — the active members' functions — so a chef d'unité synced
+     * there is found, and a former one or another section's staff is not.
+     */
+    public function testTheProductionFallbackFindsTheStaffOfTheStaffDu(): void
+    {
+        $branch = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $branch->execute(['STAFFDU', "Staff d'U", 99]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $section = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $section->execute(['STAFFDU', $branchId, "Staff d'U"]);
+        $staffDu = (int) $this->pdo->lastInsertId();
+        $section->execute(['LOUP', $branchId, 'Meute']);
+        $otherSection = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)')
+            ->execute(['CU', "Chef d'unité", 'admin']);
+        $function = (int) $this->pdo->lastInsertId();
+
+        $assign = function (int $memberId, int $sectionId) use ($function): int {
+            $memberYearId = (int) $this->pdo->query(
+                'SELECT id FROM member_years WHERE member_id = ' . $memberId
+            )->fetchColumn();
+            $this->pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+                 VALUES (?, ?, ?, 1)'
+            )->execute([$memberYearId, $function, $sectionId]);
+
+            return $memberYearId;
+        };
+        $chief = $this->member('cu@unite.be', true);
+        $assign($chief, $staffDu);
+        $assign($this->member('animateur@unite.be', true), $otherSection);
+        $former = $this->member('ancien.cu@unite.be', true);
+        $this->pdo->prepare('UPDATE member_years SET is_active = 0 WHERE id = ?')
+            ->execute([$assign($former, $staffDu)]);
+
+        $staff = ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+            new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($this->pdo)),
+            new MemberYearRepository($this->pdo),
+            new \Core\Config\ScoutYearService($this->pdo)
+        );
+
+        $this->assertSame([$chief], $staff());
+    }
+
     public function testWhenNobodyCanBeToldTheJournalSaysSo(): void
     {
         $this->assertSame([], $this->resolver()->recipientsFor($this->assetId, 'new_request'));

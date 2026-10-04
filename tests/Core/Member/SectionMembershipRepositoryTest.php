@@ -126,36 +126,6 @@ class SectionMembershipRepositoryTest extends TestCase
         self::assertSame($this->sectionA, $periods[0]->sectionId);
     }
 
-    /**
-     * A member who left the section mid-year has a closed period: the
-     * year-wide question still names them, the dated one must not.
-     */
-    public function testOnlyPeriodsCoveringTheDateCountAsCurrentMembers(): void
-    {
-        $year = (new ScoutYearService($this->pdo))->ensureYear('2025-2026');
-
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
-        $leftId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK3')");
-        $notYetId = (int) $this->pdo->lastInsertId();
-
-        $this->insertPeriod($year, $this->sectionA, '2025-09-01');
-        $this->insertPeriod($year, $this->sectionA, '2025-09-01', '2026-01-31', $leftId);
-        $this->insertPeriod($year, $this->sectionA, '2026-04-01', null, $notYetId);
-        $this->insertPeriod($year, $this->sectionB, '2025-09-01', null, $notYetId);
-
-        self::assertSame(
-            [$this->memberId],
-            $this->repository->findMemberIdsCoveringDate([$this->sectionA], $year, '2026-03-01')
-        );
-        self::assertEqualsCanonicalizing(
-            [$this->memberId, $leftId],
-            $this->repository->findMemberIdsCoveringDate([$this->sectionA], $year, '2026-01-31'),
-            'The last day of a period still counts.'
-        );
-        self::assertSame([], $this->repository->findMemberIdsCoveringDate([], $year, '2026-03-01'));
-    }
-
     private function createSection(string $deskCode, int $branchId): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id) VALUES (?, ?)');

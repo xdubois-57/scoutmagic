@@ -11552,7 +11552,7 @@ if ($isEnabled('rental')) {
         $journalService,
         \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
             new \Core\Member\Repository\SectionRepository($connection),
-            $sectionMembershipRepository,
+            $memberYearRepo,
             $scoutYearService
         )
     );

@@ -177,39 +177,6 @@ class SectionMembershipRepository
     }
 
     /**
-     * Every member whose period in ANY of $sectionIds for $scoutYearId
-     * covers $date — findMemberIdsForSections() narrowed to « is one right
-     * now », the set version of hasPeriodCovering().
-     *
-     * For a recipient list that must drop someone the moment they leave
-     * the section: the import closes their period with an `end_date`, and
-     * the year-wide question would keep them until the year ends.
-     *
-     * @param int[] $sectionIds
-     * @return int[] distinct members.id values
-     */
-    public function findMemberIdsCoveringDate(array $sectionIds, int $scoutYearId, string $date): array
-    {
-        if ($sectionIds === []) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT DISTINCT member_id FROM member_section_periods
-             WHERE scout_year_id = ? AND section_id IN ({$placeholders})
-               AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)"
-        );
-        $stmt->execute(array_merge(
-            [$scoutYearId],
-            array_map('intval', array_values($sectionIds)),
-            [$date, $date]
-        ));
-
-        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
-    }
-
-    /**
      * The same question as findMemberIdsForSections(), answered per
      * section in a single query.
      *
