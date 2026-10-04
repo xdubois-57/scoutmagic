@@ -209,6 +209,27 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         expect(body.discretion).toBe(true);
     });
 
+    it('sends a discretion flip back while the first flip is in flight, with quiet hours half-filled', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="">' +
+            '<input id="quiet-hours-end" value="">' +
+            '<input id="notification-discretion" type="checkbox">';
+        const pending = [];
+        global.fetch = vi.fn(() => new Promise((resolve) => pending.push(resolve)));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+        const discretion = document.getElementById('notification-discretion');
+        start.value = '21:00';
+
+        discretion.checked = true;
+        discretion.dispatchEvent(new Event('change'));
+        discretion.checked = false;
+        discretion.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(pending).toHaveLength(2));
+        expect(JSON.parse(fetch.mock.calls[1][1].body).discretion).toBe(false);
+    });
+
     it('shows an older accepted save that answers after a newer refusal put the controls back', async () => {
         document.body.innerHTML +=
             '<input id="quiet-hours-start" value="21:00">' +

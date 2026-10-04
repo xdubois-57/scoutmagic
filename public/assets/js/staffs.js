@@ -77,6 +77,8 @@
     // (tabbing from the title into the description) sends nothing.
     /** @type {Record<string, string>} */
     var savedDocuments = {};
+    /** @type {Record<string, Promise<void>>} */
+    var documentQueues = {};
     /**
      * @param {HTMLInputElement} titleInput
      * @param {HTMLTextAreaElement} descriptionInput
@@ -106,23 +108,31 @@
             }
 
             var documentId = row.dataset.id || '';
+            var title = titleInput.value;
+            var description = descriptionInput.value;
             var snapshot = documentSnapshot(titleInput, descriptionInput);
-            if (savedDocuments[documentId] === snapshot) {
-                return;
-            }
 
-            void api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
-                title: titleInput.value,
-                description: descriptionInput.value
-            }).then(function (res) {
-                if (res.data?.success) {
-                    savedDocuments[documentId] = snapshot;
-                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
-                    return;
+            // A document's saves run one after the other, in blur order: an
+            // older answer can then never overwrite what a newer one
+            // recorded. Two documents stay independent.
+            var previous = documentQueues[documentId] || Promise.resolve();
+            documentQueues[documentId] = previous.then(function () {
+                if (savedDocuments[documentId] === snapshot) {
+                    return undefined;
                 }
-                // The text stays as typed: putting the old one back would
-                // throw away what the chief just wrote.
-                toastError(res, 'Erreur.');
+                return api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
+                    title: title,
+                    description: description
+                }).then(function (res) {
+                    if (res.data?.success) {
+                        savedDocuments[documentId] = snapshot;
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                        return;
+                    }
+                    // The text stays as typed: putting the old one back would
+                    // throw away what the chief just wrote.
+                    toastError(res, 'Erreur.');
+                });
             });
         });
     });

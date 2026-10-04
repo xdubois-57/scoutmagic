@@ -218,16 +218,22 @@
         // refused note keeps its text on screen: putting the old one back
         // would throw away what the chief just wrote.
         // A note left as it was sends nothing, and says nothing.
+        // Saves of one note run one after the other, in blur order: an
+        // older answer can then never overwrite what a newer one recorded.
         var savedNote = field.value;
+        /** @type {Promise<void>} */
+        var noteQueue = Promise.resolve();
         field.addEventListener('blur', function () {
             var written = field.value;
-            if (written === savedNote) {
-                return;
-            }
-            void autoSave(field, { note: written }).then(function (recorded) {
-                if (recorded) {
-                    savedNote = written;
+            noteQueue = noteQueue.then(function () {
+                if (written === savedNote) {
+                    return undefined;
                 }
+                return autoSave(field, { note: written }).then(function (recorded) {
+                    if (recorded) {
+                        savedNote = written;
+                    }
+                });
             });
         });
     });

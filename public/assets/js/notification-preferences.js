@@ -87,6 +87,10 @@
     var savedSequence = 0;
     /** The newest save whose own answer has come back, accepted or not. */
     var settledSequence = 0;
+    // The discretion value of the newest request sent, answered or not: a
+    // flip back while the first one is in flight still differs from it,
+    // where it would match the value the server last confirmed.
+    var lastSentDiscretion = saved.discretion;
 
     function paintSaved() {
         startInput.value = saved.start;
@@ -105,13 +109,14 @@
         // the server would refuse it. The recorded pair goes instead, so a
         // discretion flip meanwhile still reaches the server.
         if ((sent.start === '') !== (sent.end === '')) {
-            if (sent.discretion === saved.discretion) {
+            if (sent.discretion === lastSentDiscretion) {
                 return;
             }
             sent.start = saved.start;
             sent.end = saved.end;
         }
         var sequence = ++saveSequence;
+        lastSentDiscretion = sent.discretion;
         void window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
             quiet_hours_start: sent.start,
             quiet_hours_end: sent.end,
@@ -139,6 +144,7 @@
                     return;
                 }
                 paintSaved();
+                lastSentDiscretion = saved.discretion;
                 toastFailure(res);
             });
     }

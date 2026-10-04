@@ -718,8 +718,10 @@ class PassageControllerTest extends TestCase
 
         $html = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
 
-        $this->assertStringContainsString('passage-select', $html);
-        $this->assertStringNotContainsString('passage-save', $html);
-        $this->assertStringNotContainsString('passage-feedback', $html);
+        // Matched as whole class tokens, so a neighbour such as
+        // `passage-friend-save` neither satisfies nor trips them.
+        $this->assertMatchesRegularExpression('/class="[^"]*\bpassage-select\b/', $html);
+        $this->assertDoesNotMatchRegularExpression('/class="[^"]*(?<![\w-])passage-save(?![\w-])/', $html);
+        $this->assertDoesNotMatchRegularExpression('/class="[^"]*(?<![\w-])passage-feedback(?![\w-])/', $html);
     }
 }
