@@ -1643,6 +1643,47 @@ final class UxConventionsTest extends TestCase
         );
     }
 
+    /**
+     * A checkbox and the first line of its label line up, centrally
+     * (issue #706, IT-02).
+     *
+     * The chantier's words: « Aujourd'hui le texte est plus bas que la
+     * case ». The cause is structural — Bootstrap FLOATS
+     * `.form-check-input` to the top of the block, while the label's line
+     * box is made taller than its text by the Bootstrap Icons glyph
+     * inside it, so the text sits lower and the two drift apart.
+     *
+     * Pinned here for the same reason as the rule below: the fix belongs
+     * in `app.css`, where `pointer: coarse` and the rest of the shared
+     * behaviour lives, and a margin sprinkled on a template would drift
+     * again the day a label has no icon.
+     */
+    public function testTheCheckboxAlignmentLivesInTheStylesheet(): void
+    {
+        $css = (string) file_get_contents(self::repoRoot() . '/public/assets/css/app.css');
+
+        self::assertStringContainsString(
+            '.form-check--line-aligned {',
+            $css,
+            'the shared alignment is gone from app.css — a template patching it inline will drift.'
+        );
+        // A float is exactly what misaligned it; the rule has to undo it,
+        // not add a margin on top of it.
+        self::assertMatchesRegularExpression(
+            '/\.form-check--line-aligned > \.form-check-input \{[^}]*float: none;/s',
+            $css,
+            'the rule no longer cancels the float, which is what pushed the text below the box.'
+        );
+
+        $destinations = self::templateSource('modules/social/views/share/_destinations.html.twig');
+        self::assertSame(
+            3,
+            substr_count($destinations, 'form-check--line-aligned'),
+            'the destination rows, the « Groupe de discussion » row and the group dialog all take it'
+            . ' — the chantier names the last two, and the first has the same icon-beside-text shape.'
+        );
+    }
+
     public function testNoInlineTouchTargetPatches(): void
     {
         $found = [];

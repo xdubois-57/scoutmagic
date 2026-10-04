@@ -114,9 +114,15 @@ function page({
               <span data-card-blur-blurred hidden>On devine l'ambiance, pas les visages.</span>
             </p>
           ` : ''}
+          <p data-card-title-missing hidden>Donnez d'abord un titre à l'image.</p>
+          <div data-card-upload-field>
+            <input type="file" data-card-upload-input>
+          </div>
+          <button type="submit" name="action" value="upload" data-card-upload-button>Téléverser</button>
           <input type="file" name="card" data-card-file>
           <button type="submit" name="action" value="gallery">Galerie</button>
-          <button type="submit" name="action" value="publish">Publier</button>
+          <button type="submit" name="action" value="publish"
+                  data-confirm="Publier maintenant ?" data-confirm-label="Publier">Publier</button>
         </form>
     `;
 
@@ -132,6 +138,10 @@ function page({
         publish: document.querySelector('button[value="publish"]'),
         gallery: document.querySelector('button[value="gallery"]'),
         blurField: document.querySelector('[data-card-blur-input]'),
+        titleMissing: document.querySelector('[data-card-title-missing]'),
+        uploadButton: document.querySelector('[data-card-upload-button]'),
+        uploadInput: document.querySelector('[data-card-upload-input]'),
+        uploadField: document.querySelector('[data-card-upload-field]'),
         sharpNote: document.querySelector('[data-card-blur-sharp]'),
         blurredNote: document.querySelector('[data-card-blur-blurred]'),
     };
@@ -441,6 +451,21 @@ describe('the blur slider', () => {
 });
 
 describe('« Publier » sends the card the page drew', () => {
+    /**
+     * What `confirm.js` does once the chief accepts: mark the form and
+     * re-dispatch, submitter and all. Its own listener is delegated on
+     * `document` and so runs AFTER the composer's, which is why the
+     * composer stands aside until this has happened — otherwise
+     * `form.submit()` would post the page before the question « c'est
+     * public et hors du site » was ever asked.
+     */
+    function confirmed(dom) {
+        dom.form.dataset.confirmed = '1';
+        const event = new Event('submit', { cancelable: true, bubbles: true });
+        Object.defineProperty(event, 'submitter', { value: dom.publish });
+        dom.form.dispatchEvent(event);
+    }
+
     /** The page, drawn, with a card engine whose export resolves to `blob`. */
     async function ready(blob) {
         const dom = page({ slider: true });
@@ -458,7 +483,14 @@ describe('« Publier » sends the card the page drew', () => {
         const blob = { size: 1234, type: 'image/jpeg' };
         const { dom } = await ready(blob);
 
+        // First click: this script stands aside so confirm.js can ask.
         dom.publish.click();
+        await Promise.resolve();
+        expect(submits).toBe(0);
+        expect(dom.cardField.files).toHaveLength(0);
+
+        // What confirm.js does once « Publier » is confirmed.
+        confirmed(dom);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -478,6 +510,7 @@ describe('« Publier » sends the card the page drew', () => {
         const { dom } = await ready({ size: 1, type: 'image/jpeg' });
 
         dom.publish.click();
+        confirmed(dom);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -490,9 +523,11 @@ describe('« Publier » sends the card the page drew', () => {
         const { dom } = await ready({ size: 1, type: 'image/jpeg' });
 
         dom.publish.click();
+        confirmed(dom);
 
-        // Held synchronously, before the export has resolved: the click
-        // that starts the export is the click that closes the button.
+        // Held synchronously, before the export has resolved: the submit
+        // that starts the export is the one that closes the button.
+        // (The first click only lets confirm.js ask.)
         expect(dom.publish.disabled).toBe(true);
         expect(dom.publish.textContent).toContain('Publication en cours');
     });
@@ -501,6 +536,7 @@ describe('« Publier » sends the card the page drew', () => {
         const { dom } = await ready({ size: 1, type: 'image/jpeg' });
 
         dom.publish.click();
+        confirmed(dom);
         await Promise.resolve();
         await Promise.resolve();
         expect(submits).toBe(1);
@@ -537,6 +573,7 @@ describe('« Publier » sends the card the page drew', () => {
         flush();
 
         dom.publish.click();
+        confirmed(dom);
         await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
@@ -554,6 +591,7 @@ describe('« Publier » sends the card the page drew', () => {
         const { dom } = await ready({ size: 1, type: 'image/jpeg' });
 
         dom.publish.click();
+        confirmed(dom);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -570,6 +608,7 @@ describe('« Publier » sends the card the page drew', () => {
         flush();
 
         dom.publish.click();
+        confirmed(dom);
         await Promise.resolve();
 
         // Not intercepted — the browser posts it, carrying the button —
@@ -577,6 +616,81 @@ describe('« Publier » sends the card the page drew', () => {
         // several seconds of waiting.
         expect(submits).toBe(0);
         expect(dom.publish.disabled).toBe(true);
+    });
+});
+
+describe('« Donnez d\'abord un titre », computed on the typing', () => {
+    it('shows the refusal and closes « Publier » while the field is empty', async () => {
+        const dom = page({ title: '' });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        // Said before any keystroke: the page opens on an empty title.
+        expect(dom.titleMissing.hidden).toBe(false);
+        expect(dom.publish.disabled).toBe(true);
+
+        dom.titleField.value = 'Week-end';
+        dom.titleField.dispatchEvent(new Event('input'));
+
+        expect(dom.titleMissing.hidden).toBe(true);
+        expect(dom.publish.disabled).toBe(false);
+    });
+
+    it('treats a title of only spaces as missing', async () => {
+        const dom = page({ title: 'Week-end' });
+        window.ScoutMagicCard = engine();
+        await run();
+        expect(dom.titleMissing.hidden).toBe(true);
+
+        dom.titleField.value = '   ';
+        dom.titleField.dispatchEvent(new Event('input'));
+
+        expect(dom.titleMissing.hidden).toBe(false);
+        expect(dom.publish.disabled).toBe(true);
+    });
+});
+
+describe('« Téléverser » in one click', () => {
+    it('opens the picker and posts as soon as a file is chosen', async () => {
+        const dom = page();
+        window.ScoutMagicCard = engine();
+        let picked = 0;
+        await run();
+
+        // The field is hidden only now that something can open it, and
+        // the button stops being a plain submit.
+        expect(dom.uploadField.hidden).toBe(true);
+        expect(dom.uploadButton.type).toBe('button');
+
+        dom.uploadInput.click = () => {
+            picked += 1;
+        };
+        dom.uploadButton.click();
+        expect(picked).toBe(1);
+        expect(submits).toBe(0);
+
+        makeFilesWritable(dom.uploadInput);
+        dom.uploadInput.files = fileList([{ name: 'photo.jpg' }]);
+        dom.uploadInput.dispatchEvent(new Event('change'));
+
+        expect(submits).toBe(1);
+        // `action=upload` has to travel in a field: form.submit() carries
+        // no submitter, so the controller would see « no action » and the
+        // upload would be silently dropped.
+        const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0].value).toBe('upload');
+    });
+
+    it('posts nothing when the picker was dismissed with no file', async () => {
+        const dom = page();
+        window.ScoutMagicCard = engine();
+        await run();
+
+        makeFilesWritable(dom.uploadInput);
+        dom.uploadInput.dispatchEvent(new Event('change'));
+
+        expect(submits).toBe(0);
     });
 });
 

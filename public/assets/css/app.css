@@ -29,6 +29,46 @@
     font-display: block;
 }
 
+/* A checkbox and the FIRST LINE of its label on the same line (issue
+   #706, IT-02: « Aujourd'hui le texte est plus bas que la case »).
+
+   The cause is structural, not a stray margin. Bootstrap FLOATS
+   `.form-check-input` to the top of the block, so it sits at the very top
+   whatever the label does — while the label's own line box is made taller
+   than its text by the Bootstrap Icons glyph inside it, which carries its
+   own metrics. The text then sits lower inside that taller line box, and
+   the two drift apart. Adding a margin would paper over it and drift
+   again the day a label has no icon.
+
+   A flex row aligns the box with the label's first line instead, and the
+   sub-lines a `<br>` adds keep indenting under the text, because the
+   label stays one flex item. `padding-left` goes because the gap now
+   does that job; the input's own `margin-top` is Bootstrap's 0.25em,
+   which is the right nudge once it is measured against the text's line
+   box rather than the top of the block.
+
+   Applied to the destination rows, the « Groupe de discussion » row and
+   the group dialog alike: the chantier names the last two, and the first
+   has exactly the same icon-beside-text shape. */
+.form-check--line-aligned {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    padding-left: 0;
+}
+
+.form-check--line-aligned > .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    margin-left: 0;
+}
+
+/* The nested « Je confirme : réessayer » row keeps its own indent, under
+   the text rather than under the box it belongs to. */
+.form-check--line-aligned > .form-check {
+    flex-basis: 100%;
+}
+
 :root {
     --page-max-width: 1200px;
     --page-medium-width: 720px;

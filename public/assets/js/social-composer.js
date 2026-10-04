@@ -45,6 +45,9 @@
 
     const titleField = /** @type {HTMLInputElement|null} */ (document.getElementById('communication-title'));
     const blurField = /** @type {HTMLInputElement|null} */ (document.querySelector('[data-card-blur-input]'));
+    const titleMissingNote = /** @type {HTMLElement|null} */ (
+        document.querySelector('[data-card-title-missing]')
+    );
     const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
     const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
     const address = canvas.getAttribute('data-card-address') || '';
@@ -134,7 +137,11 @@
     }
 
     if (titleField) {
-        titleField.addEventListener('input', schedule);
+        titleField.addEventListener('input', function () {
+            sayWhetherTheTitleIsMissing();
+            schedule();
+        });
+        sayWhetherTheTitleIsMissing();
     }
 
     if (blurField) {
@@ -147,11 +154,81 @@
         sayWhatTheBlurMeans();
     }
 
-    // ————— « Publier » sends the card the page drew —————
-
+    // The form and the field the card travels in — declared here because
+    // the one-click upload below posts through the same form, and a
+    // `const` read before its declaration is a ReferenceError, not a
+    // null.
     const form = /** @type {HTMLFormElement|null} */ (root.closest('[data-card-form]'));
     const cardField = /** @type {HTMLInputElement|null} */ (document.querySelector('[data-card-file]'));
     let sending = false;
+
+    // ————— « Donnez d'abord un titre » while it is being typed —————
+
+    /**
+     * Shows the refusal while the field is empty, and closes the publish
+     * button with it.
+     *
+     * The server computes the same refusal from the SAVED title and
+     * remains the real guard — this only stops the block from standing
+     * while the chief types the very title that lifts it. Absent on a
+     * source-backed share, whose title is the album's and is not typed
+     * here at all.
+     */
+    function sayWhetherTheTitleIsMissing() {
+        if (!titleMissingNote || !titleField) {
+            return;
+        }
+        const missing = titleField.value.trim() === '';
+        titleMissingNote.hidden = !missing;
+        const publish = /** @type {HTMLButtonElement|null} */ (
+            document.querySelector('button[value="publish"]')
+        );
+        if (publish) {
+            publish.disabled = missing;
+        }
+    }
+
+    // ————— « Téléverser » in one click —————
+
+    const uploadButton = /** @type {HTMLButtonElement|null} */ (
+        document.querySelector('[data-card-upload-button]')
+    );
+    const uploadInput = /** @type {HTMLInputElement|null} */ (
+        document.querySelector('[data-card-upload-input]')
+    );
+    const uploadField = /** @type {HTMLElement|null} */ (
+        document.querySelector('[data-card-upload-field]')
+    );
+
+    if (uploadButton && uploadInput && uploadField) {
+        // Hidden only now that something can open it: a page whose
+        // JavaScript did not load keeps the visible field, and the button
+        // keeps being the plain submit the markup describes.
+        uploadField.hidden = true;
+        uploadButton.type = 'button';
+        uploadButton.addEventListener('click', function () {
+            uploadInput.click();
+        });
+        uploadInput.addEventListener('change', function () {
+            if (uploadInput.files && uploadInput.files.length > 0) {
+                // `requestSubmit` rather than `submit()`: it dispatches a
+                // real submit event, so the confirmation and the rest of
+                // the page's listeners still see it — and it carries a
+                // submitter, which is how `action=upload` travels.
+                const action = document.createElement('input');
+                action.type = 'hidden';
+                action.name = 'action';
+                action.value = 'upload';
+                if (form) {
+                    form.appendChild(action);
+                    form.submit();
+                }
+            }
+        });
+    }
+
+    // ————— « Publier » sends the card the page drew —————
+
 
     /**
      * Holds the publish button for the life of the request, label and all.
@@ -218,6 +295,23 @@
             if (sending) {
                 event.preventDefault();
 
+                return;
+            }
+
+            // **The confirmation comes first, and it must not be skipped.**
+            // `confirm.js` is delegated on `document`, so it runs in the
+            // bubble phase — AFTER this listener, which is bound to the
+            // form itself. Exporting and calling `form.submit()` here
+            // would therefore post the page before the question « Sur
+            // Facebook et Instagram, c'est public et hors du site » was
+            // ever asked, and `form.submit()` dispatches no event for it
+            // to catch. So this stands aside on the first submit: the
+            // confirmation asks, and on « Publier » it sets
+            // `dataset.confirmed` and re-dispatches with `requestSubmit`,
+            // which is the submit this listener acts on.
+            const asks = form.dataset.confirm !== undefined
+                || submitter.dataset.confirm !== undefined;
+            if (asks && form.dataset.confirmed !== '1') {
                 return;
             }
             // Nothing drawn: let the form post as it is, and the server

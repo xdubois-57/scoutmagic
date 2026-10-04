@@ -147,15 +147,24 @@
                 </div>
             {% endif %}
             <div class="{{ gallery_available ? 'col-6' : 'col-12' }}">
-                <button type="submit" name="action" value="upload" class="btn btn-outline-secondary w-100">
+                {# **One click** (issue #706, IT-02). Without JavaScript this
+                   stays what it was: choose a file in the field below, then
+                   press this button — two steps, and the field has to be
+                   visible for the first. With JavaScript,
+                   `social-composer.js` hides the field, makes this button
+                   open the picker, and submits as soon as a file is chosen.
+                   The button keeps `type="submit"` and its `name`/`value`
+                   so the no-JS path is the one the markup describes. #}
+                <button type="submit" name="action" value="upload" class="btn btn-outline-secondary w-100"
+                        data-card-upload-button>
                     <i class="bi bi-upload" aria-hidden="true"></i> Téléverser
                 </button>
             </div>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-card-upload-field>
             <label for="communication-image" class="form-label small">Image à téléverser</label>
             <input type="file" class="form-control form-control-sm" id="communication-image" name="image"
-                   accept="image/jpeg,image/png,image/webp">
+                   accept="image/jpeg,image/png,image/webp" data-card-upload-input>
         </div>
         <p class="small text-body-secondary mb-4">
             Une image téléversée part telle quelle. Une image de la galerie part au flou que vous choisissez,
@@ -247,6 +256,27 @@
         Sur Facebook et Instagram, une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
         {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
     </div>
+
+    {# « Donnez d'abord un titre » — computed on the TYPING (issue #706,
+       IT-02).
+
+       The server computes the same refusal from the SAVED title
+       (`ShareSourceResolver::communication()`), which is right and is
+       still the real guard — but on its own it meant the block stayed up
+       while the chief was typing the very title that lifts it, and only
+       cleared after a publication attempt that was refused. Rendered
+       hidden and shown by `social-composer.js`, so a page with no
+       JavaScript simply keeps the server's behaviour.
+
+       `aria-live` because it appears while the field is being typed in,
+       with the focus elsewhere than here. #}
+    {% if not frozen and not from_source %}
+        <p class="small text-warning-emphasis mb-2 text-end" data-card-title-missing hidden
+           aria-live="polite">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            Donnez d'abord un titre à l'image.
+        </p>
+    {% endif %}
 
     {# No « Enregistrer »: « Publier » is what saves (IT-01). #}
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
