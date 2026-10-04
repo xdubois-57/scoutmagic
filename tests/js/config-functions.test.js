@@ -255,6 +255,25 @@ describe('config-functions.js', () => {
             expect(lastRequest().body).toEqual({ function_id: 8, role: 'identified', _csrf_token: 'tok-123' });
         });
 
+        it('a release over « À configurer », after passing through a role, saves nothing and puts the row back', async () => {
+            await boot();
+
+            // Over the « Identifié » zone first: the row follows the pointer…
+            row('7').dispatchEvent(new Event('dragstart', { bubbles: true }));
+            const over = new Event('dragover', { bubbles: true, cancelable: true });
+            Object.defineProperties(over, { clientX: { value: 0 }, clientY: { value: 0 } });
+            zone('zone-identified').querySelector('.function-zone-empty').dispatchEvent(over);
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+            // …then released back over « À configurer », which takes nothing.
+            zone('zone-unconfirmed').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+            row('7').dispatchEvent(new Event('dragend', { bubbles: true }));
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(zoneIds('zone-identified')).toEqual([]);
+        });
+
         it('disables an arrow with nowhere to go, at either edge of the board', async () => {
             await boot();
             const arrows = (id) => [row(id).querySelector('.function-move-up').disabled,

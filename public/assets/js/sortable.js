@@ -161,7 +161,10 @@
         });
 
         container.addEventListener('drop', function (e) {
-            if (state.dragged) {
+            // A list that takes nothing does not take a release either: a
+            // drop on it must not commit a move the item made elsewhere on
+            // its way there.
+            if (state.dragged && !(options.receive === false && state.dragged.parentNode !== container)) {
                 e.preventDefault();
                 state.dropped = true;
             }
