@@ -40,6 +40,14 @@ attend. Choisissez l'archive, tapez la phrase de passe, cliquez sur
 grosse archive, l'envoi puis la restauration prennent plusieurs
 minutes.
 
+L'archive envoyée reste sur le serveur jusqu'à la restauration. En
+rechargeant la page, l'assistant affiche la **Sauvegarde déposée** et
+ne demande que la phrase de passe. **Abandonner cette sauvegarde** la
+supprime ; sinon, elle l'est au bout de sept jours.
+
+Trop grosse pour le navigateur ? Déposez-la par FTP sous
+`storage/restore/portable-restore.zip`, puis rechargez l'assistant.
+
 Quand c'est terminé, connectez-vous avec vos identifiants habituels.
 Ce sont ceux d'avant : les comptes font partie de ce qui a été
 restauré.
@@ -72,7 +80,8 @@ Il vous dira lequel des trois cas vous êtes :
 - **l'archive vient d'une version plus récente** — mettez d'abord à
   jour ce site, puis recommencez.
 
-Dans les trois cas, rien n'a été modifié.
+Dans les trois cas, rien n'a été modifié, et l'archive reste sur le
+serveur : retapez la phrase de passe sans la renvoyer.
 
 ## Et après
 

@@ -298,6 +298,12 @@ if (!$isInitialized) {
         // block is. Once it is, /setup is a superadmin page and a restore
         // belongs to Configuration > Maintenance.
         $response = $setupController->restorePortable($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-deposited/check') {
+        // The deposited archive's passphrase, checked before anything is
+        // written (#719) — same gates as the restore itself.
+        $response = $setupController->checkDepositedArchive($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-deposited/discard') {
+        $response = $setupController->discardDepositedArchive($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/backup-and-empty-db') {
         $response = $setupController->backupAndEmptyDatabase($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/download-backup') {
