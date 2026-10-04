@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\MassMail\Service;
 
 use Core\Config\ScoutYearService;
+use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalService;
@@ -570,6 +571,47 @@ class MassMailService
     }
 
     /**
+     * Deletes an email whose real sending has not started (issue #755):
+     * a draft, or one in test. Its attachments go with it — the link
+     * rows, and each file nothing else attaches (Core\File\
+     * AttachedFileRemover: row first, bytes second).
+     *
+     * The status is checked again by the DELETE itself, so a start that
+     * won the race leaves the email whole and this refuses.
+     *
+     * @throws MassMailException when the email doesn't exist or its sending has started
+     */
+    public function deleteUnsent(int $id, ?int $actorId): void
+    {
+        $email = $this->requireEmail($id);
+        $attachments = $this->attachmentRepository->findByEmailId($id);
+
+        if (!in_array($email->status, [Email::STATUS_DRAFT, Email::STATUS_TEST], true)
+            || !$this->emailRepository->deleteIfNotStarted($id)
+        ) {
+            throw new MassMailException(
+                'Cet e-mail est déjà en cours d\'envoi ou a été envoyé et ne peut plus être supprimé.'
+            );
+        }
+
+        $remover = new AttachedFileRemover($this->fileRepository, $this->storagePath);
+        foreach ($attachments as $attachment) {
+            $remover->remove($this->attachmentRepository, $attachment->id, $attachment->fileId, true);
+        }
+
+        // Which email and what became of it — never a recipient, never the
+        // subject (a subject can name somebody).
+        $this->journalService->log(
+            'mass_mail',
+            'email_deleted',
+            'info',
+            self::emailPrefix($id) . ' : supprimé avant envoi',
+            ['email_id' => $id, 'status' => $email->status, 'attachment_count' => count($attachments)],
+            $actorId
+        );
+    }
+
+    /**
      * test → draft — the only permitted backward transition.
      *
      * @throws MassMailException when the email doesn't exist or isn't in test
@@ -828,13 +870,23 @@ class MassMailService
             throw new MassMailException('Seul un email en mode test peut être envoyé.');
         }
 
-        if ($email->listType === Email::LIST_TYPE_MAIL_MERGE) {
-            [$validCount, $invalidCount] = $this->freezeMergeRecipients($email);
-        } else {
-            [$validCount, $invalidCount] = $this->freezeListRecipients($email);
-        }
+        // One transaction (issue #755): the claim — a compare-and-set, so an
+        // email deleted or started by another request since it was read
+        // above does not start here — and the recipients it freezes. A
+        // batch never sees half of them, a deletion waits and then finds
+        // it started, and a failed freeze leaves the email in test.
+        [$validCount, $invalidCount] = $this->emailRepository->atomically(function () use ($id, $email): array {
+            if (!$this->emailRepository->transitionStatus($id, Email::STATUS_TEST, Email::STATUS_SENDING)) {
+                throw new MassMailException(
+                    "Cet e-mail a été modifié ou supprimé entre-temps : l'envoi n'a pas été lancé."
+                );
+            }
 
-        $this->emailRepository->updateStatus($id, Email::STATUS_SENDING);
+            return $email->listType === Email::LIST_TYPE_MAIL_MERGE
+                ? $this->freezeMergeRecipients($email)
+                : $this->freezeListRecipients($email);
+        });
+
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
