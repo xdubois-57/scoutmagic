@@ -61,7 +61,9 @@ class ReenrollmentSavePlanPresenter
                 $total += $email['families'];
                 $lines[] = ucfirst(self::EMAIL_WHAT[$email['type']] ?? $email['type'])
                     . ', ' . self::audience($email['type'], $email['families'])
-                    . ($email['deferred'] ? ' — il part dans l\'heure, au passage du planificateur.' : ' — il part dans quelques minutes.');
+                    . ($email['deferred']
+                        ? " — il part dans l'heure, au passage du planificateur."
+                        : ' — il part dans quelques minutes.');
             }
             $mail = [
                 'headline' => $total === 1 ? '1 e-mail va partir' : $total . ' e-mails vont partir',

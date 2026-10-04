@@ -364,7 +364,12 @@ class ReenrollmentConfigController extends AbstractController
      * the plan's fingerprint (issue #796, D7). « Annuler » goes back to the
      * page; nothing has been written.
      */
-    private function confirmation(Request $request, ReenrollmentSavePlan $plan, \DateTimeImmutable $now, bool $stale): Response
+    private function confirmation(
+        Request $request,
+        ReenrollmentSavePlan $plan,
+        \DateTimeImmutable $now,
+        bool $stale
+    ): Response
     {
         $fields = [];
         foreach (self::FORM_FIELDS as $name) {
