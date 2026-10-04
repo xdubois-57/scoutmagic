@@ -454,11 +454,12 @@ class RentalStayService
         // Observed during the stay, until the departure inventory closes
         // it (#708, IT-17); deciding one stays possible after, since that
         // is a billing decision, not an observation.
+        $closed = new RentalException(
+            "L'état des lieux de sortie est validé : un incident ne se constate plus. Ceux déjà constatés se "
+            . 'tranchent toujours.'
+        );
         if (isset($this->inventoryValidations($booking->id)[ReadingPhase::DEPARTURE->value])) {
-            throw new RentalException(
-                "L'état des lieux de sortie est validé : un incident ne se constate plus. Ceux déjà constatés se "
-                . 'tranchent toujours.'
-            );
+            throw $closed;
         }
 
         if ($proposedAmountCents !== null && $proposedAmountCents < 0) {
@@ -472,6 +473,11 @@ class RentalStayService
             $fileId,
             $actorMemberId
         );
+        if ($id === null) {
+            // Validated by someone else since the check above: the insert
+            // itself refused it.
+            throw $closed;
+        }
 
         // Amount and ids only. The description is encrypted precisely
         // because it is about a renter's group (SECURITY.md §5).

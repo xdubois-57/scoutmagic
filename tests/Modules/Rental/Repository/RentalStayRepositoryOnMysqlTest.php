@@ -30,10 +30,10 @@ use Tests\Modules\Rental\RentalTestHelper;
 use Tests\UsesProductionEngine;
 
 /**
- * An inventory line or a meter reading never written onto a validated
+ * An inventory line, a meter reading or an incident never written onto a validated
  * phase (#708, IT-17), on the engine production runs.
  *
- * `RentalStayRepository::setInventoryValue()` and `saveReading()` refuse
+ * `RentalStayRepository::setInventoryValue()`, `saveReading()` and `createIncident()` refuse
  * the write in the statement itself (`NOT EXISTS` on the phase's
  * validation) and report it through `rowCount()`. That count is where the
  * engines differ: SQLite counts the rows MATCHED, MySQL and MariaDB the
@@ -157,6 +157,20 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $this->assertNull($this->repository->findReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL));
         $this->assertTrue(
             $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::DEPARTURE, 1_120_000, $at, null, null, 7)
+        );
+    }
+
+    public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
+    {
+        $this->validate(ReadingPhase::ARRIVAL);
+        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, null, 7));
+
+        $this->validate(ReadingPhase::DEPARTURE);
+
+        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, null, 7));
+        $this->assertSame(
+            ['Avant'],
+            array_map(static fn ($incident) => $incident->description, $this->repository->findIncidents($this->bookingId))
         );
     }
 

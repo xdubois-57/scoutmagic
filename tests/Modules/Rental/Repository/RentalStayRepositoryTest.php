@@ -477,6 +477,26 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertNotNull($this->repository->findIncident($kept));
     }
 
+    /**
+     * The departure PDF lists the incidents: one inserted after the
+     * departure was validated would be billable while missing from it.
+     * Refused by the INSERT itself; the arrival changes nothing.
+     */
+    public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null);
+        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, null, 7));
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::DEPARTURE, $at, null);
+
+        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, null, 7));
+        $this->assertSame(
+            ['Avant'],
+            array_map(static fn ($incident) => $incident->description, $this->repository->findIncidents($this->bookingId))
+        );
+    }
+
     public function testFindIncidentIsNullForAnIdNobodyHas(): void
     {
         $this->assertNull($this->repository->findIncident(999999));

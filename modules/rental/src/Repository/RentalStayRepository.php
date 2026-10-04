@@ -564,18 +564,28 @@ class RentalStayRepository
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────
 
+    /**
+     * Never once the departure inventory is validated, checked by the
+     * write itself — see setInventoryValue(): the departure PDF lists the
+     * incidents, and one landing after it was made would be billable
+     * while missing from what the renter received.
+     *
+     * Null when the departure was validated in between: nothing inserted.
+     */
     public function createIncident(
         int $bookingId,
         string $description,
         ?int $proposedAmountCents,
         ?int $fileId,
         ?int $createdByMemberId
-    ): int {
+    ): ?int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_incidents
                 (booking_id, description_encrypted, proposed_amount_cents, decision, file_id, created_by_member_id, '
                 . 'created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+             SELECT ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
+              WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = ? AND v.phase = ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -585,9 +595,12 @@ class RentalStayRepository
             $fileId,
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+            ReadingPhase::DEPARTURE->value,
         ]);
 
-        return (int) $this->pdo->lastInsertId();
+        // An INSERT reports the rows it inserted on every engine alike.
+        return $stmt->rowCount() > 0 ? (int) $this->pdo->lastInsertId() : null;
     }
 
     public function decideIncident(
