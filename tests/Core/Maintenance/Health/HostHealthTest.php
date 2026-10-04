@@ -93,7 +93,12 @@ final class HostHealthTest extends TestCase
         $web = $this->line('shell_web', $facts);
         $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
         $this->assertStringContainsString('aucune sortie, code 127', $web->status);
-        $this->assertSame('Rien à demander pour la vidéo : le PHP du cron exécute les commandes.', $web->ask);
+        // Said as a consequence, never under « À demander à l'hébergeur ».
+        $this->assertSame('', $web->ask);
+        $this->assertStringContainsString(
+            'Rien à demander pour la vidéo : le PHP du cron exécute les commandes.',
+            $web->consequence
+        );
     }
 
     /** The reverse: the web runs commands, the cron cannot — video is refused. */

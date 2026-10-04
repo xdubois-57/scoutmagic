@@ -199,10 +199,13 @@ final class HostHealth
             $facts->shellWorks ? HostCheck::STATE_OK : HostCheck::STATE_DEGRADED,
             self::shellStatus($facts->shellDeclared, $facts->shellWorks, $facts->shellFunction, $facts->shellDetail),
             'Ce PHP répond aux visiteurs. Les vérifications de cette page en dépendent ; la vidéo et les '
-                . 'tâches de fond dépendent du PHP du cron, sur la ligne suivante.',
-            $cronWorks
-                ? 'Rien à demander pour la vidéo : le PHP du cron exécute les commandes.'
-                : self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
+                . 'tâches de fond dépendent du PHP du cron, sur la ligne suivante.'
+                . (!$facts->shellWorks && $cronWorks
+                    ? ' Rien à demander pour la vidéo : le PHP du cron exécute les commandes.'
+                    : ''),
+            // Empty when the cron covers it, so the page never prints « À demander
+            // à l'hébergeur » above a sentence saying there is nothing to ask.
+            $cronWorks ? '' : self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
         );
     }
 
