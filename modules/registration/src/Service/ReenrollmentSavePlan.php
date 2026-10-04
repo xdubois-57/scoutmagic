@@ -38,6 +38,8 @@ final class ReenrollmentSavePlan
     public const REASON_NOT_STARTED = 'not_started';
     /** The dates designate no campaign at all. */
     public const REASON_NO_CAMPAIGN = 'no_campaign';
+    /** The e-mail is due, and there is nobody left to send it to. */
+    public const REASON_NO_FAMILIES = 'no_families';
 
     /**
      * @param list<array{setting: string, from: string, to: string}> $changes

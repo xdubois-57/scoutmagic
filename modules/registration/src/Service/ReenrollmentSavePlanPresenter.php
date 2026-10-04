@@ -190,9 +190,13 @@ class ReenrollmentSavePlanPresenter
                 ? 'Plus aucun e-mail ne partira, ni automatique ni à la demande.'
                 : 'Les e-mails de la campagne sont désactivés : '
                     . ($which === 'opening' ? "l'ouverture" : 'la fermeture') . " n'écrit à personne.",
-            ReenrollmentSavePlan::REASON_ALREADY_SENT => $which === 'closing'
-                ? "L'e-mail de clôture de cette campagne est déjà parti : la refermer n'écrit à personne."
-                : "L'e-mail d'ouverture de cette campagne est déjà parti : la rouvrir n'écrit à personne.",
+            ReenrollmentSavePlan::REASON_ALREADY_SENT => match ($which) {
+                'closing' => "L'e-mail de clôture de cette campagne est déjà parti : la refermer n'écrit à personne.",
+                'opening' => "L'e-mail d'ouverture de cette campagne est déjà parti : la rouvrir n'écrit à personne.",
+                default => "Cet e-mail est déjà parti pour cette campagne : il ne repart pas.",
+            },
+            ReenrollmentSavePlan::REASON_NO_FAMILIES => "Aucune famille n'est à prévenir : toutes ont déjà répondu, "
+                . "ou aucune n'est encore inscrite à la réinscription.",
             ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED => 'La campagne est terminée depuis le ' . $close
                 . " : personne n'est prévenu à nouveau.",
             ReenrollmentSavePlan::REASON_NOT_STARTED => "La campagne n'a pas encore commencé : personne n'a été "

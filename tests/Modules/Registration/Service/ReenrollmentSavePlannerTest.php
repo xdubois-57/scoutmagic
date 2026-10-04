@@ -404,6 +404,24 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame('2026-10-01', $plan->campaign['opens'] ?? null);
     }
 
+    public function testAnEmailDueToNobodyIsNotAnnounced(): void
+    {
+        // Every family has already answered: the closing is due, and there
+        // is nobody to write to — nothing leaves, and the plan says why.
+        $this->campaign->open();
+        $this->planner = new ReenrollmentSavePlanner(
+            $this->campaign,
+            $this->settingService,
+            static fn (bool $silentOnly): int => 0
+        );
+
+        $plan = $this->plan(['is_open' => false], '2027-04-20 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertFalse($plan->sendsEmail());
+        $this->assertSame(ReenrollmentSavePlan::REASON_NO_FAMILIES, $plan->noEmailReason);
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();

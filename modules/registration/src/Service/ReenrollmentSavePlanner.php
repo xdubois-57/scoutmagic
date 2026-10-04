@@ -254,10 +254,17 @@ class ReenrollmentSavePlanner
             }
         }
 
+        $families = (int) ($this->familyCounter)($type !== ReenrollmentCampaignService::EMAIL_OPENING);
+        if ($families === 0) {
+            // Due, and nobody to write to — every family has already
+            // answered, or none is rostered yet: nothing leaves.
+            return ReenrollmentSavePlan::REASON_NO_FAMILIES;
+        }
+
         $emails[] = [
             'type' => $type,
             'campaign' => $key,
-            'families' => (int) ($this->familyCounter)($type !== ReenrollmentCampaignService::EMAIL_OPENING),
+            'families' => $families,
             'deferred' => $deferred,
         ];
 

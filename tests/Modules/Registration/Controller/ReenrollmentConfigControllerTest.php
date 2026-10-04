@@ -364,6 +364,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testClosingTheCampaignByHandOwesTheFamiliesTheirClosingEmail(): void
     {
+        $this->createAnime('Alix', 'famille@example.be');
         $this->campaign->open();
 
         $this->save(['is_open' => '0']);
@@ -395,6 +396,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testTheClosingEmailIsQueuedOncePerCampaignHoweverOftenItIsClosed(): void
     {
+        $this->createAnime('Alix', 'famille@example.be');
         $this->campaign->open();
         $this->save(['is_open' => '0']);
         $this->campaign->open();
@@ -651,6 +653,7 @@ class ReenrollmentConfigControllerTest extends TestCase
 
     public function testAnOpeningDateOfTodayConfirmedOpensNowAndQueuesTheOpeningEmailOnce(): void
     {
+        $this->createAnime('Alix', 'famille@example.be');
         $this->save($this->openingToday());
 
         $key = $this->todaysCampaignKey();
