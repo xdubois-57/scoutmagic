@@ -124,9 +124,9 @@ export function saveLine(form) {
         status.textContent = 'Enregistrement…';
         status.className = 'small d-block text-body-secondary';
     }
-    form.setAttribute('data-booking-keep', '');
+    form.dataset.bookingKeep = '';
 
-    const previous = inFlight.get(form) || Promise.resolve();
+    const previous = inFlight.get(form) ?? Promise.resolve();
     /** @type {Promise<void>} */
     const run = previous.then(() => post(form)).then(({ ok, message }) => {
         if (inFlight.get(form) !== run) {
@@ -134,7 +134,7 @@ export function saveLine(form) {
         }
         inFlight.delete(form);
         if (form.closest('[aria-busy="true"]') === null) {
-            form.removeAttribute('data-booking-keep');
+            delete form.dataset.bookingKeep;
         }
         if (status) {
             status.textContent = message;
@@ -168,9 +168,10 @@ export function wire(doc) {
     // The re-render that overlapped a save has landed: the lines it kept
     // and that are no longer saving go back to being re-rendered.
     doc.addEventListener('rental-booking:refreshed', () => {
-        doc.querySelectorAll('form[data-inventory-line][data-booking-keep]').forEach((form) => {
-            if (!inFlight.has(/** @type {HTMLFormElement} */ (form))) {
-                form.removeAttribute('data-booking-keep');
+        doc.querySelectorAll('form[data-inventory-line][data-booking-keep]').forEach((element) => {
+            const form = /** @type {HTMLFormElement} */ (element);
+            if (!inFlight.has(form)) {
+                delete form.dataset.bookingKeep;
             }
         });
     });
