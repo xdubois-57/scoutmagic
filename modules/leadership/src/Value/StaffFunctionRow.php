@@ -53,6 +53,11 @@ final class StaffFunctionRow
         public readonly ?string $sectionName,
         /** `member_functions.start_date` — of THIS function, never of the person's engagement. */
         public readonly ?string $functionStartDate,
+        /**
+         * The number to call, as Desk holds it: the mobile when there is
+         * one, the landline otherwise, null when Desk holds neither.
+         */
+        public readonly ?string $phone = null,
     ) {
     }
 

@@ -7,6 +7,15 @@
             subtitle: "Qui inviter à commencer le parcours, qui inviter à le terminer, et ce que les subsides ONE demandent à chaque section.",
         } only %}
 
+        {% include '@leadership/partials/_nav.html.twig' %}
+
+        <div class="d-flex justify-content-end mb-3">
+            <a href="/admin/leadership/training/export" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-excel" aria-hidden="true"></i>
+                Exporter (Excel)
+            </a>
+        </div>
+
         <div class="card mb-4">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-2">
@@ -52,6 +61,7 @@
                     lines: to_convince,
                     list_id: 'training-to-convince',
                     empty_message: 'Personne ne correspond à ces deux profils cette année.',
+                    draft_available: draft_available,
                 } only %}
             </div>
         </div>
@@ -66,6 +76,7 @@
                     lines: to_finish,
                     list_id: 'training-to-finish',
                     empty_message: "Aucun parcours en cours parmi les animateurs de cette année.",
+                    draft_available: draft_available,
                 } only %}
             </div>
         </div>
@@ -79,6 +90,19 @@
                     l'unité a convenu avec l'ONE, et ne se prononce donc jamais sur la conformité.
                 </p>
 
+                {# Desk wordings the site does not recognise (#727): said here,
+                   where the count they shorten is read, with the way to fix
+                   it. The ratio itself is never an attention point. #}
+                {% if unresolved_levels|length > 0 %}
+                    <output class="alert alert-warning small d-block leadership-unresolved-levels">
+                        <strong>
+                            {{ unresolved_levels|length }} niveau{{ unresolved_levels|length > 1 ? 'x' : '' }} de formation
+                            {{ unresolved_levels|length > 1 ? 'ne sont pas reconnus' : "n'est pas reconnu" }}.
+                        </strong>
+                        Le nombre de brevetés peut être incomplet.
+                        <a href="/admin/leadership/configuration" class="alert-link">Configurer les niveaux de formation</a>
+                    </output>
+                {% endif %}
                 {# Seul le BACV est reconnu par l'ONE : un brevet dont le
                    type n'a jamais été précisé ne compte donc plus. Le
                    chiffre baisse le jour de la mise à jour, et cette phrase
@@ -90,7 +114,7 @@
                         {{ unspecified_brevets }} animateur{{ unspecified_brevets > 1 ? 's ont' : ' a' }} un niveau de
                         formation à préciser. {{ unspecified_brevets > 1 ? 'Ils ne sont pas comptés' : "Il n'est pas compté" }}
                         dans le ratio ONE, qui ne reconnaît que le BACV.
-                        <a href="/admin/leadership/training?mapping=1#formation-mapping" class="alert-link">
+                        <a href="/admin/leadership/configuration" class="alert-link">
                             Préciser les niveaux de formation
                         </a>.
                     </output>
@@ -121,7 +145,7 @@
                                         <i class="bi bi-info-circle" aria-hidden="true"></i>
                                         {{ s.unknownLevelCount }} niveau{{ s.unknownLevelCount > 1 ? 'x' : '' }} de formation
                                         de cette section n'{{ s.unknownLevelCount > 1 ? 'ont' : 'a' }} pas été reconnu{{ s.unknownLevelCount > 1 ? 's' : '' }} :
-                                        le compte des brevetés peut être incomplet. Les valeurs concernées sont listées plus bas.
+                                        le compte des brevetés peut être incomplet.
                                     </div>
                                 {% endif %}
                             </li>
@@ -133,89 +157,6 @@
                         compact: true,
                     } only %}
                 {% endif %}
-            </div>
-        </div>
-
-        <div class="card mb-4">
-            <div class="card-body">
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#formation-mapping" aria-controls="formation-mapping"
-                        aria-expanded="{{ mapping_open|default(false) ? 'true' : 'false' }}">
-                    <i class="bi bi-tags" aria-hidden="true"></i>
-                    Niveaux de formation encodés dans Desk
-                    {% if unresolved_levels|length > 0 %}
-                        <span class="badge text-bg-secondary ms-1">{{ unresolved_levels|length }} non reconnu{{ unresolved_levels|length > 1 ? 's' : '' }}</span>
-                    {% endif %}
-                </button>
-                <div class="collapse{{ mapping_open|default(false) ? ' show' : '' }} mt-3" id="formation-mapping">
-                    <p class="small text-body-secondary">
-                        Desk exporte le libellé de la fédération, qui change d'un export à l'autre. Le site en reconnaît
-                        les formulations courantes ; rattachez ici celles qu'il ne reconnaît pas. Un niveau non reconnu
-                        n'est jamais compté comme un brevet, donc le nombre de brevetés affiché plus haut est un minimum,
-                        jamais une surestimation.
-                    </p>
-
-                    {# A list, not a table. Four columns of a select, a
-                       button and a variable-length Desk string do not fit a
-                       375px screen: the table did technically scroll inside
-                       its own .table-responsive, but "lisible sur téléphone
-                       sans défilement horizontal" is the requirement, and a
-                       control a chief has to scroll sideways to reach is not
-                       that. Stacked, each value reads as one block and the
-                       select gets the full width — and it matches the person
-                       lists on the rest of the page, which are lists too. #}
-                    <h3 class="h6 mt-4">Valeurs non reconnues</h3>
-                    {% if unresolved_levels|length > 0 %}
-                        {% set _unresolved_rows = [] %}
-                        {% for level in unresolved_levels %}
-                            {% set _unresolved_rows = _unresolved_rows|merge([{
-                                raw_value: level.raw_value,
-                                detail: level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur',
-                                field_id: 'step-new-' ~ loop.index,
-                                selected: null,
-                            }]) %}
-                        {% endfor %}
-                        {% include '@leadership/partials/_mapping_list.html.twig' with {
-                            rows: _unresolved_rows,
-                            steps: assignable_steps|default([]),
-                            submit_label: 'Rattacher',
-                            removable: false,
-                        } only %}
-                    {% else %}
-                        {% include 'partials/empty_state.html.twig' with {
-                            message: 'Toutes les valeurs encodées cette année sont reconnues.',
-                            compact: true,
-                        } only %}
-                    {% endif %}
-
-                    <h3 class="h6 mt-4">Rattachements déjà enregistrés</h3>
-                    {% if decided_levels|length > 0 %}
-                        {% set _decided_rows = [] %}
-                        {% for level in decided_levels %}
-                            {% set _decided_rows = _decided_rows|merge([{
-                                raw_value: level.raw_value,
-                                detail: 'Rattachée à « ' ~ level.step_label ~ ' » — ' ~ (
-                                    level.holders > 0
-                                        ? level.holders ~ ' personne' ~ (level.holders > 1 ? 's' : '') ~ ' avec cette valeur cette année'
-                                        : 'plus utilisée cette année'
-                                ),
-                                field_id: 'step-set-' ~ loop.index,
-                                selected: level.step,
-                            }]) %}
-                        {% endfor %}
-                        {% include '@leadership/partials/_mapping_list.html.twig' with {
-                            rows: _decided_rows,
-                            steps: assignable_steps|default([]),
-                            submit_label: 'Modifier',
-                            removable: true,
-                        } only %}
-                    {% else %}
-                        {% include 'partials/empty_state.html.twig' with {
-                            message: 'Aucun rattachement enregistré pour le moment.',
-                            compact: true,
-                        } only %}
-                    {% endif %}
-                </div>
             </div>
         </div>
 
@@ -232,5 +173,4 @@
 
 {% block scripts %}
 <script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
-<script src="{{ asset('/assets/js/leadership-copy-emails.js') }}" defer></script>
 {% endblock %}
