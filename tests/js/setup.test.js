@@ -52,11 +52,27 @@ async function settle() {
  * file now reads the template and compares the two, id by id, so the
  * copy cannot drift again in silence.
  *
- * @param {{ initialized?: boolean, installAction?: string, cronState?: string }} [options]
+ * `restoreMode` adds the deposited-archive cards (#719), which the template
+ * renders only while an archive waits on the server — under a condition of
+ * its own, so the two default pages compared below never carry them.
+ *
+ * @param {{ initialized?: boolean, installAction?: string, cronState?: string, restoreMode?: boolean }} [options]
  */
 function buildDom(options = {}) {
     document.body.innerHTML = `
+        ${options.initialized ? '' : `
+        <div class="alert alert-warning d-none" id="setup-insecure-warning" role="alert">Pas en HTTPS</div>`}
         <form id="setup-form" data-initialized="${options.initialized ? '1' : '0'}">
+            ${options.restoreMode ? `
+            <input type="password" id="deposited-passphrase" value="">
+            <button type="button" id="btn-deposited-check">Vérifier la phrase de passe</button>
+            <span id="deposited-check-spinner" class="d-none"></span>
+            <span id="deposited-check-result"></span>
+            <button type="button" id="btn-deposited-discard">Abandonner cette sauvegarde</button>
+            <button type="button" id="btn-deposited-restore" disabled>Restaurer cette sauvegarde</button>
+            <span id="deposited-restore-spinner" class="d-none"></span>
+            <span id="deposited-restore-result"></span>
+            <output id="deposited-restore-progress" class="d-none"></output>` : ''}
             <input type="hidden" name="_csrf_token" value="setup-tok">
             <input id="db_host" value="127.0.0.1">
             <input id="db_port" value="3306">
@@ -761,6 +777,122 @@ describe('setup.js: restoring from a portable backup', () => {
 
         expect(document.getElementById('portable-restore-result').textContent).toContain('phrase de passe');
         expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+});
+
+describe('setup.js: the restore mode (#719)', () => {
+    /** The database installed, so only the passphrase is left to gate the restore. */
+    async function bootRestoreMode() {
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: true, table_count: 40, statements_executed: 40 }),
+        }));
+        await boot({ installAction: '/setup/install-database', restoreMode: true });
+        document.getElementById('btn-test-db').click();
+        await settle();
+    }
+
+    function typePassphrase(value) {
+        const field = /** @type {HTMLInputElement} */ (document.getElementById('deposited-passphrase'));
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+    }
+
+    it('keeps the restore locked until the passphrase has been checked, even with the database installed', async () => {
+        await bootRestoreMode();
+        typePassphrase('quatre mots parfaitement ordinaires');
+
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-deposited-restore')).disabled).toBe(true);
+    });
+
+    it('checks the passphrase first, and says which version the archive really is', async () => {
+        await bootRestoreMode();
+        typePassphrase('quatre mots parfaitement ordinaires');
+        global.fetch = vi.fn(() => jsonResponse({ success: true, version: '1.4.2', installed_version: '1.4.2' }));
+
+        document.getElementById('btn-deposited-check').click();
+        await settle();
+
+        const [url, init] = fetch.mock.calls[0];
+        expect(url).toBe('/setup/restore-deposited/check');
+        expect(init.body.get('passphrase')).toBe('quatre mots parfaitement ordinaires');
+        expect(init.body.get('_csrf_token')).toBe('setup-tok');
+        expect(document.getElementById('deposited-check-result').textContent).toContain('1.4.2');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-deposited-restore')).disabled).toBe(false);
+    });
+
+    it('locks the restore again when the checked passphrase is edited', async () => {
+        await bootRestoreMode();
+        typePassphrase('quatre mots parfaitement ordinaires');
+        global.fetch = vi.fn(() => jsonResponse({ success: true, version: '1.4.2', installed_version: '1.4.2' }));
+        document.getElementById('btn-deposited-check').click();
+        await settle();
+
+        typePassphrase('quatre mots parfaitement ordinaire');
+
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-deposited-restore')).disabled).toBe(true);
+    });
+
+    it('shows a wrong passphrase without unlocking anything', async () => {
+        await bootRestoreMode();
+        typePassphrase('une autre phrase');
+        global.fetch = vi.fn(() => jsonResponse({ success: false, message: 'La phrase de passe ne correspond pas à cette archive.' }));
+
+        document.getElementById('btn-deposited-check').click();
+        await settle();
+
+        expect(document.getElementById('deposited-check-result').textContent).toContain('phrase de passe');
+        expect(/** @type {HTMLButtonElement} */ (document.getElementById('btn-deposited-restore')).disabled).toBe(true);
+    });
+
+    it('restores the deposited archive with this machine\'s database credentials, without sending a file', async () => {
+        await bootRestoreMode();
+        typePassphrase('quatre mots parfaitement ordinaires');
+        global.fetch = vi.fn(() => jsonResponse({ success: true, version: '1.4.2', installed_version: '1.4.2' }));
+        document.getElementById('btn-deposited-check').click();
+        await settle();
+
+        global.fetch = vi.fn(() => jsonResponse({ success: true, migrated: true }));
+        document.getElementById('btn-deposited-restore').click();
+        // One link more than the other chains: a `.catch()` sits before the
+        // `.then()` that writes the outcome.
+        await settle();
+        await settle();
+
+        const [url, init] = fetch.mock.calls[0];
+        expect(url).toBe('/setup/restore-portable');
+        expect(init.body.get('source')).toBe('deposited');
+        expect(init.body.get('db_name')).toBe('scoutmagic');
+        expect(init.body.get('passphrase')).toBe('quatre mots parfaitement ordinaires');
+        expect(init.body.get('portable_file')).toBeNull();
+        expect(document.getElementById('deposited-restore-result').textContent).toContain('Site restauré');
+    });
+
+    it('asks the shared confirmation before abandoning, and a refusal sends nothing', async () => {
+        await bootRestoreMode();
+        global.fetch = vi.fn(() => jsonResponse({ success: true }));
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+
+        document.getElementById('btn-deposited-discard').click();
+        await settle();
+
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledTimes(1);
+        expect(fetch).not.toHaveBeenCalled();
+
+        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(true));
+        document.getElementById('btn-deposited-discard').click();
+        await settle();
+
+        expect(fetch.mock.calls[0][0]).toBe('/setup/restore-deposited/discard');
+    });
+});
+
+describe('setup.js: the plain-HTTP warning', () => {
+    /** jsdom serves the page from http://localhost — exactly the case. */
+    it('reveals the warning on a page not loaded over HTTPS', async () => {
+        await boot({});
+
+        expect(document.getElementById('setup-insecure-warning').classList.contains('d-none')).toBe(false);
     });
 });
 

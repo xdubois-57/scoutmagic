@@ -46,7 +46,7 @@
     var mailMode = /** @type {HTMLSelectElement} */ (document.getElementById('mail_mode'));
     var smtpFields = document.getElementById('smtp-fields');
     var btnTestDb = document.getElementById('btn-test-db');
-    var btnSave = /** @type {HTMLButtonElement} */ (document.getElementById('btn-save'));
+    var btnSave = /** @type {HTMLButtonElement|null} */ (document.getElementById('btn-save'));
     var saveHint = document.getElementById('save-hint');
     var dbSpinner = document.getElementById('db-spinner');
     var dbResult = document.getElementById('db-test-result');
@@ -184,8 +184,12 @@
         var blockedByDb = !dbTestPassed;
         var blockedByCron = isFirstRun && !cronActive;
 
-        btnSave.disabled = blockedByDb || blockedByCron;
-        saveHint.style.display = blockedByDb ? 'block' : 'none';
+        // Absent in the restore mode (#719): nothing is saved there, the
+        // restore button has its own conditions.
+        if (btnSave && saveHint) {
+            btnSave.disabled = blockedByDb || blockedByCron;
+            saveHint.style.display = blockedByDb ? 'block' : 'none';
+        }
         if (cronSaveHint) {
             cronSaveHint.classList.toggle('d-none', !blockedByCron);
         }
@@ -651,6 +655,165 @@
     var portableResult = document.getElementById('portable-restore-result');
     var portableProgress = document.getElementById('portable-progress');
 
+    /**
+     * The database fields a restore writes into — the one thing the archive
+     * must not bring with it.
+     *
+     * @returns {Object<string, string>}
+     */
+    function databaseCredentials() {
+        return {
+            db_host: fieldValue('db_host'),
+            db_port: fieldValue('db_port'),
+            db_name: fieldValue('db_name'),
+            db_user: fieldValue('db_user'),
+            db_password: fieldValue('db_password')
+        };
+    }
+
+    /**
+     * What a restore answered, said on the page — the same words for an
+     * uploaded and a deposited archive.
+     *
+     * @param {{success?: boolean, migrated?: boolean, message?: string}|null} json
+     * @param {HTMLElement} result
+     * @param {HTMLElement} progress
+     * @returns {boolean} whether the site was restored
+     */
+    function showRestoreOutcome(json, result, progress) {
+        if (json && json.success) {
+            // Nothing left to fill in: the restored site already has its
+            // unit, its accounts and its settings. All that remains is to
+            // log into it. `migrated` says whether the schema finished
+            // being brought forward inside this request; when it did not,
+            // the first pages show the update screen while it finishes.
+            result.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
+            progress.textContent = json.migrated === false
+                ? 'La restauration est faite, la mise à jour du schéma se termine en arrière-plan : les premières pages peuvent afficher un écran de mise à jour. Vous pourrez ensuite vous connecter avec vos identifiants habituels.'
+                : 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
+            progress.classList.remove('d-none');
+            return true;
+        }
+        result.innerHTML = '<span class="text-danger">✗ '
+            + escapeHtml((json && json.message) || 'La restauration a échoué.') + '</span>';
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // The restore mode (#719): an archive already waits on the server,
+    // deposited by the bootstrap, uploaded here earlier, or copied by FTP.
+    // The passphrase first, checked at once; then the database; then the
+    // restore. A wrong passphrase keeps the archive — it is only retyped.
+    // ------------------------------------------------------------------
+    var depositedPassphrase = /** @type {HTMLInputElement|null} */ (document.getElementById('deposited-passphrase'));
+    var btnDepositedCheck = /** @type {HTMLButtonElement|null} */ (document.getElementById('btn-deposited-check'));
+    var btnDepositedRestore = /** @type {HTMLButtonElement|null} */ (document.getElementById('btn-deposited-restore'));
+    var btnDepositedDiscard = /** @type {HTMLButtonElement|null} */ (document.getElementById('btn-deposited-discard'));
+    var depositedCheckSpinner = document.getElementById('deposited-check-spinner');
+    var depositedCheckResult = document.getElementById('deposited-check-result');
+    var depositedRestoreSpinner = document.getElementById('deposited-restore-spinner');
+    var depositedRestoreResult = document.getElementById('deposited-restore-result');
+    var depositedRestoreProgress = document.getElementById('deposited-restore-progress');
+
+    if (depositedPassphrase && btnDepositedCheck && btnDepositedRestore && btnDepositedDiscard
+        && depositedCheckSpinner && depositedCheckResult && depositedRestoreSpinner
+        && depositedRestoreResult && depositedRestoreProgress) {
+        var passphraseVerified = false;
+        var checkSpinner = depositedCheckSpinner;
+        var checkResult = depositedCheckResult;
+        var restoreSpinner = depositedRestoreSpinner;
+        var restoreResult = depositedRestoreResult;
+        var restoreProgress = depositedRestoreProgress;
+        var restoreButton = btnDepositedRestore;
+        var passphraseField = depositedPassphrase;
+
+        var updateDepositedState = function () {
+            restoreButton.disabled = !(dbTestPassed && passphraseVerified);
+        };
+        refreshPortableState = updateDepositedState;
+
+        passphraseField.addEventListener('input', function () {
+            // A phrase edited after its check is a phrase not checked.
+            passphraseVerified = false;
+            checkResult.textContent = '';
+            updateDepositedState();
+        });
+
+        btnDepositedCheck.addEventListener('click', function () {
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            data.append('passphrase', passphraseField.value);
+            checkSpinner.classList.remove('d-none');
+            checkResult.textContent = '';
+
+            fetch('/setup/restore-deposited/check', { method: 'POST', body: data })
+                .then(function (r) { return r.json(); })
+                .then(function (json) {
+                    checkSpinner.classList.add('d-none');
+                    passphraseVerified = Boolean(json && json.success);
+                    checkResult.innerHTML = passphraseVerified
+                        ? '<span class="text-success">✓ Phrase correcte — sauvegarde de la version '
+                            + escapeHtml(json.version) + ' (installée ici : ' + escapeHtml(json.installed_version)
+                            + ').</span>'
+                        : '<span class="text-danger">✗ ' + escapeHtml((json && json.message) || 'Vérification impossible.') + '</span>';
+                    updateDepositedState();
+                })
+                .catch(function () {
+                    checkSpinner.classList.add('d-none');
+                    checkResult.innerHTML = '<span class="text-danger">✗ Erreur réseau.</span>';
+                });
+        });
+
+        restoreButton.addEventListener('click', function () {
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            data.append('source', 'deposited');
+            data.append('passphrase', passphraseField.value);
+            var credentials = databaseCredentials();
+            Object.keys(credentials).forEach(function (key) { data.append(key, credentials[key]); });
+
+            restoreButton.disabled = true;
+            restoreResult.textContent = '';
+            restoreSpinner.classList.remove('d-none');
+            restoreProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
+            restoreProgress.classList.remove('d-none');
+
+            fetch('/setup/restore-portable', { method: 'POST', body: data })
+                .then(function (r) { return r.json(); })
+                .catch(function () { return { success: false, message: 'Erreur réseau.' }; })
+                .then(function (json) {
+                    restoreSpinner.classList.add('d-none');
+                    restoreProgress.classList.add('d-none');
+                    if (!showRestoreOutcome(json, restoreResult, restoreProgress)) {
+                        restoreButton.disabled = false;
+                    }
+                });
+        });
+
+        btnDepositedDiscard.addEventListener('click', async function () {
+            var confirmed = await window.ScoutMagicConfirm.ask({
+                message: 'Abandonner cette sauvegarde ? Elle sera supprimée du serveur, et l’installation reprendra à vide.',
+                confirmLabel: 'Abandonner',
+                variant: 'danger'
+            });
+            if (!confirmed) {
+                return;
+            }
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            fetch('/setup/restore-deposited/discard', { method: 'POST', body: data })
+                .then(function (r) { return r.json(); })
+                .then(function (json) {
+                    if (json && json.success) {
+                        window.location.assign('/setup');
+                    }
+                })
+                .catch(function () { /* the archive stays; nothing to undo */ });
+        });
+
+        updateDepositedState();
+    }
+
     if (portableFile && portablePassphrase && btnPortable) {
         function updatePortableState() {
             // The database has to be installed first: the restore writes
@@ -666,39 +829,22 @@
         refreshPortableState = updatePortableState;
 
         function portableCredentials() {
-            return {
-                db_host: /** @type {HTMLInputElement} */ (document.getElementById('db_host')).value,
-                db_port: /** @type {HTMLInputElement} */ (document.getElementById('db_port')).value,
-                db_name: /** @type {HTMLInputElement} */ (document.getElementById('db_name')).value,
-                db_user: /** @type {HTMLInputElement} */ (document.getElementById('db_user')).value,
-                db_password: /** @type {HTMLInputElement} */ (document.getElementById('db_password')).value,
-                passphrase: portablePassphrase.value
-            };
+            var fields = databaseCredentials();
+            fields.passphrase = portablePassphrase.value;
+            return fields;
         }
 
         function finishPortable(json) {
             portableSpinner.classList.add('d-none');
             portableProgress.classList.add('d-none');
-            if (json && json.success) {
-                // Nothing left to fill in: the restored site already has its
-                // unit, its accounts and its settings. All that remains is
-                // to log into it.
-                portableResult.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
-                // `migrated` says whether the schema finished being brought
-                // forward inside this request. When it did not, the site is
-                // restored and usable, but the first pages will show the
-                // update screen while it finishes — saying so beats letting
-                // the operator meet it without warning.
-                portableProgress.textContent = json.migrated === false
-                    ? 'La restauration est faite, la mise à jour du schéma se termine en arrière-plan : les premières pages peuvent afficher un écran de mise à jour. Vous pourrez ensuite vous connecter avec vos identifiants habituels.'
-                    : 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
+            var restored = showRestoreOutcome(json, portableResult, portableProgress);
+            btnPortable.disabled = restored;
+            // Kept on the server after a refusal (#719): reloading the page
+            // offers it again, with only the passphrase to retype.
+            if (!restored && json && json.kept) {
+                portableProgress.textContent = 'L’archive reste sur le serveur : rechargez la page pour retaper la phrase de passe sans la renvoyer.';
                 portableProgress.classList.remove('d-none');
-                btnPortable.disabled = true;
-                return;
             }
-            portableResult.innerHTML = '<span class="text-danger">✗ '
-                + escapeHtml((json && json.message) || 'La restauration a échoué.') + '</span>';
-            btnPortable.disabled = false;
         }
 
         /**
@@ -751,6 +897,13 @@
             portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
             postPortable(portableCredentials(), file);
         });
+    }
+
+    // A first install over plain HTTP (#719, #751): the browser knows how it
+    // loaded this page, the server behind a TLS terminator does not.
+    var insecureWarning = document.getElementById('setup-insecure-warning');
+    if (insecureWarning && (window.location.protocol !== 'https:' || window.isSecureContext !== true)) {
+        insecureWarning.classList.remove('d-none');
     }
 
 })();
