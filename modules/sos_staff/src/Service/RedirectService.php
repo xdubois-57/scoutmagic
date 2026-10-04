@@ -15,7 +15,7 @@ use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\ProviderException;
 
 /**
  * The redirect-change sequence (module spec §4): anti-duplicate check,

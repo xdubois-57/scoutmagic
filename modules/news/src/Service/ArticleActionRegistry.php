@@ -10,6 +10,7 @@ namespace Modules\News\Service;
 
 use Modules\News\Api\ArticleAction;
 use Modules\News\Api\ArticleActionProviderInterface;
+use Modules\News\Api\ArticleNote;
 
 /**
  * The actions other modules contribute to an article's editor
@@ -44,5 +45,29 @@ final class ArticleActionRegistry
         }
 
         return $actions;
+    }
+
+    /**
+     * The lines the providers want said when they are offering nothing —
+     * a button that vanishes without a word is not acceptable. Same
+     * forgiveness as above: a provider that throws is skipped.
+     *
+     * @return list<ArticleNote>
+     */
+    public function notes(int $articleId): array
+    {
+        $notes = [];
+        foreach ($this->providers as $provider) {
+            try {
+                $note = $provider->noteFor($articleId);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($note !== null) {
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
     }
 }

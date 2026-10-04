@@ -27,7 +27,7 @@ final class HostHealthTest extends TestCase
 
         $this->assertSame(
             [
-                'cron', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
+                'cron', 'secure_connection', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
                 'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage',
             ],
             array_map(static fn(HostCheck $c): string => $c->key, $checks)
@@ -55,6 +55,7 @@ final class HostHealthTest extends TestCase
             phpVersion: '8.3.12',
             databaseVersion: '5.7.44',
             storageWritable: false,
+            lastInsecureAccessAt: self::NOW - 60,
         ));
 
         foreach ($checks as $check) {
@@ -275,6 +276,30 @@ final class HostHealthTest extends TestCase
         }
     }
 
+    /**
+     * « Connexion sécurisée » (#751) is the one state the attention point
+     * and the notification read too: active for 24 hours after the last
+     * insecure browser access, then green again on its own.
+     */
+    public function testTheSecureConnectionLineFollowsTheLastInsecureBrowserAccess(): void
+    {
+        $never = $this->line('secure_connection', $this->facts());
+        $this->assertTrue($never->isOk());
+        $this->assertSame('Aucun accès non sécurisé observé', $never->status);
+
+        $recent = $this->line('secure_connection', $this->facts(lastInsecureAccessAt: self::NOW - 3 * 3600));
+        $this->assertSame(HostCheck::STATE_MISSING, $recent->state);
+        $this->assertSame('Accès non sécurisé observé il y a 3 h', $recent->status);
+        $this->assertStringContainsString('https://', $recent->ask);
+
+        $almostADay = $this->line('secure_connection', $this->facts(lastInsecureAccessAt: self::NOW - 24 * 3600 + 1));
+        $this->assertFalse($almostADay->isOk());
+
+        $aDayLater = $this->line('secure_connection', $this->facts(lastInsecureAccessAt: self::NOW - 24 * 3600));
+        $this->assertTrue($aDayLater->isOk());
+        $this->assertSame('Aucun accès non sécurisé depuis plus de 24 h', $aDayLater->status);
+    }
+
     private function line(string $key, HostFacts $facts): HostCheck
     {
         foreach (HostHealth::checks($facts) as $check) {
@@ -320,6 +345,7 @@ final class HostHealthTest extends TestCase
         bool $procOpen = true,
         string $pdfBackend = 'ghostscript',
         bool $defaultCron = true,
+        ?int $lastInsecureAccessAt = null,
     ): HostFacts {
         return new HostFacts(
             $cron ?? new CronStatus(CronStatus::STATE_ACTIVE, self::NOW - 30, self::NOW - 30, 60, self::NOW),
@@ -338,6 +364,7 @@ final class HostHealthTest extends TestCase
             $cronExecution ?? ($defaultCron ? self::cron() : null),
             $procOpen,
             $pdfBackend,
+            $lastInsecureAccessAt,
             self::NOW,
         );
     }

@@ -47,6 +47,8 @@ final class HostFacts
         public readonly bool $procOpen = false,
         /** {@see \Core\Pdf\PdfCompressor}'s chosen tool, `none` when there is none. */
         public readonly string $pdfBackend = 'none',
+        /** Core\Http\InsecureBrowserAccess's last observation, null when never. */
+        public readonly ?int $lastInsecureAccessAt = null,
         /** When these facts were measured — what « il y a » counts from. */
         public readonly int $measuredAt = 0,
     ) {

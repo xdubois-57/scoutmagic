@@ -49,6 +49,19 @@
                                     <div class="small mt-1"><span class="fw-semibold">À demander à l'hébergeur :</span> {{ check.ask }}</div>
                                 {% endif %}
 
+                                {# « Ignorer » (#751): the insecure-access state is a
+                                   browser's statement, which nothing can prove — so
+                                   a superadmin can clear one they know to be false. #}
+                                {% if check.key == 'secure_connection' and not check.isOk() %}
+                                    <form method="post" action="/config/maintenance/connexion-securisee/ignorer" class="mt-2"
+                                          id="maintenance-secure-connection-dismiss"
+                                          data-confirm="Ignorer ce signalement ? Il reviendra si un navigateur charge encore le site sans connexion sécurisée."
+                                          data-confirm-label="Ignorer">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Ignorer ce signalement</button>
+                                    </form>
+                                {% endif %}
+
                                 {% if check.key == 'cron' and not check.isOk() %}
                                     <div class="alert alert-danger small mt-2 mb-0" role="alert" id="maintenance-cron-warning">
                                         <div class="input-group input-group-sm mb-2">

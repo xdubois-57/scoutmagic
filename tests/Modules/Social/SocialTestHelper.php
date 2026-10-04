@@ -59,6 +59,8 @@ final class SocialTestHelper
             body TEXT NOT NULL DEFAULT \'\',
             gallery_media_id INTEGER NULL,
             file_id INTEGER NULL,
+            source_kind TEXT NULL,
+            source_id INTEGER NULL,
             created_by INTEGER NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL

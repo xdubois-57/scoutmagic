@@ -12,7 +12,7 @@ use Core\Exception\UserFacingException;
 
 /**
  * Low-level OVH REST API failure (network error or an HTTP 4xx/5xx from
- * OVH) — caught and re-thrown as Provider\ProviderException by
+ * OVH) — caught and re-thrown as Api\ProviderException by
  * OvhTelephonyProvider, which is the only class other module code should
  * depend on.
  *

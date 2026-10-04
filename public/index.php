@@ -189,6 +189,9 @@ $twig = TwigFactory::create(
     $config->isDebug()
 );
 $twig->addGlobal('csp_nonce', $cspNonce);
+// Gates the secure-context beacon in base.html.twig (#751): an
+// installation that tolerates HTTP has nothing to report.
+$twig->addGlobal('https_required', \Core\Http\RequestScheme::httpsRequired());
 
 // site_name will be set later from settings database
 
@@ -295,6 +298,12 @@ if (!$isInitialized) {
         // block is. Once it is, /setup is a superadmin page and a restore
         // belongs to Configuration > Maintenance.
         $response = $setupController->restorePortable($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-deposited/check') {
+        // The deposited archive's passphrase, checked before anything is
+        // written (#719) — same gates as the restore itself.
+        $response = $setupController->checkDepositedArchive($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-deposited/discard') {
+        $response = $setupController->discardDepositedArchive($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/backup-and-empty-db') {
         $response = $setupController->backupAndEmptyDatabase($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/download-backup') {
@@ -2169,6 +2178,31 @@ if ($settingService->get('mail_transport_relay_flag_pruned') !== '1') {
     // jobs only (`Tests\Architecture\PrunedSettingsAreNoLongerDeclaredTest`
     // holds it now).
     $settingRepo->updateValue(null, 'mail_transport_relay_flag_pruned', '1');
+}
+
+// ————— The retired HTTPS stamp (#751) —————
+//
+// `insecure_request_last_seen` was the last request PHP itself saw in
+// clear, which behind a TLS terminator is every request. The HTTPS alert
+// now reads what the browser observed (`Core\Http\InsecureBrowserAccess`,
+// `last_insecure_browser_access_at`), so the old stamp has no reader, and
+// its value — a false alarm on exactly those hosts — must not be carried
+// over. Same shape and same reason as the blocks around it.
+if ($settingService->get('insecure_request_stamp_pruned') !== '1') {
+    $settingService->register(
+        'insecure_request_stamp_pruned',
+        '0',
+        'boolean',
+        'Nettoyage de l\'ancien horodatage HTTP effectué',
+        'Indique si le réglage retiré « Dernière requête servie sans chiffrement » a été supprimé.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $settingRepo->deleteCoreSettings(['insecure_request_last_seen']);
+    $settingRepo->updateValue(null, 'insecure_request_stamp_pruned', '1');
 }
 
 if ($settingService->get('remote_backup_settings_pruned') !== '1') {
@@ -4176,6 +4210,19 @@ $router->addRoute(
     'identified'
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
+// The fallback of the browser's secure-context signal (#751): sent only by
+// a page loaded outside a secure context that made no request of its own.
+// Public and CSRF-free on purpose — such a page has no session (SECURITY.md
+// § 4); the controller checks the beacon's Origin instead. Literal path
+// (scripts/authz-support.php parses this file); the same value as
+// Core\Http\InsecureBrowserAccess::BEACON_PATH, pinned by a test.
+$router->addRoute(
+    'POST',
+    '/api/connexion-non-securisee',
+    \Core\Http\Controller\SecureContextController::class,
+    'report',
+    'public'
+);
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 // The answer to « Activer les notifications ? », the invitation the
 // installed application offers once (ARCHITECTURE.md §8.111). The
@@ -5291,6 +5338,16 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+// « Ignorer » on the « Connexion sécurisée » line of Santé de
+// l'hébergement (#751): clears the browser-observed insecure-access state,
+// which cannot be proven and so must be dismissible.
+$router->addRoute(
+    'POST',
+    '/config/maintenance/connexion-securisee/ignorer',
+    \Core\Http\Controller\SecureContextController::class,
+    'dismiss',
+    'superadmin'
 );
 $router->addRoute(
     'POST',
@@ -6588,6 +6645,14 @@ $frontController->registerController(
     PushSubscriptionController::class,
     new PushSubscriptionController($twig, $notificationService, $journalService)
 );
+$frontController->registerController(
+    \Core\Http\Controller\SecureContextController::class,
+    new \Core\Http\Controller\SecureContextController(
+        $twig,
+        new \Core\Http\InsecureBrowserAccess($settingService),
+        $journalService
+    )
+);
 
 $frontController->registerController(
     \Core\Http\Controller\NotificationController::class,
@@ -7422,7 +7487,19 @@ if ($isEnabled('sos_staff')) {
     $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
     $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
 
-    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
+    // Simulated telephony (ARCHITECTURE.md §8.63): where test_tools is on,
+    // the installation is a reference or local one, AND the switch is
+    // armed, a simulated line stands in for the configured provider so an
+    // end-to-end run can drive this module. Null everywhere else.
+    $sosSimulatedProvider = $isEnabled('test_tools')
+        && \Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)
+        ? new \Modules\TestTools\Telephony\SimulatedPhoneProvider($settingService)
+        : null;
+    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService(
+        $sosProviderCredentialRepo,
+        null,
+        $sosSimulatedProvider
+    );
     // The responsable hook resolves at CONSTRUCTION here, which is
     // order-sensitive by design: trombinoscope's block (the registrant)
     // runs before this one, exactly as it had to when the hook travelled
@@ -10135,7 +10212,10 @@ if ($isEnabled('test_tools')) {
 
     $frontController->registerController(
         \Modules\TestTools\Controller\TestToolsController::class,
-        new \Modules\TestTools\Controller\TestToolsController($twig)
+        new \Modules\TestTools\Controller\TestToolsController(
+            $twig,
+            new \Modules\TestTools\Telephony\SimulatedTelephony($settingService, $journalService)
+        )
     );
 
     $frontController->registerController(
@@ -10674,15 +10754,14 @@ if ($isEnabled('covoiturage')) {
 }
 
 // Social networks (ARCHITECTURE.md §8.122): the unit's own Facebook Page
-// and Instagram account. The Api is built for the modules that will
-// publish through it (news and gallery, docs/chantiers/
-// CHANTIER-partage-social.md) — null when the module is disabled, per
-// §7.5, and nothing consumes it yet.
+// and Instagram account, its discussion groups, and the one composer they
+// are all published from. The Api is consumed by the gallery's album form
+// and the news editor, which ask it whether to offer « Partager » — null
+// when the module is disabled, per §7.5.
 $socialSharingForOthers = null;
 if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
-    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService($socialConnectionRepo);
 
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
@@ -10718,16 +10797,31 @@ if ($isEnabled('social')) {
         $settingService,
         $journalService
     );
+    // The discussion groups as a destination, or null with the groups
+    // module off: one instance, shared by what offers the destinations and
+    // by the Api that answers « is there anywhere to publish ».
+    $socialGroupPublishing = $groupsPublisherForOthers === null
+        ? null
+        : new \Modules\Social\Service\GroupPublishingService(
+            $groupsPublisherForOthers,
+            $socialPublicationRepo,
+            $journalService
+        );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,
         $socialPublicationRepo,
         $socialConnectionRepo,
         $settingService,
-        $groupsPublisherForOthers === null ? null : new \Modules\Social\Service\GroupPublishingService(
-            $groupsPublisherForOthers,
-            $socialPublicationRepo,
-            $journalService
-        )
+        $socialGroupPublishing
+    );
+    // The Api the gallery and the news module ask « is there anywhere to
+    // publish »: the unit's Meta accounts, AND this person's discussion
+    // groups, so a unit with no Meta account still gets a « Partager »
+    // button (IT-01). Built here rather than above because the groups
+    // destination is what it needs.
+    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService(
+        $socialConnectionRepo,
+        $socialGroupPublishing
     );
     $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
@@ -10739,17 +10833,10 @@ if ($isEnabled('social')) {
         $galleryPhotoPickerForOthers,
         $linkedMemberIds
     );
-    $frontController->registerController(
-        \Modules\Social\Controller\ShareController::class,
-        new \Modules\Social\Controller\ShareController(
-            $twig,
-            $socialShareSources,
-            $socialDestinationStates,
-            $socialCardService
-        )
-    );
-    // « Communications »: a free communication, and the history of
-    // everything that left (§8.122).
+    // « Médias sociaux »: the one composer everything is published
+    // through, and the history of everything that left (§8.122). The two
+    // dedicated share pages it replaces are gone
+    // (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01).
     $frontController->registerController(
         \Modules\Social\Controller\CommunicationController::class,
         new \Modules\Social\Controller\CommunicationController(
@@ -10766,8 +10853,21 @@ if ($isEnabled('social')) {
             $linkedMemberIds
         )
     );
-    $galleryAlbumActions?->register(new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers));
-    $newsArticleActions?->register(new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers));
+    // « Partager » on an album and in an article's editor (§7.6). The
+    // viewer travels with the provider: actionsFor() is handed an id and
+    // nothing else, by design, and whether there is anywhere to publish
+    // depends on the person.
+    $socialShareViewer = new \Modules\Social\Service\ShareViewer(
+        \Core\Security\AuthSession::getEmail(),
+        \Core\Security\AuthSession::getRole(),
+        \Core\Security\AuthSession::getUserAccountId()
+    );
+    $galleryAlbumActions?->register(
+        new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers, $socialShareViewer)
+    );
+    $newsArticleActions?->register(
+        new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers, $socialShareViewer)
+    );
     $schedulerService->seed(
         'social',
         \Modules\Social\Task\PurgeCardsHandler::TASK_KEY,
@@ -12771,11 +12871,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // Nothing was lost, and a visitor no longer pays for background work that a
 // per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
 
+// The browser's own statement of how it loaded the page (#751). api.js
+// adds Core\Http\InsecureBrowserAccess::HEADER to every same-origin
+// request; a « not secure » is kept while HTTPS is required, at most once
+// a quarter of an hour, from any visitor — a page in clear has no session
+// to require (the class docblock says why that is safe enough). Past
+// send() and session_write_close(), like everything below: the visitor
+// whose request carries it never waits for the write.
+if (\Core\Http\InsecureBrowserAccess::reportsInsecure($_SERVER)) {
+    (new \Core\Http\InsecureBrowserAccess($settingService))->observe($_SERVER, time());
+}
+
 // The two operational checks that CANNOT live in the daily task
 // (Core\Alert, §8.99). CronSilenceCheck cannot, because a cron that has
 // stopped never runs the task that would notice it — an alert about the
-// engine cannot live inside the engine. HttpsCheck cannot, because a
-// scheme belongs to a request and a CLI pass has none.
+// engine cannot live inside the engine. HttpsCheck should not, because
+// its reading changes state at a precise hour (24 h after the last
+// insecure browser access) and the daily task would notice a day late.
 //
 // Placed HERE, past send() and session_write_close(), for the same reason
 // the poor man's cron was removed from this spot and Fréquentation sits
@@ -12786,33 +12898,13 @@ if ($operationalRequestChecks->due()) {
     // Claimed before the run, not after — see markRun()'s docblock.
     $operationalRequestChecks->markRun();
 
-    // Registered here rather than with the other settings above, and for
-    // the reason public/cron.php registers 'cron_last_run' beside the
-    // stamp it writes: it belongs to the one piece of code that reads and
-    // writes it, and inside this throttle it costs an ordinary request
-    // nothing. HttpsCheck stamps it when it observes a request answered
-    // without encryption; nothing else touches it.
-    $settingService->register(
-        \Core\Alert\Check\HttpsCheck::LAST_CLEAR_SETTING,
-        '0',
-        'number',
-        'Dernière requête servie sans chiffrement',
-        'Horodatage de la dernière requête que le site a servie en HTTP, sur lequel repose l\'alerte '
-            . '« Connexion sécurisée ». Géré automatiquement.',
-        null,
-        null,
-        null,
-        false,
-        128
-    );
-
     (new \Core\Alert\OperationalAlertService(
         new \Core\Alert\OperationalAlertRepository($pdo),
         $notificationService,
         $journalService
     ))->run([
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
-        new \Core\Alert\Check\HttpsCheck($_SERVER, $settingService),
+        new \Core\Alert\Check\HttpsCheck(new \Core\Http\InsecureBrowserAccess($settingService)),
     ]);
 }
 

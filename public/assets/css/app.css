@@ -181,6 +181,20 @@
         align-items: center;
         justify-content: center;
     }
+
+    /* An action another module contributes as an icon alone —
+       « Partager » on an album form and in the news editor
+       (ARCHITECTURE.md §7.6). Bootstrap's own button padding leaves a
+       target of about 32 pixels, which design.md §7.2 does not accept
+       for something a finger has to hit. HERE and not at file scope: a
+       comfort goal for a finger is never a universal minimum
+       (AGENTS.md § Touch targets), and on a mouse 32 pixels is fine —
+       WCAG 2.2 AA asks 24×24, and the `pointer: fine` restore below
+       cannot undo a rule written outside the block. */
+    .contributed-action-icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
 }
 
 /* Restore compact sizes where a real mouse/trackpad is the primary
@@ -981,3 +995,4 @@ body.cookie-banner-visible {
 .min-w-0 {
     min-width: 0;
 }
+

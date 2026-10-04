@@ -552,6 +552,9 @@ class GalleryChiefController extends AbstractController
         return [
             'album' => $album,
             'album_actions' => $album !== null ? ($this->albumActions?->collect($album->id) ?? []) : [],
+            // And why a contributor is offering nothing, when it has
+            // something to say about that (Api\AlbumNote).
+            'album_notes' => $album !== null ? ($this->albumActions?->notes($album->id) ?? []) : [],
             // The location the album's files are ACTUALLY on, resolved
             // rather than read. A null `location_id` means « not written
             // down yet », not « nowhere »: the raw column had this page

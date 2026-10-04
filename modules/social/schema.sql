@@ -78,19 +78,36 @@ CREATE TABLE IF NOT EXISTS social_publications (
     UNIQUE KEY uq_social_publications (source_kind, source_id, destination)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- social_communications: a free communication (IT-04, « Nouvelle
--- communication ») — a title written on the card, the text of the post, and
--- ONE image: a gallery photo (by media id, read through the gallery's Api at
--- publication, so its visibility is asked again then) or an uploaded file
--- (core `files`, role_min chief). Its publications live in
--- social_publications with source_kind 'communication'.
+-- social_communications: what the composer publishes — a title written on
+-- the card, the text of the post, and ONE image.
+--
+-- The image is either the communication's own (a gallery photo by media id,
+-- read through the gallery's Api at publication so its visibility is asked
+-- again then, or an uploaded file in core `files`, role_min chief), or it
+-- comes from the SOURCE below, in which case neither column is set.
+--
+-- source_kind / source_id: what this communication shares, when it was
+-- opened from somewhere — 'album' or 'article' today
+-- (Service\ShareSource's KIND_* constants), and deliberately generic so
+-- another part of the site can become a source without touching this
+-- table (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01). Both NULL for
+-- a communication written from nothing, which has no link either.
+--
+-- The source is NOT where its publications are recorded: those stay in
+-- social_publications under source_kind 'communication' and this row's id,
+-- which is what lets the same album be shared twice with two different
+-- messages while « the same communication twice to the same destination »
+-- stays refused by that table's unique key.
 CREATE TABLE IF NOT EXISTS social_communications (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(120) NOT NULL DEFAULT '',
     body TEXT NOT NULL,
     gallery_media_id INT UNSIGNED NULL,
     file_id INT UNSIGNED NULL,
+    source_kind VARCHAR(20) NULL,
+    source_id INT UNSIGNED NULL,
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
+    updated_at DATETIME NOT NULL,
+    KEY idx_social_communications_source (source_kind, source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

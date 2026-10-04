@@ -14,8 +14,71 @@
     {% include 'partials/page_header.html.twig' with { title: 'Configuration du site' } only %}
 {% endif %}
 
-<form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" novalidate>
+{# The restore mode (#719): an archive waits on the server. Only what a
+   restore needs is shown — the archive, its passphrase, the database —
+   and every other card is left out rather than greyed: none of it would
+   survive the restore. #}
+{% set restore_mode = not is_initialized and deposited_archive %}
+
+{% if not is_initialized %}
+    {# Shown by setup.js when the page itself was not loaded over HTTPS — the
+       browser is the one witness (#751). Through the bootstrap this page is
+       only reached after its blocking HTTPS check; this is for an install
+       made with git clone and composer install. #}
+    <div class="alert alert-warning d-none" id="setup-insecure-warning" role="alert">
+        <strong>Cette page n'est pas chargée en connexion sécurisée.</strong>
+        Les mots de passe et la phrase de passe que vous saisirez ici circuleront en clair. Activez le
+        certificat HTTPS de l'hébergement, puis rouvrez cette page en <code>https://</code>.
+    </div>
+{% endif %}
+
+<form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" data-restore-mode="{{ restore_mode ? '1' : '0' }}" novalidate>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+    {% if restore_mode %}
+    <div class="card mb-4" id="deposited-archive-card">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Sauvegarde déposée</h2>
+            <p class="text-muted small">
+                Une sauvegarde portable attend sur le serveur. Voici ce qu'elle annonce d'elle-même : ce sont des
+                indications, que la phrase de passe permet de vérifier.
+            </p>
+            {# Plain text and never a link: the archive's comment is readable and
+               editable by anybody holding the file (PortableArchiveHints). #}
+            <dl class="row small mb-3" id="deposited-archive-hints">
+                <dt class="col-sm-4">Site d'origine</dt>
+                <dd class="col-sm-8 text-break">{{ deposited_archive.site_url ?: 'Non indiqué' }}</dd>
+                <dt class="col-sm-4">Créée le</dt>
+                <dd class="col-sm-8">{{ deposited_archive.created_at ? deposited_archive.created_at|datetime_fr : 'Non indiqué' }}</dd>
+                <dt class="col-sm-4">Version de ScoutMagic</dt>
+                <dd class="col-sm-8">{{ deposited_archive.version ?: 'Non indiquée' }} (installée ici : {{ deposited_archive.installed_version }})</dd>
+                <dt class="col-sm-4">Type</dt>
+                <dd class="col-sm-8">{{ deposited_archive.kind_label ?: 'Non indiqué' }}</dd>
+                <dt class="col-sm-4">Taille</dt>
+                <dd class="col-sm-8">{{ (deposited_archive.size_bytes / 1048576)|round(1) }} Mo</dd>
+            </dl>
+
+            <div class="mb-3">
+                <label for="deposited-passphrase" class="form-label">Phrase de passe de l'archive</label>
+                <input type="password" class="form-control" id="deposited-passphrase" autocomplete="off">
+                <div class="form-text">Celle que vous avez notée en créant la sauvegarde. Elle n'est enregistrée
+                    nulle part : une phrase erronée se retape, l'archive reste sur le serveur.</div>
+            </div>
+            <button type="button" class="btn btn-outline-primary" id="btn-deposited-check">
+                <output class="spinner-border spinner-border-sm d-none" id="deposited-check-spinner"></output>
+                Vérifier la phrase de passe
+            </button>
+            <span id="deposited-check-result" class="ms-2"></span>
+
+            <hr>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="btn-deposited-discard">
+                Abandonner cette sauvegarde
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if not restore_mode %}
 
     {# Section 1: General settings — first card on the page (moved ahead
        of Base de données): this is the section a returning admin reaches
@@ -99,6 +162,8 @@
         </div>
     </div>
 
+    {% endif %}
+
     {# Section 2: Database #}
     <div class="card mb-4">
         <div class="card-body">
@@ -156,6 +221,25 @@
             {% endif %}
         </div>
     </div>
+
+    {% if restore_mode %}
+    <div class="card mb-4" id="deposited-restore-card">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Restauration</h2>
+            <p class="text-muted small mb-3">
+                La base de données doit être installée et vide, et la phrase de passe vérifiée. Les données, les
+                documents et les clés de chiffrement de l'unité sont remis en place ; vous vous reconnecterez avec
+                vos identifiants habituels.
+            </p>
+            <button type="button" class="btn btn-primary" id="btn-deposited-restore" disabled>
+                <output class="spinner-border spinner-border-sm d-none" id="deposited-restore-spinner"></output>
+                Restaurer cette sauvegarde
+            </button>
+            <span id="deposited-restore-result" class="ms-2"></span>
+            <output class="d-none d-block mt-2 small text-muted" id="deposited-restore-progress"></output>
+        </div>
+    </div>
+    {% else %}
 
     {# Section 2bis: restoring from a portable backup.
 
@@ -590,6 +674,7 @@
         </div>
         {% endif %}
     </div>
+    {% endif %}
 </form>
 
 </div>

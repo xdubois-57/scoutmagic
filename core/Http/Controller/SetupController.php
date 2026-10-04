@@ -30,12 +30,14 @@ use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\Portable\DepositedArchive;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableRestore;
 use Core\Maintenance\VersionFile;
 use Core\Photo\UnitLogoService;
 use Core\Scheduler\CronHealth;
 use Core\Security\AuthSession;
+use Core\Security\BootstrapHandoff;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\PasswordPolicy;
@@ -144,6 +146,32 @@ class SetupController extends AbstractController
             $currentValues = ['base_url' => $this->resolveDefaultBaseUrl($request)];
         }
 
+        // The restore mode (#719): an archive is waiting on the server —
+        // deposited by the bootstrap, uploaded here earlier, or copied by
+        // FTP. Abandoned ones are purged first, so a week-old copy of a
+        // unit's data never resurfaces as « the archive to restore ».
+        $deposited = null;
+        if (!$isInitialized) {
+            $deposit = new DepositedArchive($this->installRoot());
+            $deposit->purgeAbandoned(time());
+            if ($deposit->exists()) {
+                $hints = $deposit->hints();
+                $deposited = [
+                    'size_bytes' => $deposit->sizeBytes(),
+                    'deposited_at' => $deposit->depositedAt(),
+                    'version' => $hints?->version,
+                    'site_url' => $hints?->siteUrl,
+                    // Written in UTC, shown in the site's own zone, read
+                    // like any stored datetime (|datetime_fr).
+                    'created_at' => $hints?->createdAt
+                        ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+                        ->format('Y-m-d H:i:s'),
+                    'kind_label' => $hints?->kindLabel(),
+                    'installed_version' => VersionFile::read($this->installRoot()),
+                ];
+            }
+        }
+
         $csrfToken = CsrfGuard::generateToken();
 
         return $this->render('setup/index.html.twig', [
@@ -164,6 +192,7 @@ class SetupController extends AbstractController
             // than null when the service isn't wired yet, so the template
             // never has to special-case an undefined/null value.
             'unit_logo_is_custom' => $this->unitLogoService?->hasCustomLogo() ?? false,
+            'deposited_archive' => $deposited,
         ]);
     }
 
@@ -433,9 +462,31 @@ class SetupController extends AbstractController
             return $this->json(['success' => false, 'message' => $connectionResult]);
         }
 
-        $archivePath = $this->assembledPortableUpload($request);
-        if ($archivePath === null) {
-            return $this->json(['success' => false, 'message' => 'Archive introuvable — recommencez l\'envoi.'], 400);
+        // Deposited (by the bootstrap, by FTP, or by an earlier upload
+        // here) or uploaded now — and an upload becomes a deposit at once,
+        // so a wrong passphrase costs a retype rather than the upload
+        // (#719).
+        $deposit = new DepositedArchive($this->installRoot());
+        if ((string) $request->getBody('source', '') === 'deposited') {
+            if (!$deposit->exists()) {
+                return $this->json(
+                    ['success' => false, 'message' => 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.'],
+                    400
+                );
+            }
+            $archivePath = $deposit->path();
+        } else {
+            $uploaded = $this->assembledPortableUpload($request);
+            if ($uploaded === null) {
+                return $this->json(['success' => false, 'message' => 'Archive introuvable — recommencez l\'envoi.'], 400);
+            }
+            try {
+                $archivePath = $deposit->adopt($uploaded);
+            } catch (BackupException $e) {
+                @unlink($uploaded);
+
+                return $this->json(['success' => false, 'message' => $e->getMessage()]);
+            }
         }
 
         $passphrase = (string) $request->getBody('passphrase', '');
@@ -467,12 +518,114 @@ class SetupController extends AbstractController
                     $e,
                     'La restauration a échoué. Consultez le journal du serveur pour le détail.'
                 ),
+                // Still on the server: the page offers it again with
+                // just the passphrase to retype.
+                'kept' => $deposit->exists(),
             ]);
-        } finally {
-            @unlink($archivePath);
         }
 
+        // Restored: the copy of the unit's data has nothing left to do here.
+        $deposit->discard();
+
         return $this->json($result);
+    }
+
+    /**
+     * POST /setup/restore-deposited/check — the passphrase first, checked
+     * at once (#719, C): the archive is opened and its encrypted manifest
+     * read, its version compared with the one installed, and what it
+     * really is — not what its clear comment claims — sent back for the
+     * operator to confirm. Nothing is written; the passphrase is not kept.
+     *
+     * @param array<string, string> $params
+     */
+    public function checkDepositedArchive(Request $request, array $params): Response
+    {
+        $refusal = $this->refuseDepositedArchiveAction();
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        $deposit = new DepositedArchive($this->installRoot());
+        if (!$deposit->exists()) {
+            return $this->json(
+                ['success' => false, 'message' => 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.'],
+                400
+            );
+        }
+
+        try {
+            $archive = PortableArchive::open($deposit->path(), (string) $request->getBody('passphrase', ''));
+        } catch (BackupException $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()]);
+        }
+
+        try {
+            $installed = VersionFile::read($this->installRoot());
+            $archive->assertRestorableOnto($installed);
+            $hints = $archive->hints();
+
+            return $this->json([
+                'success' => true,
+                'version' => $archive->version(),
+                'installed_version' => $installed,
+                'site_url' => $hints->siteUrl,
+                'kind' => $hints->kindLabel(),
+            ]);
+        } catch (BackupException $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()]);
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * POST /setup/restore-deposited/discard — « Abandonner cette
+     * sauvegarde »: the deposited archive goes, and the page becomes the
+     * ordinary wizard again.
+     *
+     * @param array<string, string> $params
+     */
+    public function discardDepositedArchive(Request $request, array $params): Response
+    {
+        $refusal = $this->refuseDepositedArchiveAction();
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        (new DepositedArchive($this->installRoot()))->discard();
+        $this->journalService?->log(
+            'core',
+            'setup_deposited_archive_discarded',
+            'security',
+            'Sauvegarde portable déposée abandonnée dans l\'assistant d\'installation',
+            []
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * The three gates every deposited-archive action shares with the
+     * restore itself: the token, a site not yet configured, CSRF.
+     */
+    private function refuseDepositedArchiveAction(): ?Response
+    {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+        if ($this->secretManager->isInitialized()) {
+            return $this->json(
+                ['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403
+            );
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
+        }
+
+        return null;
     }
 
     /**
@@ -1454,6 +1607,9 @@ class SetupController extends AbstractController
             $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
 
             $tokenDeleted = $this->deleteTokenFileWithWarning();
+            // A site configured from scratch abandoned any archive waiting
+            // to be restored (#719): it must not linger on the host.
+            (new DepositedArchive($this->installRoot()))->discard();
 
             FlashMessage::set(
                 $tokenDeleted ? 'success' : 'warning',
@@ -1931,7 +2087,7 @@ class SetupController extends AbstractController
             return null;
         }
 
-        if (SessionStore::get('setup_token_verified', false) === true) {
+        if (SessionStore::get('setup_token_verified', false) === true || $this->acceptBootstrapProof()) {
             return null;
         }
 
@@ -1968,7 +2124,7 @@ class SetupController extends AbstractController
      */
     private function checkTokenGate(): ?Response
     {
-        if (SessionStore::get('setup_token_verified', false) === true) {
+        if (SessionStore::get('setup_token_verified', false) === true || $this->acceptBootstrapProof()) {
             return null;
         }
 
@@ -1998,6 +2154,37 @@ class SetupController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'error' => $error,
         ]);
+    }
+
+    /**
+     * The bootstrap's proof that the operator typed the token (#719, B):
+     * {@see BootstrapHandoff::PROOF_COOKIE}, recomputed here from the
+     * `token.php` on disk — the two share no session. Accepted once, then
+     * this session counts as verified like a typed token would.
+     */
+    private function acceptBootstrapProof(): bool
+    {
+        $cookie = $_COOKIE[BootstrapHandoff::PROOF_COOKIE] ?? null;
+        $tokenPath = $this->findTokenFile();
+        if (!is_string($cookie) || $tokenPath === null) {
+            return false;
+        }
+
+        $token = $this->extractTokenValue((string) @file_get_contents($tokenPath));
+        if (!BootstrapHandoff::proofIsValid($cookie, $token, time())) {
+            return false;
+        }
+
+        SessionStore::set('setup_token_verified', true);
+        $this->journalService?->log(
+            'core',
+            'setup_token_verified',
+            'security',
+            'Jeton d\'installation prouvé par l\'installeur',
+            []
+        );
+
+        return true;
     }
 
     /**

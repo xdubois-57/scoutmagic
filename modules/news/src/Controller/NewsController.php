@@ -761,6 +761,7 @@ class NewsController extends AbstractController
             'default_opens_at' => $form->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
             'default_closes_at' => $form->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
             'article_actions' => $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [],
+            'article_notes' => $article !== null ? ($this->articleActions?->notes($article->id) ?? []) : [],
             'short_url' => $article?->shortUrlCode !== null
                 ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
                 : null,

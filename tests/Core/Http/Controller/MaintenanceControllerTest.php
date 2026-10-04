@@ -846,7 +846,7 @@ class MaintenanceControllerTest extends TestCase
         $body = $controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
         $keys = [
-            'cron', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
+            'cron', 'secure_connection', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
             'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage',
         ];
         foreach ($keys as $key) {
@@ -862,6 +862,34 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString("à régler chez l'hébergeur.", $body);
         $this->assertStringContainsString('<a href="/config/stockage">', $body);
         $this->assertStringNotContainsString('Espace disque :', $body);
+    }
+
+    /**
+     * « Ignorer » (#751) is offered on the « Connexion sécurisée » line
+     * only while an insecure access is active — the one way out of a
+     * statement nothing can prove.
+     */
+    public function testAnActiveInsecureAccessOffersToIgnoreIt(): void
+    {
+        $healthPage = function (): string {
+            $backups = new BackupService($this->connection, $this->storagePath, dirname($this->storagePath));
+            $controller = ($this->rebuildController)(
+                $backups,
+                new HostHealth($this->storagePath, $this->settingService, $backups, new \PDO('sqlite::memory:'))
+            );
+
+            return (string) $controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+        };
+
+        $this->assertStringNotContainsString('maintenance-secure-connection-dismiss', $healthPage());
+
+        (new \Core\Http\InsecureBrowserAccess($this->settingService))->record(time());
+        $body = $healthPage();
+
+        $this->assertMatchesRegularExpression('~id="host-check-secure_connection" data-state="missing"~', $body);
+        $this->assertStringContainsString('id="maintenance-secure-connection-dismiss"', $body);
+        $this->assertStringContainsString('action="/config/maintenance/connexion-securisee/ignorer"', $body);
+        $this->assertStringContainsString('Ignorer ce signalement', $body);
     }
 
     /**
