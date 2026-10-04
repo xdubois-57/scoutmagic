@@ -357,6 +357,9 @@
     },
     "/test-tools/mail-sandbox/{id}": {
       "id": "1"
+    },
+    "/admin/leadership/{page}": {
+      "page": "training"
     }
   }
 }

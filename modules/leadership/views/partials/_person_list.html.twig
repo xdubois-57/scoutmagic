@@ -18,36 +18,40 @@
   value is 'normal' and nothing is coloured at all.
 
   A list of people to contact is only useful if it can be acted on: every
-  name links to that person's fiche, every address is a `mailto:`, and one
-  button copies the whole list's addresses at once (public/assets/js/
-  leadership-copy-emails.js). The people Desk holds no address for are
-  COUNTED under the list rather than quietly dropped — a list that hides
-  them reads as a complete list of people who were written to.
+  name links to that person's fiche, every address is a `mailto:`, every
+  number a `tel:`, and one button turns the list into a mail-merge draft
+  (#727) — a draft, never a sending: the visitor lands on the composer.
+  The draft is built server-side from the list's id, so what it holds is
+  what the page shows. The people Desk holds no address for are COUNTED
+  under the list rather than quietly dropped — a list that hides them
+  reads as a complete list of people who were written to.
 
   Usage:
   {% include '@leadership/partials/_person_list.html.twig' with {
       lines: to_convince,
       list_id: 'training-to-convince',
       empty_message: 'Personne à convaincre cette année.',
+      draft_available: draft_available,
   } only %}
 
-  `list_id` is optional; without it the copy button is not offered.
+  `list_id` is optional; without it, or without `draft_available` (mass
+  mail off), the draft button is not offered.
 #}
 {% if lines|length > 0 %}
     {% set _with_email = lines|filter(l => l.email)|length %}
-    {% if list_id|default('') and _with_email > 0 %}
-        <div class="d-flex justify-content-end mb-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    data-copy-emails="{{ list_id }}">
-                <i class="bi bi-clipboard" aria-hidden="true"></i>
-                Copier les adresses
+    {% if list_id|default('') and draft_available|default(false) and _with_email > 0 %}
+        <form method="post" action="/admin/leadership/draft" class="d-flex justify-content-end mb-2">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="list" value="{{ list_id }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-envelope" aria-hidden="true"></i>
+                Créer un brouillon d'e-mail
             </button>
-        </div>
+        </form>
     {% endif %}
     <ul class="list-group list-group-flush" id="{{ list_id|default('') }}">
         {% for line in lines %}
-            <li class="list-group-item px-0 py-3"
-                {%- if line.email %} data-email="{{ line.email }}"{% endif %}>
+            <li class="list-group-item px-0 py-3">
                 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
                     <div class="min-w-0">
                         {# Full legal name first: these lists exist to go and
@@ -65,6 +69,11 @@
                         {% if line.email %}
                             <div class="small">
                                 <a href="mailto:{{ line.email }}">{{ line.email }}</a>
+                            </div>
+                        {% endif %}
+                        {% if line.phone %}
+                            <div class="small">
+                                <a href="tel:{{ line.phone|replace({' ': '', '/': '', '.': ''}) }}">{{ line.phone }}</a>
                             </div>
                         {% endif %}
                     </div>

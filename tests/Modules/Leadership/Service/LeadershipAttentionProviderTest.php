@@ -162,4 +162,49 @@ class LeadershipAttentionProviderTest extends TestCase
             $points[0]->daysUntilDue(\Core\Config\AppClock::now())
         );
     }
+
+    // --- Desk formation wordings nobody recognises (#727) ---------------
+
+    /**
+     * @param array<string, int> $levels raw value => holders
+     * @param list<array{raw_value: string, step: string}> $mapping
+     */
+    private function levelsProvider(array $levels, array $mapping = []): LeadershipAttentionProvider
+    {
+        $repository = $this->createStub(LeadershipRepository::class);
+        $repository->method('findStaffFunctions')->willReturn([]);
+        $repository->method('countFormationLevels')->willReturn($levels);
+
+        $stewards = $this->createStub(StewardService::class);
+        $stewards->method('isSummerRegime')->willReturn(true);
+
+        $mappings = $this->createStub(\Modules\Leadership\Repository\FormationLevelMappingRepository::class);
+        $mappings->method('findAll')->willReturn($mapping === [] ? [] : array_column($mapping, 'step', 'raw_value'));
+
+        return new LeadershipAttentionProvider(
+            $repository,
+            $stewards,
+            $mappings,
+            new \Modules\Leadership\Service\FormationLevelResolver()
+        );
+    }
+
+    public function testUnrecognisedWordingsAreOneAggregatedPointLeadingToConfiguration(): void
+    {
+        $points = $this->levelsProvider(['Zorglub' => 3, 'Wording maison' => 1, 'T2' => 4])->collect(self::SCOUT_YEAR_ID);
+
+        $this->assertCount(1, $points);
+        $this->assertSame('2 niveaux de formation Desk doivent être configurés', $points[0]->title);
+        $this->assertSame(
+            "Tant qu'ils ne sont pas reconnus, le calcul du nombre de brevetés peut être incomplet.",
+            $points[0]->why
+        );
+        $this->assertSame('/admin/leadership/configuration', $points[0]->actionUrl);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
+    }
+
+    public function testThePointGoesOnceEveryWordingIsRecognised(): void
+    {
+        $this->assertSame([], $this->levelsProvider(['T2' => 4])->collect(self::SCOUT_YEAR_ID));
+    }
 }

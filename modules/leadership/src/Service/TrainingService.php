@@ -197,6 +197,7 @@ class TrainingService
                 totem: $row->totem,
                 fullName: $row->fullName(),
                 email: $row->email,
+                phone: $row->phone,
                 sectionName: $row->sectionName,
                 detail: $row->functionLabel,
                 note: "Première année d'animation dans l'unité : le parcours peut commencer maintenant.",
@@ -294,6 +295,7 @@ class TrainingService
                     totem: $row->totem,
                     fullName: $row->fullName(),
                     email: $row->email,
+                    phone: $row->phone,
                     sectionName: $row->sectionName,
                     detail: $row->functionLabel,
                     note: $next === null
@@ -393,11 +395,16 @@ class TrainingService
      * mapping is live or a leftover from a wording Desk has stopped
      * exporting.
      *
+     * Each also says what the site makes of the wording with no decision
+     * at all (`fallback_label`, empty when it does not understand it), so
+     * removing a decision can say where the wording goes next.
+     *
      * @param list<array{raw_value: string, step: string}> $mappings
-     * @return list<array{raw_value: string, step: string, step_label: string, holders: int}>
+     * @return list<array{raw_value: string, step: string, step_label: string, holders: int, fallback_label: string}>
      */
     public function decidedLevels(array $mappings, int $scoutYearId): array
     {
+        $builtIn = new FormationLevelResolver();
         $counts = $this->repository->countFormationLevels($scoutYearId);
         $foldedCounts = [];
         foreach ($counts as $rawValue => $holders) {
@@ -415,9 +422,15 @@ class TrainingService
                 'step' => $step->value,
                 'step_label' => $step->label(),
                 'holders' => $foldedCounts[FormationLevelResolver::keyFor($mapping['raw_value'])] ?? 0,
+                'fallback_label' => self::fallbackLabel($builtIn->resolve($mapping['raw_value'])),
             ];
         }
 
         return $rows;
+    }
+
+    private static function fallbackLabel(FormationStep $step): string
+    {
+        return $step === FormationStep::UNKNOWN ? '' : $step->label();
     }
 }
