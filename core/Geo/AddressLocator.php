@@ -46,8 +46,10 @@ namespace Core\Geo;
  * the database failed — or superseded by the same person's next request.
  * Whatever it is, the form stays usable and the pin can be placed by hand
  * (and the background task still looks the address up after saving).
- * Only a place is ever sent — an outing's venue, never a person's address;
- * that is the caller's contract, as it is GeocodingService's.
+ * Only a place is ever sent — an outing's venue, or the meeting point a
+ * driver types for the suggested departure (#703), which every member sees
+ * and the form says must not be a home — never a person's address; that is
+ * the caller's contract, as it is GeocodingService's.
  */
 class AddressLocator
 {
