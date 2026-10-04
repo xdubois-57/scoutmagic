@@ -340,6 +340,16 @@ describe('registration-passage.js', () => {
             expect(feedback().classList.contains('text-danger')).toBe(true);
         });
 
+        it('says how many comments the AI read first, when it read any', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, placed: 3, reviewed: 2, warnings: [] }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() =>
+                expect(feedback().textContent).toBe('2 commentaires relus, 3 personnes réparties.'));
+        });
+
         it('does not reload when the server refuses, and says why', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Indisponible.' }));
             await boot();
