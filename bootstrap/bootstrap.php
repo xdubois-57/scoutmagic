@@ -48,6 +48,7 @@ const BOOTSTRAP_MIN_PHP_VERSION = '8.4.0';
 const BOOTSTRAP_STORAGE_SUBDIRS = ['keys', 'config', 'core', 'modules', 'temp'];
 const BOOTSTRAP_REQUIRED_ARTIFACT_ENTRIES = ['vendor/autoload.php', 'public/index.php', 'schema/core.sql'];
 const BOOTSTRAP_ACCESS_FILE = '.bootstrap-access.php';
+const BOOTSTRAP_ACCESS_LOCK_FILE = '.bootstrap-access.lock';
 const BOOTSTRAP_INCOMING_PART = 'portable-restore.part';
 const BOOTSTRAP_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 /** Below the smallest post_max_size a shared host is seen to keep (8 MB). */
@@ -1817,6 +1818,7 @@ function bootstrapStepCleanup(string $docRoot, array $state, ?callable $selfDele
 
     @unlink($docRoot . '/' . BOOTSTRAP_STATE_FILE);
     @unlink($docRoot . '/' . BOOTSTRAP_ACCESS_FILE);
+    @unlink($docRoot . '/' . BOOTSTRAP_ACCESS_LOCK_FILE);
     $selfDeleted = (bool) $selfDelete();
 
     // Where the operator goes next — the wizard's restore mode when an
@@ -1958,9 +1960,42 @@ function bootstrapTokenLockSeconds(int $attempts): int
  * refuses `.bootstrap-access.php` would otherwise reset the counter on
  * every request, and the lockout ladder would never engage.
  *
+ * The whole read-count-write runs under an exclusive lock: parallel
+ * attempts would otherwise each read the same count and write it back
+ * plus one, and the ladder would advance once per burst.
+ *
  * @return array{ok: bool, cookie?: string, error?: string, locked_until?: int}
  */
 function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): array
+{
+    $lock = @fopen($docRoot . '/' . BOOTSTRAP_ACCESS_LOCK_FILE, 'c');
+    if ($lock === false) {
+        return ['ok' => false, 'error' => bootstrapNotWritableError()];
+    }
+    if (!flock($lock, LOCK_EX)) {
+        fclose($lock);
+
+        return ['ok' => false, 'error' => bootstrapNotWritableError()];
+    }
+
+    try {
+        return bootstrapVerifyTokenLocked($docRoot, $submitted, $now);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function bootstrapNotWritableError(): string
+{
+    return "Ce dossier n'est pas accessible en écriture pour PHP : les tentatives ne peuvent pas être comptées, "
+        . "le jeton n'est donc pas vérifié. Donnez à PHP le droit d'écrire dans ce dossier, puis rechargez la page.";
+}
+
+/**
+ * @return array{ok: bool, cookie?: string, error?: string, locked_until?: int}
+ */
+function bootstrapVerifyTokenLocked(string $docRoot, string $submitted, int $now): array
 {
     $access = bootstrapReadAccess($docRoot);
     $lockedUntil = (int) ($access['token_locked_until'] ?? 0);
@@ -1976,9 +2011,7 @@ function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): arr
     $attempts = (int) ($access['token_attempts'] ?? 0) + 1;
     $access['token_attempts'] = $attempts;
     if (!bootstrapWriteAccess($docRoot, $access)) {
-        return ['ok' => false, 'error' => "Ce dossier n'est pas accessible en écriture pour PHP : les tentatives ne "
-            . "peuvent pas être comptées, le jeton n'est donc pas vérifié. Donnez à PHP le droit d'écrire dans ce "
-            . 'dossier, puis rechargez la page.'];
+        return ['ok' => false, 'error' => bootstrapNotWritableError()];
     }
 
     $token = bootstrapReadTokenValue($docRoot);
@@ -2016,8 +2049,11 @@ function bootstrapDelayLabel(int $seconds): string
 }
 
 /**
- * The host as the browser named it — only a host name and an optional
- * port, never anything a URL could be built from otherwise.
+ * The host as the browser named it — a bare host name, never anything a
+ * URL could be built from otherwise. The server fetches its own probes at
+ * `https://<host>/`, so a port is refused (`:443` aside, which changes
+ * nothing): a forged `Host` must not aim those requests at another
+ * service on the hosting network.
  *
  * @param array<string, mixed> $server
  */
@@ -2025,11 +2061,11 @@ function bootstrapRequestHost(array $server): ?string
 {
     $host = $server['HTTP_HOST'] ?? null;
 
-    if (!is_string($host) || preg_match('/^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/', $host) !== 1) {
+    if (!is_string($host) || preg_match('/^([A-Za-z0-9.-]{1,253})(:443)?$/', $host, $m) !== 1) {
         return null;
     }
 
-    return strtolower($host);
+    return strtolower($m[1]);
 }
 
 /**
@@ -2302,7 +2338,7 @@ function bootstrapArchiveAppend(array $state, int $offset, string $data, bool $l
  * @param string[] $headers
  * @return array{status: int, headers: array<string, string>, body: string}
  */
-function bootstrapDefaultHttpGet(string $url, array $headers = []): array
+function bootstrapDefaultHttpGet(string $url, array $headers = [], bool $followRedirects = true): array
 {
     $headerStr = 'User-Agent: ' . BOOTSTRAP_USER_AGENT . "\r\n";
     foreach ($headers as $h) {
@@ -2315,7 +2351,7 @@ function bootstrapDefaultHttpGet(string $url, array $headers = []): array
             'header' => $headerStr,
             'timeout' => BOOTSTRAP_HTTP_TIMEOUT,
             'ignore_errors' => true,
-            'follow_location' => 1,
+            'follow_location' => $followRedirects ? 1 : 0,
         ],
         'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
     ]);
@@ -2341,6 +2377,18 @@ function bootstrapDefaultHttpGet(string $url, array $headers = []): array
     }
 
     return ['status' => $status, 'headers' => $responseHeaders, 'body' => $body === false ? '' : $body];
+}
+
+/**
+ * The site's own probes — the HTTPS check and the reception canary:
+ * fetched once, never redirected, so the answer is the site's and the
+ * request goes nowhere else.
+ *
+ * @return array{status: int, headers: array<string, string>, body: string}
+ */
+function bootstrapProbeHttpGet(string $url): array
+{
+    return bootstrapDefaultHttpGet($url, [], false);
 }
 
 function bootstrapDefaultDownloader(string $url, string $destPath): void
@@ -2832,7 +2880,12 @@ function bootstrapHandleHttpsCheck(string $docRoot, callable $httpGet, int $now)
     } else {
         unset($access['https_verified_at']);
     }
-    bootstrapWriteAccess($docRoot, $access);
+    // A verdict that cannot be kept is not a verdict: step 1 reads it back.
+    if (!bootstrapWriteAccess($docRoot, $access)) {
+        $check = ['ok' => false, 'detail' => "Ce dossier n'est pas accessible en écriture pour PHP : le résultat "
+            . "de la vérification ne peut pas être enregistré. Donnez à PHP le droit d'écrire dans ce dossier, "
+            . 'puis relancez la vérification.'];
+    }
 
     bootstrapSendJson($check, $buffering);
 }
@@ -3769,7 +3822,7 @@ function bootstrapMain(?string $docRoot = null): void
     bootstrapSetProofCookie(bootstrapReadTokenValue($docRoot), $now);
 
     if ($action === 'https-check' && $method === 'POST') {
-        bootstrapHandleHttpsCheck($docRoot, 'bootstrapDefaultHttpGet', $now);
+        bootstrapHandleHttpsCheck($docRoot, 'bootstrapProbeHttpGet', $now);
         return;
     }
 
@@ -3779,7 +3832,7 @@ function bootstrapMain(?string $docRoot = null): void
     }
 
     if ($action === 'archive-begin' && $method === 'POST') {
-        bootstrapHandleArchiveBegin($docRoot, $stateFile, 'bootstrapDefaultHttpGet');
+        bootstrapHandleArchiveBegin($docRoot, $stateFile, 'bootstrapProbeHttpGet');
         return;
     }
 

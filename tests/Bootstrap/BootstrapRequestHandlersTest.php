@@ -969,6 +969,17 @@ class BootstrapRequestHandlersTest extends TestCase
             1_800_000_100
         ));
         $this->assertArrayNotHasKey('https_verified_at', \bootstrapReadAccess($this->tempDir), 'a failed check is forgotten');
+
+        // A passed check that cannot be recorded is reported as failed, not as passed.
+        unlink($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        mkdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $json = json_decode($this->outputOf(
+            '',
+            fn () => \bootstrapHandleHttpsCheck($this->tempDir, $serve, 1_800_000_200)
+        ), true);
+        rmdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('écriture', (string) ($json['detail'] ?? ''));
     }
 
     #[RunInSeparateProcess]

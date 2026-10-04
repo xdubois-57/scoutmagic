@@ -122,6 +122,20 @@ final class BootstrapAccessTest extends TestCase
         $this->assertStringContainsString('écriture', (string) ($result['error'] ?? ''));
     }
 
+    /** No lock, no comparison: parallel attempts must each be counted. */
+    public function testATokenIsNotComparedWhenTheAttemptsCannotBeLocked(): void
+    {
+        \bootstrapEnsureTokenFile($this->docRoot);
+        $token = \bootstrapReadTokenValue($this->docRoot);
+        mkdir($this->docRoot . '/' . \BOOTSTRAP_ACCESS_LOCK_FILE);
+
+        $result = \bootstrapVerifyToken($this->docRoot, $token, self::NOW);
+
+        rmdir($this->docRoot . '/' . \BOOTSTRAP_ACCESS_LOCK_FILE);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('écriture', (string) ($result['error'] ?? ''));
+    }
+
     /** @return array<string, array{0: array<string, string>, 1: bool}> */
     public static function requestSchemes(): array
     {
@@ -211,7 +225,10 @@ final class BootstrapAccessTest extends TestCase
     public function testOnlyAPlainHostNameIsEverPutInAUrl(): void
     {
         $this->assertSame('unite.example.org', \bootstrapRequestHost(['HTTP_HOST' => 'Unite.Example.org']));
-        $this->assertSame('localhost:8080', \bootstrapRequestHost(['HTTP_HOST' => 'localhost:8080']));
+        $this->assertSame('unite.example.org', \bootstrapRequestHost(['HTTP_HOST' => 'unite.example.org:443']));
+        // The server fetches https://<host>/: no other port, so no other service, is ever aimed at.
+        $this->assertNull(\bootstrapRequestHost(['HTTP_HOST' => 'localhost:8080']));
+        $this->assertNull(\bootstrapRequestHost(['HTTP_HOST' => '10.0.0.5:22']));
         $this->assertNull(\bootstrapRequestHost(['HTTP_HOST' => 'evil.example/@x']));
         $this->assertNull(\bootstrapRequestHost(['HTTP_HOST' => 'a b']));
         $this->assertNull(\bootstrapRequestHost([]));
