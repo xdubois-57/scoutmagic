@@ -390,6 +390,38 @@ class RentalStayRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * A validated departure freezes the arrival too, even one never
+     * validated itself (ticked by hand): the departure's PDF is read
+     * against it. Refused by each write itself.
+     */
+    public function testAValidatedDepartureFreezesTheArrivalItWasReadAgainst(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
+        $this->repository->snapshotInventory($this->bookingId, $this->assetId);
+        $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
+        $meterId = $this->meter();
+        $at = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null);
+        $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_000_000, $at, null, null, 7);
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::DEPARTURE, $at, null);
+
+        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '12', null));
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 900_000, $at, null, null, 7)
+        );
+        $otherMeterId = $this->repository->createMeter($this->assetId, 'Eau', MeterKind::WATER, 'm³', null);
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL, 5_000, $at, null, null, 7)
+        );
+        $this->assertSame('40', $this->repository->findBookingInventory($this->bookingId)[0]['arrival_value']);
+        $this->assertSame(
+            1_000_000,
+            $this->repository->findReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL)?->valueMilli
+        );
+    }
+
     public function testAPhaseIsValidatedOnceAndCarriesItsDocument(): void
     {
         $at = new \DateTimeImmutable('2027-07-01 10:00:00');

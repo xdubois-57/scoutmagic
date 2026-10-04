@@ -40,7 +40,8 @@ l'appui. **Il faut tous les relevés pour valider** : un état des lieux
 validé ne se complète plus.
 
 Les incidents se signalent ici aussi, jusqu'à la validation de l'état des
-lieux de sortie — son PDF les liste.
+lieux de sortie — son PDF les liste, sans montant : ce qui se facture se
+décide ensuite, et n'est demandé au locataire qu'une fois tranché.
 
 ## Valider et envoyer
 
@@ -56,7 +57,9 @@ renvoyez-le depuis la page Documents.
 
 Si l'état des lieux d'entrée a été coché à la main sur le tableau de
 bord, celui de sortie commence directement, sans référence d'entrée à
-reprendre.
+reprendre. Ce que vous aviez déjà noté à l'entrée reste modifiable
+jusqu'à la validation de la sortie : le PDF de sortie se lit contre
+l'entrée, et l'entrée se fige avec lui.
 
 Ce site ne fonctionne qu'en ligne : sur place sans réseau, notez sur
 papier et saisissez au retour.

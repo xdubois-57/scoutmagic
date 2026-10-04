@@ -160,6 +160,30 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         );
     }
 
+    public function testAValidatedDepartureFreezesTheArrivalItWasReadAgainst(): void
+    {
+        $inventoryId = $this->inventoryLine();
+        $meterId = $this->repository->createMeter($this->assetId, 'Électricité', MeterKind::ELECTRICITY, 'kWh', null);
+        $otherMeterId = $this->repository->createMeter($this->assetId, 'Eau', MeterKind::WATER, 'm³', null);
+        $at = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '4', null));
+        $this->assertTrue(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_000_000, $at, null, null, 7)
+        );
+
+        // The arrival ticked by hand: only the departure is validated.
+        $this->validate(ReadingPhase::DEPARTURE);
+
+        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '3', null));
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 900_000, $at, null, null, 7)
+        );
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL, 5_000, $at, null, null, 7)
+        );
+        $this->assertSame('4', $this->repository->findBookingInventory($this->bookingId)[0]['arrival_value']);
+    }
+
     public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
     {
         $this->validate(ReadingPhase::ARRIVAL);

@@ -122,6 +122,30 @@ final class InventoryReportTest extends TestCase
         $this->assertStringContainsString('Validé par Anne Dupont le 04/07/2027 à 11:30.', $html);
     }
 
+    /**
+     * The departure's PDF lists what was observed, never what it may cost:
+     * an incident still pending is no demand, and the card on the page
+     * says so (« sans montant »).
+     */
+    public function testTheDeparturesPdfListsIncidentsWithoutTheirAmount(): void
+    {
+        $html = InventoryReport::html(
+            ReadingPhase::DEPARTURE,
+            [],
+            [],
+            [new Incident(
+                1, 1, 'Vitre cassée', 12345, IncidentDecision::PENDING, null, null, null, null, null,
+                new \DateTimeImmutable('2027-07-04 10:00:00')
+            )],
+            'Anne Dupont',
+            new \DateTimeImmutable('2027-07-04 11:30:00')
+        );
+
+        $this->assertStringContainsString('<li>Vitre cassée</li>', $html);
+        $this->assertStringNotContainsString('123,45', $html);
+        $this->assertStringNotContainsString('12345', $html);
+    }
+
     public function testTheArrivalsPdfHasNoIncidentsSection(): void
     {
         $html = InventoryReport::html(

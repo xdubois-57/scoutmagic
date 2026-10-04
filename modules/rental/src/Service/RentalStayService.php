@@ -404,6 +404,16 @@ class RentalStayService
                 . ' est validé et envoyé au locataire : il ne se modifie plus.'
             );
         }
+        // An arrival ticked by hand was never validated itself, but the
+        // departure's PDF was read against it: frozen with that PDF.
+        foreach ($phase->frozenBy() as $later) {
+            if ($later !== $phase && isset($validations[$later->value])) {
+                throw new RentalException(
+                    "L'état des lieux de sortie est validé et envoyé au locataire : celui d'entrée, sur lequel "
+                    . 'il se lit, ne se modifie plus.'
+                );
+            }
+        }
         if ($phase === ReadingPhase::DEPARTURE
             && !isset($validations[ReadingPhase::ARRIVAL->value])
             && !$arrivalTickedByHand

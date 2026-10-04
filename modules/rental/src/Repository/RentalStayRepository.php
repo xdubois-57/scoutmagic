@@ -170,7 +170,7 @@ class RentalStayRepository
                  SET value_milli = ?, read_at = ?, file_id = ?, comment = ?, recorded_by_member_id = ?
                  WHERE id = ?
                    AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
-                                    WHERE v.booking_id = ? AND v.phase = ?)'
+                                    WHERE v.booking_id = ? AND v.phase IN (' . self::placeholders($phase) . '))'
             );
             $stmt->execute([
                 $valueMilli,
@@ -183,7 +183,7 @@ class RentalStayRepository
                 $recordedByMemberId,
                 $existing->id,
                 $bookingId,
-                $phase->value,
+                ...self::frozenByValues($phase),
             ]);
 
             return $stmt->rowCount() > 0;
@@ -197,7 +197,7 @@ class RentalStayRepository
                 . 'created_at)
              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
               WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
-                                 WHERE v.booking_id = ? AND v.phase = ?)'
+                                 WHERE v.booking_id = ? AND v.phase IN (' . self::placeholders($phase) . '))'
         );
         $stmt->execute([
             $bookingId,
@@ -210,7 +210,7 @@ class RentalStayRepository
             $recordedByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $bookingId,
-            $phase->value,
+            ...self::frozenByValues($phase),
         ]);
 
         return $stmt->rowCount() > 0;
@@ -449,7 +449,9 @@ class RentalStayRepository
      * Never onto a validated phase, checked by the write itself and not
      * only beforehand: a save that passed the check while another manager
      * was validating would otherwise land after the PDF was made, and the
-     * frozen value would differ from the one the renter holds.
+     * frozen value would differ from the one the renter holds. "Validated"
+     * includes a later phase (`ReadingPhase::frozenBy()`): the departure's
+     * PDF is read against the arrival, even one only ticked by hand.
      *
      * False when no row changed — the phase was validated in between, or
      * (MySQL counts changed rows, not matched ones) nothing was different.
@@ -469,14 +471,15 @@ class RentalStayRepository
             "UPDATE rental_booking_inventory SET {$valueColumn} = ?, {$noteColumn} = ?, updated_at = ?
               WHERE id = ?
                 AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
-                                 WHERE v.booking_id = rental_booking_inventory.booking_id AND v.phase = ?)"
+                                 WHERE v.booking_id = rental_booking_inventory.booking_id
+                                   AND v.phase IN (" . self::placeholders($phase) . '))'
         );
         $stmt->execute([
             $value,
             $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 255) : null,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $inventoryId,
-            $phase->value,
+            ...self::frozenByValues($phase),
         ]);
 
         return $stmt->rowCount() > 0;
@@ -852,5 +855,17 @@ class RentalStayRepository
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
+    }
+
+    /** One `?` per phase whose validation freezes `$phase`. */
+    private static function placeholders(ReadingPhase $phase): string
+    {
+        return implode(', ', array_fill(0, count($phase->frozenBy()), '?'));
+    }
+
+    /** @return list<string> */
+    private static function frozenByValues(ReadingPhase $phase): array
+    {
+        return array_map(static fn(ReadingPhase $p): string => $p->value, $phase->frozenBy());
     }
 }

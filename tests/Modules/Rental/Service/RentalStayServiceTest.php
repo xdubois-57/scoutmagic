@@ -527,6 +527,39 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame('2', $this->service->inventoryFor($booking->id)[0]['departure_value']);
     }
 
+    /**
+     * An arrival ticked by hand is never validated itself, but the
+     * departure's PDF is read against it: once that PDF has gone out, the
+     * arrival is frozen with it — its values and its readings.
+     */
+    public function testAnArrivalTickedByHandIsFrozenOnceTheDepartureIsValidated(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $line = $this->service->inventoryFor($booking->id)[0];
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null, true);
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null, true);
+
+        $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::DEPARTURE, $this->now(), 1));
+
+        foreach ([
+            fn() => $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '1', null, true),
+            fn() => $this->service->recordReading(
+                $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1, true
+            ),
+        ] as $write) {
+            try {
+                $write();
+                $this->fail('An arrival was rewritten under a departure already sent.');
+            } catch (RentalException $e) {
+                $this->assertStringContainsString("celui d'entrée, sur lequel il se lit", $e->getMessage());
+            }
+        }
+        $this->assertSame('2', $this->service->inventoryFor($booking->id)[0]['arrival_value']);
+    }
+
     public function testAValidatedPhaseIsFrozen(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');
