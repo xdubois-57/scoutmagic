@@ -248,8 +248,11 @@ class ReenrollmentSavePlanner
      */
     private function stored(): array
     {
-        $read = fn (string $key): ?string => ($value = trim((string) $this->settingService->get($key, 'registration', '')))
-            === '' ? null : $value;
+        $read = function (string $key): ?string {
+            $value = trim((string) $this->settingService->get($key, 'registration', ''));
+
+            return $value === '' ? null : $value;
+        };
 
         return [
             'open_at' => $read(ReenrollmentCampaignService::SETTING_OPEN_AT),

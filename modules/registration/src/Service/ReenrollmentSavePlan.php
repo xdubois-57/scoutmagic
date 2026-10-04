@@ -83,12 +83,8 @@ final class ReenrollmentSavePlan
      */
     public function fingerprint(): string
     {
-        return hash('sha256', (string) json_encode([
-            $this->changes,
-            $this->opening,
-            $this->closing,
-            $this->emails,
-            $this->noEmailReason,
-        ]));
+        $asked = [$this->changes, $this->opening, $this->closing, $this->emails, $this->noEmailReason];
+
+        return hash('sha256', (string) json_encode($asked));
     }
 }
