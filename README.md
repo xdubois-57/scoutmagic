@@ -131,8 +131,9 @@ Les profils OWASP ZAP et leur rôle sont documentés dans le
 [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ; le
 modèle de sécurité détaillé reste dans [SECURITY.md](SECURITY.md).
 
-La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles
-est décrite dans ce même pipeline de qualité.
+La matrice d'autorisation rejoue **toutes** les routes que l'application déclare
+sous les six rôles ; son fonctionnement est décrit dans ce même pipeline de
+qualité.
 
 ## Intégration continue
 
@@ -143,7 +144,7 @@ mais le README conserve l'inventaire vérifié des jobs bloquants :
 - **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
 - **`javascript-tests`** : analyse statique et tests JavaScript.
 - **`e2e-tests`** : tests de bout en bout Playwright.
-- **`authorization-matrix`** : matrice d'autorisation sur toutes les routes.
+- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
 - **`dast-passive`** : analyse dynamique passive OWASP ZAP.
 - **`security`** : audit des dépendances Composer.
 - **`sonarqube`** : Quality Gate SonarQube Cloud.
@@ -154,8 +155,18 @@ mais le README conserve l'inventaire vérifié des jobs bloquants :
 
 Le processus détaillé est documenté dans le
 [pipeline de qualité](docs/quality-pipeline.md#release-pipeline). Avant une
-release, le script exécute sept verrous ; leur définition canonique reste dans
-`scripts/release.sh` et la documentation spécialisée.
+release, le script exécute sept verrous :
+
+1. **Déploiement** : la release précédente est bien en production et le site répond.
+2. **Intégration continue** : `All checks` est vert sur le commit publié.
+3. **Sécurité** : les audits de dépendances et alertes de sécurité ne bloquent pas.
+4. **Fraîcheur des dépendances** : les dépendances directes et bibliothèques embarquées sont à jour.
+5. **API navigateur dépréciées** : les API indispensables restent supportées par les navigateurs ciblés.
+6. **SonarQube Cloud** : le Quality Gate et les contrôles de sécurité SonarQube sont satisfaits.
+7. **Sources externes** : les sources externes dont dépend ScoutMagic restent accessibles.
+
+La définition canonique de ces verrous reste dans `scripts/release.sh` et la
+documentation spécialisée.
 
 ## Données, sécurité et responsabilité
 
