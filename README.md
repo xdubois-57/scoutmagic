@@ -1,39 +1,41 @@
 # ScoutMagic
 
-**Le site web de votre unité scoute, clé en main.**
+ScoutMagic est un site web destiné aux unités de la fédération Les Scouts
+en Belgique. Il rassemble dans un même endroit de nombreux outils utiles
+aux animés, aux parents, aux animateurs et aux équipes d'unité.
 
-ScoutMagic est un site libre et gratuit, pensé pour les unités de la
-fédération « Les Scouts ». Il réunit en un seul endroit ce qui est
-aujourd'hui éparpillé entre un vieux site, des tableurs, des groupes de
-messagerie et des boîtes mail : la vitrine publique de l'unité, l'espace
-des animateurs et celui des familles.
-
-Vos membres viennent directement de Desk : pas de double encodage. Le site
-s'installe chez l'hébergeur de votre choix, avec un simple accès FTP, et
-se met ensuite à jour tout seul.
+L'objectif est de faciliter la vie de l'unité : mieux partager les
+informations, communiquer, organiser les activités et simplifier certaines
+tâches administratives. ScoutMagic est conçu pour être flexible, afin de
+s'adapter aux besoins de chaque unité.
 
 ## Fonctionnalités
 
-- **Membres à jour depuis Desk** : un import du fichier de la fédération,
-  et sections, fonctions et staffs suivent.
-- **Connexion sans mot de passe** : lien par e-mail, passkey ou mot de
-  passe, avec des accès adaptés à chaque rôle.
-- **Sur téléphone comme une application** : le site s'installe sur l'écran
-  d'accueil et reste consultable hors ligne.
-- **Communication** : actualités, calendrier d'activités, notifications,
-  e-mails groupés et groupes de discussion privés par section.
-- **Photos et vidéos** : galeries par activité.
-- **Vie de l'unité** : inscriptions en ligne, camps, encadrement et
-  formations, trombinoscope du staff.
-- **Argent** : finances de l'unité, cotisations et location des locaux et
-  du matériel.
-- **Données protégées** : données personnelles chiffrées, sauvegardes
-  automatiques, aucun pistage des visiteurs.
-- **Aide intégrée** : un bouton d'aide sur chaque page, et tout le guide
-  sur `/aide`.
+Parmi les nombreuses possibilités de ScoutMagic :
 
-Chaque fonction optionnelle est un module : vous n'activez que ce dont
-votre unité a besoin.
+- **Découvrir et suivre la vie de l'unité** : actualités, sections,
+  contacts, galeries photos et trombinoscope.
+- **Garder votre agenda à jour** : consulter le calendrier et vous y
+  abonner depuis votre téléphone ou votre agenda habituel.
+- **Retrouver les informations utiles** : informations sur les membres,
+  documents et aide intégrée au site.
+- **Préparer les activités et les camps** : présences, covoiturage,
+  recherche et gestion des endroits de camp, autorisations parentales et
+  fiches médicales.
+- **Communiquer** : actualités, groupes de discussion, mails, listes de
+  diffusion, notifications et médias sociaux.
+- **Gérer la vie de l'unité** : inscriptions et réinscriptions, passages,
+  membres, cotisations, attestations, finances, paiements par code QR et
+  campagnes de paiement, locations, année scoute, mises à jour
+  automatiques, etc.
+
+Cette liste est loin d'être complète. ScoutMagic propose beaucoup d'autres
+fonctions : n'hésitez pas à explorer le site et à découvrir ce qui vous
+intéresse.
+
+ScoutMagic est un projet open source, développé bénévolement et en
+évolution constante. Chaque unité garde son propre site, et reste
+responsable et en contrôle de ses données.
 
 ## Installation rapide
 
@@ -85,10 +87,6 @@ Ensuite, deux pages méritent une visite régulière :
   ce dont le site dépend chez votre hébergeur, ce qui cesse de marcher
   sans chaque élément, et quoi lui demander.
 
-Deux guides complètent l'aide intégrée : la
-[location des biens de l'unité](docs/rental-guide.md) et le
-[raccordement d'une boîte mail](docs/inbound-mail-setup.md).
-
 ## Licence
 
 ScoutMagic est développé et maintenu par Xavier Dubois, sous licence
@@ -116,6 +114,38 @@ sont apportées bénévolement, sans garantie de délai.
 ## Contribuer
 
 Les contributions sont les bienvenues. Commencez par
-[CONTRIBUTING.md](CONTRIBUTING.md), puis
-[docs/developpement.md](docs/developpement.md) pour l'environnement de
-développement et les tests.
+[CONTRIBUTING.md](CONTRIBUTING.md) ; les autres documents sont listés
+ci-dessous.
+
+## Documentation
+
+Pour les utilisateurs et les administrateurs d'unité :
+
+- [docs/installation.md](docs/installation.md) — l'installation complète
+  et la tâche cron.
+- [docs/rental-guide.md](docs/rental-guide.md) — louer les biens de
+  l'unité.
+- [docs/inbound-mail-setup.md](docs/inbound-mail-setup.md) — raccorder
+  une boîte mail en lecture seule.
+
+Pour les contributeurs :
+
+- [specifications.md](specifications.md) — ce que fait chaque fonction du
+  site.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — l'architecture technique de
+  référence.
+- [SECURITY.md](SECURITY.md) — les exigences de sécurité.
+- [design.md](design.md) — l'interface, le vocabulaire et la charte
+  éditoriale.
+- [docs/exigences-non-fonctionnelles.md](docs/exigences-non-fonctionnelles.md)
+  — les exigences non fonctionnelles : dimensionnement, performances,
+  reprise après sinistre.
+- [docs/quality-pipeline.md](docs/quality-pipeline.md) — la chaîne
+  qualité : tests, intégration continue, revues et release.
+- [AGENTS.md](AGENTS.md) — les règles de contribution, pour les humains
+  comme pour les agents IA.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — soumettre une contribution.
+- [docs/developpement.md](docs/developpement.md) — l'environnement de
+  développement, les tests et la publication d'une release.
+- [docs/module-development.md](docs/module-development.md) — créer un
+  module.
