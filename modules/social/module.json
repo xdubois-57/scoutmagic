@@ -156,6 +156,15 @@
       "label": ""
     },
     {
+      "path": "/medias-sociaux/nouvelle/{kind}/{id}/image",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "backgroundSource",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/medias-sociaux",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
@@ -199,6 +208,15 @@
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "preview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/medias-sociaux/{id}/image",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "background",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""

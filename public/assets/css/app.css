@@ -3,6 +3,32 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
+/* The face the published card's title and address are drawn in (issue
+   #706, IT-02). The card used to be composed by GD, which read the .ttf
+   from disk; the browser draws it now, so the same face has to reach the
+   browser — and the content security policy is `font-src 'self'`
+   (Core\Http\Response), so it is served from here and never from a font
+   CDN.
+
+   A Latin subset, 19.7 KB against the .ttf's 709 KB: a card's text is a
+   French title somebody typed and the site's own address. See
+   public/assets/fonts/README.md for the subset's ranges and the command
+   that rebuilds it.
+
+   `font-display: block` on purpose, against the usual advice. A swap
+   would draw the card once in the fallback face and again in this one,
+   and the card is the thing being judged before it is published — a
+   title that jumps and re-wraps between two frames reads as a bug. The
+   file is small enough that the block is brief, and the composer waits
+   for the face before its first draw rather than drawing twice. */
+@font-face {
+    font-family: 'ScoutMagic Card';
+    src: url('/assets/fonts/dejavu-sans-bold-latin.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: block;
+}
+
 :root {
     --page-max-width: 1200px;
     --page-medium-width: 720px;

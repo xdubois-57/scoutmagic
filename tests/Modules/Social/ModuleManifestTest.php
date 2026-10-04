@@ -117,6 +117,10 @@ final class ModuleManifestTest extends TestCase
             $reads = in_array($route['action'], [
                 'index', 'connect', 'callback', 'show',
                 'history', 'create', 'createFromSource', 'edit', 'preview', 'previewSource', 'picker', 'confirmRetry',
+                // The card's background, for the browser that now draws
+                // the card (issue #706, IT-02): a read, like the composed
+                // preview beside it.
+                'background', 'backgroundSource',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

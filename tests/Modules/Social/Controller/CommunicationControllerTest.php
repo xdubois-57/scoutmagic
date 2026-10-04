@@ -147,7 +147,11 @@ final class CommunicationControllerTest extends TestCase
             self::assertSame('chief', $route['role_min'], $route['path']);
             $cases[$route['method'] . ' ' . $route['path']] = [$route['method'], $route['path'], $route['action']];
         }
-        self::assertCount(12, $cases);
+        // Deliberately a count and not a comment: a route added to the
+        // manifest without a thought for who may reach it fails HERE,
+        // before the two tests below have anything to say. 14 since
+        // IT-02 added the card's two background routes.
+        self::assertCount(14, $cases);
 
         return $cases;
     }
@@ -177,6 +181,114 @@ final class CommunicationControllerTest extends TestCase
         $response = $this->route($method, $path, $action, $body, null, $id);
 
         $this->assertLessThan(400, $response->getStatusCode(), substr($response->getBody(), 0, 400));
+    }
+
+    /**
+     * The card's background is the source's own bytes, unblurred (issue
+     * #706, IT-02).
+     *
+     * The browser draws the card now, so it needs the photo rather than
+     * the composed card: the title follows the typing and the blur
+     * follows a slider, and a round trip per frame is the waiting the
+     * chantier rules out.
+     *
+     * Asserted against the COMPOSED card's own sharpness rather than on a
+     * header alone — the point of this route is that it is not blurred,
+     * and `SocialTestHelper::sharpness()` is what the card tests already
+     * measure that with.
+     */
+    public function testTheBackgroundIsTheSourcesPhotoUnblurred(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $background = $this->controller()->background($this->get(), ['id' => (string) $id]);
+        $card = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+
+        $this->assertSame(200, $background->getStatusCode());
+        $this->assertSame('image/jpeg', $background->getHeaders()['Content-Type'] ?? null);
+        $this->assertSame(
+            H::groupPhoto(),
+            $background->getBody(),
+            'the background must be the source\'s own bytes, not a composition of them'
+        );
+        $this->assertGreaterThan(
+            H::sharpness($card->getBody()) * 2,
+            H::sharpness($background->getBody()),
+            'the background came out blurred: the browser would then blur an already blurred photo,'
+            . ' and « Net » could never mean net (issue #706, IT-02).'
+        );
+    }
+
+    /**
+     * It is served to the chief and to no cache: the same address answers
+     * a different album to a different chief, and an unblurred gallery
+     * photo is not something to leave in a proxy.
+     */
+    public function testTheBackgroundIsNeverCachedAndNeverSniffed(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $headers = $this->controller()->background($this->get(), ['id' => (string) $id])->getHeaders();
+
+        $this->assertSame('private, no-store', $headers['Cache-Control'] ?? null);
+        $this->assertSame('nosniff', $headers['X-Content-Type-Options'] ?? null);
+    }
+
+    /**
+     * Nothing to draw answers 404, exactly as the composed preview does —
+     * and for the same reason: a chief who may not look at it learns
+     * nothing from which of the refusals it was.
+     */
+    public function testABackgroundThatIsNotThereAnswersNotFound(): void
+    {
+        $this->loginAuthor();
+
+        // A communication with no image at all.
+        $bare = $this->communications->create('Sans image', 'Texte', $this->author, new \DateTimeImmutable());
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $bare])->getStatusCode()
+        );
+
+        // An album nobody described.
+        $this->assertSame(
+            404,
+            $this->controller()
+                ->backgroundSource($this->get(), ['kind' => 'album', 'id' => '999999'])
+                ->getStatusCode()
+        );
+    }
+
+    /**
+     * The prefilled composer has no row yet, so its background is keyed
+     * on the SOURCE — the same pairing as `previewSource()`.
+     */
+    public function testThePrefilledComposerHasABackgroundOfItsOwn(): void
+    {
+        $this->loginAuthor();
+
+        $response = $this->controller()
+            ->backgroundSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(H::groupPhoto(), $response->getBody());
+    }
+
+    /**
+     * Another chief's communication has no background either — the row's
+     * own rule decides, not the fact that an image exists somewhere.
+     */
+    public function testAnotherChiefsBackgroundIsNotThere(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        AuthSession::login($this->other, 'autre@unite.be', 'chief');
+
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $id])->getStatusCode()
+        );
     }
 
     public function testAnotherChiefsCommunicationIsNotThere(): void

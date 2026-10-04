@@ -309,6 +309,102 @@ final class CommunicationController extends AbstractController
     }
 
     /**
+     * The BACKGROUND of the card, as the source's own bytes — what the
+     * browser draws the card from (issue #706, IT-02).
+     *
+     * **Why a second pair of image routes.** `preview()` serves the card
+     * already composed, which was all the page needed while the server
+     * composed it. From IT-02 the browser composes it, so it needs the
+     * photo itself: the title moves as the chief types and the blur moves
+     * with a slider, and a round trip per frame is exactly the waiting
+     * the chantier rules out.
+     *
+     * **It is the same access, not a new one.** The source's own rule is
+     * asked again here, through the owning module's `Api`, exactly as
+     * every other read does — an album this caller may not share has no
+     * background to fetch either. A chief who may see that album can
+     * already open the photo in the gallery; what is new is that the
+     * social module serves it too, and it serves it UNBLURRED, because
+     * the blur is now the browser's to apply and the chief's to choose.
+     * That is written down in SECURITY.md rather than left to be noticed.
+     *
+     * @param array<string, string> $params
+     */
+    public function background(Request $request, array $params): Response
+    {
+        return $this->backgroundOf($this->source($params));
+    }
+
+    /**
+     * The same, for a composer « Partager » has not saved yet — keyed on
+     * the source, like `previewSource()` and for the same reason.
+     *
+     * @param array<string, string> $params
+     */
+    public function backgroundSource(Request $request, array $params): Response
+    {
+        return $this->backgroundOf($this->describedSource(
+            (string) ($params['kind'] ?? ''),
+            (int) ($params['id'] ?? 0)
+        ));
+    }
+
+    /**
+     * The source's image bytes, or 404 — for something with no image,
+     * something this caller may not see, and bytes that are not one of
+     * the three formats the card accepts alike. The type is sniffed from
+     * the bytes rather than taken from anything the request said: the only
+     * thing that decides what is served is what the owning module handed
+     * over.
+     */
+    private function backgroundOf(?ShareSource $source): Response
+    {
+        if ($source === null || $source->image === null || $source->image === '') {
+            return new Response('Not Found', 404);
+        }
+
+        $type = self::imageType($source->image);
+        if ($type === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response($source->image))
+            ->setHeader('Content-Type', $type)
+            // Never a shared cache, and never a disk: the same address
+            // answers a different album to a different chief, and an
+            // unblurred gallery photo is not something to leave behind
+            // in a proxy (as `cardOf()` already decided for the card).
+            ->setHeader('Cache-Control', 'private, no-store')
+            // The bytes are an image and nothing else, whatever they
+            // happen to contain: a module that handed over an HTML file
+            // must not get it rendered as one.
+            ->setHeader('X-Content-Type-Options', 'nosniff');
+    }
+
+    /**
+     * The media type of these bytes, among the three the card accepts, or
+     * null.
+     *
+     * Read from the magic bytes, not from a file name or a declared type:
+     * what reaches here came from another module's `Api`, and the card is
+     * drawn by `<canvas>`, which decodes by content too.
+     */
+    private static function imageType(string $bytes): ?string
+    {
+        if (str_starts_with($bytes, "\xFF\xD8\xFF")) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($bytes, "\x89PNG\r\n\x1A\n")) {
+            return 'image/png';
+        }
+        if (str_starts_with($bytes, 'RIFF') && substr($bytes, 8, 4) === 'WEBP') {
+            return 'image/webp';
+        }
+
+        return null;
+    }
+
+    /**
      * The composed card as a JPEG, or 404 — for something with no image,
      * something this caller may not see, and a composition that failed
      * alike: a chief who may not look at it learns nothing from which.

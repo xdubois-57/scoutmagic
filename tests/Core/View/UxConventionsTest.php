@@ -625,6 +625,12 @@ final class UxConventionsTest extends TestCase
         // before that, since « Partager » writes no row on opening.
         '/medias-sociaux/{id}/apercu',
         '/medias-sociaux/nouvelle/{kind}/{id}/apercu',
+        // The card's BACKGROUND — the source's own photo, which the
+        // browser draws the card from since issue #706, IT-02. The same
+        // pairing as the two above, and bytes rather than a page for the
+        // same reason.
+        '/medias-sociaux/{id}/image',
+        '/medias-sociaux/nouvelle/{kind}/{id}/image',
         // XLSX download of one Encadrement page's lists (#727), never a page.
         '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
