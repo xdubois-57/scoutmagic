@@ -845,9 +845,18 @@ class MaintenanceControllerTest extends TestCase
 
         $body = $controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
 
-        foreach (['cron', 'ffmpeg', 'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage'] as $key) {
+        $keys = [
+            'cron', 'shell_web', 'shell_cron', 'ffmpeg', 'pdf_compression',
+            'archive_encryption', 'sodium', 'gd', 'mail', 'php', 'database', 'storage',
+        ];
+        foreach ($keys as $key) {
             $this->assertStringContainsString('id="host-check-' . $key . '"', $body);
         }
+        // #700: the two PHPs are two lines, and PDF compression is never
+        // worded as blocking. No cron ever ran here: unknown, not absent.
+        $this->assertStringContainsString('Exécution de commandes (PHP du cron)', $body);
+        $this->assertStringContainsString('Pas encore vérifiée', $body);
+        $this->assertStringContainsString('Rien n&#039;est refusé.', $body);
         $this->assertStringContainsString('id="host-health-summary"', $body);
         // The cron of a fresh test storage never ran: at least that line counts.
         $this->assertStringContainsString("à régler chez l'hébergeur.", $body);
