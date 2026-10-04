@@ -162,6 +162,21 @@
         };
 
         /**
+         * Puts a row last among a zone's rows, ahead of its empty sentence.
+         *
+         * @param {HTMLElement} zone
+         * @param {HTMLElement} row
+         */
+        var placeInZone = function (zone, row) {
+            var empty = zone.querySelector('.function-zone-empty');
+            if (empty) {
+                empty.before(row);
+            } else {
+                zone.append(row);
+            }
+        };
+
+        /**
          * Puts a row where the server now has it: its role, no « Non
          * confirmée » any more, and the module's flag shown only where it
          * applies (Chef, Chef d'Unité).
@@ -228,14 +243,13 @@
             row.dataset.saving = '1';
             row.draggable = false;
             syncArrows(row);
-            save(null, '/config/functions/update', {
+            void save(null, '/config/functions/update', {
                 function_id: Number.parseInt(row.dataset.id || '', 10),
                 role: to.dataset.role || ''
             }, function () {
                 // Refused: back to the zone the server still has it in, so
                 // the board never shows an assignment that was not made.
-                var empty = from.querySelector('.function-zone-empty');
-                from.insertBefore(row, empty);
+                placeInZone(from, row);
                 refreshZone(from);
                 refreshZone(to);
             }).then(function (data) {
@@ -286,7 +300,7 @@
             if (!to) {
                 return;
             }
-            to.insertBefore(row, to.querySelector('.function-zone-empty'));
+            placeInZone(to, row);
             moveFunction(row, from, to);
         });
     }
