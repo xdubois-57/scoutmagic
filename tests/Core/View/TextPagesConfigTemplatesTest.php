@@ -260,6 +260,20 @@ final class TextPagesConfigTemplatesTest extends TestCase
     }
 
     /**
+     * A group without its key is no connection at all, rather than a drop
+     * zone that would post an empty group and be answered with success.
+     */
+    public function testAGroupWithoutAKeyIsNotConnected(): void
+    {
+        $html = $this->twig->createTemplate(
+            "{% embed 'partials/list_editor.html.twig' with { list_id: 'x', items: [{ id: 1, is_active: true }], "
+            . "reorder_url: '/r', sortable_group: 'g' } %}{% block item_content %}x{% endblock %}{% endembed %}"
+        )->render([]);
+
+        $this->assertStringNotContainsString('data-sortable-group', $html);
+    }
+
+    /**
      * **The list is inert without these two.** The partial draws the drag
      * handle, the toggle and the bin; `list-editor.js` is what binds them,
      * and `base.html.twig` loads neither globally. A page that embeds the

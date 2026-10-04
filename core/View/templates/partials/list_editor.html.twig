@@ -87,9 +87,12 @@
      {%- if in_place is defined and in_place %} data-in-place="true"{% endif %}
      {#- Opt-in connected lists (issue #752): lists sharing a
          `sortable_group` accept each other's items, and post their
-         `group_key` with their order. Absent, the list is on its own. #}
-     {%- if sortable_group is defined and sortable_group %}
-     data-sortable-group="{{ sortable_group }}" data-group-key="{{ group_key|default('') }}"
+         `group_key` with their order. Both or neither: a group without a
+         key would post an empty group, which the server reads as « no
+         move » and answers with success — a drop shown, never saved.
+         Absent, the list is on its own. #}
+     {%- if sortable_group is defined and sortable_group and (group_key|default('')) ~ '' != '' %}
+     data-sortable-group="{{ sortable_group }}" data-group-key="{{ group_key }}"
      {%- endif %}>
     <div class="list-editor-items d-flex flex-column gap-2 mb-3">
         {% for item in items %}
