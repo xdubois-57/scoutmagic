@@ -120,7 +120,7 @@ La documentation détaillée est volontairement séparée de ce README :
   vulnérabilités.
 - [Pipeline de qualité](docs/quality-pipeline.md) — tests, analyse statique,
   intégration continue, contrôles de qualité et processus de release.
-- [Référence détaillée de l'ancien README](docs/readme-reference.md) — contenu
+- [Référence détaillée de l'ancien README](README-reference.md) — contenu
   technique et opérationnel conservé intégralement lors de la simplification.
 - [Développement de modules](docs/module-development.md) — création et
   intégration d'un module ScoutMagic.
@@ -138,19 +138,19 @@ trouvent également dans [AGENTS.md](AGENTS.md).
 
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis) ;
 la version détaillée auparavant publiée ici reste dans
-[la référence de l'ancien README](docs/readme-reference.md#analyse-statique-javascript).
+[la référence de l'ancien README](README-reference.md#analyse-statique-javascript).
 
 ### Tests de bout en bout
 
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#end-to-end--playwright) ;
 la description détaillée et l'ancien inventaire des scénarios restent dans
-[la référence de l'ancien README](docs/readme-reference.md#tests-de-bout-en-bout-e2e).
+[la référence de l'ancien README](README-reference.md#tests-de-bout-en-bout-e2e).
 
 ### Analyse de sécurité dynamique
 
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ;
 les explications détaillées auparavant publiées ici restent dans
-[la référence de l'ancien README](docs/readme-reference.md#analyse-de-securite-dynamique-dast-owasp-zap).
+[la référence de l'ancien README](README-reference.md#analyse-de-securite-dynamique-dast-owasp-zap).
 
 ## Données, sécurité et responsabilité
 
