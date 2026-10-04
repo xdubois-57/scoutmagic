@@ -2289,6 +2289,35 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * Once the contract has gone, Documents generates a new version of it:
+     * the dashboard step no longer does, and a price changed on a
+     * confirmed booking says the contract is to be generated again.
+     */
+    public function testTheDocumentsPageGeneratesANewVersionOnceTheContractWasSent(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
+        ]);
+
+        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString(
+            'Générer une nouvelle version du contrat',
+            (string) preg_replace('/\s+/', ' ', $body)
+        );
+    }
+
+    /**
      * Documents still lists the contract and resends it, but no longer
      * generates it, nor links to its text (#708, IT-16).
      */
@@ -2300,6 +2329,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringNotContainsString('Générer le contrat', $body);
+        $this->assertStringNotContainsString('nouvelle version du', $body, 'nothing sent yet');
         $this->assertStringNotContainsString('/document/contract"', $body);
         $this->assertStringContainsString('Générer la facture', $body);
     }

@@ -73,6 +73,24 @@
         </p>
 
         <div class="d-flex flex-wrap gap-2 mb-3">
+            {#
+              Once a contract has gone, its dashboard step no longer
+              generates one — yet a confirmed booking whose price changes is
+              told « le contrat sera à régénérer en nouvelle version ». Until
+              a void contract reopens its steps by itself (#708, IT-20), the
+              new version is generated here, and sent from the list below.
+            #}
+            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent) is not empty %}
+                <form method="post" action="/mes-locations/document-generer" class="d-inline">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                    <input type="hidden" name="document_type" value="contract">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Générer une nouvelle version du
+                        contrat</button>
+                </form>
+            {% endif %}
             <form method="post" action="/mes-locations/document-generer" class="d-inline">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
