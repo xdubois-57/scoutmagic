@@ -70,7 +70,8 @@ class RentalManagerSignatureRepository
      */
     public function save(int $userAccountId, string $png, \DateTimeImmutable $at): void
     {
-        $insert = 'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at) VALUES (?, ?, ?)';
+        $insert = 'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at)
+                   VALUES (?, ?, ?)';
         $sql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? $insert . ' ON CONFLICT(user_account_id) DO UPDATE SET
                    image_encrypted = excluded.image_encrypted,
