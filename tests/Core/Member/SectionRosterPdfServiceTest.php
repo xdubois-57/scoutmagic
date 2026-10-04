@@ -53,7 +53,8 @@ class SectionRosterPdfServiceTest extends TestCase
         string $first,
         string $bucket = 'animes',
         ?string $totem = null,
-        MemberMovementStatus $status = MemberMovementStatus::CONTINUING
+        MemberMovementStatus $status = MemberMovementStatus::CONTINUING,
+        ?string $sectionTotem = null
     ): MemberRosterRow {
         return new MemberRosterRow(
             memberYearId: 1,
@@ -65,7 +66,8 @@ class SectionRosterPdfServiceTest extends TestCase
             bucket: $bucket,
             emails: ['parent@example.test'],
             phones: [['label' => 'GSM', 'value' => '0496 88 41 20']],
-            movement: new MemberMovementResult($status)
+            movement: new MemberMovementResult($status),
+            sectionTotem: $sectionTotem
         );
     }
 
@@ -187,6 +189,21 @@ class SectionRosterPdfServiceTest extends TestCase
         $this->assertStringContainsString('Sittelle', $html);
         // And it is genuinely normalised, not passed through.
         $this->assertStringNotContainsString('DEN  BERGHE', $html);
+    }
+
+    /** Issue #722: « Guépard – Akela », or « Akela » alone, as on screen. */
+    public function testTheSectionTotemJoinsTheTotemAsOnScreen(): void
+    {
+        $html = $this->htmlFor(
+            [$this->section(7, 'Louveteaux 1')],
+            $this->roster(7, [
+                $this->row('Wathelet', 'Élie', 'animateurs', 'guépard', sectionTotem: 'Akela'),
+                $this->row('Crijns', 'Lucie', 'animateurs', null, sectionTotem: 'Hathi'),
+            ])
+        );
+
+        $this->assertStringContainsString('Guépard – Akela', $html);
+        $this->assertStringContainsString('Hathi', $html);
     }
 
     public function testASectionWithNoNameFallsBackToItsDeskCode(): void

@@ -124,13 +124,11 @@ class PassageController extends AbstractController
                 (int) $targetYear['id']
             ),
             'statistics' => $this->statisticsService->forTargetYear((int) $targetYear['id']),
-            // IT-17 — the optional AI re-reading. Absent module, absent
-            // provider, absent block: the page must not mention a feature
-            // this unit does not have (ARCHITECTURE.md §7.5).
+            // The optional AI re-reading, run by « Répartir » itself
+            // (issue #733). Absent module, absent provider: the dialog does
+            // not mention a feature this unit does not have
+            // (ARCHITECTURE.md §7.5).
             'ai_available' => $this->commentReview !== null && $this->commentReview->isAvailable(),
-            'ai_pending' => $this->commentReview !== null
-                ? $this->commentReview->pendingCount((int) $targetYear['id'])
-                : 0,
             // IT-18 — what the « Optimiser » dialog says before anybody
             // presses anything: how many lines are already settled and how
             // many are still to place.
@@ -449,6 +447,17 @@ class PassageController extends AbstractController
         [$publicYear, $targetYear] = $this->resolveYears();
         [$newRegistrations, $branchChanges] = $this->passagePopulation($publicYear, $targetYear);
 
+        // Issue #733 — one flow: the comments of the people this run is
+        // about to place are read first, so what the AI finds in them
+        // counts in this very distribution. Nobody else's comment is sent.
+        // An unavailable model reads nothing and the run goes on with what
+        // is already known.
+        $reviewed = $this->commentReview?->reviewArrivals(
+            (int) $targetYear['id'],
+            (int) $publicYear['id'],
+            $this->arrivalsToPlace($branchChanges)
+        ) ?? 0;
+
         $outcome = $this->optimizationService->plan(
             $newRegistrations,
             $branchChanges,
@@ -462,6 +471,7 @@ class PassageController extends AbstractController
             'success' => true,
             'placed' => $outcome->placedCount,
             'kept' => $outcome->keptCount,
+            'reviewed' => $reviewed,
             'warnings' => $outcome->warnings,
             'statistics_html' => $this->renderStatistics((int) $targetYear['id']),
         ]);
@@ -539,43 +549,40 @@ class PassageController extends AbstractController
     }
 
     /**
-     * POST /passage/relire-commentaires — a chief asking the model to read
-     * the free comments that have not been read yet (roadmap IT-17).
+     * The members the optimiser is about to place — changing branch, with
+     * a choice of section and none chosen yet — with what their family's
+     * comment is resolved against.
      *
-     * A gesture, never a page load: a family comment sent to an external
-     * provider is a transmission of personal data, and it happens because
-     * somebody asked for it. Idempotent by construction — a comment whose
-     * hash is already on file is skipped, so a double click costs one round
-     * and then nothing.
-     *
-     * @param array<string, string> $params
+     * @param array<string, array{section_label: string, members: array<int, array<string, mixed>>}> $branchChanges
+     * @return array<int, array{branch_id: ?int, sections: array<int, array<string, mixed>>}>
      */
-    public function reviewComments(Request $request, array $params): Response
+    private function arrivalsToPlace(array $branchChanges): array
     {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
-            return $guard;
+        $arrivals = [];
+        foreach ($branchChanges as $group) {
+            foreach ($group['members'] as $member) {
+                if ($member['destination_section_id'] !== null || $member['destination_options'] === []) {
+                    continue;
+                }
+                $arrivals[(int) $member['member_id']] = [
+                    'branch_id' => isset($member['destination_options'][0]['age_branch_id'])
+                        ? (int) $member['destination_options'][0]['age_branch_id']
+                        : null,
+                    'sections' => $member['destination_options'],
+                ];
+            }
         }
 
-        if ($this->commentReview === null || !$this->commentReview->isAvailable()) {
-            return $this->json(['success' => false, 'error' => "La relecture par IA n'est pas disponible."], 422);
-        }
-
-        [, $targetYear] = $this->resolveYears();
-        $reviewed = $this->commentReview->reviewPending((int) $targetYear['id']);
-
-        return $this->json(['success' => true, 'reviewed' => $reviewed]);
+        return $arrivals;
     }
 
     /**
      * POST /passage/membre/{id}/ia — the chief validating, or taking back,
      * what the model read into a family's comment.
      *
-     * Until this is set, the suggestion is a sentence on a screen and
-     * nothing else: the optimiser (IT-18) reads only confirmed ones. There
+     * A mark of agreement on the sentence shown; the optimiser does not
+     * wait for it (issue #733), it ranks the resolved reading after the
+     * staff's and the family's own choices. There
      * is deliberately no way to EDIT the suggestion here — a chief who
      * disagrees writes their own internal note, which is theirs, rather
      * than rewriting a machine's reading into something that then looks

@@ -144,8 +144,10 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
      *   last one runs.
      *
      * A manual reminder deliberately bypasses both: it carries its own
-     * `manual:` reference, and a chef asking for one has answered the
-     * question themselves (Controller\ReenrollmentConfigController).
+     * `manual:` reference and its own occurrence, and a chef asking for
+     * one has answered the question themselves
+     * (Controller\ReenrollmentConfigController). It never writes these
+     * markers, so it never stands in for an automatic reminder.
      */
     public static function handOver(
         SchedulerService $scheduler,
@@ -153,6 +155,12 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
         string $type,
         string $campaignKey
     ): bool {
+        // The unit switched the campaign's e-mails off (issue #732): the
+        // transitions still happen, nobody is written to. Not marked as
+        // sent either — nothing went out.
+        if (!$campaign->emailsEnabled()) {
+            return false;
+        }
         if ($campaign->alreadyDone(ReenrollmentCampaignService::emailMarker($type), $campaignKey)) {
             return false;
         }

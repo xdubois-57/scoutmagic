@@ -155,7 +155,14 @@ class RetroChiefController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        return $this->render('@retro/config.html.twig', $this->formContext($board));
+        // « Espace animateurs / Rétrospectives / <nom> / Configuration »
+        // (issue #736): the name leads to the board itself.
+        return $this->render('@retro/config.html.twig', $this->formContext($board) + [
+            'breadcrumb_trail' => [
+                ['label' => $board->title, 'url' => $this->boardService->publicUrl($board)],
+            ],
+            'breadcrumb_current' => 'Configuration',
+        ]);
     }
 
     /**

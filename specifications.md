@@ -167,7 +167,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Réinscription {année cible} (module registration) | One card per animé the account is linked to — animés only, so a parent who is also an animateur gets no card for themselves — asking whether the child comes back next scout year. **No member id in the URL**: the children come from the signed-in address, and a save re-derives that same list, so a forged request naming somebody else's child is refused. A card asks only what there is to choose: a child who stays in their section, or who moves into a branch with a single visible section, gets a sentence and a free comment; a child moving into a branch with several gets the preferred section (« Peu importe » included), the « avec qui » fields, then the comment. A departure asks only for an optional reason. The « avec qui » fields are plain text with **no autocompletion, no validation and no feedback of any kind** — the form behaves identically whether or not a name matches somebody, which is what keeps one family from learning who the other families' children are. A family may change their answer as often as they like while the campaign is open. See §18.5 |
 | Les animateurs (module trombinoscope) | Every section's chief/chief-d'unité staff, grouped by section, with the section's designated "responsable" highlighted, each animateur's own contact details (behind the module's single setting) and each section's own address. Accepts `?section={id}` to preselect a section (also used by the member page's own link above). Carries a « Télécharger le PDF » action producing the printable version (§34). |
 | Photos (module gallery) | Photo/video albums (identified: view; chief: manage — see §4.3). Opening a media fills the screen; **one control** offers to save it at the best quality the site keeps of it. Each file is named after the photo's own name plus its media id — so two photos two phones both called `IMG_1234` are saved as two files rather than one overwriting the other — and the whole album's ZIP names its entries exactly the same way. |
-| Covoiturage (module covoiturage) | The carpools the staff organised for upcoming outings, and on each one the cars offered for the way there and back: offer seats, ask for seats for the members linked to the account, accept or refuse the requests on one's own car. Personal phone numbers only reach the other party of an accepted request — see §45 |
+| Covoiturage (module covoiturage) | The carpools the staff organised for upcoming outings, and on each one the cars offered for the way there and back: offer seats, ask for seats for the members linked to the account, accept or refuse the requests on one's own car. Personal phone numbers only reach the other party of a request: the requester's from the moment it is made, the driver's once it is accepted — see §45 |
 | Discussions (module groups) | Private discussion groups the caller belongs to, most recently active first, plus an Archives tab for past-year ones. A group page is a feed: pinned posts, then posts newest-activity-first, each with up to four photos/videos, an optional link preview, one level of replies, and six fixed reactions. Members report; moderators restore or delete. See §20. |
 | Notifications | Notification centre: list of received notifications (read/unread state, mark read individually or all at once), notification preferences (channel selection per type, quiet hours for push), push subscription management. Unread count shown in header badge. |
 
@@ -3145,8 +3145,10 @@ adresse personnelle.
   une demande s'accepte entière ; le nombre de places d'une voiture ne
   descend jamais sous celui déjà accordé ; retirer une place accordée est
   une action distincte du refus, confirmée.
-- **Téléphone** : recopié tel que la personne l'a confirmé, montré à l'autre
-  partie d'une demande acceptée et à personne d'autre.
+- **Téléphone** : recopié tel que la personne l'a confirmé. Celui du
+  demandeur est montré au conducteur dès la demande (#703) ; celui du
+  conducteur au demandeur une fois la demande acceptée ; à personne
+  d'autre.
 - **Visibilité** : le conducteur voit les demandes sur ses voitures, le
   demandeur la sienne, les animateurs d'une section concernée et le Staff
   d'Unité voient qui monte dans quelle voiture.
@@ -3159,6 +3161,15 @@ adresse personnelle.
   section ne fait ajouter aucune section, et aucune n'est choisie à sa
   place. La section retenue est affichée, sur le formulaire et sur la page
   du covoiturage.
+- **Heure de départ suggérée** (#703) : à l'aller, le lieu de départ est
+  pré-rempli avec l'adresse des locaux de l'unité, et l'heure avec le début
+  le plus tôt des évènements liés de ce jour, moins le trajet et 5 minutes
+  quand l'itinéraire est trouvé (OSRM, depuis le serveur), moins
+  30 minutes sinon. Au retour, l'heure est la fin la plus tardive, et
+  l'arrivée estimée n'est donnée que si le trajet est connu. Un évènement
+  sur la journée entière est écarté ; sans évènement à heure, rien n'est
+  suggéré. La suggestion reste modifiable, et une ligne dit comment elle a
+  été obtenue.
 - **Suppression** d'un covoiturage : impossible dès qu'une voiture y est
   proposée.
 - **Conservation** : les covoiturages passés restent visibles, repliés,

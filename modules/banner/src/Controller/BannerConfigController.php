@@ -261,7 +261,9 @@ class BannerConfigController extends AbstractController
     {
         $email = AuthSession::getEmail();
         $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
-        if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
+        // A superadmin passes without a member behind the account (#743).
+        $role = \Core\Security\Role::fromString(AuthSession::getRole());
+        if (!$this->memberService->hasUnitChiefAuthority($role, $email, $scoutYearId)) {
             return $this->forbidden(self::UNIT_CHIEF_ONLY_MESSAGE, $request);
         }
 

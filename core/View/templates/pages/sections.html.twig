@@ -55,7 +55,7 @@
                               card that had one.
                             #}
                             {% if section.responsable %}
-                            <p class="card-text small mb-1"><i class="bi bi-person" aria-hidden="true"></i> {{ is_authenticated ? section.responsable|display_name_full : section.responsable|display_name|normalize_name }}</p>
+                            <p class="card-text small mb-1"><i class="bi bi-person" aria-hidden="true"></i> {{ is_authenticated ? section.responsable|display_name_full(section.id) : section.responsable|display_name|normalize_name }}</p>
                             {% endif %}
                             {% if section.email %}
                             <p class="card-text small"><i class="bi bi-envelope" aria-hidden="true"></i> <a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
