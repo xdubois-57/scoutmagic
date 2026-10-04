@@ -25,7 +25,7 @@ composer install
 composer dev-config                # config/app.php de développement (HTTP toléré, voir SECURITY.md § 9)
 composer serve                     # serveur de dev local (localhost:8000)
 vendor/bin/phpunit                 # exécuter les tests PHP (suite complète)
-vendor/bin/phpstan analyse         # analyse statique (core/, modules/ et public/, voir phpstan.neon)
+vendor/bin/phpstan analyse         # analyse statique (tous les chemins de phpstan.neon)
 
 npm ci                             # dépendances Node (outillage de dev uniquement — voir Prérequis)
 npm run typecheck                  # analyse statique JavaScript (TypeScript checkJs — voir ci-dessous)
