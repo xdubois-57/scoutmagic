@@ -6,16 +6,34 @@
     {% include 'partials/page_header.html.twig' with { title: album ? 'Éditer l\'album' : 'Nouvel album' } only %}
 
     {# Contributed by other modules (Service\AlbumActionRegistry) — the
-       gallery renders them and never learns who offered them. #}
+       gallery renders them and never learns who offered them. An
+       icon-only action carries its label as its accessible name and its
+       tooltip, at the 44 × 44 touch target design.md §7.2 asks for. #}
     {% if album_actions|default([]) %}
         <div class="d-flex flex-wrap gap-2 mb-3" data-album-actions>
             {% for action in album_actions %}
-                <a class="btn btn-outline-secondary" href="{{ action.url }}">
-                    <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
-                </a>
+                {% if action.iconOnly %}
+                    <a class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center contributed-action-icon"
+                       href="{{ action.url }}" aria-label="{{ action.label }}" title="{{ action.label }}">
+                        <i class="bi {{ action.icon }}" aria-hidden="true"></i>
+                    </a>
+                {% else %}
+                    <a class="btn btn-outline-secondary" href="{{ action.url }}">
+                        <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
+                    </a>
+                {% endif %}
             {% endfor %}
         </div>
     {% endif %}
+
+    {# Why a module is offering nothing. A button that disappears without
+       a word reads as a bug (Api\AlbumNote). #}
+    {% for note in album_notes|default([]) %}
+        <p class="small text-body-secondary mb-3" data-album-note>
+            {{ note.text }}
+            {% if note.linkUrl %}<a href="{{ note.linkUrl }}">{{ note.linkLabel }}</a>{% endif %}
+        </p>
+    {% endfor %}
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>

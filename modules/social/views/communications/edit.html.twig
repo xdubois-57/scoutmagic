@@ -7,25 +7,68 @@
 {% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
-<form method="post" action="{{ form_action }}" enctype="multipart/form-data">
+{# `data-submit-lock` (issue #756): publishing waits on Meta, several
+   seconds of a page that would otherwise look untouched, and the second
+   tap would be a second public post. The server refuses a replay too
+   (CommunicationController::REPLAY_WINDOW_SECONDS) — this stops the tap,
+   that stops the request. #}
+<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-submit-lock
+      data-submit-lock-label="Publication en cours…">
     {{ csrf_field()|raw }}
+
+    {# What is being shared, when this was opened from « Partager ». The
+       source travels in the form rather than in the address: a composer
+       has no address field at all, and the server describes this pair
+       again, through the owning module, before writing anything. #}
+    {% if from_source %}
+        <input type="hidden" name="source_kind" value="{{ source_kind }}">
+        <input type="hidden" name="source_id" value="{{ source_id }}">
+        <p class="d-flex align-items-center gap-2 text-body-secondary mb-3">
+            <i class="bi bi-images" aria-hidden="true"></i>
+            <span>Partage de {{ source_label }} <strong>{{ source.title|default('') }}</strong></span>
+        </p>
+    {% endif %}
 
     {# 1. The image, as it will be published — it is what is judged. #}
     <div class="mb-3" data-communication-image>
-        {% if has_image %}
-            <img src="{{ form_action }}/apercu" alt="Carte qui sera publiée : {{ source.title }}"
+        {% if has_image and preview_path %}
+            <img src="{{ preview_path }}" alt="Carte qui sera publiée : {{ source.title }}"
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
                 {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
             </p>
+        {% elseif from_source and source and source.blockedReason %}
+            {# `from_source` AND the reason, not the reason alone:
+               `blockedReason` also carries « Donnez d'abord un titre à
+               l'image. » for a plain communication, and this branch then
+               swallowed its « Choisissez une image » prompt — the image
+               box rendered nothing at all (raised in review).
+
+               The source itself has gone — deleted, or no longer this
+               chief's. Deliberately silent HERE: the reason is said once,
+               in the alert before the destinations, and the branch below
+               would send the visitor to an album that no longer exists to
+               choose a cover photo in it. Both sentences used to appear
+               together on this page, telling them to go and edit
+               something it had just said was gone (raised in review). #}
+        {% elseif from_source %}
+            {# The source is there and has no image to compose a card from
+               — an album without a cover photo. Said plainly, because
+               « Publier » will refuse it and the reason belongs here, not
+               in a flash message afterwards. #}
+            <div class="alert alert-warning mb-0">
+                {{ source_label|capitalize }} n'a pas d'image : aucune publication ne part sans image.
+                Choisissez-en une là-bas, puis revenez.
+            </div>
         {% else %}
             <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>
         {% endif %}
     </div>
 
-    {# 2. The two buttons that change it, side by side, and what differs between them. #}
-    {% if not frozen %}
+    {# 2. The two buttons that change it — absent when the image is the
+       source's, which is the album's own to change, not this page's. #}
+    {% if not frozen and uploadable %}
         <div class="row g-2 mb-2">
             {% if gallery_available %}
                 <div class="col-6">
@@ -48,22 +91,53 @@
         <p class="small text-body-secondary mb-4">
             Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
         </p>
-    {% else %}
+    {% elseif frozen and from_source %}
+        {# What is true for a source-backed share, which is less than the
+           message below promises: the TEXT is frozen — every later
+           destination receives the caption the first one got — but the
+           title and the image are read from the album or the article at
+           each publication, including a retry. Rename the album between a
+           successful Facebook post and an Instagram retry and the two
+           destinations get different cards. Promising otherwise here also
+           contradicted the title field's own help a few lines below,
+           which says the title is changed at the source. Raised in review
+           on the pull request for IT-01. The image half is what IT-02
+           settles, by storing the image the browser composed and serving
+           that one to every later attempt; the title stays the source's
+           by design — nothing of the source is copied into the
+           communication (specifications.md §4). #}
+        <div class="alert alert-info small mb-4">
+            Cette communication est déjà partie vers une destination : le texte ne change plus, pour que
+            chaque destination reçoive le même message. Le titre et l'image restent ceux de
+            {{ source_label }} : s'ils y changent, une nouvelle tentative partira avec les nouveaux.
+        </div>
+    {% elseif frozen %}
         <div class="alert alert-info small mb-4">
             Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
             pour que chaque destination reçoive la même chose.
         </div>
     {% endif %}
 
-    {# 3. The title written on the image — right after it, since it changes it. #}
-    {% include 'partials/form_field.html.twig' with {
-        field_id: 'communication-title',
-        field_name: 'title',
-        label: 'Titre sur l\'image',
-        value: communication.title|default(''),
-        maxlength: title_max,
-        readonly: frozen,
-    } only %}
+    {# 3. The title written on the image. Read-only and taken from the
+       source when there is one: an album's name is the album's. #}
+    {% if from_source %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'communication-title',
+            label: 'Titre sur l\'image',
+            value: source.title|default(''),
+            readonly: true,
+            help: 'Le titre est celui de ' ~ source_label ~ ' : il se change là-bas.',
+        } only %}
+    {% else %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'communication-title',
+            field_name: 'title',
+            label: 'Titre sur l\'image',
+            value: communication.title|default(''),
+            maxlength: title_max,
+            readonly: frozen,
+        } only %}
+    {% endif %}
 
     {# 4. The text of the post. #}
     {% include 'partials/form_field.html.twig' with {
@@ -72,7 +146,7 @@
         label: 'Texte de la publication',
         type: 'textarea',
         rows: 4,
-        value: communication.body|default(''),
+        value: communication.body|default(source.defaultCaption|default('')),
         maxlength: body_max,
         readonly: frozen,
         help: 'Sur Instagram, une adresse en légende n\'est pas cliquable : c\'est pour ça qu\'elle figure sur l\'image.',
@@ -89,11 +163,9 @@
         {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
     </div>
 
+    {# No « Enregistrer »: « Publier » is what saves (IT-01). #}
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
-        <a class="btn btn-link" href="/communications">Voir l'historique</a>
-        {% if not frozen %}
-            <button type="submit" name="action" value="save" class="btn btn-outline-secondary">Enregistrer</button>
-        {% endif %}
+        <a class="btn btn-link" href="/medias-sociaux">Voir l'historique</a>
         <button type="submit" name="action" value="publish" class="btn btn-primary"
                 data-confirm="Publier maintenant ? Sur Facebook et Instagram, c'est public et hors du site : personne ne pourra le reprendre d'ici."
                 data-confirm-label="Publier">
@@ -102,4 +174,12 @@
     </div>
 </form>
 </div></div>
+{% endblock %}
+
+{% block scripts %}
+    {# The lock the form above asks for. `base.html.twig` loads nothing
+       globally, so the attribute without this script would be inert —
+       exactly the dead pairing that cost `booking_documents.html.twig` a
+       review remark on the pull request for issue #756. #}
+    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
 {% endblock %}
