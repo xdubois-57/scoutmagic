@@ -64,7 +64,6 @@ npm run e2e:install  # only needed once, before your first `npm run e2e`
 ```
 
 (`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)
-The historical README details referenced by the two comments above are preserved in [README-reference.md](README-reference.md); the current commands and limits are documented directly below.
 
 ### Technical prerequisites
 
