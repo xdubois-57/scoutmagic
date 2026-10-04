@@ -74,14 +74,19 @@ fourni avec chaque release.
 
 1. Téléchargez `bootstrap.php` depuis la
    [dernière release](https://github.com/xdubois-57/scoutmagic/releases/latest).
-2. Envoyez-le par FTP à la racine du répertoire web dans lequel vous
-   souhaitez installer ScoutMagic.
-3. Ouvrez l'URL correspondant à `bootstrap.php` dans votre navigateur.
-4. Suivez les instructions affichées à l'écran.
+2. Envoyez-le par FTP dans le dossier web vide servi par votre hébergeur.
+3. Ouvrez `bootstrap.php` **en HTTPS**. En HTTP, l'installeur ne demande rien
+   et redirige vers HTTPS. Il crée ensuite `token.php` : lisez sa valeur par
+   FTP et recopiez-la dans l'écran demandé avant de poursuivre.
+4. L'installeur vérifie que ce dossier répond bien en HTTPS. Si vous restaurez
+   une sauvegarde portable, choisissez-la à cette étape : ScoutMagic installe
+   d'abord la version qui l'a créée ; sans sauvegarde, il prend la dernière
+   release.
+5. Lancez l'installation puis suivez l'assistant de configuration jusqu'à la
+   fin. Les contrôles de sécurité bloquent proprement l'installation si
+   l'hébergement ne convient pas.
 
-L'assistant vérifie votre hébergement, télécharge ScoutMagic et vous guide
-jusqu'à la fin de l'installation. Aucun accès SSH, Git ou Composer n'est
-nécessaire sur le serveur.
+Aucun accès SSH, Git ou Composer n'est nécessaire sur le serveur.
 
 Une fois l'assistant terminé, deux écrans constituent de bons premiers points
 de contrôle :
