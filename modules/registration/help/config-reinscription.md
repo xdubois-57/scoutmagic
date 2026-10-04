@@ -1,7 +1,7 @@
 ---
 id: config-reinscription
 title: Piloter la campagne de réinscription
-summary: Les dates, les rappels, l'interrupteur et le suivi de la campagne.
+summary: Le tableau de bord de la campagne, ses réglages, et ce que chaque enregistrement envoie.
 category: Espace chefs d'U
 role_min: admin
 question: Comment ouvrir la campagne de réinscription aux familles ?
@@ -10,68 +10,66 @@ paths: /config/reinscription, /config/reinscription/reglages
 related: config-reinscription-emails, reinscription, departs, passage
 ---
 
-Chaque année, l'unité demande aux familles si leur enfant revient. Cette
-page décide quand la question est posée et montre où en sont les
-réponses.
+Chaque année, l'unité demande aux familles si leur enfant revient. La page
+a deux onglets : **Tableau de bord**, pour voir où en est la campagne et
+relancer, et **Réglages**, pour décider quand la question est posée.
 
-## Les dates
+## Une seule campagne : celle de l'année visée
 
-L'ouverture et la fermeture s'écrivent en **mois-jour**, sans année :
-`03-01` est le 1er mars, `05-15` le 15 mai. La même configuration se
-rejoue donc chaque année sans rien retaper.
+La campagne est toujours celle de **l'année scoute qui vient** : en
+octobre 2026, c'est la campagne pour 2027-2028, qui se fermera en mai
+2027. Elle le reste avant ses dates, pendant et après, jusqu'au
+changement d'année de l'unité : ce jour-là, la campagne de l'année
+suivante prend la place, et une campagne encore ouverte se termine sans
+e-mail de clôture.
 
-**Une date manquée est manquée.** Si le site n'a reçu aucune visite le
-jour prévu — hébergement en panne, unité en sommeil — la campagne ne
-s'ouvre pas rétroactivement quelques jours plus tard. C'est volontaire :
-une campagne ouverte en retard annoncerait une échéance déjà plus proche
-que ce qu'elle dit. L'interrupteur manuel est là pour ce cas.
+C'est la dernière période qui s'ouvre avant le 1er septembre de l'année
+visée : une ouverture au printemps (`03-01`) ou à l'automne (`10-01`,
+fermeture `12-15`) donne la campagne pour l'année qui suit.
 
-## Les e-mails de la campagne
+## Le tableau de bord
 
-La campagne écrit d'elle-même aux familles — ouverture, deux rappels,
-clôture — tant que l'interrupteur **« Envoyer les e-mails de la
-campagne »** est actif. Ce que chacun fait, et ce que coupe
-l'interrupteur, est détaillé dans *Les e-mails de la campagne de
-réinscription*.
+« État » donne quatre **chiffres, jamais des noms** : réponses reçues,
+sans réponse, départs annoncés, année visée. Les décisions individuelles
+se lisent sur « Départs » et sur « Passage ».
 
-## Les rappels
+Entre deux campagnes, une ligne grise rappelle comment la précédente s'est
+terminée, à la date où elle s'est réellement fermée. Sans campagne passée,
+elle n'apparaît pas.
 
-Les deux rappels se comptent **en jours avant la fermeture**. Avec une
-fermeture au 15 mai, un premier rappel à 14 jours part le 1er mai.
+« Relancer maintenant » nomme la campagne et ses dates, puis dit pour
+chaque e-mail ce qui est **parti** (et quand) ou ce qui est **prévu** (et
+pour quand) — ou que sa date est passée, qu'il est sauté parce qu'il
+tomberait avant l'ouverture, ou que les e-mails sont désactivés.
 
-Un rappel dont la date calculée tomberait **avant l'ouverture** n'est
-simplement pas envoyé : personne n'aurait encore pu répondre.
+Le bouton écrit, dans les minutes qui suivent, aux familles qui n'ont pas
+répondu **pour tous** leurs enfants, un e-mail par adresse. Il est
+indisponible campagne fermée et quand les e-mails sont désactivés.
+Si plus aucune famille n'a de réponse à donner, la question dit « Aucune
+famille ne recevra de relance. »
 
-## L'interrupteur
+## Les réglages
 
-Il force l'état, dans les deux sens, quelles que soient les dates.
-Servez-vous-en pour ouvrir plus tôt, ou pour rouvrir après la fermeture
-le temps qu'une famille en retard réponde.
+L'ouverture et la fermeture s'écrivent en **mois-jour** (`03-01`,
+`05-15`) : la même configuration se rejoue chaque année. **Une date
+manquée est manquée** : la campagne ne s'ouvre pas en retard.
 
-L'ouvrir ici envoie l'e-mail d'ouverture s'il n'est pas encore parti
-pour cette campagne, et le fermer envoie l'e-mail de clôture aux
-familles sans réponse, exactement comme le feraient les dates — tant que
-les e-mails de la campagne sont actifs.
+Les deux rappels se comptent **en jours avant la fermeture**. Un rappel
+qui tomberait avant l'ouverture est sauté.
 
-## Le suivi
+L'interrupteur « Campagne ouverte » ouvre ou ferme la campagne de l'année
+visée. L'ouvrir l'ouvre **tout de suite** ; sa fermeture, ses rappels et
+sa clôture restent ceux des réglages, même dans sept mois.
 
-Quatre chiffres : les réponses reçues sur le total d'animés, ceux sans
-réponse, les départs annoncés, et l'année visée.
+## Chaque enregistrement se confirme
 
-Ce sont des **chiffres, jamais des noms**. Une liste ici serait une liste
-d'enfants dont les parents ont annoncé le départ, sur un écran de
-configuration. Les décisions individuelles se lisent sur « Départs » et
-sur « Passage ».
+Avant tout enregistrement qui change quelque chose, une confirmation dit
+ce qui change et répond à une question : **un e-mail va-t-il partir ?**
+Si oui, combien, lesquels et à qui, et le bouton devient « Enregistrer et
+envoyer ». Sinon, « Aucun e-mail ne partira », avec la raison. Si la
+situation change entre la question et votre réponse, rien n'est
+enregistré et la nouvelle confirmation s'affiche.
 
-## Relancer à la main
-
-Le bouton écrit, dans les minutes qui suivent, aux familles qui n'ont pas encore répondu
-**pour tous** leurs enfants : une famille qui a répondu pour deux enfants
-sur trois est relancée, et l'email ne cite que celui qui manque. Un email
-par adresse, jamais un par enfant.
-
-Il est indisponible campagne fermée — relancer quelqu'un vers un
-formulaire qu'il ne peut plus remplir ne l'aiderait pas — et quand les
-e-mails de la campagne sont désactivés. Ce qu'il fait par rapport aux
-rappels automatiques est expliqué dans *Les e-mails de la campagne de
+Après l'enregistrement, un message dit ce qui est parti et ce qui ne
+l'est pas. Le détail des e-mails est dans *Les e-mails de la campagne de
 réinscription*.

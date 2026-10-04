@@ -1336,6 +1336,40 @@ Folding goes through `Core\Service\TextNormalizerService::fold()`. The previous 
 
 **`householdMemberYearIds()`** was split out of `PassageService::resolveHouseholds()` rather than copied: a second query answering « même adresse » its own way would be a second definition of the one notion this page is most careful never to call « fratrie ».
 
+### 8.37quinquies Registration module — the reenrollment campaign: one campaign, one send plan, one confirmation (issue #796)
+
+On 4 October 2026 a chef d'unité turned « Campagne ouverte » off. The silent families then received a closing e-mail, five months late and with no question asked. Its campaign had closed on 15 May. The e-mail named « 2027-2028 » beside a 2026 date. Three rules came out of it.
+
+**One campaign at a time: the target year's, identified by its close date.** `ReenrollmentCampaignService::currentCampaignKey()` returned « the window that contains or most recently preceded today », which in October is May's — over. It now returns the campaign of the **target year**, the scout year after the public one (`years()`), through `campaignKeyFor()`. That campaign is **the last window that opens before its target year begins on 1 September** (`SCOUT_YEAR_START`): `closeYearFor()` places the opening in the target year's own calendar year for a spring opening and in the year before for an autumn one (an opening date on or after `09-01`), and the close the year after the opening when the window straddles New Year. So with the defaults 2027-2028 closes on `2027-05-15`; a window opened on `10-01` and closed on `12-15` is 2027-2028's too, closing on `2026-12-15`; one opened on `11-15` and closed on `02-15` closes on `2027-02-15`. A key derived from the close date alone would have put a window lying wholly in autumn a year ahead of itself, where it would never open. The key does not depend on today: it changes only when the public year does, and then **the campaign changes with it** — families' answers, menu, counts and e-mails all read the same target year, so a campaign cannot outlive its own year. One still running on that day ends without a closing e-mail and the next year's takes over. The key is still the close date, so every marker written before the change kept its meaning. `openingDateOf()` places the opening in the year before when the window straddles New Year. `targetLabelOf($key, $openAt)` gives the year a campaign asks about from its **opening date** — the stored one, or the one being saved when a save is described — and `SendReenrollmentEmailsHandler` takes the label of every e-mail from it rather than from the public year at the moment of sending. `hasStarted($key, $now, $openAt)` takes the same opening date for the same reason: it says whether the clock has reached the opening or an e-mail of the campaign has gone out. The manual switch opens and closes that one campaign. The distance rule that guessed, outside the dates, between « reopen the last one » and « open the next one early » is gone: the same click used to do either depending on the date, and nothing said so.
+
+**One send plan, computed once, on the server.** `Service\ReenrollmentSavePlanner` turns « what is stored » and « what is about to be saved » into a `Service\ReenrollmentSavePlan`. The plan records:
+
+- what changes;
+- the opening or closing the save causes, and for which campaign, with its dates;
+- each e-mail that will leave: type, campaign, number of families — counted by the sender's own `ReenrollmentRecipientService` — and whether it leaves now or at the next hourly pass;
+- or the one reason none leaves: nothing changes, settings only, e-mails off, already gone, campaign not begun, campaign over, no campaign, nobody to write to (no family owes an answer — the confirmation never says « 0 e-mails »).
+
+Three things read that plan:
+
+- the confirmation shows it;
+- `ReenrollmentConfigController::save()` queues exactly its immediate e-mails;
+- the server compares it again at the moment of writing.
+
+Two computations could disagree, and a dialogue saying « aucun e-mail » for a send that then leaves is precisely what the plan exists to make impossible. « Already gone » includes an e-mail queued but not yet marked sent — the guard `ReenrollmentCampaignHandler::handOver()` applies — because the plan must never announce what the hand-over will refuse. The same holds for the opening: an opening e-mail still queued counts as the campaign having started (`openingInFlight()`), so a closing saved right after the switch is not read as « campaign not begun ». The plan's own summary of the campaign leaves out reminders whose date has already passed: they will not leave, and a dialogue listing them would announce what it never sends. « Deferred » covers what the save does not send itself but makes due today: a reminder whose delay now lands on today, a close date moved to today. The question is whether anything leaves, not whether it leaves within the second.
+
+**Every save that can write to families is confirmed, and says what happened.** The rule is broader than that: every save that changes anything is confirmed, and the server enforces it. `save()` writes nothing unless the form carries the plan's `fingerprint()` as it is computed at that moment.
+
+- **No fingerprint.** The server renders the confirmation itself (`reenrollment_confirm.html.twig`), with the form's fields carried back. That is what a browser without the script gets.
+- **A different fingerprint.** Something moved between the question and the answer — a family answered, an e-mail left, another chief saved. The same screen comes back, saying so.
+
+`Service\ReenrollmentSavePlanPresenter` words the plan once for both screens. `reenrollment-config.js` only fetches it from `/config/reinscription/apercu` and shows it through `window.ScoutMagicConfirm.ask()`. `ask()` takes structured, text-only `content` blocks for that purpose, a generic extension rather than a second dialog. A save that changes nothing asks nothing. After a save, the flash message says what left and what did not.
+
+**The page is two sub-pages on one rail**: `/config/reinscription` (dashboard) and `/config/reinscription/reglages` (settings), the second with a full breadcrumb through `ancestors`. `ReenrollmentCampaignService::timeline()` is the one source of everything the dashboard says about the campaign — its « État » card, its « Relancer maintenant » box and the question of the button — so that no two surfaces of the page can disagree. It returns each of the four e-mails of the target year's campaign in one of five states: sent, planned, missed, skipped, off. Its reminder dates are counted from that campaign's close. They used to be counted from a campaign already over, which is how the question once said « aucun autre rappel n'est prévu » while the settings planned two. Three rules keep it honest:
+
+- **One answer to « opened ahead of its date ».** `opened_early` is computed once, in `timeline()`: by the opening e-mail on record or, when none was recorded — the switch writes no marker — by the clock. The controller and the view read it; none recomputes it.
+- **A campaign the switch opened is under way** even with the e-mails off, when nothing else writes a mark: `started` is `hasStarted()` or `isOpen()`.
+- **The « previous campaign » line is a record, not a calculation.** Between two campaigns one grey line says how the last one ended, read from the last closing marker before the current campaign (the clock's, or the closing e-mail's) and dated by the moment that marker recorded — the day a hand-closed campaign really closed, not the scheduled one. A unit that never ran a campaign has no such line, and a campaign closed by hand with the e-mails off leaves no mark and so none: a wrong answer looks worse than none. The next reminder the question announces is the earliest planned date, the two delays being independent.
+
 ### 8.38 Registration module — Prévisions and the year-transition veto (iteration 7)
 
 The module's final iteration: a read-only headcount projection, and the first veto a module ever opposes to a core operation.

@@ -270,3 +270,67 @@ l'ouverture ; le test ne l'exclut donc pas avant l'ouverture.
     à `chief`.
 - L'attente de la ligne 562 (« Aucun autre rappel automatique n'est prévu
   | Prochain rappel… ») porte maintenant sur des dates exactes.
+
+---
+
+## IT-05 — Documentation et aide
+
+**Livré.**
+
+- `ARCHITECTURE.md` gagne une section §8.37quinquies. Elle couvre :
+  - le plan d'envoi, et pourquoi le serveur le calcule une seule fois ;
+  - la règle « une campagne par année visée, identifiée par sa clôture » ;
+  - la règle « tout enregistrement qui peut écrire aux familles se
+    confirme et annonce le résultat » ;
+  - le tableau de bord à deux sous-pages et sa chronologie unique.
+- `specifications.md` §18.5 décrit :
+  - la campagne de l'année visée et l'ouverture à la main ;
+  - « une fois par campagne » ;
+  - les deux sous-pages et la boîte « Relancer maintenant » ;
+  - la confirmation universelle.
+
+  La référence périmée à « Configuration > Réinscription » disparaît : la
+  page est dans l'Espace chefs d'U.
+- **Sujets d'aide.**
+  - `config-reinscription` est réécrit pour couvrir les deux sous-pages :
+    l'année visée, le tableau de bord, les réglages, la confirmation.
+  - `config-reinscription-emails` dit ce qui ne repart jamais, et que tout
+    enregistrement est confirmé.
+  - Les deux sujets déclarent les deux routes dans `paths:`. Ces chemins
+    sont arrivés dès IT-04 : `HelpMenuCoverageTest` exigeait une aide
+    pour la nouvelle page.
+
+---
+
+## Récapitulatif final
+
+| # | Livré |
+|---|---|
+| IT-01 | Le plan d'envoi (`ReenrollmentSavePlanner` / `ReenrollmentSavePlan`) ; fermer une campagne terminée n'écrit plus à personne — l'incident rejoué en test |
+| IT-02 | La campagne de l'année visée, identifiée par sa clôture ; la règle de distance supprimée ; la campagne suit l'année visée, y compris au changement d'année public ; le libellé d'un e-mail vient de sa campagne ; fenêtres à cheval sur le nouvel an |
+| IT-03 | La confirmation universelle sur le plan exact, imposée par le serveur avec ou sans script ; un plan périmé refusé ; le message après enregistrement ; `ScoutMagicConfirm.ask()` structuré |
+| IT-04 | Deux sous-pages sur un rail, fil d'Ariane complet ; les cinq états d'étape ; le dialogue « Relancer maintenant » lit la même chronologie que la boîte |
+| IT-05 | `ARCHITECTURE.md`, `specifications.md`, les deux sujets d'aide |
+
+**Les décisions autonomes les plus structurantes** :
+
+- **Un e-mail en file compte comme parti.** `handOver()` ne le remettrait
+  pas en file, donc le plan ne l'annonce pas.
+- **Une campagne qui n'a pas commencé ne reçoit pas d'e-mail de clôture.**
+  C'est la forme définitive du correctif de l'incident, une fois la
+  campagne courante devenue celle de mai prochain.
+- **La campagne suit l'année visée, sans exception.** Au changement
+  d'année publique, une campagne encore ouverte se termine sans e-mail de
+  clôture et celle de l'année suivante prend la place : elle ne survit pas
+  à son année (revue d'IT-02).
+- **La clé d'une campagne est la dernière fenêtre qui s'ouvre avant le
+  1er septembre de l'année visée.** Les fenêtres d'automne et celles qui
+  chevauchent le nouvel an ont leur clôture dans l'année d'avant ; le
+  libellé et « a commencé » se lisent sur la date d'ouverture enregistrée.
+- **La ligne « campagne précédente » est un enregistrement, pas un
+  calcul** : dernier marqueur de clôture, daté par son moment réel ; rien
+  sans campagne passée.
+- **« Ouverte avant la date » se calcule une fois**, dans `timeline()` ;
+  une campagne ouverte à la main, e-mails coupés, compte comme commencée.
+- **Sans script, le serveur rend lui-même l'écran de confirmation.** Le
+  script ne fait que l'anticiper.
