@@ -141,7 +141,7 @@ class ReenrollmentSavePlanner
                 // it is not this save that sends it.
                 continue;
             }
-            $this->queue($emails, $type, $key, $after['emails_enabled'], $today, true);
+            $reasons[] = $this->queue($emails, $type, $key, $after['emails_enabled'], $today, true);
         }
 
         $reasons = array_values(array_filter($reasons));

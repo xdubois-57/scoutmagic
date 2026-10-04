@@ -221,6 +221,17 @@ class ReenrollmentSavePlannerTest extends TestCase
         );
     }
 
+    public function testADeferredReminderAlreadySentSaysSoRatherThanSettingsOnly(): void
+    {
+        $this->campaign->open();
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker('reminder_1'), '2027-05-15');
+
+        $plan = $this->plan(['is_open' => true, 'reminder_1_days' => '25'], '2027-04-20 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();

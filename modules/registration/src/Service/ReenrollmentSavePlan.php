@@ -12,10 +12,11 @@ namespace Modules\Registration\Service;
  * What saving the reenrollment configuration would do — computed once, by
  * the server, before anything is written (issue #796, decision D1).
  *
- * **One plan, read three times.** The confirmation shows it, the save
- * applies it, and the save compares it again at the moment of writing. Two
- * computations that could diverge are how a dialogue says « aucun e-mail »
- * for a send that then leaves.
+ * **One plan, read twice.** The preview shows it and the save applies it;
+ * both are computed by the same planner, so a dialogue cannot say
+ * « aucun e-mail » for a send that then leaves. `fingerprint()` is the
+ * identity of a plan, for a later step to compare what was shown with what
+ * is about to be written.
  *
  * It answers one question every time, in both directions: does an e-mail
  * leave? Yes — which ones, for which campaign, to how many families, and
