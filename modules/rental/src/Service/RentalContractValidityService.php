@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\ContractFingerprint;
@@ -44,7 +45,11 @@ use Modules\Rental\Reminder\ReminderKind;
  * - **forgets the « copie signée attendue » reminder** already sent: it is
  *   said once per booking, and the new contract has a deadline of its own;
  * - **takes a booking that was « Contrat envoyé » back to « Demande
- *   reçue »**: a new contract must go out. The hold is not shortened;
+ *   reçue »**: a new contract must go out. The hold is not shortened, and a
+ *   manager's option running on it becomes an automatic hold to the same
+ *   date: the unit's answer still stands, so the option's lapse frees the
+ *   dates as it would have under « Contrat envoyé » rather than expiring
+ *   a booking that waits on the unit's new contract;
  * - **leaves a confirmed booking confirmed** — going back would free its
  *   dates — and its reopened steps put it back on « À traiter ».
  *
@@ -175,6 +180,14 @@ class RentalContractValidityService
                 'Un nouveau contrat doit partir',
                 $actorMemberId
             );
+
+            // Under « Contrat envoyé » an option's lapse only freed the
+            // dates (RentalBooking::lapseEndsTheBooking()); under « Demande
+            // reçue » it would expire the booking — for a delay that is now
+            // the unit's. Same date, kept from ending it.
+            if ($booking->holdOrigin === HoldOrigin::MANAGER && $booking->holdIsActive($now)) {
+                $this->bookingRepository->setHold($booking->id, $booking->holdUntil, HoldOrigin::AUTOMATIC);
+            }
         }
 
         return true;

@@ -20,6 +20,7 @@ use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -246,6 +247,26 @@ class RentalContractValidityServiceTest extends TestCase
             $this->reminders->claim('booking', $booking->id, ReminderKind::SIGNED_COPY_DUE, new \DateTimeImmutable('2027-01-20')),
             'claimable again for the new contract'
         );
+    }
+
+    /**
+     * An option the manager placed outlived the contract's sending. Back on
+     * « Demande reçue », its lapse must still only free the dates — as it
+     * would have under « Contrat envoyé » — never expire the booking.
+     */
+    public function testAManagersOptionNoLongerEndsTheBookingItsVoidContractSentBack(): void
+    {
+        $booking = $this->bookingWithItsContractSent();
+        $until = new \DateTimeImmutable('2027-02-15 12:00:00');
+        $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::MANAGER);
+
+        $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);
+        $this->service->recheck($this->fresh($booking->id), $this->asset(), null, new \DateTimeImmutable('2027-01-10 09:00'));
+
+        $after = $this->fresh($booking->id);
+        $this->assertSame(BookingStatus::RECEIVED, $after->status);
+        $this->assertEquals($until, $after->holdUntil, 'the hold is not shortened');
+        $this->assertFalse($after->lapseEndsTheBooking());
     }
 
     /** Going back would free its dates: a confirmed booking stays confirmed. */
