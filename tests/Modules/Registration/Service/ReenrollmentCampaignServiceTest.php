@@ -506,40 +506,99 @@ class ReenrollmentCampaignServiceTest extends TestCase
         );
     }
 
-    // ── where the automatic reminders stand (issue #732) ─────────────
+    // ── the campaign step by step (issue #796, D10) ──────────────────
 
-    public function testBeforeAnyReminderTheNextOneIsTheFirst(): void
+    /**
+     * The five states of a step: sent, planned, missed, skipped, off.
+     *
+     * @return array<string, string>
+     */
+    private function states(string $now): array
     {
-        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'));
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable($now));
+        $this->assertNotNull($timeline);
+        $states = [];
+        foreach ($timeline['steps'] as $step) {
+            $states[$step['type']] = $step['state'] . ($step['date'] !== null ? ' ' . $step['date'] : '');
+        }
 
-        $this->assertFalse($reminders['last_sent']);
-        $this->assertNull($reminders['last_at']);
-        $this->assertSame('2027-05-01', $reminders['next']?->format('Y-m-d'));
+        return $states;
     }
 
-    public function testAfterTheFirstReminderTheLastIsItAndTheNextIsTheSecond(): void
+    public function testBeforeTheOpeningEveryStepIsPlannedWithItsDate(): void
+    {
+        $this->assertSame([
+            'opening' => 'planned 2027-03-01',
+            'reminder_1' => 'planned 2027-05-01',
+            'reminder_2' => 'planned 2027-05-13',
+            'closing' => 'planned 2027-05-15',
+        ], $this->states('2027-02-20'));
+    }
+
+    public function testASentStepSaysWhenAndADateBehindUsUnsentIsMissed(): void
     {
         $this->campaign->markDone(
-            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            ReenrollmentCampaignService::emailMarker('opening'),
             '2027-05-15',
-            new \DateTimeImmutable('2027-05-01 08:00')
+            new \DateTimeImmutable('2027-03-01 08:04')
         );
 
-        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-05-05'));
+        $states = $this->states('2027-05-03');
 
-        $this->assertTrue($reminders['last_sent']);
-        $this->assertSame('2027-05-01', $reminders['last_at']?->format('Y-m-d'));
-        $this->assertSame('2027-05-13', $reminders['next']?->format('Y-m-d'));
+        $this->assertSame('sent 2027-03-01', $states['opening']);
+        $this->assertSame('missed 2027-05-01', $states['reminder_1'], 'a missed date is missed, never sent late');
+        $this->assertSame('planned 2027-05-13', $states['reminder_2']);
     }
 
-    public function testWithTheEmailsOffNoReminderIsAnnouncedAsComing(): void
+    public function testAReminderBeforeTheOpeningIsSkippedWithItsDate(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '90', 'registration');
+
+        $this->assertSame('skipped 2027-02-14', $this->states('2027-04-20')['reminder_1']);
+    }
+
+    public function testWithTheEmailsOffEveryStepIsOff(): void
     {
         $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
 
-        $this->assertNull($this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'))['next']);
+        foreach ($this->states('2027-04-20') as $state) {
+            $this->assertStringStartsWith('off', $state);
+        }
     }
 
-    // ── the reminders ─────────────────────────────────────────────────
+    /**
+     * Opened by hand in October: the opening step says so, and the box
+     * shows the date it was opened rather than the planned one.
+     */
+    public function testAnOpeningByHandBeforeItsDateIsSaidSo(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker('opening'),
+            '2027-05-15',
+            new \DateTimeImmutable('2026-10-04 10:35')
+        );
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04 11:00'));
+
+        $this->assertTrue($timeline['steps'][0]['manual'] ?? false);
+        $this->assertSame('2026-10-04', $timeline['opened_early_at']?->format('Y-m-d'));
+        $this->assertTrue($timeline['started']);
+        $this->assertNull($timeline['previous'], 'a campaign under way has no « previous » line');
+    }
+
+    /**
+     * Between two campaigns the box describes the target year's campaign,
+     * and one grey line says how the previous one ended.
+     */
+    public function testBetweenTwoCampaignsTheBoxIsTheNextOneAndOneLineTheLast(): void
+    {
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+
+        $this->assertSame('2027-05-15', $timeline['key']);
+        $this->assertSame('2027-2028', $timeline['label']);
+        $this->assertFalse($timeline['started']);
+        $this->assertSame(['label' => '2026-2027', 'closed_on' => '2026-05-15'], $timeline['previous']);
+    }
 
     public function testAReminderIsDueItsConfiguredNumberOfDaysBeforeTheClose(): void
     {
