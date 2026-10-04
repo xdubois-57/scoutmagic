@@ -690,12 +690,18 @@ final class UxConventionsTest extends TestCase
         '/groups/{id}/posts/{postId}/seen-by',
         '/groups/{id}/replies/{replyId}/reactions',
         '/locations/suivi/{id}/{token}/calendrier.ics',
+        // The contract signed by both parties, downloaded by the renter
+        // from their tracking page (#708, IT-16) — a PDF, no page.
+        '/locations/suivi/{id}/{token}/contrat-signe.pdf',
         '/locations/{slug}/apercu',
         '/mass-mail/audiences/{id}',
         '/mass-mail/{id}/merge-preview',
         // How many people the send would reach, asked from the send
         // dialog just before the confirmation — JSON, no page.
         '/mass-mail/{id}/recipient-count',
+        // A manager's own signature as a PNG, for « Ma signature » to show
+        // it to its owner (#708, IT-16).
+        '/mes-locations/ma-signature/image',
         '/news/{id}/form/responses/export',
         '/news/{id}/poster',
         // The PNG of one ticket's QR, fetched by a mail client — the twin

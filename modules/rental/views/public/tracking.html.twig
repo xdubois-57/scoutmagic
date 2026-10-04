@@ -8,9 +8,11 @@
   breakdown (every line, every change, immediately), the flagged managers'
   contact details, and the emergency number.
 
-  What it must NEVER show: internal comments, notes on a damage still being
-  assessed, or any downloadable file. An external renter downloads nothing
-  from the site — their contract and invoice arrive by email only.
+  What it must NEVER show: internal comments, or notes on a damage still
+  being assessed. The ONE file it offers is the contract signed by both
+  parties (#708, IT-16), once there is one — served only for this booking,
+  behind the same token. Everything else, the contract to sign and the
+  invoice included, arrives by email only.
 
   The URL of this page contains the token, so it is never logged and never
   shown to anyone else.
@@ -36,6 +38,71 @@
                 {% endif %}
             </div>
         </div>
+
+        {#
+          The contract (#708, IT-16): to sign and send back once it has gone,
+          and — once the unit countersigned it — to download. The only file
+          this page ever offers, served by a route that checks the same
+          token and reaches this booking's countersigned contract and
+          nothing else.
+
+          A photo of the printed, signed pages is enough: signing a PDF on a
+          phone is the hardest part of this whole journey. The accepted
+          types leave HEIC out on purpose — an iPhone then converts its
+          photo to JPEG as it sends it.
+        #}
+        {% if contract and (contract.sent or contract.final) %}
+            <div class="card mb-4" id="contrat">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Votre contrat</h2>
+                    {% if contract.final %}
+                        <p class="mb-2">
+                            Votre contrat est signé par les deux parties. Vous l'avez reçu par e-mail ; vous pouvez
+                            aussi le télécharger ici.
+                        </p>
+                        <a class="btn btn-primary" href="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/contrat-signe.pdf">
+                            <i class="bi bi-download me-1" aria-hidden="true"></i>Télécharger le contrat signé
+                        </a>
+                    {% elseif contract.pending %}
+                        <p class="mb-0">
+                            Votre copie signée est bien reçue, le {{ contract.pending.createdAt|date_fr }}. Nous la
+                            vérifions, puis vous renvoyons le contrat signé par les deux parties.
+                        </p>
+                    {% elseif contract.accepts_copy %}
+                        {% if contract.refused %}
+                            <output class="alert alert-warning d-block small">
+                                Votre copie du {{ contract.refused.createdAt|date_fr }} n'a pas pu être acceptée :
+                                « {{ contract.refused.refusalReason }} ». Déposez-en une autre ci-dessous.
+                            </output>
+                        {% endif %}
+                        <p>
+                            Nous vous avons envoyé le contrat par e-mail le {{ contract.sent.sentAt|date_fr }}.
+                            Imprimez-le, signez-le, puis déposez ici votre copie signée : un PDF, un scan ou une photo
+                            lisible de chaque page.
+                            {% if booking.holdUntil %}
+                                Vos dates restent bloquées jusqu'au <strong>{{ booking.holdUntil|date_fr }}</strong>.
+                            {% endif %}
+                        </p>
+                        <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/contrat"
+                              enctype="multipart/form-data" class="row g-2 align-items-end">
+                            {{ csrf_field()|raw }}
+                            <div class="col-12 col-md-8">
+                                <label class="form-label" for="signed-copy">Votre copie signée</label>
+                                <input type="file" class="form-control" id="signed-copy" name="signed_copy" required
+                                       accept="application/pdf,image/jpeg,image/png,image/webp"
+                                       aria-describedby="signed-copy-help">
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <button type="submit" class="btn btn-primary w-100">Envoyer ma copie signée</button>
+                            </div>
+                            <p class="form-text col-12 mb-0" id="signed-copy-help">
+                                PDF, JPEG, PNG ou WebP, 15 Mo au plus.
+                            </p>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
 
         <div class="card mb-4">
             <div class="card-body">

@@ -38,13 +38,22 @@ c'est l'unité : son nom et son adresse postale (Paramètres, cœur du
 site). Si les locaux appartiennent à une ASBL distincte, renseignez son
 nom, son adresse et son numéro d'entreprise dans Paramètres › Locations.
 Un bien qui appartient à quelqu'un d'autre a son propre bailleur, dans la
-section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, la
-page « Documents » vous prévient avant la génération.
+section « Bailleur » de ses réglages. Si l'adresse du bailleur manque, le
+site vous prévient avant la génération.
 
 ## Générer, puis envoyer
 
+**Le contrat se génère et s'envoie depuis le tableau de bord**, à son
+étape : générez, relisez le PDF, puis envoyez. La facture se génère ici.
+Cette page liste le contrat avec les autres documents et le renvoie.
+Une fois le contrat envoyé, c'est ici que vous en générez **une nouvelle
+version** si la réservation a changé — un prix modifié, par exemple —, puis
+que vous l'envoyez depuis la liste.
+
 Générer produit un PDF. Chaque génération crée une version de plus **sans
-écraser la précédente** : une version déjà signée reste intacte.
+écraser la précédente** : une version déjà signée reste intacte. Le
+contrat renvoie à la version des conditions que le locataire a acceptée
+avec sa demande, jamais à celle en vigueur.
 
 > **« Envoyer » verrouille.** Tant que rien n'est parti, le texte reste
 > modifiable ; une fois envoyé, il passe en lecture seule. Le locataire en a
@@ -54,5 +63,6 @@ Générer produit un PDF. Chaque génération crée une version de plus **sans
 Envoyer le contrat ne verrouille que le contrat : la facture reste
 modifiable tant qu'elle n'est pas partie elle-même.
 
-Le locataire ne télécharge jamais rien depuis le site — ses documents lui
-parviennent par email, et un email perdu se renvoie.
+Le locataire ne télécharge rien depuis le site, sauf le contrat signé par
+les deux parties — ses documents lui parviennent par email, et un email
+perdu se renvoie.

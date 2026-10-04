@@ -22,9 +22,11 @@ seul bouton** : l'action qui fait avancer la réservation. Refuser ou
 annuler n'est jamais l'action proposée — ce sont des décisions réelles,
 rangées derrière « Autres décisions ».
 
-**Votre réponse à une demande, c'est le contrat.** L'envoyer passe la
-réservation à « Contrat envoyé » et garde les dates bloquées au moins
-15 jours, le temps qu'il soit signé. On ne confirme qu'au bout de
+**Votre réponse à une demande, c'est le contrat.** Générez-le depuis son
+étape, relisez le PDF, puis envoyez-le : l'envoi passe la réservation à
+« Contrat envoyé » et garde les dates bloquées au moins 15 jours, le
+temps qu'il soit signé. Le locataire signe et renvoie une copie, l'unité
+contresigne. On ne confirme qu'au bout de
 l'accord, quand tout ce qui précède « Réservation confirmée » est fait ;
 d'ici là, la ligne dit ce qui manque.
 
@@ -46,7 +48,7 @@ Chaque étape dit **comment elle se coche** :
 ## Cocher une étape à la main
 
 Toute étape à faire se coche en touchant **son rond numéroté** — un
-contrat accepté par e-mail, un acompte payé en liquide. Une confirmation
+contrat signé sur papier, un acompte payé en liquide. Une confirmation
 le rappelle : ce n'est pas la bonne pratique, le site ne la vérifiera
 plus. La coche compte comme celle du site : étape suivante, « À
 traiter », rappels. La ligne dit qui l'a cochée et quand ; le même rond

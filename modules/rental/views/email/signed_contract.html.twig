@@ -1,0 +1,27 @@
+{#
+  The contract signed by both parties (#708, IT-16), attached. The one
+  document a renter may also download from their page — and this e-mail
+  says so, where every other document's e-mail says the opposite.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Votre contrat signé par les deux parties</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">
+        Nous avons contresigné votre contrat pour la location <strong>{{ reference }}</strong>
+        ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}. Vous le trouverez en pièce
+        jointe, signé par les deux parties.
+    </p>
+    <p style="margin:0 0 16px;">
+        Il reste aussi téléchargeable depuis votre page de suivi, qui vous dit ce qui reste à régler
+        avant votre séjour.
+    </p>
+    {% if tracking_url %}
+        <p style="margin:24px 0;text-align:center;">
+            <a href="{{ tracking_url }}"
+               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Suivre ma réservation
+            </a>
+        </p>
+    {% endif %}
+{% endblock %}

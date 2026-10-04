@@ -1,0 +1,49 @@
+{#
+  What « Contrat généré » shows beyond its sentence (#708, IT-16): the
+  version there is and the way to read it, generating it again while it
+  has not gone, the way to adjust this booking's text first, and — before
+  anything is generated — the landlord whose missing address would print
+  « — » on the page the renter signs. That warning used to sit on the
+  Documents page; it follows the button, because generating is when it
+  helps.
+
+  « Générer à nouveau » adds a version beside the last one, as it always
+  has (§6.25): versions are never overwritten. It stops once a version
+  has been sent, because the text is locked from then on and a new
+  version would only repeat the old one.
+
+  Requires `contract_step`, `asset`, `booking` and `state` (whether the
+  step is done or still to do, as the journey's step states name it).
+#}
+{% if contract_step %}
+    {% set contract = contract_step.latest %}
+    {% set landlord = contract_step.landlord %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2 small" data-contract-step>
+        {% if contract %}
+            <a href="{{ file_url(contract.fileId) }}" target="_blank" rel="noopener"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Relire « {{ contract.label }} »
+            </a>
+            {% if not contract_step.is_locked %}
+                <form method="post" action="/mes-locations/document-generer" class="d-inline">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="dashboard">
+                    <input type="hidden" name="document_type" value="contract">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Générer à nouveau</button>
+                </form>
+            {% endif %}
+        {% endif %}
+        {% if not contract_step.is_locked %}
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/contract">Ajuster le
+                texte pour cette réservation</a>
+        {% endif %}
+    </div>
+    {% if not contract_step.is_locked and landlord and not landlord.address %}
+        <output class="alert alert-warning small d-block mt-2 mb-0" data-landlord-address-missing>
+            <strong>L'adresse du bailleur est vide.</strong> Le contrat imprimera « — » à sa place.
+            <a href="/mes-locations/{{ asset.slug }}/reglages#bailleur">Renseigner le bailleur de ce bien</a>.
+        </output>
+    {% endif %}
+{% endif %}

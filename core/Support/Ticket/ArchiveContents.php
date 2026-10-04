@@ -49,6 +49,8 @@ final class ArchiveContents
         'commands' => 'Les outils système disponibles sur le serveur.',
         'background_execution' => "Comment les tâches de fond s'exécutent sur cet hébergement.",
         'cron_cadence' => "À quelle cadence le déclencheur horaire s'exécute réellement.",
+        'secure_connection' => 'Si le site a récemment été consulté depuis une connexion non sécurisée, '
+            . "et quand pour la dernière fois. Aucune adresse, aucun compte.",
         'outbound_mail' => 'Par où partent les messages du site : fournisseurs, ordre des voies et '
             . "compteurs d'envoi. Aucun identifiant, aucun destinataire.",
         'storage_locations' => "Où ce site écrit ses fichiers : le type de chaque emplacement, ce qu'il "

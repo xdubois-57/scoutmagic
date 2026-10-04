@@ -247,6 +247,8 @@ final class StandardTemplates
             seuls compétents.</p>
 
             <h3>12. Acceptation</h3>
+            <p>Les conditions de location acceptées par le locataire lors de sa demande
+            ({{ conditions_acceptees }}) font partie de la présente convention.</p>
             <p>Fait en deux exemplaires. La signature de la présente convention vaut
             acceptation de l'ensemble de ses conditions.</p>
 

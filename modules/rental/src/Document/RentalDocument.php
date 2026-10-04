@@ -34,8 +34,19 @@ final class RentalDocument
         public readonly ?\DateTimeImmutable $sentAt,
         public readonly ?int $createdByMemberId,
         public readonly \DateTimeImmutable $createdAt,
-        public readonly string $source = self::SOURCE_MANUAL
+        public readonly string $source = self::SOURCE_MANUAL,
+        /**
+         * A renter's signed copy the unit refused (#708, IT-16): it stays
+         * on file, and no longer counts as received.
+         */
+        public readonly ?\DateTimeImmutable $refusedAt = null,
+        public readonly ?string $refusalReason = null
     ) {
+    }
+
+    public function isRefused(): bool
+    {
+        return $this->refusedAt !== null;
     }
 
     /**

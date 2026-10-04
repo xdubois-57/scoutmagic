@@ -104,6 +104,52 @@ class PdfCompressor
     }
 
     /**
+     * The same document rewritten as a classic PDF 1.4 — cross-reference
+     * table, no object streams — which is what FPDI's free parser reads.
+     *
+     * A phone's scanner or a word processor writes PDF 1.5+ with compressed
+     * cross-references more often than not, and FPDI refuses those. Only
+     * Ghostscript rewrites a file that way, so this is null without it, on
+     * a failure, or when the output is not a PDF: callers then say the
+     * file could not be read, never that it was.
+     */
+    public function rewriteForImport(string $content): ?string
+    {
+        if (!$this->canUseProcOpen() || !$this->binaryAnswers('gs', ['-version'])) {
+            return null;
+        }
+
+        if (!is_dir($this->tempDirectory)) {
+            mkdir($this->tempDirectory, 0755, true);
+        }
+        $inputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
+        $outputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
+
+        try {
+            if (file_put_contents($inputPath, $content) === false) {
+                return null;
+            }
+
+            $ran = $this->runWithTimeout(sprintf(
+                'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 '
+                    . '-sOutputFile=%s %s',
+                escapeshellarg($outputPath),
+                escapeshellarg($inputPath)
+            ));
+            if (!$ran || !is_file($outputPath)) {
+                return null;
+            }
+
+            $output = file_get_contents($outputPath);
+
+            return is_string($output) && str_starts_with($output, '%PDF-') ? $output : null;
+        } finally {
+            @unlink($inputPath);
+            @unlink($outputPath);
+        }
+    }
+
+    /**
      * Dispatches to the concrete backend command — a single overridable
      * seam (rather than each run*() method individually) so a test can
      * inject a fake outcome (e.g. "produced a bigger file", "produced
