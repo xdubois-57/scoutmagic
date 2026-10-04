@@ -5,7 +5,8 @@
 
 // Staffs page (core/View/templates/chefs/staffs.html.twig), the three
 // things a section chief can change there without a submit button: the
-// per-document title/description auto-save on blur, the advisory
+// per-document title/description auto-save on blur (confirmed with a
+// toast, design.md §7.13, issue #739), the advisory
 // oversize-upload warning, and the per-member badge picker.
 // Extracted from the template's inline <script> so the Vitest suite can
 // exercise the production code directly (tests/js/staffs.test.js).
@@ -74,6 +75,28 @@
     // No save button on these two fields (module addendum), and separate
     // from list-editor.js's own reorder/delete wiring, which has no concept
     // of per-item editable fields.
+    // What each document row last saved, so a blur over untouched text
+    // (tabbing from the title into the description) sends nothing.
+    /** @type {Record<string, string>} */
+    var savedDocuments = {};
+    /** @type {Record<string, Promise<void>>} */
+    var documentQueues = {};
+    /**
+     * @param {HTMLInputElement} titleInput
+     * @param {HTMLTextAreaElement} descriptionInput
+     * @returns {string}
+     */
+    function documentSnapshot(titleInput, descriptionInput) {
+        return JSON.stringify([titleInput.value, descriptionInput.value]);
+    }
+    documentFields.forEach(function (field) {
+        var row = /** @type {HTMLElement|null} */ (field.closest('.section-document-row'));
+        var title = /** @type {HTMLInputElement|null} */ (row?.querySelector('.section-document-title-input') ?? null);
+        var description = /** @type {HTMLTextAreaElement|null} */ (row?.querySelector('.section-document-description-input') ?? null);
+        if (row && title && description) {
+            savedDocuments[row.dataset.id || ''] = documentSnapshot(title, description);
+        }
+    });
     documentFields.forEach(function (field) {
         field.addEventListener('blur', function () {
             var row = /** @type {HTMLElement|null} */ (field.closest('.section-document-row'));
@@ -86,13 +109,31 @@
                 return;
             }
 
-            api.postJson('/chefs/staffs/documents/' + encodeURIComponent(row.dataset.id), {
-                title: titleInput.value,
-                description: descriptionInput.value
-            }).then(function (res) {
-                if (!res.data?.success) {
-                    toastError(res, 'Erreur.');
+            var documentId = row.dataset.id || '';
+            var title = titleInput.value;
+            var description = descriptionInput.value;
+            var snapshot = documentSnapshot(titleInput, descriptionInput);
+
+            // A document's saves run one after the other, in blur order: an
+            // older answer can then never overwrite what a newer one
+            // recorded. Two documents stay independent.
+            var previous = documentQueues[documentId] ?? Promise.resolve();
+            documentQueues[documentId] = previous.then(async function () {
+                if (savedDocuments[documentId] === snapshot) {
+                    return;
                 }
+                var res = await api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
+                    title: title,
+                    description: description
+                });
+                if (res.data?.success) {
+                    savedDocuments[documentId] = snapshot;
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    return;
+                }
+                // The text stays as typed: putting the old one back would
+                // throw away what the chief just wrote.
+                toastError(res, 'Erreur.');
             });
         });
     });
