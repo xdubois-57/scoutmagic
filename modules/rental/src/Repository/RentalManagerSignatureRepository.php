@@ -56,38 +56,34 @@ class RentalManagerSignatureRepository
     }
 
     /**
-     * Records this account's signature, replacing the one it had — the old
-     * row deleted rather than updated, so nothing of the previous image
-     * survives in it.
+     * Records this account's signature, replacing the one it had.
      *
-     * Encrypted first, then deleted and inserted as one transaction: a
-     * replacement that fails anywhere leaves the signature it was replacing,
-     * never none at all.
+     * One upsert on the primary key rather than a delete and an insert: the
+     * account's row is created or overwritten whole in a single statement.
+     * A delete-then-insert let two submissions of the same manager (two tabs,
+     * a double click — the session lock is released early, see
+     * public/index.php) both delete and then meet on the insert, the loser a
+     * duplicate key or a deadlock, i.e. a 500. A write that fails leaves the
+     * signature it was replacing, never none at all. As in
+     * ReviewRepository::save(), the race is the bug, so the two dialects are
+     * written out.
      */
     public function save(int $userAccountId, string $png, \DateTimeImmutable $at): void
     {
-        $encrypted = $this->encryption->encrypt($png, self::CONTEXT);
+        $insert = 'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at) VALUES (?, ?, ?)';
+        $sql = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
+            ? $insert . ' ON CONFLICT(user_account_id) DO UPDATE SET
+                   image_encrypted = excluded.image_encrypted,
+                   updated_at = excluded.updated_at'
+            : $insert . ' ON DUPLICATE KEY UPDATE
+                   image_encrypted = VALUES(image_encrypted),
+                   updated_at = VALUES(updated_at)';
 
-        $ownTransaction = !$this->pdo->inTransaction();
-        if ($ownTransaction) {
-            $this->pdo->beginTransaction();
-        }
-
-        try {
-            $this->delete($userAccountId);
-            $this->pdo->prepare(
-                'INSERT INTO rental_manager_signatures (user_account_id, image_encrypted, updated_at) VALUES (?, ?, ?)'
-            )->execute([$userAccountId, $encrypted, $at->format('Y-m-d H:i:s')]);
-
-            if ($ownTransaction) {
-                $this->pdo->commit();
-            }
-        } catch (\Throwable $e) {
-            if ($ownTransaction) {
-                $this->pdo->rollBack();
-            }
-            throw $e;
-        }
+        $this->pdo->prepare($sql)->execute([
+            $userAccountId,
+            $this->encryption->encrypt($png, self::CONTEXT),
+            $at->format('Y-m-d H:i:s'),
+        ]);
     }
 
     /** Deletes this account's signature, whenever they ask. Returns whether there was one. */

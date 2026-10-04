@@ -44,9 +44,8 @@ final class RentalManagerSignatureRepositoryTest extends TestCase
     }
 
     /**
-     * The old row is deleted before the new one is written: a write that
-     * fails must take the deletion back with it, or the manager is left
-     * with no signature at all.
+     * A replacement that fails leaves the signature it was replacing — the
+     * manager is never left with none at all.
      */
     public function testAReplacementThatFailsKeepsTheSignatureItWasReplacing(): void
     {
