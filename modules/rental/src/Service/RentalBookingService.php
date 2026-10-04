@@ -397,8 +397,11 @@ class RentalBookingService implements OccupancyProvider
      *
      * Pure: also what the contract's minimum hold is capped by (IT-13).
      */
-    public static function automaticHoldUntil(\DateTimeImmutable $now, string $arrivalDate, int $days): ?\DateTimeImmutable
-    {
+    public static function automaticHoldUntil(
+        \DateTimeImmutable $now,
+        string $arrivalDate,
+        int $days
+    ): ?\DateTimeImmutable {
         if ($days <= 0) {
             return null;
         }

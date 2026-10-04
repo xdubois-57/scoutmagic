@@ -495,15 +495,19 @@ class RentalBookingRepository
         \DateTimeImmutable $now
     ): bool {
         $timestamp = $now->format('Y-m-d H:i:s');
+        // A row still carrying the retired `reviewing` status reads back as
+        // RECEIVED (#708, IT-11), so it must also match when RECEIVED is
+        // expected — otherwise the decision would be refused as a race.
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
-             WHERE id = ? AND status = ?'
+            "UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
+             WHERE id = ? AND (status = ? OR (status = 'reviewing' AND ? = 'received'))"
         );
         $stmt->execute([
             $status->value,
             $status->isFinal() ? $timestamp : null,
             $timestamp,
             $id,
+            $expected->value,
             $expected->value,
         ]);
 

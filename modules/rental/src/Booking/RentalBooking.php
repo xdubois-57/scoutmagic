@@ -117,6 +117,19 @@ final class RentalBooking
      * lapsed a minute ago frees its dates on this page load, not on the next
      * run of the task.
      */
+    public function occupiesTheAsset(\DateTimeImmutable $now): bool
+    {
+        if (!$this->status->occupiesTheAsset()) {
+            return false;
+        }
+
+        if ($this->status->firmlyOccupiesTheAsset()) {
+            return true;
+        }
+
+        return $this->holdIsActive($now);
+    }
+
     /**
      * Since when the dates are no longer held, for a request still
      * waiting on the unit whose automatic hold ran out (#708, IT-01) —
@@ -132,19 +145,6 @@ final class RentalBooking
         }
 
         return $this->holdUntil ?? $this->holdLapsedAt;
-    }
-
-    public function occupiesTheAsset(\DateTimeImmutable $now): bool
-    {
-        if (!$this->status->occupiesTheAsset()) {
-            return false;
-        }
-
-        if ($this->status->firmlyOccupiesTheAsset()) {
-            return true;
-        }
-
-        return $this->holdIsActive($now);
     }
 
     /**

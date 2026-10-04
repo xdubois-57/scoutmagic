@@ -1147,6 +1147,29 @@ class RentalBookingServiceTest extends TestCase
         $this->assertSame(BookingStatus::RECEIVED, $this->repository->findById($booking->id)?->status);
     }
 
+    /**
+     * Read back as RECEIVED, such a row must also be decided as one: the
+     * guarded write expecting RECEIVED would otherwise report a race that
+     * never happened, and the manager could not answer the request.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusCanBeDecided(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $this->assertTrue($this->repository->compareAndSetStatus(
+            $booking->id,
+            BookingStatus::RECEIVED,
+            BookingStatus::CONFIRMED,
+            $this->now()
+        ));
+        $this->assertSame(BookingStatus::CONFIRMED, $this->repository->findById($booking->id)?->status);
+        $this->assertFalse(
+            $this->repository->compareAndSetStatus($booking->id, BookingStatus::RECEIVED, BookingStatus::REFUSED, $this->now()),
+            'Once decided, the row no longer matches a RECEIVED expectation.'
+        );
+    }
+
     public function testStatusHelpersAgreeWithTheSpecsLifecycle(): void
     {
         $this->assertTrue(BookingStatus::RECEIVED->needsAttention());
