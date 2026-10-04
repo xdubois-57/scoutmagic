@@ -131,9 +131,8 @@ Les profils OWASP ZAP et leur rôle sont documentés dans le
 [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ; le
 modèle de sécurité détaillé reste dans [SECURITY.md](SECURITY.md).
 
-La matrice d'autorisation rejoue **toutes** les routes que l'application déclare
-sous les six rôles ; son fonctionnement est décrit dans ce même pipeline de
-qualité.
+La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles ;
+son fonctionnement est décrit dans ce même pipeline de qualité.
 
 ## Intégration continue
 
