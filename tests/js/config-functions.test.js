@@ -111,7 +111,9 @@ describe('config-functions.js', () => {
         it('wires the sections even when the functions list is empty (no import yet)', async () => {
             document.body.innerHTML = SECTION_ROW;
             await boot();
-            document.querySelector('.section-name-input').dispatchEvent(new Event('blur'));
+            const name = document.querySelector('.section-name-input');
+            name.value = 'Meute renommée';
+            name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().url).toBe('/config/functions/section-name');
         });
@@ -124,12 +126,19 @@ describe('config-functions.js', () => {
         const emptyShown = (id) => !zone(id).querySelector('.function-zone-empty').classList.contains('d-none');
         const countOf = (id) => zone(id).closest('.function-zone').querySelector('[data-zone-count]').textContent;
 
-        /** A native drag of `id` into `target`'s empty space. */
-        function drag(id, target) {
+        /**
+         * A native drag of `id` into `target`'s empty space, released there
+         * (`drop`) unless `released` is false — an abandoned gesture, which
+         * sortable.js must not save between lists.
+         */
+        function drag(id, target, released = true) {
             row(id).dispatchEvent(new Event('dragstart', { bubbles: true }));
             const over = new Event('dragover', { bubbles: true, cancelable: true });
             Object.defineProperties(over, { clientX: { value: 0 }, clientY: { value: 0 } });
             target.dispatchEvent(over);
+            if (released) {
+                target.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+            }
             row(id).dispatchEvent(new Event('dragend', { bubbles: true }));
         }
 
@@ -156,6 +165,17 @@ describe('config-functions.js', () => {
             expect(emptyShown('zone-unconfirmed')).toBe(true);
             expect(countOf('zone-identified')).toBe('1');
             expect(countOf('zone-unconfirmed')).toBe('0');
+        });
+
+        it('a drag released outside every role saves nothing and leaves the function where it was', async () => {
+            await boot();
+
+            drag('7', zone('zone-identified').querySelector('.function-zone-empty'), false);
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(zoneIds('zone-identified')).toEqual([]);
         });
 
         it('moving a confirmed function changes its role, and shows the Chef-only flag only where it applies', async () => {
@@ -272,6 +292,21 @@ describe('config-functions.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
             expect(lead.checked).toBe(false);
         });
+
+        it('does not give the lead checkbox — not a switch — an aria-checked when flipping it back', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
+            window.ScoutMagicNav = {
+                syncSwitchAriaChecked: (input) => input.setAttribute('aria-checked', String(input.checked)),
+            };
+            await boot();
+            const lead = document.querySelector('.flag-lead');
+            lead.checked = true;
+            lead.dispatchEvent(new Event('change'));
+
+            await vi.waitFor(() => expect(lead.checked).toBe(false));
+            expect(lead.hasAttribute('aria-checked')).toBe(false);
+            delete window.ScoutMagicNav;
+        });
     });
 
     describe('sections', () => {
@@ -367,6 +402,7 @@ describe('config-functions.js', () => {
         it('confirms a saved name with a toast, and keeps a refused one on screen', async () => {
             await boot();
             const name = document.querySelector('.section-name-input');
+            name.value = 'Meute renommée';
             name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
 
@@ -375,6 +411,20 @@ describe('config-functions.js', () => {
             name.dispatchEvent(new Event('blur'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Nom invalide.', { variant: 'error' }));
             expect(name.value).toBe('Nouveau nom');
+        });
+
+        it('sends nothing and says nothing when a text field is left as it was', async () => {
+            await boot();
+            const name = document.querySelector('.section-name-input');
+            name.dispatchEvent(new Event('blur'));
+            name.value = 'Meute renommée';
+            name.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            name.dispatchEvent(new Event('blur'));
+            document.querySelector('.section-email-input')?.dispatchEvent(new Event('blur'));
+            await Promise.resolve();
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1);
         });
 
         it('adopts the effective colour the server answers with and enables the reset button', async () => {

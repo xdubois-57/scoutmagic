@@ -81,27 +81,75 @@
         discretion: discretionToggle ? discretionToggle.checked : false
     };
 
+    // Answers can cross: an older one must neither undo a newer change nor
+    // put back a baseline older than what the server already confirmed.
+    var saveSequence = 0;
+    var savedSequence = 0;
+    /** The newest save whose own answer has come back, accepted or not. */
+    var settledSequence = 0;
+    // The discretion value of the newest request sent, answered or not: a
+    // flip back while the first one is in flight still differs from it,
+    // where it would match the value the server last confirmed.
+    var lastSentDiscretion = saved.discretion;
+
+    function paintSaved() {
+        startInput.value = saved.start;
+        endInput.value = saved.end;
+        discretionToggle.checked = saved.discretion;
+        syncAriaChecked(discretionToggle);
+    }
+
     function saveAccountSettings() {
         var sent = {
             start: startInput.value,
             end: endInput.value,
             discretion: discretionToggle.checked
         };
-        window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
+        // Quiet hours are a pair: half of one is not a setting yet, and
+        // the server would refuse it. The recorded pair goes instead, so a
+        // discretion flip meanwhile still reaches the server.
+        var substituted = false;
+        if ((sent.start === '') !== (sent.end === '')) {
+            if (sent.discretion === lastSentDiscretion) {
+                return;
+            }
+            sent.start = saved.start;
+            sent.end = saved.end;
+            substituted = true;
+        }
+        var sequence = ++saveSequence;
+        lastSentDiscretion = sent.discretion;
+        void window.ScoutMagicApi.postJson('/notifications/quiet-hours', {
             quiet_hours_start: sent.start,
             quiet_hours_end: sent.end,
             discretion: sent.discretion
         })
             .then(function (res) {
-                if (res.data?.success) {
+                var recorded = !!res.data?.success;
+                if (recorded && sequence > savedSequence) {
                     saved = sent;
+                    savedSequence = sequence;
+                    // The newest save was already refused and put the
+                    // controls back on what was confirmed then. This older
+                    // one is confirmed now: show it, or the screen lags.
+                    if (sequence !== saveSequence && settledSequence === saveSequence) {
+                        paintSaved();
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    }
+                }
+                if (sequence !== saveSequence) {
+                    return;
+                }
+                settledSequence = sequence;
+                if (recorded) {
+                    // The half pair on screen was not what went: show the
+                    // pair the server now holds rather than claim the edit.
+                    if (substituted) paintSaved();
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }
-                startInput.value = saved.start;
-                endInput.value = saved.end;
-                discretionToggle.checked = saved.discretion;
-                syncAriaChecked(discretionToggle);
+                paintSaved();
+                lastSentDiscretion = saved.discretion;
                 toastFailure(res);
             });
     }

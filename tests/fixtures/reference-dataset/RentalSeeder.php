@@ -65,7 +65,7 @@ use Modules\Rental\Service\RentalSlugGenerator;
  *    is lost by not building it here.
  *
  * Statuses are reached by walking the real lifecycle — `received` →
- * `reviewing` → `confirmed` → `closed` — through Service\
+ * `confirmed` → `closed` — through Service\
  * RentalOperationsService, never by writing a status column. Confirmation in
  * particular re-checks availability inside its own lock, which is exactly the
  * behaviour a fixture should be subject to rather than exempt from.
@@ -274,14 +274,6 @@ final class RentalSeeder
         }
 
         $booking = $created['booking'];
-
-        // Somebody looked at it. Every path but an outright refusal goes
-        // through this first, which is what the lifecycle table means by
-        // "confirmation may only follow a state where somebody looked".
-        if ($target !== BookingStatus::REFUSED) {
-            $this->operationsService->changeStatus($booking, BookingStatus::REVIEWING, null, $now);
-            $booking = $this->reload($booking->id);
-        }
 
         if ($target === BookingStatus::REFUSED) {
             $this->operationsService->changeStatus($booking, BookingStatus::REFUSED, null, $now);

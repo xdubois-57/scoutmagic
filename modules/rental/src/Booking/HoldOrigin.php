@@ -17,10 +17,12 @@ namespace Modules\Rental\Booking;
  *
  * The two origins differ in what they *mean*, not in how they work:
  *
- * - `AUTOMATIC` is created by the request itself and is short (48 h by
- *   default). It is told to the renter as "we have 48 hours to reply", and
- *   is **not** a checklist milestone a human crossed — nobody did anything.
- *   When it lapses the request simply goes back to waiting.
+ * - `AUTOMATIC` is created by the request itself: 30 days by default
+ *   (`automatic_hold_days`), never past the start of the stay. The renter
+ *   is told the real date in the acknowledgement, and it is **not** a task
+ *   a human crossed — nobody did anything. When it lapses the request
+ *   simply goes back to waiting, and the booking page warns that the dates
+ *   are free again (#708, IT-01).
  * - `MANAGER` is a deliberate option with a deadline promised to the renter,
  *   and *is* a milestone. When it lapses without confirmation the booking
  *   becomes expired.

@@ -84,6 +84,9 @@
         }
     }
 
+    // The mode the server last recorded — what a refused switch goes back to.
+    var savedMode = getMode();
+
     /**
      * @param {string} mode
      * @param {string} content
@@ -93,7 +96,11 @@
     function saveMode(mode, content, prompt, callback) {
         api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
             .then(function (res) {
-                if (callback) callback(!!(res.data?.success), res.data);
+                var ok = !!(res.data?.success);
+                // Every recorded save moves it, whichever control sent it
+                // (a switch, the editor, the reset).
+                if (ok) savedMode = mode;
+                if (callback) callback(ok, res.data);
             });
     }
 
@@ -133,6 +140,10 @@
             generateBtn.disabled = false;
 
             if (data.status === 'done') {
+                // A finished generation records the AI mode server-side
+                // (RgpdGenerationRunner): from now on a refused switch
+                // goes back to it.
+                savedMode = 'ai';
                 if (typeof data.content === 'string') {
                     preview.innerHTML = data.content;
                 }
@@ -190,9 +201,6 @@
         pollGeneration('Contenu généré et enregistré.');
     }
 
-    // The mode the server last recorded — what a refused switch goes back to.
-    var savedMode = getMode();
-
     /**
      * @param {any} data the refused answer's body, null when there was none
      */
@@ -214,7 +222,6 @@
     function recordModeSwitch(mode, content, previousContent) {
         saveMode(mode, content, '', function (ok, data) {
             if (ok) {
-                savedMode = mode;
                 window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 return;
             }
@@ -232,7 +239,7 @@
 
             if (mode === 'default') {
                 // Reset to default content, then persist mode + content
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
                     if (!res.data?.success) {
                         refuseModeSwitch(res.data);
                         return;
@@ -242,7 +249,7 @@
                 });
             } else if (mode === 'ai') {
                 // Reset to default first, then auto-generate if prompt exists
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
                     if (!res.data?.success) {
                         refuseModeSwitch(res.data);
                         return;

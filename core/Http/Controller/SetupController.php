@@ -21,6 +21,7 @@ use Core\Exception\UserFacingMessage;
 use Core\File\ChunkedUploadStore;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Core\Http\RequestScheme;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
@@ -1679,6 +1680,12 @@ class SetupController extends AbstractController
             $errors['base_url'] = 'L\'URL de base est requise.';
         } elseif (!filter_var($data['base_url'], FILTER_VALIDATE_URL)) {
             $errors['base_url'] = 'L\'URL de base n\'est pas valide.';
+        } elseif (RequestScheme::httpsRequired() && !str_starts_with(strtolower($data['base_url']), 'https://')) {
+            // HTTPS is a precondition of a production install (#751): a
+            // public http:// address would publish links that send every
+            // member's session in cleartext.
+            $errors['base_url'] = 'L\'URL de base doit commencer par https:// : '
+                . 'ScoutMagic exige une connexion sécurisée.';
         }
 
         // Email settings — ASKED ONCE, on the first run, for the same
@@ -2069,9 +2076,10 @@ class SetupController extends AbstractController
      * First-time setup only: the site is almost always already reachable
      * at the URL the operator is filling in this form from (the whole
      * point of an FTP-uploaded installer is that DNS/hosting are already
-     * pointed here) — HTTPS detection goes through Core\Http\
-     * RequestScheme like every other call site. Still an ordinary
-     * editable field, just pre-filled instead of blank.
+     * pointed here) — the scheme comes from Core\Http\RequestScheme's
+     * policy, so a site that requires HTTPS is pre-filled with
+     * `https://` even when PHP sits behind a TLS terminator. Still an
+     * ordinary editable field, just pre-filled instead of blank.
      */
     private function resolveDefaultBaseUrl(Request $request): string
     {
@@ -2080,6 +2088,6 @@ class SetupController extends AbstractController
             return '';
         }
 
-        return ($request->isHttps() ? 'https://' : 'http://') . $host;
+        return ($request->enforcesHttps() ? 'https://' : 'http://') . $host;
     }
 }

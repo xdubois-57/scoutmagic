@@ -70,4 +70,24 @@ describe('ScoutMagicToast.show()', () => {
         expect(document.querySelectorAll('.toast-container')).toHaveLength(1);
         expect(document.querySelectorAll('.toast')).toHaveLength(2);
     });
+
+    it('offers one action that runs and closes the toast (#708, IT-07)', async () => {
+        const toast = await loadToast();
+        const onClick = vi.fn();
+        toast.show('3 jours bloqués', { action: { label: 'Annuler', onClick } });
+
+        const button = [...document.querySelectorAll('.toast button')].find((b) => b.textContent === 'Annuler');
+        expect(button).toBeTruthy();
+        button.click();
+
+        expect(onClick).toHaveBeenCalledTimes(1);
+        expect(document.querySelector('.toast')).toBeNull();
+    });
+
+    it('renders no action button when none is asked for', async () => {
+        const toast = await loadToast();
+        toast.show('Enregistré.');
+
+        expect(document.querySelectorAll('.toast button')).toHaveLength(1);
+    });
 });

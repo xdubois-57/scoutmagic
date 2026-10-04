@@ -786,6 +786,41 @@
     flex: 1 0 100%;
 }
 
+/* Modules\Groups — the three lines under a message: « Vu par … », the
+   reaction row, and the « Commenter » disclosure. Their vertical rhythm
+   is owned here rather than by a `mt-2` on each (issue #710).
+
+   The utility was right on a desktop and wrong on a phone, because on a
+   coarse pointer each of the three rows already stands in a 44px touch
+   target (app.css's `pointer: coarse` block for the two buttons,
+   `.groups-thread-summary`'s own min-height for the third). A 44px box
+   around a 0.75rem line IS the breathing room; the half-rem above each
+   one then stacked on top of it, and three rows of ~52px turned the foot
+   of every message into more height than the message. Measured at 360px:
+   156px of footer under a two-line post.
+
+   So the margin lives on one class, and the coarse-pointer world sets it
+   to zero — the rows sit flush and each keeps its full 44px. Nothing is
+   made smaller anywhere: this file never touches a min-height, and
+   AGENTS.md's rule is about the tappable zone, which is exactly what is
+   left. A `mt-2` would have needed `!important` to undo, which is why
+   the utility had to go rather than be overridden.
+
+   The reply's reaction row is deliberately NOT in this: it carries
+   `.groups-reactions-compact`, keeps its half-rem at every pointer, and
+   a reply has no « Vu par » or thread line to stack against. */
+.groups-post-action-line {
+    margin-top: 0.5rem;
+}
+.groups-reactions-compact {
+    margin-top: 0.5rem;
+}
+@media (pointer: coarse) {
+    .groups-post-action-line {
+        margin-top: 0;
+    }
+}
+
 /* Modules\Groups\views\partials\post_card.html.twig — a message's
    conversation, folded away behind the browser's own <details>/<summary>
    disclosure so a feed reads as a list of messages rather than as every
@@ -1019,6 +1054,49 @@
         var(--bs-danger-bg-subtle, #f8d7da) 0 50%,
         var(--bs-success-bg-subtle, #d1e7dd) 50% 100%
     );
+}
+/* "Free in the morning, taken from the afternoon" — the same diagonal,
+   mirrored, so an arrival and a departure on facing days read as one
+   continuous stay. */
+.daygrid-day--arriving {
+    background-image: linear-gradient(
+        135deg,
+        var(--bs-success-bg-subtle, #d1e7dd) 0 50%,
+        var(--bs-danger-bg-subtle, #f8d7da) 50% 100%
+    );
+}
+/* The managed rental calendar (#708, IT-07): a day the unit blocks is
+   hatched OVER whatever the bookings make of it, so a day held by both
+   shows both. A pseudo-element rather than a background, because the
+   half-day states already use the background for their diagonal. Keyed on
+   the data attribute only that page sets — every other grid is untouched. */
+.daygrid-day[data-unit-block="1"] {
+    position: relative;
+}
+.daygrid-day[data-unit-block="1"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgba(var(--bs-emphasis-color-rgb, 0, 0, 0), 0.28) 0 2px,
+        transparent 2px 7px
+    );
+}
+.daygrid-day--free[data-unit-block="1"] {
+    --daygrid-day-color: var(--bs-secondary-bg, #e9ecef);
+}
+/* While a gesture runs: the days it covers, and no text selection or
+   system menu under the finger. */
+.rental-block-calendar .daygrid {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+.rental-block-calendar.is-selecting .daygrid-day.is-gesture {
+    outline: 3px solid var(--bs-primary, #0d6efd);
+    outline-offset: -3px;
 }
 /* Past, inside a notice window, or beyond the horizon — greyed out, and
    pointedly NOT the occupied colour: telling a visitor "taken" for a day
@@ -1294,4 +1372,10 @@
     border-radius: 50%;
     background: var(--bs-body-bg);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+
+/* Staffs page — the section text's invitation to write (#725), shown only
+   while the preview is empty, including after an in-place save. */
+.section-text .rich-text-field-preview:not(:empty) + .section-text-empty {
+    display: none;
 }

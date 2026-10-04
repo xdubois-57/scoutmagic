@@ -45,6 +45,32 @@
             </div>
         {% endif %}
 
+        {# The section's own text (#725), between the photo and the staff:
+           the same for every year until edited. Editable by whoever
+           animates the section — edit mode or not — and absent, not an
+           empty frame, for a reader when nothing is written. #}
+        {% if section_text_key and (can_edit_section or section_text|striptags|trim != '') %}
+            <div class="mb-3 d-flex align-items-start gap-2 section-text">
+                <div class="flex-grow-1">
+                    {% include 'partials/rich_text_field.html.twig' with {
+                        content_key: section_text_key,
+                        content_value: section_text,
+                    } only %}
+                    {% if can_edit_section %}
+                        {# Hidden by CSS as soon as the preview holds
+                           anything — after an in-place save too. #}
+                        <p class="text-body-secondary small mb-0 section-text-empty">Présentez le staff ou ajoutez des informations utiles à la section.</p>
+                    {% endif %}
+                </div>
+                {% if can_edit_section %}
+                    {% include 'partials/rich_text_edit_button.html.twig' with {
+                        content_key: section_text_key,
+                        save_url: '/chefs/staffs/text',
+                    } only %}
+                {% endif %}
+            </div>
+        {% endif %}
+
         <div class="d-flex flex-column gap-2">
             {% for member in staff %}
                 <div class="card">
@@ -57,7 +83,8 @@
                                 </span>
                             </div>
                             <div>
-                                <span class="fw-semibold">{{ member|display_name|normalize_name }}</span>
+                                {% set section_totem = member.sectionTotemFor(current_section.id) %}
+                                <span class="fw-semibold">{{ member|display_name|normalize_name }}{% if section_totem %} ({{ section_totem }}){% endif %}</span>
                                 {% if member.getMainFunction() %}
                                 <div class="text-body-secondary small">
                                     {{ member.getMainFunction().functionLabel }}
@@ -65,6 +92,22 @@
                                 {% endif %}
                             </div>
                         </div>
+
+                        {# Issue #722: the totem this leader carries in THIS
+                           section this year (« Akela »). Same people as the
+                           badges below; saved on blur, empty removes it, and
+                           a new year starts with none. #}
+                        {% if is_chief and current_section.id > 0 %}
+                            <div class="mb-2" style="max-width:20rem;">
+                                <label class="form-label small mb-1" for="section-totem-{{ member.memberYearId }}">Totem de section</label>
+                                <input type="text" class="form-control form-control-sm section-totem-input"
+                                       id="section-totem-{{ member.memberYearId }}" maxlength="100"
+                                       value="{{ member.sectionTotems[current_section.id]|default('') }}"
+                                       placeholder="Par exemple « Akela »"
+                                       data-member-year-id="{{ member.memberYearId }}"
+                                       data-section-id="{{ current_section.id }}">
+                            </div>
+                        {% endif %}
 
                         {% if is_chief and available_badges|length > 0 %}
                             {% set badge_items = [] %}
@@ -162,9 +205,12 @@
                 {% if section_document_compression_backend_none %}
                     <div class="alert alert-warning small py-2 mb-3">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                        Aucun outil de compression PDF n'est disponible sur ce serveur — les documents PDF ajoutés ne seront pas compressés automatiquement.
-                        {% if is_chief %}
-                            Pour l'activer&nbsp;: installez Ghostscript (<code>apt install ghostscript</code> ou <code>yum install ghostscript</code>) sur le serveur, ou vérifiez que <code>proc_open</code> n'est pas désactivé dans la configuration PHP (<code>disable_functions</code>). Sur un hébergement mutualisé où vous ne pouvez pas installer de logiciel, contactez votre hébergeur.
+                        Les documents PDF ajoutés ne seront pas compressés automatiquement : aucun outil de compression n'est disponible sur ce serveur. Rien n'est refusé.
+                        {# What to ask the host lives on one page only,
+                           Santé de l'hébergement (#700) — and only the
+                           super-admin, who can act on it, is sent there. #}
+                        {% if current_user_role|default('') == 'superadmin' %}
+                            Ce qu'il faut demander à l'hébergeur est sur la page <a href="/config/maintenance">Santé de l'hébergement</a>.
                         {% endif %}
                     </div>
                 {% endif %}
@@ -287,6 +333,9 @@
                 {% endblock %}
             {% endembed %}
         {% endif %}
+        {% if can_edit_section and section_text_key %}
+            {% include 'partials/rich_text_editor.html.twig' %}
+        {% endif %}
     {% else %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucune section disponible. Les sections apparaîtront après le premier import Desk.',
@@ -316,5 +365,8 @@
 <script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
 <script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
 <script src="{{ asset('/assets/js/staffs.js') }}" defer></script>
+{% endif %}
+{% if can_edit_section is defined and can_edit_section and section_text_key|default(null) %}
+<script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
 {% endif %}
 {% endblock %}

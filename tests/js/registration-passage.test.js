@@ -338,6 +338,16 @@ describe('registration-passage.js', () => {
             expect(feedback().classList.contains('text-danger')).toBe(true);
         });
 
+        it('says how many comments the AI read first, when it read any', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, placed: 3, reviewed: 2, warnings: [] }));
+            await boot();
+
+            document.getElementById('passage-optimize-run').click();
+
+            await vi.waitFor(() =>
+                expect(feedback().textContent).toBe('2 commentaires relus, 3 personnes réparties.'));
+        });
+
         it('does not reload when the server refuses, and says why', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Indisponible.' }));
             await boot();
@@ -414,6 +424,28 @@ describe('registration-passage.js', () => {
                 body: { note: 'À placer avec son frère.', _csrf_token: 'tok-123' },
             });
             await vi.waitFor(() => toasted('Enregistré.', 'success'));
+        });
+
+        it('sends nothing and says nothing for a note left as it was', async () => {
+            await boot();
+            note().dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('disables the staff wish while its save is in flight', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+
+            wishSelect().value = '0';
+            wishSelect().dispatchEvent(new Event('change'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(wishSelect().disabled).toBe(true);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(wishSelect().disabled).toBe(false));
         });
 
         it('keeps a refused note on screen, so nothing the chief wrote is lost', async () => {

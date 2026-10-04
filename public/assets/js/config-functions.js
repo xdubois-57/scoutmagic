@@ -96,6 +96,30 @@
     }
 
     /**
+     * A text field saved on blur — only when its value differs from the
+     * one the server last accepted, so tabbing through untouched fields
+     * sends nothing and says nothing.
+     *
+     * @param {HTMLInputElement} input
+     * @param {(value: string) => Promise<any>} send resolves to the parsed
+     *     body on success, null otherwise (what save() returns)
+     */
+    function saveOnChangedBlur(input, send) {
+        var saved = input.value;
+        input.addEventListener('blur', function () {
+            var value = input.value;
+            if (value === saved) {
+                return;
+            }
+            void send(value).then(function (data) {
+                if (data) {
+                    saved = value;
+                }
+            });
+        });
+    }
+
+    /**
      * A switch the admin just flipped: a refused save flips it back.
      *
      * @param {HTMLInputElement} input
@@ -104,7 +128,11 @@
     function flipBack(input) {
         return function () {
             input.checked = !input.checked;
-            window.ScoutMagicNav?.syncSwitchAriaChecked?.(input);
+            // Only a real switch carries aria-checked; a plain checkbox
+            // (the lead flag) must not grow one.
+            if (input.getAttribute('role') === 'switch') {
+                window.ScoutMagicNav?.syncSwitchAriaChecked?.(input);
+            }
         };
     }
 
@@ -238,8 +266,8 @@
         var colorReset = /** @type {HTMLButtonElement|null} */ (row.querySelector('.section-color-reset'));
 
         if (nameInput) {
-            nameInput.addEventListener('blur', function () {
-                save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: nameInput.value });
+            saveOnChangedBlur(nameInput, function (value) {
+                return save(nameInput, '/config/functions/section-name', { section_id: sectionId, name: value });
             });
         }
 
@@ -248,20 +276,20 @@
             var emailWarningText = /** @type {HTMLElement|null} */ (
                 row.querySelector('.section-email-warning-text')
             );
-            emailInput.addEventListener('blur', function () {
-                save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: emailInput.value })
+            saveOnChangedBlur(emailInput, function (value) {
+                return save(emailInput, '/config/functions/section-email', { section_id: sectionId, email: value })
                     .then(function (data) {
-                        if (!data || !emailWarning || !emailWarningText) {
-                            return;
-                        }
                         // The sentence comes from the server, which owns the
                         // rule: this only shows or hides what it answered.
                         // An absent key is « nothing to warn about », the
                         // same as an empty one, so an older answer cannot
                         // leave a stale warning on screen.
-                        var warning = data.alignment_warning || '';
-                        emailWarningText.textContent = warning;
-                        emailWarning.classList.toggle('d-none', warning === '');
+                        if (data && emailWarning && emailWarningText) {
+                            var warning = data.alignment_warning || '';
+                            emailWarningText.textContent = warning;
+                            emailWarning.classList.toggle('d-none', warning === '');
+                        }
+                        return data;
                     });
             });
         }
@@ -285,7 +313,7 @@
              */
             var savedColor = colorInput.value;
             var saveColor = function (color) {
-                save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color }, function () {
+                void save(colorInput, '/config/functions/section-color', { section_id: sectionId, color: color }, function () {
                     colorInput.value = savedColor;
                 })
                     .then(function (data) {
@@ -311,8 +339,8 @@
         if (!urlInput) {
             return;
         }
-        urlInput.addEventListener('blur', function () {
-            save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: urlInput.value });
+        saveOnChangedBlur(urlInput, function (value) {
+            return save(urlInput, '/config/functions/branch-url', { branch_id: branchId, url: value });
         });
     });
 })();

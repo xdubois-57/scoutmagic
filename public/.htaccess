@@ -69,9 +69,9 @@ RewriteRule ^ index.php [QSA,L]
         #
         # env=HTTPS so it is never announced on a connection Apache
         # cannot see is encrypted. Behind a separate TLS terminator
-        # mod_ssl sets nothing, which is exactly the deployment
-        # Core\Http\RequestScheme's trust_forwarded_proto opt-in exists
-        # for (SECURITY.md § 9) — there the PHP side still emits it, and
+        # mod_ssl sets nothing — there the PHP side still emits it,
+        # because Core\Http\RequestScheme's https_required policy (on by
+        # default, SECURITY.md § 9) does not depend on what PHP sees, and
         # this file correctly stays quiet.
         #
         # The value is kept identical to Core\Http\Response's, and

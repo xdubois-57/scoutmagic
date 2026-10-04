@@ -133,7 +133,11 @@
             </div>
         </div>
 
-        <form method="post" action="/admin/fees/factures/import" enctype="multipart/form-data" class="card">
+        {# `data-submit-lock` (issue #756): a federation invoice is read and
+           checked server-side, which takes long enough for a second click to
+           import it twice. PDF only, so no thumbnail. #}
+        <form method="post" action="/admin/fees/factures/import" enctype="multipart/form-data" class="card"
+              data-submit-lock data-submit-lock-label="Lecture en cours…">
             <div class="card-body">
                 <h2 class="h6 mb-3">Le fichier</h2>
                 {{ csrf_field()|raw }}
@@ -184,4 +188,5 @@
     <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
     {# Names the file that was picked: the zone's input is visually hidden. #}
     <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
 {% endblock %}

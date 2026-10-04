@@ -98,8 +98,22 @@
     });
 
     comments.forEach(function (field) {
+        // A comment left as it was sends nothing, and says nothing.
+        // Saves of one comment run one after the other, in blur order: an
+        // older answer can then never overwrite what a newer one recorded.
+        var savedComment = field.value;
+        /** @type {Promise<void>} */
+        var commentQueue = Promise.resolve();
         field.addEventListener('blur', function () {
-            save(field.dataset.memberYearId || '', { comment: field.value });
+            var written = field.value;
+            commentQueue = commentQueue.then(async function () {
+                if (written === savedComment) {
+                    return;
+                }
+                if (await save(field.dataset.memberYearId || '', { comment: written })) {
+                    savedComment = written;
+                }
+            });
         });
     });
 })();

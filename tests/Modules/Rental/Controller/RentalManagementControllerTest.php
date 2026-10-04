@@ -31,6 +31,7 @@ use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
@@ -97,6 +98,8 @@ class RentalManagementControllerTest extends TestCase
     private RentalChangeRequestRepository $changeRequestRepository;
     private RentalBookingCommentRepository $commentRepository;
     private RentalBlockRepository $blockRepository;
+
+    private ?\Modules\Rental\Service\RentalComplianceService $complianceService = null;
     private RentalOperationsService $operationsService;
     private RentalPricingService $pricingService;
     private EncryptionService $encryption;
@@ -260,7 +263,7 @@ class RentalManagementControllerTest extends TestCase
             null,
             null,
             // The paperwork register: the compliance page 404s without it.
-            new \Modules\Rental\Service\RentalComplianceService(
+            $this->complianceService = new \Modules\Rental\Service\RentalComplianceService(
                 new \Modules\Rental\Repository\RentalComplianceRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 $journal,
@@ -286,6 +289,18 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
                 $bookingAudit
+            ),
+            // The overview warns when nobody on the asset can be told (#708, IT-05).
+            new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new \Core\Import\MemberYearRepository($this->pdo),
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+                $journal
+            ),
+            // Dates the conditions on the Gabarits list (#708, IT-10).
+            new \Modules\Rental\Service\RentalConditionsService(
+                new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
             )
         );
 
@@ -463,8 +478,9 @@ class RentalManagementControllerTest extends TestCase
 
     /**
      * @param array<string, string> $body
+     * @param array<string, string> $params placeholders of $path, filled into the request path
      */
-    private function post(string $path, string $action, array $body): Response
+    private function post(string $path, string $action, array $body, array $params = []): Response
     {
         $body['_csrf_token'] ??= CsrfGuard::generateToken();
         $_POST = $body;
@@ -472,7 +488,19 @@ class RentalManagementControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('POST', $path, RentalManagementController::class, $action, 'identified');
 
-        return $this->dispatch($router, new Request('POST', $path, [], $body, [], []));
+        $requestPath = $path;
+        foreach ($params as $name => $value) {
+            $requestPath = str_replace('{' . $name . '}', $value, $requestPath);
+        }
+
+        return $this->dispatch($router, new Request('POST', $requestPath, [], $body, [], []));
+    }
+
+    private function complianceService(): \Modules\Rental\Service\RentalComplianceService
+    {
+        $this->assertNotNull($this->complianceService);
+
+        return $this->complianceService;
     }
 
     /**
@@ -1144,7 +1172,7 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(1, 'nobody@test.be', 'identified');
 
         $actions = [
-            ['/mes-locations/statut', 'changeStatus', ['status' => 'reviewing']],
+            ['/mes-locations/statut', 'changeStatus', ['status' => 'info_requested']],
             ['/mes-locations/option', 'placeOption', ['until' => '2027-06-01T18:00']],
             ['/mes-locations/commentaire', 'addComment', ['body' => 'Interne']],
             ['/mes-locations/ligne', 'priceLine', ['line_action' => 'recalculate']],
@@ -1171,12 +1199,21 @@ class RentalManagementControllerTest extends TestCase
             $this->assertSame(404, $response->getStatusCode(), $path . ' must be refused.');
         }
 
-        $this->assertSame(404, $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-09-01',
-            'end' => '2027-09-05',
+        $this->assertSame(404, $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10)],
         ])->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // A period's reason too: an id in a POST is no authorisation.
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $this->assertSame(404, $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => 'Pris',
+        ])->getStatusCode());
+        $this->assertSame('Camp', $this->blockRepository->findById($blockId)?->reason);
     }
 
     public function testAWriteWithoutAValidCsrfTokenIsRefused(): void
@@ -1189,7 +1226,7 @@ class RentalManagementControllerTest extends TestCase
             '_csrf_token' => 'forged',
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
@@ -1223,7 +1260,7 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $foreign->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(404, $response->getStatusCode());
@@ -1233,7 +1270,7 @@ class RentalManagementControllerTest extends TestCase
     public function testABlockCannotBeDeletedThroughAnAssetTheManagerDoesControl(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', 1, null, null);
+        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', null, null);
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $this->post('/mes-locations/blocage-supprimer', 'deleteBlock', [
@@ -1260,11 +1297,11 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame(BookingStatus::REVIEWING, $this->bookingRepository->findById($booking->id)?->status);
+        $this->assertSame(BookingStatus::INFO_REQUESTED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /**
@@ -1326,7 +1363,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertStringNotContainsString(
@@ -1430,16 +1467,22 @@ class RentalManagementControllerTest extends TestCase
 
     public function testBookkeepingWritesToNobody(): void
     {
-        // A manager opening a request moves it to « en cours d'examen ».
+        // Putting a request back on hold is the unit's own bookkeeping.
         // That is not news, and an email saying so would train the renter
         // to ignore the ones that are.
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'info_requested',
+        ]);
+        $this->renterEmails = [];
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'received',
         ]);
 
         $this->assertSame([], $this->renterEmails);
@@ -1554,6 +1597,62 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNull($this->bookingRepository->findById($booking->id)?->holdUntil);
     }
 
+    /**
+     * The field says which hold runs (#708, IT-01): saving a date over the
+     * automatic one makes it an option, which ends differently.
+     */
+    public function testTheOptionFieldSaysTheAutomaticHoldRunsAndSavingMakesAnOption(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $until = new \DateTimeImmutable('+10 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+        $this->assertStringContainsString('value="' . $until->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringContainsString('Cette date est celle du <strong>blocage automatique</strong>', $body);
+
+        $this->post('/mes-locations/option', 'placeOption', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'until' => $until->format('Y-m-d\TH:i'),
+        ]);
+        $this->assertSame(HoldOrigin::MANAGER, $this->bookingRepository->findById($booking->id)?->holdOrigin);
+    }
+
+    /** A lapsed automatic hold warns, and the field shows no stale deadline. */
+    public function testALapsedAutomaticHoldWarnsOnTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $lapsed = new \DateTimeImmutable('-2 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $lapsed, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+
+        $this->assertStringContainsString('Les dates ne sont plus bloquées depuis le ' . $lapsed->format('d/m/Y'), $body);
+        $this->assertStringNotContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringNotContainsString("L'option sur les dates est échue", $body);
+    }
+
+    /**
+     * Nobody on the asset can be told about a request (#708, IT-05): the
+     * overview says the Staff d'U gets them, and how to fix it.
+     */
+    public function testTheOverviewWarnsWhenNoManagerCanBeTold(): void
+    {
+        $this->loginAsManager();
+        // loginAsManager()'s manager has no user account in this suite.
+        $this->assertStringContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
+
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute([
+            $this->encryption->encrypt('manager@test.be', 'user_accounts.email'),
+            $this->encryption->blindIndex('manager@test.be', 'email'),
+        ]);
+
+        $this->assertStringNotContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
+    }
+
     public function testAManagerEditsThePriceAndTheRenterSeesTheNewTotal(): void
     {
         $this->loginAsManager();
@@ -1573,32 +1672,220 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(31000, $fresh?->effectiveTotalCents());
     }
 
-    public function testABlockIsAcceptedOverABookedPeriodAndTheManagerIsWarned(): void
+    // ── Blocking dates on the calendar (#708, IT-07) ────────────────────
+
+    public function testDaysBlockedOnTheCalendarBecomeOnePeriodWithoutAReason(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10), $this->futureDay(11), $this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertSame(
+            [$this->futureDay(10) => null, $this->futureDay(11) => null, $this->futureDay(12) => null],
+            $payload['changed']
+        );
+        $this->assertStringContainsString('Motif', $payload['list']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame($this->futureDay(10), $blocks[0]->startDate);
+        $this->assertSame($this->futureDay(12), $blocks[0]->endDate);
+        $this->assertNull($blocks[0]->reason);
+    }
+
+    /**
+     * The list under the grid is re-rendered after a gesture with the
+     * window the page drew it with — the month on screen, not today.
+     */
+    public function testTheListAfterAGestureKeepsTheWindowOfTheMonthOnScreen(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $month = (new \DateTimeImmutable('first day of +2 months'));
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$month->modify('+3 days')->format('Y-m-d')],
+            'month' => $month->format('Y-m'),
+        ])->getBody(), true);
+        $this->assertStringNotContainsString('Camp', $payload['list'], 'A block ended before that month stays out.');
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(20)],
+        ])->getBody(), true);
+        $this->assertStringContainsString('Camp', $payload['list'], 'With no month, the window is this one.');
+    }
+
+    public function testReleasingTheMiddleOfAPeriodCutsItInTwoKeepingTheReason(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'release',
+            'days' => [$this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertSame([$this->futureDay(12) => 'Camp'], $payload['changed']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertSame(
+            [[$this->futureDay(10), $this->futureDay(11), 'Camp'], [$this->futureDay(13), $this->futureDay(14), 'Camp']],
+            array_map(static fn($b) => [$b->startDate, $b->endDate, $b->reason], $blocks)
+        );
+    }
+
+    public function testUndoingAReleaseWithItsReasonsRebuildsThePeriod(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+        $this->postCalendarDays('local-saint-georges', ['mode' => 'release', 'days' => [$this->futureDay(12)]]);
+
+        $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(12)],
+            'reasons' => [$this->futureDay(12) => 'Camp'],
+        ]);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame([$this->futureDay(10), $this->futureDay(14), 'Camp'], [$blocks[0]->startDate, $blocks[0]->endDate, $blocks[0]->reason]);
+    }
+
+    public function testAPastDayIsRefusedAndNothingIsWritten(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [(new \DateTimeImmutable('yesterday'))->format('Y-m-d'), $this->futureDay(3)],
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testAGestureWithoutAValidCsrfTokenIsRefused(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(3)],
+            '_csrf_token' => 'forged',
+        ]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testABlockOverABookedPeriodIsAcceptedAndBothStayOnTheCalendar(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $this->post('/mes-locations/statut', 'changeStatus', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'status' => 'confirmed',
-        ]);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->blockRepository->create($this->assetId, '2027-07-02', '2027-07-02', 'Concierge absent', null);
 
-        $response = $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-07-01',
-            'end' => '2027-07-04',
-            'reason' => 'Chantier toiture',
-        ]);
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar',
+            ['month' => '2027-07']
+        )->getBody();
 
-        $this->assertSame(302, $response->getStatusCode());
-        // Neither failed nor overwrote the booking (§6.18).
-        $this->assertCount(1, $this->blockRepository->findUpcoming($this->assetId, '2027-01-01'));
+        // Neither failed nor overwrote the booking (§6.18): the day carries
+        // the booking's state AND the unit's marker.
         $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
-        // Accepted, but said out loud, so an accidental overlap is visible
-        // rather than silent.
-        $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('warning', $flash['type'] ?? null);
-        $this->assertStringContainsString('coexistent', $flash['message'] ?? '');
+        $this->assertMatchesRegularExpression(
+            '/data-date="2027-07-02"\s+data-state="occupied"\s+data-unit-block="1"/',
+            $body
+        );
+        $this->assertStringContainsString('Occupé — et réservé par l&#039;unité', $body);
+    }
+
+    public function testTheCalendarOffersNoDateFormNorQuantityAnyMore(): void
+    {
+        $this->loginAsManager();
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar'
+        )->getBody();
+
+        $this->assertStringContainsString('id="rental-block-calendar"', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/blocage"', $body);
+        $this->assertStringNotContainsString('name="units"', $body);
+        $this->assertStringContainsString('rental-block-days.js', $body);
+    }
+
+    public function testAPeriodsReasonIsGivenFromTheList(): void
+    {
+        $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => '  Chantier toiture ',
+        ]);
+
+        $this->assertSame('Chantier toiture', $this->blockRepository->findById($blockId)?->reason);
+    }
+
+    public function testAnotherAssetsPeriodsReasonCannotBeChanged(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->blockRepository->create($this->otherAssetId, $this->futureDay(10), $this->futureDay(12), 'X', null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $foreign,
+            'reason' => 'Pris',
+        ]);
+
+        $this->assertSame('X', $this->blockRepository->findById($foreign)?->reason);
+    }
+
+    private function futureDay(int $days): string
+    {
+        return (new \DateTimeImmutable('today'))->modify('+' . $days . ' days')->format('Y-m-d');
+    }
+
+    /**
+     * The calendar's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postCalendarDays(string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $path = '/mes-locations/{slug}/calendrier/jours';
+
+        $router = new Router();
+        $router->addRoute('POST', $path, RentalManagementController::class, 'calendarDays', 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                '/mes-locations/' . $slug . '/calendrier/jours',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── Internal comments never cross the boundary ──────────────────────
@@ -1625,7 +1912,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
@@ -1638,7 +1925,7 @@ class RentalManagementControllerTest extends TestCase
         // the status change is rendered under its French label, with the
         // move it made, by the same partial Camps uses.
         $this->assertStringContainsString('Statut', $body);
-        $this->assertStringContainsString('En cours d', $body);
+        $this->assertStringContainsString('Informations demand', $body);
         $this->assertStringContainsString('audit-rental_booking-' . $booking->id, $body);
     }
 
@@ -1734,7 +2021,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->createBooking();
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier toiture', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier toiture', null);
 
         $body = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -2282,11 +2569,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
+        $body = $this->templateDocumentPage('contrat');
 
         // The editor shows the text generation would actually use…
         $this->assertStringContainsString('Convention de location', $body);
@@ -2308,14 +2591,120 @@ class RentalManagementControllerTest extends TestCase
             1
         );
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
+        $body = $this->templateDocumentPage('contrat');
 
         $this->assertStringContainsString('Nos propres conditions de location', $body);
         $this->assertStringContainsString('Réinitialiser au modèle standard', $body);
+    }
+
+    // ── The Gabarits page as a list (#708, IT-10) ───────────────────────
+
+    /**
+     * Three documents, their state, a pencil each — and none of the three
+     * editors on the list itself.
+     */
+    public function testTheTemplatePageListsTheThreeDocumentsWithTheirState(): void
+    {
+        $this->loginAsManager();
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+        $this->documentService->saveTemplate(
+            $asset,
+            \Modules\Rental\Document\DocumentType::INVOICE,
+            '<p>Facture {{ prix_ttc }}</p>',
+            1
+        );
+
+        $body = $this->templatesPage();
+
+        foreach (['contrat', 'facture', 'conditions'] as $document) {
+            $this->assertStringContainsString(
+                'href="/mes-locations/local-saint-georges/gabarits/' . $document . '"',
+                $body,
+                $document
+            );
+        }
+        $this->assertStringContainsString('Modèle standard', $body);
+        $this->assertStringContainsString('Personnalisé', $body);
+        $this->assertStringContainsString('Conditions standard', $body);
+        $this->assertStringContainsString('version en vigueur depuis le', $body);
+        // The invoice asks for a keyword that does not exist.
+        $this->assertStringContainsString('Mots-clés non reconnus', $body);
+        // No editor and no keyword panel on the list.
+        $this->assertStringNotContainsString('Mots-clés disponibles', $body);
+        $this->assertStringNotContainsString('Convention de location', $body);
+        // The same list component, without drag or bin.
+        $this->assertStringContainsString('id="template-list"', $body);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $this->between($body, 'id="template-list"', 'id="meter-list"'));
+    }
+
+    /** The keywords are open on a template's own page, not folded. */
+    public function testATemplatesOwnPageShowsItsKeywordsOpen(): void
+    {
+        $this->loginAsManager();
+
+        foreach (['contrat', 'facture'] as $document) {
+            $body = $this->templateDocumentPage($document);
+
+            $this->assertMatchesRegularExpression('/<details class="mb-3" open>\s*<summary[^>]*>Mots-clés disponibles/', $body);
+            $this->assertStringContainsString('{{ locataire_nom }}', $body);
+            $this->assertStringContainsString('sa propre copie', $body);
+        }
+
+        $this->assertStringContainsString('vat_exemption_note', $this->templateDocumentPage('facture'));
+        $this->assertStringNotContainsString('vat_exemption_note', $this->templateDocumentPage('contrat'));
+    }
+
+    public function testAnUnknownDocumentHasNoPage(): void
+    {
+        $this->loginAsManager();
+
+        $this->assertSame(404, $this->templateDocumentResponse('photo')->getStatusCode());
+        $this->assertSame(404, $this->templateDocumentResponse('contract')->getStatusCode());
+    }
+
+    public function testATemplatesPageIsRefusedToANonManager(): void
+    {
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+
+        $this->assertSame(404, $this->templateDocumentResponse('contrat')->getStatusCode());
+        $this->assertSame(404, $this->templateDocumentResponse('conditions')->getStatusCode());
+    }
+
+    /** Saving goes back to the list, with a message. */
+    public function testSavingATemplateGoesBackToTheList(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/gabarit', 'saveTemplate', [
+            'asset_id' => (string) $this->assetId,
+            'document_type' => 'contract',
+            'body' => '<p>Notre contrat.</p>',
+        ]);
+
+        $this->assertSame('/mes-locations/local-saint-georges/gabarits', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * The reset posts the standard body; on the invoice it must carry the
+     * VAT sentence along, or resetting the text would erase it.
+     */
+    public function testResettingTheInvoiceKeepsTheVatSentence(): void
+    {
+        $this->loginAsManager();
+        $this->post('/mes-locations/gabarit', 'saveTemplate', [
+            'asset_id' => (string) $this->assetId,
+            'document_type' => 'invoice',
+            'body' => '<p>Notre facture.</p>',
+            'vat_exemption_note' => 'Non assujetti',
+        ]);
+
+        $page = $this->templateDocumentPage('facture');
+        $this->assertMatchesRegularExpression(
+            '/name="body" value="[^"]*"[^>]*>\s*<input type="hidden" name="vat_exemption_note" value="Non assujetti">/',
+            $page
+        );
     }
 
     public function testAPhotoCannotBeGeneratedBecauseItIsUploadOnly(): void
@@ -2364,14 +2753,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
-        $body = (string) $this->get(
-            '/mes-locations/{slug}/gabarits',
-            '/mes-locations/local-saint-georges/gabarits',
-            'templates'
-        )->getBody();
-
-        $this->assertStringContainsString('Gabarits', $body);
-        $this->assertStringContainsString('{{ locataire_nom }}', $body);
+        $this->assertStringContainsString('Gabarits', $this->templatesPage());
     }
 
     public function testTheDocumentEditorIsRefusedForAnotherAssetsBooking(): void
@@ -3125,7 +3507,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTheChecklistIsSnapshottedWhenTheBookingIsConfirmed(): void
     {
         $this->loginAsManager();
-        $this->stayService->addInventoryItem($this->assetId, 'Clés', 0);
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
         $this->post('/mes-locations/statut', 'changeStatus', [
@@ -3137,32 +3519,226 @@ class RentalManagementControllerTest extends TestCase
         $this->assertCount(1, $this->stayService->inventoryFor($booking->id));
     }
 
-    public function testAManagerConfiguresAMeterFromTheTemplatesPage(): void
+    // ── Meters and inventory, without reloading (#708, IT-10) ───────────
+
+    public function testAManagerAddsAMeterAndGetsItsRowBack(): void
     {
         $this->loginAsManager();
 
-        $this->post('/mes-locations/compteur', 'saveMeter', [
-            'asset_id' => (string) $this->assetId,
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-saint-georges', [
             'label' => 'Électricité',
             'kind' => 'electricity',
             'unit' => 'kWh',
         ]);
 
-        $this->assertCount(1, $this->stayService->metersFor($this->assetId));
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($data['success'] ?? false, (string) $response->getBody());
+        $meters = $this->stayService->metersFor($this->assetId);
+        $this->assertCount(1, $meters);
+        $this->assertStringContainsString('class="list-editor-item', (string) $data['html']);
+        $this->assertStringContainsString('data-id="' . $meters[0]->id . '"', (string) $data['html']);
+        $this->assertStringContainsString('Électricité', (string) $data['html']);
+    }
+
+    public function testAMeterWithoutANameIsRefusedInFrench(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-saint-georges', [
+            'label' => '  ',
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('nom', (string) (json_decode((string) $response->getBody(), true)['error'] ?? ''));
     }
 
     public function testAMeterCannotBeConfiguredOnAnAssetTheManagerDoesNotManage(): void
     {
         $this->loginAsManager();
 
-        $response = $this->post('/mes-locations/compteur', 'saveMeter', [
-            'asset_id' => (string) $this->otherAssetId,
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/compteurs', 'addMeter', 'local-des-autres', [
             'label' => 'Électricité',
             'kind' => 'electricity',
         ]);
 
         $this->assertSame(404, $response->getStatusCode());
         $this->assertSame([], $this->stayService->metersFor($this->otherAssetId));
+    }
+
+    public function testAManagerRetiresAMeterWithoutReloading(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter($this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null);
+
+        $response = $this->postJsonTo(
+            '/mes-locations/{slug}/gabarits/compteurs/retirer',
+            'retireMeter',
+            'local-saint-georges',
+            ['id' => $meterId]
+        );
+
+        $this->assertTrue(json_decode((string) $response->getBody(), true)['success'] ?? false);
+        $this->assertSame([], $this->stayService->metersFor($this->assetId));
+    }
+
+    /**
+     * With a meter fee, no help under the price at all; without one, a
+     * single line under the row with the link to the pricing.
+     */
+    public function testThePriceHelpDependsOnWhetherAMeterFeeExists(): void
+    {
+        $this->loginAsManager();
+        $line = 'Pour facturer la consommation, ajoutez un frais « relevé de compteur »';
+
+        $this->assertStringContainsString($line, $this->templatesPage());
+
+        $this->pricingService->addFee($this->assetId, 'Électricité', 'meter', 35, 'kWh');
+        $body = $this->templatesPage();
+
+        $this->assertStringNotContainsString($line, $body);
+        $this->assertStringContainsString('Relevé seul, non facturé', $body);
+    }
+
+    public function testAnInventoryItemIsAddedWithItsSortAndCount(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux', 'addInventoryItem', 'local-saint-georges', [
+            'label' => 'Chaises',
+            'kind' => 'quantity',
+            'expected_count' => '40',
+        ]);
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux', 'addInventoryItem', 'local-saint-georges', [
+            'label' => 'Cuisine propre',
+            'kind' => 'yes_no',
+            'expected_count' => '1',
+        ]);
+
+        $data = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($data['success'] ?? false, (string) $response->getBody());
+        $this->assertStringContainsString('value="40"', (string) $data['html']);
+        $items = $this->stayService->inventoryTemplateFor($this->assetId);
+        $this->assertSame(['Chaises', 'Cuisine propre'], array_column($items, 'label'));
+        $this->assertSame(40, $items[0]['expected_count']);
+        $this->assertSame(\Modules\Rental\Stay\InventoryKind::YES_NO, $items[1]['kind']);
+        $this->assertNull($items[1]['expected_count']);
+    }
+
+    public function testAnInventoryItemIsChangedInPlace(): void
+    {
+        $this->loginAsManager();
+        $itemId = $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/modifier', 'updateInventoryItem', 'local-saint-georges', [
+            'id' => $itemId,
+            'kind' => 'quantity',
+            'expected_count' => '3',
+        ]);
+        $this->assertSame(3, $this->stayService->inventoryItem($this->assetId, $itemId)['expected_count'] ?? null);
+
+        $refused = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/modifier', 'updateInventoryItem', 'local-saint-georges', [
+            'id' => $itemId,
+            'kind' => 'quantity',
+            'expected_count' => 'trois',
+        ]);
+        $this->assertSame(422, $refused->getStatusCode());
+        $this->assertSame(3, $this->stayService->inventoryItem($this->assetId, $itemId)['expected_count'] ?? null);
+    }
+
+    public function testTheInventoryIsReorderedAndRemovedWithoutReloading(): void
+    {
+        $this->loginAsManager();
+        $keys = $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $chairs = $this->stayService->addInventoryItem($this->assetId, 'Chaises');
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/ordre', 'reorderInventory', 'local-saint-georges', [
+            'ids' => [(string) $chairs, (string) $keys],
+        ]);
+        $this->assertSame(['Chaises', 'Clés'], array_column($this->stayService->inventoryTemplateFor($this->assetId), 'label'));
+
+        $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/retirer', 'removeInventoryItem', 'local-saint-georges', [
+            'id' => $chairs,
+        ]);
+        $this->assertSame(['Clés'], array_column($this->stayService->inventoryTemplateFor($this->assetId), 'label'));
+    }
+
+    /** An item id alone must not reach another asset's checklist. */
+    public function testAnotherAssetsInventoryItemCannotBeRemovedFromHere(): void
+    {
+        $this->loginAsManager();
+        $theirs = $this->stayService->addInventoryItem($this->otherAssetId, 'Chaises');
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/gabarits/etat-des-lieux/retirer', 'removeInventoryItem', 'local-saint-georges', [
+            'id' => $theirs,
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertCount(1, $this->stayService->inventoryTemplateFor($this->otherAssetId));
+    }
+
+    /** The old « Ordre » field is gone; the inventory list is draggable. */
+    public function testTheInventoryListIsSortableAndHasNoOrderField(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $body = $this->templatesPage();
+        $inventory = $this->between($body, 'id="inventory-list"', '</form>');
+
+        $this->assertStringNotContainsString('name="sort_order"', $body);
+        $this->assertStringContainsString('list-editor-drag-handle', $inventory);
+        $this->assertStringContainsString('data-in-place="true"', $inventory);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $this->between($body, 'id="meter-list"', 'id="inventory-list"'));
+    }
+
+    /** The stay page shows what each frozen line expects. */
+    public function testTheStayPageShowsWhatEachItemExpects(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Chaises', \Modules\Rental\Stay\InventoryKind::QUANTITY, 40);
+        $this->stayService->addInventoryItem($this->assetId, 'Cuisine propre', \Modules\Rental\Stay\InventoryKind::YES_NO);
+        $booking = $this->createBooking();
+        $this->stayService->snapshotInventory($booking, $this->assetId);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->stayPage('local-saint-georges', $booking->id)->getBody());
+
+        $this->assertStringContainsString('Quantité — attendu : 40', $body);
+        $this->assertStringContainsString('Oui / Non — attendu : Oui', $body);
+    }
+
+    private function templatesPage(): string
+    {
+        return (string) $this->get(
+            '/mes-locations/{slug}/gabarits',
+            '/mes-locations/local-saint-georges/gabarits',
+            'templates'
+        )->getBody();
+    }
+
+    private function templateDocumentResponse(string $document): Response
+    {
+        return $this->get(
+            '/mes-locations/{slug}/gabarits/{document}',
+            '/mes-locations/local-saint-georges/gabarits/' . $document,
+            'templateDocument'
+        );
+    }
+
+    private function templateDocumentPage(string $document): string
+    {
+        $response = $this->templateDocumentResponse($document);
+        $this->assertSame(200, $response->getStatusCode(), $document);
+
+        return (string) $response->getBody();
+    }
+
+    private function between(string $haystack, string $from, string $to): string
+    {
+        $start = strpos($haystack, $from);
+        $this->assertNotFalse($start, $from);
+        $end = strpos($haystack, $to, $start + strlen($from));
+
+        return substr($haystack, $start, $end === false ? null : $end - $start);
     }
 
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
@@ -3304,16 +3880,17 @@ class RentalManagementControllerTest extends TestCase
     // ── Fields the site renders the same way everywhere ─────────────────
 
     /**
-     * The calendar's blocking form and the compliance register were the
+     * The calendar's period list and the compliance register were the
      * last two hand-written control stacks in the managed space: labels
      * whose classes did not match the rest of the site, and help texts no
      * screen reader ever announced because nothing pointed at them. The
      * `form_field` partial renders label, control, help text and required
      * marker as one unit with `aria-describedby` wired (design.md §7.9).
      */
-    public function testTheBlockingFormIsRenderedThroughTheSharedField(): void
+    public function testAPeriodsReasonFieldIsRenderedThroughTheSharedField(): void
     {
         $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
 
         $html = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -3321,14 +3898,8 @@ class RentalManagementControllerTest extends TestCase
             'calendar'
         )->getBody();
 
-        // The required marker comes from the partial, not from a « * »
-        // somebody typed into the label.
         $this->assertMatchesRegularExpression(
-            '#<label class="form-label small" for="block-start">\s*Du\s*<span class="text-danger" aria-hidden="true">\*</span>#',
-            $html
-        );
-        $this->assertMatchesRegularExpression(
-            '#<input type="date" class="form-control form-control-sm" id="block-end"\s+name="end"\s+value=""\s+required#',
+            '#<label class="form-label small" for="block-reason-' . $blockId . '">\s*Motif#',
             $html
         );
     }
@@ -3337,16 +3908,156 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
 
+        $html = (string) $this->complianceFormPage('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('aria-describedby="compliance-document-help"', $html);
+        $this->assertStringContainsString('<div class="form-text" id="compliance-document-help">', $html);
+        // The datalist the intitulé field reads still reaches it.
+        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        // An entry without a due date triggers nothing, and the field says so.
+        $this->assertStringContainsString('ne déclenche aucun rappel', $html);
+    }
+
+    // ── The compliance register on the shared list (#708, IT-09) ───────
+
+    public function testTheRegisterIsAListSortedByDueDateWithoutDragHandles(): void
+    {
+        $this->loginAsManager();
+        $service = $this->complianceService();
+        $service->add($this->assetId, 'Sans date', null, null);
+        $service->add($this->assetId, 'Chaudière', '2027-09-01', null);
+        $service->add($this->assetId, 'Extincteurs', '2027-03-01', 'Société Feu Sûr');
+
         $html = (string) $this->get(
             '/mes-locations/{slug}/conformite',
             '/mes-locations/local-saint-georges/conformite',
             'compliance'
         )->getBody();
 
-        $this->assertStringContainsString('aria-describedby="new-document-help"', $html);
-        $this->assertStringContainsString('<div class="form-text" id="new-document-help">', $html);
-        // The datalist the intitulé field reads still reaches it.
-        $this->assertStringContainsString('list="compliance-suggestions"', $html);
+        $this->assertStringContainsString('id="compliance-list"', $html);
+        $this->assertStringContainsString('data-sortable="false"', $html);
+        $this->assertStringNotContainsString('list-editor-drag-handle', $html);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/conformite/nouvelle"', $html);
+        $this->assertStringNotContainsString('action="/mes-locations/conformite-ajouter"', $html);
+        $first = strpos($html, 'Extincteurs');
+        $this->assertNotFalse($first);
+        $this->assertGreaterThan($first, strpos($html, 'Chaudière'));
+        $this->assertGreaterThan(strpos($html, 'Chaudière'), strpos($html, 'Sans date'));
+        $this->assertStringContainsString('Supprimer « Extincteurs » du registre ?', $html);
+    }
+
+    public function testAnEntryIsAddedFromItsOwnPageAndTheManagerIsSentBackToTheList(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => 'Extincteurs',
+            'expires_on' => '2027-03-01',
+            'remark' => 'Société Feu Sûr',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mes-locations/local-saint-georges/conformite', $response->getHeaders()['Location'] ?? null);
+        $items = $this->complianceService()->forAsset($this->assetId);
+        $this->assertCount(1, $items);
+        $this->assertSame('2027-03-01', $items[0]->expiresOn);
+    }
+
+    public function testARefusedEntryComesBackWithWhatWasTyped(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->post('/mes-locations/{slug}/conformite/nouvelle', 'complianceSave', [
+            'label' => '',
+            'remark' => 'Ma remarque',
+        ], ['slug' => 'local-saint-georges']);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Ma remarque', (string) $response->getBody());
+    }
+
+    public function testAnEntryIsChangedFromItsOwnPageKeepingItsDocument(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $page = (string) $this->complianceFormPage('local-saint-georges', $id)->getBody();
+        $this->assertStringContainsString('value="Extincteurs"', $page);
+
+        $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Extincteurs (rez)',
+            'expires_on' => '',
+            'remark' => '',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $id]);
+
+        $entry = $this->complianceService()->find($this->assetId, $id);
+        $this->assertSame('Extincteurs (rez)', $entry?->label);
+        $this->assertNull($entry?->expiresOn);
+    }
+
+    public function testAnEntryIsDeletedThroughTheListBin(): void
+    {
+        $this->loginAsManager();
+        $id = $this->complianceService()->add($this->assetId, 'Extincteurs', '2027-03-01', null);
+
+        $response = $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', [
+            'id' => $id,
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame([], $this->complianceService()->forAsset($this->assetId));
+    }
+
+    public function testTheEntryPagesAreClosedToAnotherAssetsEntriesAndToNonManagers(): void
+    {
+        $foreign = $this->complianceService()->add($this->otherAssetId, 'Chaudière', null, null);
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges')->getStatusCode());
+
+        $this->loginAsManager();
+        $this->assertSame(404, $this->complianceFormPage('local-saint-georges', $foreign)->getStatusCode());
+        $this->assertSame(404, $this->post('/mes-locations/{slug}/conformite/{id}/modifier', 'complianceSave', [
+            'label' => 'Pris',
+        ], ['slug' => 'local-saint-georges', 'id' => (string) $foreign])->getStatusCode());
+        $this->postJsonTo('/mes-locations/{slug}/conformite/supprimer', 'complianceDelete', 'local-saint-georges', ['id' => $foreign]);
+        $this->assertNotNull($this->complianceService()->find($this->otherAssetId, $foreign));
+    }
+
+    private function complianceFormPage(string $slug, ?int $id = null): Response
+    {
+        return $id === null
+            ? $this->get('/mes-locations/{slug}/conformite/nouvelle', '/mes-locations/' . $slug . '/conformite/nouvelle', 'complianceForm')
+            : $this->get(
+                '/mes-locations/{slug}/conformite/{id}/modifier',
+                '/mes-locations/' . $slug . '/conformite/' . $id . '/modifier',
+                'complianceForm'
+            );
+    }
+
+    /**
+     * A list editor's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postJsonTo(string $routePath, string $action, string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $router = new Router();
+        $router->addRoute('POST', $routePath, RentalManagementController::class, $action, 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                str_replace('{slug}', $slug, $routePath),
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── The « Rappels » section of the settings page (IT-07, §6.29) ──────

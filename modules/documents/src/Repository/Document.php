@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Documents\Repository;
 
+use Core\Service\DateInput;
 use Modules\Documents\Service\DocumentVisibility;
 
 /**
@@ -30,8 +31,39 @@ final class Document
         public readonly string $originalName,
         /** The slug carries the random segment (created unlisted). */
         public readonly bool $slugIsRandom = false,
-        public readonly int $versionNumber = 1
+        public readonly int $versionNumber = 1,
+        /**
+         * When the CURRENT file was uploaded (#731) — the file row's own
+         * date, so editing the title, the description or the visibility
+         * leaves it alone, and replacing the file moves it.
+         */
+        public readonly string $fileUpdatedAt = '',
+        /** `Y-m-d`: shown « Expiré » once this day is past (#731). */
+        public readonly string $expiresOn = ''
     ) {
+    }
+
+    /** How long a document is valid by default, and after a replaced file. */
+    public const VALIDITY_YEARS = 2;
+
+    /**
+     * `Y-m-d`, {@see VALIDITY_YEARS} after the given day — or '' (no expiry)
+     * when that day is not a date, rather than two years from today.
+     */
+    public static function defaultExpiry(string $fromDay): string
+    {
+        $day = DateInput::fromStorage($fromDay);
+
+        return $day === null ? '' : $day->modify('+' . self::VALIDITY_YEARS . ' years')->format('Y-m-d');
+    }
+
+    /**
+     * Past its expiry date — `$today` is `Y-m-d`. The document stays
+     * online: this only marks it to be checked.
+     */
+    public function isExpired(string $today): bool
+    {
+        return $this->expiresOn !== '' && $this->expiresOn < $today;
     }
 
     /** The address that is shared: it survives a new version. */

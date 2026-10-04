@@ -72,7 +72,9 @@
                             <div class="d-flex align-items-center gap-3 p-2 h-100 rounded-3 border border-primary-subtle bg-primary-subtle bg-opacity-25">
                                 {{ member_photo(block.lead.memberId, block.lead|display_name, 'member-photo flex-shrink-0') }}
                                 <div>
-                                    <div class="fw-bold">{{ block.lead|display_name|normalize_name }}</div>
+                                    {% set section_totem = block.lead.sectionTotemFor(block.section.id) %}
+                                    <div class="fw-bold">{{ block.lead|display_name|normalize_name }}{% if section_totem %} ({{ section_totem }}){% endif %}</div>
+                                    <div class="text-body-secondary small">{{ block.lead|full_name }}</div>
                                     {% if block.lead.getMainFunction() %}
                                         <div class="text-body-secondary small">{{ block.lead.getMainFunction().functionLabel }}</div>
                                     {% endif %}
@@ -96,7 +98,13 @@
                             <div class="d-flex align-items-center gap-3 p-2 h-100">
                                 {{ member_photo(member.memberId, member|display_name, 'member-photo flex-shrink-0') }}
                                 <div>
-                                    <div class="fw-semibold">{{ member|display_name|normalize_name }}</div>
+                                    {# Issue #722: the title carries the section
+                                       totem, and the real name ALWAYS follows,
+                                       even when the title is already the first
+                                       name — in the function's own style. #}
+                                    {% set section_totem = member.sectionTotemFor(block.section.id) %}
+                                    <div class="fw-semibold">{{ member|display_name|normalize_name }}{% if section_totem %} ({{ section_totem }}){% endif %}</div>
+                                    <div class="text-body-secondary small">{{ member|full_name }}</div>
                                     {% if member.getMainFunction() %}
                                         <div class="text-body-secondary small">{{ member.getMainFunction().functionLabel }}</div>
                                     {% endif %}

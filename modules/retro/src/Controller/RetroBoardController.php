@@ -19,6 +19,7 @@ use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Core\View\MenuBuilder;
 use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\BoardRepository;
 use Modules\Retro\Repository\Comment;
@@ -86,9 +87,6 @@ class RetroBoardController extends AbstractController
             return false;
         }
         $email = AuthSession::getEmail();
-        if ($email === null) {
-            return false;
-        }
 
         // The effective year, never the date-computed one: see
         // Controller\RetroConfigController for what the latter does to the
@@ -97,7 +95,12 @@ class RetroBoardController extends AbstractController
         // in: this answer opens hidden comments and the moderation
         // controls, so it is an authorization question, and a preview is
         // chosen by the person it would authorise (ARCHITECTURE.md §4).
-        return $this->boardService->isUnitChief($email, $this->scoutYearService->getAuthorizationYear()->id);
+        // A superadmin passes without a member behind the account (#743).
+        return $this->boardService->hasUnitChiefAuthority(
+            $viewerRole,
+            $email,
+            $this->scoutYearService->getAuthorizationYear()->id
+        );
     }
 
     /**
@@ -179,7 +182,49 @@ class RetroBoardController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'public_url' => $baseUrl . $this->boardService->publicUrl($board),
             'remaining_budget' => $remainingBudget,
-        ]);
+        ] + $this->staffBreadcrumb($board, $viewerRole));
+    }
+
+    /**
+     * « Espace animateurs / Rétrospectives / <nom> / Tableau » for whoever
+     * reaches the Rétrospectives list (issue #736). The board is public by
+     * its link, so a visitor below that floor keeps the route's own
+     * « Notre unité » trail and is never handed a link to a page that
+     * would refuse them.
+     *
+     * The menu parent depends on the viewer here, which no static
+     * declaration can say, so `route_breadcrumb` is replaced for this
+     * request (ARCHITECTURE.md §8.29) — its parent taken from MenuBuilder,
+     * never typed. The name links to the configuration when the viewer may
+     * open it; otherwise it is folded into the current, non-link segment,
+     * since the only other target would be this very page.
+     *
+     * @return array<string, mixed>
+     */
+    private function staffBreadcrumb(Board $board, Role $viewerRole): array
+    {
+        if (!$viewerRole->hasAccess(Role::INTENDANT)) {
+            return [];
+        }
+
+        $configureRole = (string) ($this->settingService->get('retro_role_min_create_board', 'retro') ?: 'intendant');
+        $trail = [['label' => 'Rétrospectives', 'url' => '/retro']];
+        $current = 'Tableau';
+        if ($viewerRole->hasAccess(Role::fromString($configureRole))) {
+            $trail[] = ['label' => $board->title, 'url' => '/retro/' . $board->id . '/edit'];
+        } else {
+            $current = $board->title . ' · Tableau';
+        }
+
+        return [
+            'route_breadcrumb' => [
+                'label' => 'Tableau',
+                'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)],
+            ],
+            'route_breadcrumb_ancestors' => [],
+            'breadcrumb_trail' => $trail,
+            'breadcrumb_current' => $current,
+        ];
     }
 
     /**

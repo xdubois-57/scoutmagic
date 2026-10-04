@@ -426,10 +426,31 @@ class BannerConfigControllerTest extends TestCase
             $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
             $memberService, $this->scoutYearService
         );
+        AuthSession::login(1, 'admin@test.be', 'admin');
 
         $token = $this->csrfToken();
         $response = $controller->add($this->jsonRequest(['_csrf_token' => $token]), []);
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #743: a superadmin with no member behind the account — a
+     * technical site administrator — inherits the Staff d'U's page and
+     * every one of its actions; the hierarchy is cumulative.
+     */
+    public function testASuperadminWithoutAnyDeskMemberOpensThePageAndActs(): void
+    {
+        $memberService = $this->createStub(MemberService::class);
+        $memberService->method('isUnitChief')->willReturn(false);
+        $controller = new BannerConfigController(
+            $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
+            $memberService, $this->scoutYearService
+        );
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+
+        $this->assertSame(200, $controller->index(new Request('GET', '/config/banner', [], [], [], []), [])->getStatusCode());
+        $added = $controller->add($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), []);
+        $this->assertNotSame(403, $added->getStatusCode());
     }
 }

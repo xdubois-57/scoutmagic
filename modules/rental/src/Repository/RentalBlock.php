@@ -23,7 +23,6 @@ final class RentalBlock
         public readonly int $assetId,
         public readonly string $startDate,
         public readonly string $endDate,
-        public readonly int $units,
         public readonly ?string $reason,
         public readonly ?int $createdByMemberId,
         public readonly \DateTimeImmutable $createdAt
@@ -35,19 +34,23 @@ final class RentalBlock
      * cannot tell a block from a booking because there is nothing in an
      * `Occupancy` to tell them apart by (specifications.md §22.2).
      */
+    /** How a block's occupancy names itself, so the managed calendar can set blocks apart (#708, IT-07). */
+    public const OCCUPANCY_REFERENCE_PREFIX = 'block:';
+
     public function toOccupancy(): Occupancy
     {
         return new Occupancy(
             arrivalDate: $this->startDate,
             departureDate: $this->endDate,
-            units: max(1, $this->units),
-            reference: 'block:' . $this->id,
+            reference: self::OCCUPANCY_REFERENCE_PREFIX . $this->id,
             // `end_date` is the last day blocked, inclusive — that is what
             // findUpcoming()'s `end_date >= ?` and the manager calendar's
             // "du X au Y" both mean. A stay's departure day is not held
             // under the nights model; a block's end date always is, so it
             // must be flagged rather than left to the billing unit.
-            endDateIsHeld: true
+            endDateIsHeld: true,
+            // The whole asset, however many units it has (#708, IT-07).
+            wholeAsset: true
         );
     }
 }

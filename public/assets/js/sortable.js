@@ -53,7 +53,7 @@
      * outside any group keeps its own, so it can never receive a foreign
      * item.
      *
-     * @type {Object<string, {dragged: HTMLElement|null, source: HTMLElement|null, members: HTMLElement[]}>}
+     * @type {Object<string, {dragged: HTMLElement|null, source: HTMLElement|null, origin: {parent: Node|null, next: Node|null}|null, dropped: boolean, members: HTMLElement[]}>}
      */
     var groups = {};
 
@@ -75,9 +75,12 @@
         var itemSelector = options.itemSelector;
         var horizontal = options.axis === 'x';
         var draggingClass = options.draggingClass || 'opacity-50';
+        if (options.group && !groups[options.group]) {
+            groups[options.group] = { dragged: null, source: null, origin: null, dropped: false, members: [] };
+        }
         var state = options.group
-            ? (groups[options.group] = groups[options.group] || { dragged: null, source: null, members: [] })
-            : { dragged: null, source: null, members: [container] };
+            ? groups[options.group]
+            : { dragged: null, source: null, origin: null, dropped: false, members: [container] };
         if (options.group) {
             state.members.push(container);
         }
@@ -112,6 +115,10 @@
             }
             state.dragged = item;
             state.source = container;
+            // Where it started, to put it back if a move between lists is
+            // abandoned (Escape, released outside every list).
+            state.origin = { parent: item.parentNode, next: item.nextSibling };
+            state.dropped = false;
             item.classList.add(draggingClass);
             markDropZones(true);
         });
@@ -129,14 +136,34 @@
             }
             var moved = state.dragged;
             var from = state.source || container;
+            var origin = state.origin;
+            var dropped = state.dropped;
             state.dragged = null;
             state.source = null;
+            state.origin = null;
             markDropZones(false);
+            // A move into ANOTHER list commits only on a real drop: dragover
+            // moved the node live, so an abandoned gesture would otherwise
+            // be saved — and between connected lists that can change who
+            // sees an item. Put it back where it was, and save nothing.
+            if (from !== container && !dropped) {
+                if (origin?.parent) {
+                    origin.parent.insertBefore(moved, origin.next);
+                }
+                return;
+            }
             // Fires whether the pointer was released on a sibling or
             // anywhere else — the DOM already carries the new order
             // either way, so this is where it gets saved.
             if (options.onReorder) {
                 options.onReorder({ item: moved, from: from, to: container });
+            }
+        });
+
+        container.addEventListener('drop', function (e) {
+            if (state.dragged) {
+                e.preventDefault();
+                state.dropped = true;
             }
         });
 
@@ -161,7 +188,16 @@
                 // the space below the last item. Only a connected list
                 // takes the item there; a lone list has nothing to gain.
                 if (options.group && dragged.parentNode !== container) {
-                    container.appendChild(dragged);
+                    // After the last item rather than at the very end: a
+                    // list may close on a non-item (an « empty » note),
+                    // and the item belongs among the items.
+                    var items = container.querySelectorAll(itemSelector);
+                    var last = items.length ? items[items.length - 1] : null;
+                    if (last?.parentNode === container) {
+                        container.insertBefore(dragged, last.nextSibling);
+                    } else {
+                        container.insertBefore(dragged, container.firstChild);
+                    }
                 }
                 return;
             }

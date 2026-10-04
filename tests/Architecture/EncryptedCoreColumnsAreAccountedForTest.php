@@ -135,6 +135,11 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         'member_years' => [27, 'the page\'s opening sections (what the unit collects about a member)'],
         'member_addresses' => [11, 'the page\'s opening sections (what the unit collects about a member)'],
         'member_emails' => [12, 'the page\'s opening sections (what the unit collects about a member)'],
+        // Issue #722: the totem a leader carries in one section for one
+        // year (« Akela »), kept apart from the Desk totem so the import
+        // never rewrites it. Same nature as the Desk totem, same place on
+        // the page.
+        'member_section_totems' => [6, 'the page\'s opening sections (what the unit collects about a member)'],
         'user_accounts' => [17, 'the page\'s opening sections (a member\'s or a leader\'s account)'],
 
         // Encrypted, and NOT the reader's personal data. Each of these is a
