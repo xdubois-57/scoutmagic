@@ -27,6 +27,29 @@
       class_extra: 'mb-3',                 -- optional extra classes
       data: { 'upload-url': '/gallery/4/media' },  -- optional data-* on the zone
   } only %}
+
+  Two opt-ins live in that `data` hash, both described in design.md §7.10:
+
+      'drop-zone-for': 'photo-file'       -- the file rides the surrounding
+                                             form's POST; name what was picked
+      'drop-zone-preview': 'image'        -- and show a thumbnail of it
+
+  The second is image-only and deliberately NOT derived from `accept`: a
+  zone taking a PDF or a photograph of one would otherwise draw a broken
+  frame for every PDF. The thumbnail is a `canvas` of the DECODED file,
+  never an `img` pointed at an object URL — design.md §7.10 says why that
+  distinction is not cosmetic. (Those two are named in backticks rather
+  than in angle brackets on purpose: a scanner that reads this file as
+  HTML sees a literal tag even inside a Twig comment, and reported the
+  `img` as an image missing its alternative text.) The form around such a zone usually also
+  wants `data-submit-lock` (form-submit-lock.js), which is what stops a
+  second tap sending the same file twice.
+
+  A Twig comment cannot go INSIDE the `with { … }` hash — that is Twig
+  expression context, and the parser answers « Unclosed "(" ». Put it
+  above the tag. (And a comment's own closing delimiter cannot appear
+  inside a comment either, which is how this very paragraph broke the
+  partial once.)
       {% block extra %}…{% endblock %}     -- optional, under the message
   {% endembed %}
 
@@ -46,7 +69,14 @@
      {# The pointer only where a click actually opens something: a zone
         whose controls are its own <label>s is not itself clickable. #}
      {% if input_id is defined and input_id %}style="cursor:pointer;"{% endif %}
-     {% for key, value in data|default({}) %}data-{{ key }}="{{ value }}"{% endfor %}>
+     {# `{%-` and the leading space, exactly as month_grid, month_day_grid,
+        ai_button and the public calendar write the same loop: without a
+        separator, two keys render as
+        `data-drop-zone-for="x"data-drop-zone-preview="y"`, which is
+        invalid markup. Browsers recover, so nothing complains — caught
+        in review on the pull request for issue #756, the change that
+        first passed this partial a two-key hash. #}
+     {%- for key, value in data|default({}) %} data-{{ key }}="{{ value }}"{% endfor %}>
     <i class="bi {{ icon|default('bi-cloud-arrow-up') }} {{ size|default('md') == 'lg' ? 'display-4' : 'fs-2' }} d-block mb-2"
        aria-hidden="true"></i>
     {% block message %}<span>{{ message|default('') }}</span>{% endblock %}

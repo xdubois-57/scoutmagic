@@ -91,4 +91,85 @@ final class CampPhotosPageTest extends TestCase
             $this->assertStringNotContainsString($sentence, $html);
         }
     }
+
+    /**
+     * The server half of issue #756: the page has to ASK for the thumbnail
+     * and for the submit lock, or the shared JavaScript leaves it exactly
+     * as it was. Both are opt-ins, and an opt-in nobody wrote down is a
+     * feature that silently does not exist — which is what a unit getting
+     * the same photo twice was.
+     *
+     * One assertion per promise, read off the rendered page rather than
+     * off the template file: a `data` hash that stopped reaching the
+     * partial would still look right in the source.
+     */
+    /**
+     * Two `data-` attributes from one hash come out as two attributes.
+     *
+     * `drop_zone.html.twig` builds them in a loop, and without a
+     * separator the pair renders
+     * `data-drop-zone-for="photo-file"data-drop-zone-preview="image"` —
+     * invalid markup that every browser silently recovers from, so
+     * nothing on the page or in any other test would ever say so. This
+     * page is the first call site to pass the partial a two-key hash
+     * (issue #756), which is how it surfaced, in review.
+     *
+     * Asserted on the RENDERED html rather than on the partial's source,
+     * because what matters is the output and Twig's whitespace control is
+     * exactly what is easy to get wrong here.
+     */
+    public function testTwoDataAttributesAreSeparated(): void
+    {
+        $html = $this->twig->render('@camps/photos.html.twig', [
+            'gallery_enabled' => true,
+            'album_available' => true,
+            'media_unreadable' => false,
+            'camp' => (object) ['id' => 12],
+            'camp_label' => 'Juillet 2028',
+            'place' => null,
+            'media' => [],
+        ]);
+
+        self::assertDoesNotMatchRegularExpression(
+            '/data-drop-zone-for="[^"]*"data-/',
+            $html,
+            'two data- attributes rendered with nothing between them: invalid markup, and'
+            . ' browsers recover from it, so only this test will ever notice.'
+        );
+        self::assertStringContainsString(
+            'data-drop-zone-for="photo-file" data-drop-zone-preview="image"',
+            $html
+        );
+    }
+
+    public function testThePageAsksForThePreviewAndTheSubmitLock(): void
+    {
+        $html = $this->twig->render('@camps/photos.html.twig', [
+            'gallery_enabled' => true,
+            'album_available' => true,
+            'media_unreadable' => false,
+            'camp' => (object) ['id' => 12],
+            'camp_label' => 'Juillet 2028',
+            'place' => null,
+            'media' => [],
+        ]);
+
+        $this->assertStringContainsString(
+            'data-drop-zone-preview="image"',
+            $html,
+            'the photo zone no longer asks for a thumbnail, so picking a photo says only '
+            . 'IMG_4821.HEIC again (issue #756).'
+        );
+        $this->assertStringContainsString(
+            'data-submit-lock',
+            $html,
+            'the upload form no longer asks for the submit lock, so a second tap during the '
+            . 'several seconds a phone photo takes to leave sends it twice (issue #756).'
+        );
+        $this->assertStringContainsString(
+            'form-submit-lock.js',
+            $html,
+            'the page asks for the submit lock and never loads the script that honours it.'
+        );
+    }
 }
