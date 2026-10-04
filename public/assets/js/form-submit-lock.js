@@ -109,7 +109,6 @@
             if (!idleNodes.has(button)) {
                 idleNodes.set(button, Array.from(button.childNodes));
             }
-            button.disabled = true;
 
             var spinner = document.createElement('span');
             spinner.className = 'spinner-border spinner-border-sm me-1';
@@ -123,22 +122,44 @@
             button.replaceChildren(spinner, text);
         });
 
-        // DEFERRED, and this is load-bearing: do not inline it.
+        // DEFERRED, and this is load-bearing: do not inline any of it.
         //
-        // The browser builds the form's entry list — the actual multipart
-        // body — AFTER the `submit` event finishes dispatching, and skips
-        // every control that is disabled at that moment. Disabling the
-        // file input here, synchronously, therefore drops the chosen file
-        // from the very request this lock exists to protect.
+        // The browser builds the form's entry list — the request body —
+        // AFTER the `submit` event finishes dispatching, and skips every
+        // control that is disabled at that moment. Disabling anything
+        // here, synchronously, therefore drops it from the very request
+        // this lock exists to protect.
         //
-        // Measured rather than reasoned: driven through Chromium against
-        // a real multipart POST, the body contained no `name="photo"`
-        // part at all with the disable inline, and contained the file
-        // again with this setTimeout. A jsdom test cannot see it — jsdom
-        // does not implement entry-list construction — which is why the
-        // test beside this one asserts the input is still enabled while
-        // the handler runs.
+        // That holds for the SUBMIT BUTTON too, and the rule is not
+        // waived because the button is the submitter: a named one
+        // (`<button type="submit" name="action" value="publier">`, the
+        // multi-action shape used elsewhere in this codebase) loses its
+        // field, and the server then reads no action at all.
+        // `submit-once.js` already documents and defers exactly this for
+        // buttons; this file disabled them inline until a review caught
+        // it.
+        //
+        // Measured rather than reasoned, twice, driven through Chromium
+        // against a real POST:
+        //
+        //   file input disabled inline  → no `name="photo"` part at all
+        //   named button disabled inline → body `title=…`, no `action`
+        //   both deferred as below       → both present
+        //
+        // A jsdom test cannot see it — jsdom does not implement
+        // entry-list construction — which is why the tests beside this
+        // one assert instead that both are still ENABLED while the
+        // handler runs, and disabled on the next task.
+        //
+        // The second tap is still refused in the meantime: `lock()` sets
+        // the LOCKED attribute synchronously above, and the submit
+        // handler turns back anything that arrives while it is there. The
+        // button's `disabled` is the visible half of that guard, never
+        // the whole of it.
         setTimeout(function () {
+            submitButtons(form).forEach(function (button) {
+                button.disabled = true;
+            });
             fileInputs(form).forEach(function (input) {
                 input.disabled = true;
             });

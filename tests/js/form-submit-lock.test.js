@@ -63,20 +63,28 @@ describe('form-submit-lock.js', () => {
         delete window.ScoutMagicFormSubmitLock;
     });
 
-    it('disables the button and says what is happening on the first submit', async () => {
+    it('says what is happening on the first submit, and locks the button just after', async () => {
         await load();
 
         submit('photo-form');
 
         const btn = button('photo-form');
-        // Really non-actionable, not merely greyed: a pointer-events
-        // trick still submits from the keyboard.
-        expect(btn.disabled).toBe(true);
+        // NOT yet disabled, and that ordering is load-bearing for the
+        // same reason as the file input below: a named submit button
+        // disabled during dispatch loses its own field from the body.
+        // Measured in Chromium — `action=publier` vanished entirely.
+        expect(btn.disabled).toBe(false);
         expect(btn.textContent).toContain('Envoi en cours…');
         // The words carry it. A spinner alone is invisible to a screen
         // reader and reads as decoration to anybody who missed it start.
         expect(btn.querySelector('.spinner-border')).not.toBeNull();
         expect(form('photo-form').getAttribute('aria-busy')).toBe('true');
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        // Really non-actionable by the next turn, not merely greyed: a
+        // pointer-events trick still submits from the keyboard.
+        expect(btn.disabled).toBe(true);
     });
 
     /**
@@ -91,6 +99,34 @@ describe('form-submit-lock.js', () => {
      * hold is the ordering that makes it safe — enabled during dispatch,
      * disabled on the next turn.
      */
+    /**
+     * The named submit button, which is how the bug above would be felt in
+     * production: this codebase uses `<button type="submit" name="action"
+     * value="…">` to tell one handler which button was pressed, and a
+     * server that reads no `action` does nothing at all.
+     *
+     * None of the four forms wired up here is that shape yet, so it was
+     * latent — which is exactly why it needs a test rather than a memory.
+     */
+    it('keeps a named submit button in the body, then locks it', async () => {
+        await load();
+        const named = form('photo-form');
+        const action = document.createElement('button');
+        action.type = 'submit';
+        action.name = 'action';
+        action.value = 'publier';
+        named.appendChild(action);
+        window.ScoutMagicFormSubmitLock.bind(document);
+
+        submit('photo-form');
+
+        expect(action.disabled).toBe(false);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(action.disabled).toBe(true);
+    });
+
     it('leaves the file input enabled during dispatch and locks it just after', async () => {
         await load();
         const input = /** @type {HTMLInputElement} */ (document.getElementById('photo-file'));
@@ -220,7 +256,13 @@ describe('form-submit-lock.js', () => {
         window.ScoutMagicFormSubmitLock.bind(document);
 
         expect(submit('late-form')).toBe(true);
+        // Refused by the LOCKED attribute, which `lock()` sets
+        // synchronously — the button's `disabled` lands a turn later and
+        // is the visible half of the guard, never the whole of it.
         expect(submit('late-form')).toBe(false);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
         expect(button('late-form').disabled).toBe(true);
     });
 });

@@ -784,15 +784,26 @@ text reinterpreted as HTML ». Validating the string at the sink does not
 change that — decoded pixels leave no string to assign, none to give back,
 and no sink to guard.
 
-`data-submit-lock` on the **form** disables its submit buttons on the
-first submit and says « Envoi en cours… » (`data-submit-lock-label` for
+`data-submit-lock` on the **form** says « Envoi en cours… » on the first
+submit and disables its submit buttons one turn later (`data-submit-lock-label` for
 another wording) beside a spinner, sets `aria-busy`, and locks the file
 inputs — `public/assets/js/form-submit-lock.js`. A 4 MB photo on a phone
 takes several seconds to leave, during which the page used to look exactly
 as it did before, so the visitor pressed the button again and the unit got
 the photo twice. The words carry the state, never the spinner alone: a
 spinner is invisible to a screen reader and reads as decoration to anybody
-who did not see it start. There is no timeout that unlocks it, because
+who did not see it start. **The disabling is deferred by a turn, and that
+is load-bearing**: the browser builds the form's entry list after the
+`submit` event finishes dispatching and skips every control disabled at
+that moment, so disabling anything inline drops it from the very request
+the lock protects — the file input loses its file, and a NAMED submit
+button (`name="action"`, the multi-action shape used elsewhere here)
+loses its own field, leaving the server with no action to read. Both
+measured in Chromium. The second tap is still refused in between, by the
+marker attribute the lock sets synchronously; the button's `disabled` is
+the visible half of that guard, never the whole of it. `submit-once.js`
+defers the same thing for the same reason. There is no timeout that
+unlocks it, because
 these forms post and navigate — success and server refusal both replace
 the page. The one case that needs undoing is the back button restoring a
 locked page from the history cache, which `pageshow` handles; without it,
