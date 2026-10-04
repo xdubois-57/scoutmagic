@@ -332,6 +332,7 @@
             // confirmed now: show it, or the screen lags the server.
             if (sequence !== saveSequence && settledSequence === saveSequence) {
                 restoreSavedStates();
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
             }
         }
         if (sequence !== saveSequence) {

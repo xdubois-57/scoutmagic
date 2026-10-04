@@ -595,6 +595,8 @@ describe('sos-admin.js', () => {
 
             expect(cell().textContent).toBe(afterFirst.text);
             expect(cell().className).toBe(afterFirst.className);
+            // The chief just read an error: the grid changing again says why.
+            expect(window.ScoutMagicToast.show).toHaveBeenLastCalledWith('Enregistré.', { variant: 'success' });
         });
 
         it('reports an HTTP 500 error page instead of reading it as saved', async () => {

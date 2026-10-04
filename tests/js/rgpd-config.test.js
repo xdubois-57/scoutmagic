@@ -203,6 +203,36 @@ describe('rgpd-config.js: which controls each generation mode shows', () => {
         expect(document.getElementById('edit-content-btn').style.display).toBe('inline-block');
     });
 
+    it('a refused switch goes back to the mode the editor last recorded, not the one the page loaded with', async () => {
+        // Default → AI with no prompt records nothing; the editor's save
+        // then records AI. A refused switch must go back to AI.
+        global.fetch = vi.fn((url, init) => {
+            const body = init?.body ? JSON.parse(init.body) : {};
+            if (String(url).includes('/save') && body.mode === 'custom') {
+                return jsonResponse({ success: false, error: 'Non.' });
+            }
+            return jsonResponse({ success: true, content: '<p>Texte par défaut.</p>' });
+        });
+        await boot('default');
+        const ai = /** @type {HTMLInputElement} */ (document.querySelector('input[value="ai"]'));
+        ai.checked = true;
+        ai.dispatchEvent(new Event('change'));
+        await settle();
+        document.getElementById('edit-content-btn').dispatchEvent(new Event('click'));
+        document.getElementById('rgpd-modal-save').dispatchEvent(new Event('click'));
+        await settle();
+        expect(bodyOf(fetch.mock.calls.length - 1)).toMatchObject({ mode: 'ai' });
+
+        const custom = /** @type {HTMLInputElement} */ (document.querySelector('input[value="custom"]'));
+        custom.checked = true;
+        custom.dispatchEvent(new Event('change'));
+        await settle();
+
+        expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' });
+        expect(ai.checked).toBe(true);
+        expect(custom.checked).toBe(false);
+    });
+
     it('a refused reset on the way to AI puts the radio back, and says so', async () => {
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
         await boot('default');

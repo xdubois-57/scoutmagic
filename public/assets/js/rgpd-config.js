@@ -84,6 +84,9 @@
         }
     }
 
+    // The mode the server last recorded — what a refused switch goes back to.
+    var savedMode = getMode();
+
     /**
      * @param {string} mode
      * @param {string} content
@@ -93,7 +96,11 @@
     function saveMode(mode, content, prompt, callback) {
         api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
             .then(function (res) {
-                if (callback) callback(!!(res.data?.success), res.data);
+                var ok = !!(res.data?.success);
+                // Every recorded save moves it, whichever control sent it
+                // (a switch, the editor, the reset).
+                if (ok) savedMode = mode;
+                if (callback) callback(ok, res.data);
             });
     }
 
@@ -194,9 +201,6 @@
         pollGeneration('Contenu généré et enregistré.');
     }
 
-    // The mode the server last recorded — what a refused switch goes back to.
-    var savedMode = getMode();
-
     /**
      * @param {any} data the refused answer's body, null when there was none
      */
@@ -218,7 +222,6 @@
     function recordModeSwitch(mode, content, previousContent) {
         saveMode(mode, content, '', function (ok, data) {
             if (ok) {
-                savedMode = mode;
                 window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                 return;
             }

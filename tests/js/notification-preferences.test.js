@@ -209,6 +209,26 @@ describe('notification-preferences.js — aria-checked stays in sync on a revert
         expect(body.discretion).toBe(true);
     });
 
+    it('shows the recorded pair again once a discretion flip saved it in place of a half-filled range', async () => {
+        document.body.innerHTML +=
+            '<input id="quiet-hours-start" value="21:00">' +
+            '<input id="quiet-hours-end" value="07:00">' +
+            '<input id="notification-discretion" type="checkbox">';
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
+        await import('../../public/assets/js/notification-preferences.js');
+        const start = document.getElementById('quiet-hours-start');
+        const discretion = document.getElementById('notification-discretion');
+
+        start.value = '';
+        start.dispatchEvent(new Event('change'));
+        discretion.checked = true;
+        discretion.dispatchEvent(new Event('change'));
+
+        await vi.waitFor(() => expect(document.querySelector('.toast-body')?.textContent).toBe('Enregistré.'));
+        expect(start.value).toBe('21:00');
+        expect(discretion.checked).toBe(true);
+    });
+
     it('sends a discretion flip back while the first flip is in flight, with quiet hours half-filled', async () => {
         document.body.innerHTML +=
             '<input id="quiet-hours-start" value="">' +

@@ -108,12 +108,14 @@
         // Quiet hours are a pair: half of one is not a setting yet, and
         // the server would refuse it. The recorded pair goes instead, so a
         // discretion flip meanwhile still reaches the server.
+        var substituted = false;
         if ((sent.start === '') !== (sent.end === '')) {
             if (sent.discretion === lastSentDiscretion) {
                 return;
             }
             sent.start = saved.start;
             sent.end = saved.end;
+            substituted = true;
         }
         var sequence = ++saveSequence;
         lastSentDiscretion = sent.discretion;
@@ -140,6 +142,9 @@
                 }
                 settledSequence = sequence;
                 if (recorded) {
+                    // The half pair on screen was not what went: show the
+                    // pair the server now holds rather than claim the edit.
+                    if (substituted) paintSaved();
                     window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                     return;
                 }
