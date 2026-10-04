@@ -96,7 +96,11 @@ class RentalSignedContractService
             return null;
         }
 
-        return $this->latest($bookingId, DocumentType::SIGNED_COPY, static fn(RentalDocument $d): bool => !$d->isRefused());
+        return $this->latest(
+            $bookingId,
+            DocumentType::SIGNED_COPY,
+            static fn(RentalDocument $d): bool => !$d->isRefused()
+        );
     }
 
     /**
@@ -110,7 +114,11 @@ class RentalSignedContractService
             return null;
         }
 
-        return $this->latest($bookingId, DocumentType::SIGNED_COPY, static fn(RentalDocument $d): bool => $d->isRefused());
+        return $this->latest(
+            $bookingId,
+            DocumentType::SIGNED_COPY,
+            static fn(RentalDocument $d): bool => $d->isRefused()
+        );
     }
 
     /**
@@ -354,7 +362,8 @@ class RentalSignedContractService
             $signature,
             [
                 'Réservation ' . $booking->reference . ' — ' . $asset->name . ', du '
-                    . self::frenchDate($booking->arrivalDate) . ' au ' . self::frenchDate($booking->departureDate) . '.',
+                    . self::frenchDate($booking->arrivalDate)
+                    . ' au ' . self::frenchDate($booking->departureDate) . '.',
                 'Copie signée du locataire reçue le ' . $copy->createdAt->format('d/m/Y') . '.',
             ]
         );

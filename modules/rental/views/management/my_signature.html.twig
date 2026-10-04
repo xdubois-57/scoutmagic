@@ -61,9 +61,15 @@
                     <input type="hidden" name="signature_data" value="">
 
                     <p class="form-label mb-1" id="signature-pad-label">Tracez votre signature</p>
-                    <canvas data-signature-pad width="900" height="300" role="img"
-                            aria-labelledby="signature-pad-label"
-                            class="border rounded bg-white w-100 d-block" style="max-width: 600px; aspect-ratio: 3 / 1;"></canvas>
+                    {#
+                      Traced with a pointer, so no role of its own: « img »
+                      would tell assistive technology there is nothing to
+                      do here. The import below is the way in without one.
+                    #}
+                    <canvas data-signature-pad width="900" height="300"
+                            aria-labelledby="signature-pad-label" aria-describedby="signature-file-help"
+                            class="border rounded bg-white w-100 d-block"
+                            style="max-width: 600px; aspect-ratio: 3 / 1;"></canvas>
                     <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
 
                     <div class="mt-3">
