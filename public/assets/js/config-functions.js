@@ -4,7 +4,8 @@
  */
 
 // Correspondances Desk page (core/View/templates/config/functions.html.twig): the
-// per-function role selects and the module-provided per-function flag
+// board of role zones functions are moved between (issue #741 — it was a
+// role select per function), the module-provided per-function flag
 // switches, the per-section name / organisational email / colour /
 // visibility controls, and the per-branch explanation link. Every control
 // saves itself the moment it changes (or loses focus, for the free-text
@@ -38,8 +39,7 @@
 (function () {
     var api = window.ScoutMagicApi;
 
-    /** @type {NodeListOf<HTMLSelectElement>} */
-    var roleSelects = document.querySelectorAll('.role-select');
+    var board = /** @type {HTMLElement|null} */ (document.getElementById('function-board'));
     /** @type {NodeListOf<HTMLElement>} */
     var flagGroups = document.querySelectorAll('.flags-group');
     /** @type {NodeListOf<HTMLElement>} */
@@ -50,7 +50,7 @@
     // A no-op on every other page of the site: this file is a page script,
     // and each of its four sections can also be legitimately absent here
     // (no import yet, no flag-providing module, no branch).
-    if (!roleSelects.length && !flagGroups.length && !sectionRows.length && !branchRows.length) {
+    if (!board && !flagGroups.length && !sectionRows.length && !branchRows.length) {
         return;
     }
 
@@ -136,34 +136,174 @@
         };
     }
 
-    // --- Function roles ---
-    roleSelects.forEach(function (select) {
-        var savedRole = select.value;
-        select.addEventListener('change', function () {
-            var chosen = select.value;
-            save(select, '/config/functions/update', {
-                function_id: Number.parseInt(select.dataset.id, 10),
-                role: chosen
+    // --- Function roles: a board of role zones (issue #741) ---
+    //
+    // A function is assigned by being moved into a role — dragged, or sent
+    // one role up or down by the row's arrows. The drag itself is the
+    // shared toolbox (sortable.js, connected lists); what is this page's
+    // own is the meaning of a move: one POST to /config/functions/update,
+    // a toast either way, and on a refusal the row goes back where it was.
+    if (board) {
+        /**
+         * A zone's count and empty sentence, after a row came or went.
+         *
+         * @param {HTMLElement} zone
+         */
+        var refreshZone = function (zone) {
+            var rows = zone.querySelectorAll('.function-row').length;
+            var empty = zone.querySelector('.function-zone-empty');
+            if (empty) {
+                empty.classList.toggle('d-none', rows > 0);
+            }
+            var count = zone.closest('.function-zone')?.querySelector('[data-zone-count]');
+            if (count) {
+                count.textContent = String(rows);
+            }
+        };
+
+        /**
+         * Puts a row last among a zone's rows, ahead of its empty sentence.
+         *
+         * @param {HTMLElement} zone
+         * @param {HTMLElement} row
+         */
+        var placeInZone = function (zone, row) {
+            var empty = zone.querySelector('.function-zone-empty');
+            if (empty) {
+                empty.before(row);
+            } else {
+                zone.append(row);
+            }
+        };
+
+        /**
+         * Puts a row where the server now has it: its role, no « Non
+         * confirmée » any more, and the module's flag shown only where it
+         * applies (Chef, Chef d'Unité).
+         *
+         * @param {HTMLElement} row
+         * @param {string} role
+         */
+        var settle = function (row, role) {
+            row.dataset.role = role;
+            row.querySelector('.function-pending-badge')?.remove();
+            row.querySelector('.flags-group')?.classList.toggle('d-none', role !== 'chief' && role !== 'admin');
+        };
+
+        var zones = /** @type {HTMLElement[]} */ (Array.from(board.querySelectorAll('.function-zone-items')));
+
+        /**
+         * The zone one step above (-1) or below (1) `from` that takes rows,
+         * or null at the edge of the board — « À configurer » takes none.
+         *
+         * @param {HTMLElement} from
+         * @param {number} step
+         * @returns {HTMLElement|null}
+         */
+        var zoneNextTo = function (from, step) {
+            var to = zones[zones.indexOf(from) + step];
+            return to && to.dataset.receives !== '0' ? to : null;
+        };
+
+        /**
+         * Disables an arrow with nowhere to go, and both while the row's
+         * move is being saved: a keyboard user then never presses a key
+         * that does nothing.
+         *
+         * @param {HTMLElement} row
+         */
+        var syncArrows = function (row) {
+            var zone = /** @type {HTMLElement} */ (row.closest('.function-zone-items'));
+            var saving = row.dataset.saving === '1';
+            var up = /** @type {HTMLButtonElement|null} */ (row.querySelector('.function-move-up'));
+            var down = /** @type {HTMLButtonElement|null} */ (row.querySelector('.function-move-down'));
+            if (up) {
+                up.disabled = saving || !zoneNextTo(zone, -1);
+            }
+            if (down) {
+                down.disabled = saving || !zoneNextTo(zone, 1);
+            }
+        };
+
+        /**
+         * Saves the move of `row` from `from` into `to`, or puts it back.
+         *
+         * One move per row at a time: the row can be neither dragged nor
+         * sent by its arrows until the server answers, or two answers
+         * arriving out of order could leave the board on a role the
+         * server does not hold.
+         *
+         * @param {HTMLElement} row
+         * @param {HTMLElement} from
+         * @param {HTMLElement} to
+         */
+        var moveFunction = function (row, from, to) {
+            refreshZone(from);
+            refreshZone(to);
+            row.dataset.saving = '1';
+            row.draggable = false;
+            syncArrows(row);
+            void save(null, '/config/functions/update', {
+                function_id: Number.parseInt(row.dataset.id || '', 10),
+                role: to.dataset.role || ''
             }, function () {
-                select.value = savedRole;
+                // Refused: back to the zone the server still has it in, so
+                // the board never shows an assignment that was not made.
+                placeInZone(from, row);
+                refreshZone(from);
+                refreshZone(to);
             }).then(function (data) {
-                if (!data) {
-                    return;
+                if (data) {
+                    settle(row, to.dataset.role || '');
                 }
-                savedRole = chosen;
-                var row = /** @type {HTMLElement|null} */ (select.closest('.function-row'));
-                if (!row) {
-                    return;
-                }
-                // The server confirms a function as soon as its role is
-                // set, so the « Non confirmée » badge no longer applies.
-                var pending = row.querySelector('.badge.text-bg-warning');
-                if (pending) {
-                    pending.remove();
+                delete row.dataset.saving;
+                row.draggable = true;
+                syncArrows(row);
+            });
+        };
+
+        board.querySelectorAll('.function-row').forEach(function (row) {
+            syncArrows(/** @type {HTMLElement} */ (row));
+        });
+
+        zones.forEach(function (zone) {
+            window.ScoutMagicSortable?.bind(zone, {
+                itemSelector: '.function-row',
+                draggingClass: 'opacity-50',
+                group: 'desk-functions',
+                // « À configurer » lends its rows and takes none back.
+                receive: zone.dataset.receives !== '0',
+                onReorder: function (move) {
+                    // The order inside a role means nothing: only a change
+                    // of zone is a change at all.
+                    if (move && move.from !== move.to) {
+                        moveFunction(move.item, move.from, move.to);
+                    }
                 }
             });
         });
-    });
+
+        // The arrows: the same move for a finger or a keyboard — to the
+        // zone above or below, never into « À configurer ».
+        board.addEventListener('click', function (e) {
+            var target = /** @type {HTMLElement|null} */ (e.target);
+            var button = target?.closest('.function-move-up, .function-move-down');
+            if (!button) {
+                return;
+            }
+            var row = /** @type {HTMLElement} */ (button.closest('.function-row'));
+            if (row.dataset.saving === '1') {
+                return;
+            }
+            var from = /** @type {HTMLElement} */ (row.closest('.function-zone-items'));
+            var to = zoneNextTo(from, button.classList.contains('function-move-up') ? -1 : 1);
+            if (!to) {
+                return;
+            }
+            placeInZone(to, row);
+            moveFunction(row, from, to);
+        });
+    }
 
     // --- Module-provided per-function flags (e.g. trombinoscope lead) ---
     flagGroups.forEach(function (group) {

@@ -1116,7 +1116,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
     }
 
-    public function testAConfirmedBookingWithNothingPendingStaysOffTheList(): void
+    /**
+     * A confirmed booking with a step of the unit's left — here the
+     * contract to send — stays on « À traiter », and the line names the step
+     * (#708, IT-12). It used to vanish the moment it was confirmed.
+     */
+    public function testAConfirmedBookingWithAUnitStepLeftIsOnTheList(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
         AuthSession::login(1, 'manager@test.be', 'identified');
@@ -1124,9 +1129,22 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
 
-        $body = (string) $this->overview('local-saint-georges')->getBody();
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
-        $this->assertStringContainsString('Aucune demande en attente.', $body);
+        $this->assertStringContainsString('À faire : envoyer le contrat', $body);
+        $this->assertStringNotContainsString('Aucune demande en attente.', $body);
+    }
+
+    /** A final booking is never on the list, whatever its steps say. */
+    public function testAClosedBookingStaysOffTheList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CLOSED, new \DateTimeImmutable());
+
+        $this->assertStringContainsString('Aucune demande en attente.', (string) $this->overview('local-saint-georges')->getBody());
     }
 
     public function testAManagerOfOneAssetCannotReachAnother(): void
@@ -1414,6 +1432,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
@@ -2158,6 +2177,13 @@ class RentalManagementControllerTest extends TestCase
 
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_sent'));
+
+        // The unit's answer (#708, IT-13): « Contrat envoyé », and the dates
+        // held while the renter signs — no decision email on top of it.
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $fresh?->status);
+        $this->assertNotNull($fresh?->holdUntil);
+        $this->assertSame([], $this->renterEmails);
     }
 
     /**
@@ -2296,7 +2322,12 @@ class RentalManagementControllerTest extends TestCase
      * request for a contract, which is where the checklist alone used to
      * point.
      */
-    public function testAnUndecidedRequestLeadsWithItsDecision(): void
+    /**
+     * The unit's answer is its contract (#708, IT-13): a received request
+     * leads with sending it, the other answers stay behind « Autres
+     * décisions », and confirming is not among them.
+     */
+    public function testAReceivedRequestLeadsWithTheContract(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2304,9 +2335,28 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre décision.', $nextStep);
-        $this->assertStringContainsString('value="confirmed"', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre réponse : envoyez le contrat.', $nextStep);
+        $this->assertStringContainsString('Préparer le contrat', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
+        $this->assertStringNotContainsString('value="confirmed"', $nextStep);
+    }
+
+    /** Confirming is refused while the agreement is not complete, and says what is missing. */
+    public function testAConfirmationWaitsForTheAgreement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Contrat envoyé »', $flash['message'] ?? '');
     }
 
     /**
@@ -2318,12 +2368,13 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
         $this->assertSame(
             1,
-            substr_count($body, 'name="status" value="confirmed"'),
+            substr_count(self::withoutStepDiscs($body), 'name="status" value="confirmed"'),
             'the « Confirmée » button is rendered twice'
         );
     }
@@ -2814,11 +2865,122 @@ class RentalManagementControllerTest extends TestCase
 
     private function confirm(RentalBooking $booking): void
     {
+        $this->completeTheAgreement($booking);
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'status' => 'confirmed',
         ]);
+    }
+
+    /**
+     * The agreement complete, as the site derives it: the contract sent and
+     * its signed copy back (#708, IT-13) — what a confirmation now waits for.
+     */
+    // ── Completing a step by hand (#708, IT-14) ─────────────────────────
+
+    /**
+     * « Contrat envoyé » ticked by hand — the contract went by e-mail —
+     * has the effects of a real send; reopened, the request is back to
+     * « Demande reçue », the hold not shortened.
+     */
+    public function testTickingTheContractByHandSendsItAndReopeningPutsItBack(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->assertSame(302, $this->markStep($booking, 'contract_sent')->getStatusCode());
+        $sent = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $sent?->status);
+        $this->assertNotNull($sent?->holdUntil);
+
+        $this->markStep($booking, 'contract_sent', false);
+        $reopened = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::RECEIVED, $reopened?->status);
+        $this->assertEquals($sent?->holdUntil, $reopened?->holdUntil);
+    }
+
+    /** A step ticked by hand moves the journey on, like the site's own answer. */
+    public function testAHandTickMovesTheNextStepOn(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->markStep($booking, 'contract_sent');
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($body, 'contract_sent'));
+        $this->assertStringNotContainsString('envoyez le contrat', self::panel($body, 'next-step'));
+    }
+
+    /** A step the site completed itself never reopens. */
+    public function testAStepTheSiteCompletedCannotBeReopened(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
+
+        $this->markStep($booking, 'contract_sent', false);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Seule une étape cochée à la main', $flash['message'] ?? '');
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Rouvrir', self::step($body, 'contract_sent'));
+    }
+
+    /** « Réservation confirmée » is run from its disc once the agreement is complete, never ticked. */
+    public function testTheConfirmationDiscRunsTheTransition(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
+
+        $step = self::step((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'confirmed');
+
+        $this->assertStringContainsString('action="/mes-locations/statut"', $step);
+        $this->assertStringContainsString('name="status" value="confirmed"', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Confirmer la réservation</span>', $step);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
+        $this->assertSame(302, $this->markStep($booking, 'confirmed')->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testAStepOfAnotherAssetsBookingCannotBeTicked(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $response = $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $foreign->id,
+            'milestone_key' => 'contract_sent',
+            'done' => '1',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($foreign->id)?->status);
+    }
+
+    /**
+     * The page without its step discs: the disc of « Réservation
+     * confirmée » or « Location clôturée » runs the transition too (#708,
+     * IT-14), a second way into the same decision rather than a second
+     * decision.
+     */
+    private static function withoutStepDiscs(string $body): string
+    {
+        return (string) preg_replace('#<form[^>]*data-step-disc[^>]*>.*?</form>#s', '', $body);
+    }
+
+    private function completeTheAgreement(RentalBooking $booking): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO rental_documents (booking_id, file_id, document_type, version, is_for_renter, sent_at)
+             VALUES (?, 1, ?, 1, 1, ?)'
+        );
+        $insert->execute([$booking->id, 'contract', '2027-01-02 10:00:00']);
+        $insert->execute([$booking->id, 'signed_contract', null]);
     }
 
     private function markStep(RentalBooking $booking, string $key, bool $done = true): Response
@@ -2832,11 +2994,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * **A derived step never has a box to tick** (D5, D6). Only a step the
-     * site cannot derive — here, the walk-throughs of an asset that keeps
-     * no inventory — carries one, and every step says its nature.
+     * **Any step still to do is completed by hand from its disc** (#708,
+     * IT-14), never « Demande reçue » nor « Dates bloquées », and every
+     * disc that does something is a named button.
      */
-    public function testOnlyAStepDoneOutsideTheSiteHasABoxToTick(): void
+    public function testEveryStepToDoCanBeTickedFromItsDisc(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2844,16 +3006,24 @@ class RentalManagementControllerTest extends TestCase
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         preg_match_all('#<li class="step-item[^"]*"\s+data-milestone="([a-z_]+)" data-kind="([a-z]+)".*?</li>#s', $body, $steps, PREG_SET_ORDER);
-        $this->assertGreaterThanOrEqual(15, count($steps), 'the journey renders every step');
+        $this->assertGreaterThanOrEqual(14, count($steps), 'the journey renders every step');
 
-        $marked = [];
-        foreach ($steps as [$markup, $key, $kind]) {
-            if (str_contains($markup, 'data-mark-step')) {
-                $marked[] = $key;
-                $this->assertSame('offsite', $kind, "{$key} offers a box and is not done outside the site");
+        $tickable = [];
+        foreach ($steps as [$markup, $key]) {
+            if (str_contains($markup, 'action="/mes-locations/etape"')) {
+                $tickable[] = $key;
+                $this->assertStringContainsString('<input type="hidden" name="done" value="1">', $markup, $key);
+                $this->assertMatchesRegularExpression(
+                    '#<span class="visually-hidden">Marquer « [^»]+ » comme fait</span>#',
+                    $markup,
+                    $key
+                );
             }
         }
-        $this->assertSame(['arrival_inventory', 'departure_inventory'], $marked);
+        $this->assertContains('arrival_inventory', $tickable);
+        $this->assertNotContains('request_received', $tickable);
+        $this->assertNotContains('hold', $tickable);
+        $this->assertNotContains('closed', $tickable, 'a status is run, never ticked');
     }
 
     /**
@@ -2888,10 +3058,11 @@ class RentalManagementControllerTest extends TestCase
         // No action at all: neither a transition nor a link to a box.
         $this->assertStringNotContainsString('action="/mes-locations/statut"', $stay[0]);
         $this->assertStringNotContainsString('<a class="btn', $stay[0]);
-        // The box is there — a step that vanished would read as skipped —
-        // but cannot be ticked, and neither can its no-JavaScript twin.
-        $this->assertMatchesRegularExpression('#data-mark-step[^>]*disabled#', $stay[0]);
-        $this->assertDoesNotMatchRegularExpression('#data-mark-step(?![^>]*disabled)[^>]*>#', $stay[0]);
+        // The steps are there — a step that vanished would read as skipped
+        // — but their discs are inert: nothing to tick before the stretch
+        // is reached.
+        $this->assertStringContainsString('data-milestone="arrival_inventory"', $stay[0]);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $stay[0]);
         $this->assertDoesNotMatchRegularExpression('#<button type="submit"(?![^>]*disabled)[^>]*>#', $stay[0]);
     }
 
@@ -2911,8 +3082,11 @@ class RentalManagementControllerTest extends TestCase
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $step = self::step($body, 'arrival_inventory');
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
-        $this->assertStringContainsString('fait le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
-        $this->assertStringContainsString('Étape hors du site', self::panel($body, 'history'));
+        $this->assertStringContainsString('Coché à la main', $step);
+        $this->assertStringContainsString(' le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
+        // Reopened from the same disc.
+        $this->assertStringContainsString('<span class="visually-hidden">Rouvrir « État des lieux d&#039;entrée »</span>', $step);
+        $this->assertStringContainsString('Étape cochée à la main', self::panel($body, 'history'));
 
         $this->markStep($booking, 'arrival_inventory', false);
         $again = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
@@ -2939,9 +3113,14 @@ class RentalManagementControllerTest extends TestCase
             $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
             foreach (\Modules\Rental\Booking\BookingTransition::allowedFrom($booking->status) as $to) {
+                // Confirming is offered by its own line once the agreement
+                // is complete, never as one decision among others (#708, IT-13).
+                if ($to === BookingStatus::CONFIRMED) {
+                    continue;
+                }
                 $this->assertSame(
                     1,
-                    substr_count($body, 'name="status" value="' . $to->value . '"'),
+                    substr_count(self::withoutStepDiscs($body), 'name="status" value="' . $to->value . '"'),
                     "{$booking->status->value}: « {$to->value} » is not offered exactly once"
                 );
             }
@@ -3509,6 +3688,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,

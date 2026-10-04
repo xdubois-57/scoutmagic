@@ -27,10 +27,10 @@
                 {% if show_asset_name|default(false) %}{{ asset.name }} · {% endif %}
                 {{ attention.booking.reference }} · du {{ attention.booking.arrivalDate|date_fr }} au {{ attention.booking.departureDate|date_fr }}
             </span>
-            {% for reason in attention.reasons %}
+            {% for line in attention.lines %}
                 <span class="small d-block">
                     <i class="bi bi-arrow-return-right text-body-secondary" aria-hidden="true"></i>
-                    {{ reason.label }}
+                    {{ line }}
                 </span>
             {% endfor %}
         </span>

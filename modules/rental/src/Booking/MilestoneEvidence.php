@@ -50,12 +50,27 @@ final class MilestoneEvidence
      *   may carry (a date, a version) — same keying
      * @param list<string> $offsite the keys ticked by hand on this booking,
      *   because the site keeps nothing they could be derived from
+     * @param list<string> $manual the keys done because a manager ticked them
+     *   by hand (#708, IT-14) — the only done steps that reopen
      */
     private function __construct(
         public readonly array $done,
         public readonly array $details,
-        public readonly array $offsite = []
+        public readonly array $offsite = [],
+        public readonly array $manual = []
     ) {
+    }
+
+    /**
+     * « Coché à la main par Xavier Dubois le 03/10/2027 » — who and when,
+     * because a tick nobody can attribute is a claim nobody can check.
+     *
+     * @param array{at: \DateTimeImmutable, by: ?string} $mark
+     */
+    private static function byHand(array $mark): string
+    {
+        return 'Coché à la main' . ($mark['by'] !== null ? ' par ' . $mark['by'] : '')
+            . ' le ' . $mark['at']->format('d/m/Y');
     }
 
     /**
@@ -167,20 +182,12 @@ final class MilestoneEvidence
         // inventory. Where it keeps none — the stay module is off, or the
         // asset has no inventory template — nothing here can derive them,
         // so they are the lines a manager ticks by hand (issue #462, D5);
-        // where it keeps one, the stay page's lines decide, and a hand tick
-        // beside them would be a second truth.
+        // where it keeps one, the stay page's lines decide — and a hand
+        // tick still counts while they do not (#708, IT-14).
         if ($inventory === null || !$assetKeepsInventory) {
             foreach ([BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY] as $key) {
                 $offsite[] = $key;
-                $mark = $marks[$key] ?? null;
-                $record(
-                    $key,
-                    $mark !== null,
-                    $mark === null
-                        ? null
-                        : 'fait le ' . $mark['at']->format('d/m/Y')
-                            . ($mark['by'] !== null ? ' par ' . $mark['by'] : '')
-                );
+                $record($key, false);
             }
         } elseif ($inventory !== []) {
             $record(BookingMilestones::ARRIVAL_INVENTORY, self::allChecked($inventory, 'arrival_state'));
@@ -202,7 +209,24 @@ final class MilestoneEvidence
             );
         }
 
-        return new self($done, $details, $offsite);
+        // Ticked by hand (#708, IT-14): any step the site has not done
+        // itself counts as done, exactly like the site's own answer. The
+        // site's answer wins the moment it has one — a deposit ticked as
+        // paid in cash and later reconciled in Finances is the site's again
+        // — and a step that is not applicable here cannot be ticked into
+        // being.
+        $manual = [];
+        foreach ($marks as $key => $mark) {
+            if (!array_key_exists($key, $done) || $done[$key]) {
+                continue;
+            }
+
+            $done[$key] = true;
+            $details[$key] = self::byHand($mark);
+            $manual[] = (string) $key;
+        }
+
+        return new self($done, $details, $offsite, $manual);
     }
 
     /**

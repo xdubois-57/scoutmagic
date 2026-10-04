@@ -63,10 +63,13 @@ final class SectionSenderAlignment
 
         $substituted = $identity->substitutedFromName($sectionName);
 
-        return 'Cette adresse n\'est pas sur le domaine d\'envoi du site (' . $domain . '). Les publipostages '
-            . 'de cette section partiront de ' . $identity->fromAddress
+        // Explicit from its first words (issue #741): the sentence is read
+        // on its own — under a field, in a list of sections — where « cette
+        // adresse » pointed at nothing in particular.
+        return 'L\'adresse e-mail configurée pour cette section n\'est pas sur le domaine d\'envoi du site ('
+            . $domain . '). Les publipostages de cette section partiront de ' . $identity->fromAddress
             . ($substituted === null ? '' : ', au nom de « ' . $substituted . ' »')
-            . ', et les réponses arriveront à cette adresse.';
+            . ', et les réponses arriveront à l\'adresse e-mail de la section.';
     }
 
     /**

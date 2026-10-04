@@ -34,12 +34,27 @@ enum AttentionReason: string
      */
     case UNIT_PROPOSAL = 'unit_proposal';
 
+    /**
+     * The step the booking's page puts forward is the unit's (#708, IT-12)
+     * — a confirmed booking still has a contract to send, an inventory, a
+     * settlement. The line names the step.
+     */
+    case UNIT_STEP = 'unit_step';
+
+    /**
+     * The step put forward is the renter's, and they are late: the day
+     * the matching reminder would go out has come (#708, IT-12).
+     */
+    case RENTER_LATE = 'renter_late';
+
     public function label(): string
     {
         return match ($this) {
             self::STATUS => 'Une décision est attendue de vous',
             self::RENTER_REQUEST => 'Le locataire a demandé une modification',
             self::UNIT_PROPOSAL => "Votre proposition attend la réponse du locataire",
+            self::UNIT_STEP => 'Une étape est à faire par vous',
+            self::RENTER_LATE => 'Le locataire est en retard',
         };
     }
 }

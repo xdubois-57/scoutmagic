@@ -31,6 +31,13 @@ enum BookingStatus: string
     // repository falls back to it for any value this enum does not know.
     case INFO_REQUESTED = 'info_requested';
     case PROPOSED = 'proposed';
+    /**
+     * The contract has gone out and the renter has it in hand (#708,
+     * IT-13): the unit's answer to the request as it stands. Set by
+     * sending it, never chosen as a decision; it waits on the renter, not
+     * on the unit.
+     */
+    case CONTRACT_SENT = 'contract_sent';
     case CONFIRMED = 'confirmed';
     case REFUSED = 'refused';
     case CANCELLED = 'cancelled';
@@ -44,6 +51,7 @@ enum BookingStatus: string
             self::RECEIVED => 'Demande reçue',
             self::INFO_REQUESTED => 'Informations demandées',
             self::PROPOSED => 'Proposition envoyée',
+            self::CONTRACT_SENT => 'Contrat envoyé',
             self::CONFIRMED => 'Confirmée',
             self::REFUSED => 'Refusée',
             self::CANCELLED => 'Annulée',

@@ -756,6 +756,26 @@ class RentalBookingServiceTest extends TestCase
     }
 
     /**
+     * Once the contract has gone out the unit has answered: an option that
+     * lapses frees the dates and the booking stays « Contrat envoyé »
+     * (#708, IT-13) — it is not expired behind the renter's back.
+     */
+    public function testALapsedOptionOnAContractSentReleasesTheDatesOnly(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->repository->setHold($booking->id, $this->now('2027-06-02 18:00:00'), HoldOrigin::MANAGER);
+        $this->repository->setStatus($booking->id, BookingStatus::CONTRACT_SENT, $this->now('2027-06-01 10:00:00'));
+
+        $result = $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $reloaded = $this->repository->findById($booking->id);
+        $this->assertSame(['released' => 1, 'expired' => 0], $result);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $reloaded?->status);
+        $this->assertNull($reloaded?->holdUntil);
+        $this->assertNotNull($reloaded?->holdLapsedSince($this->now('2027-06-04 10:00:00')), 'The page warns the dates are free.');
+    }
+
+    /**
      * A booking the sweep expires has nothing left to decide, so its
      * pending change requests are refused with it — the rule
      * RentalOperationsService already applies when a MANAGER closes a

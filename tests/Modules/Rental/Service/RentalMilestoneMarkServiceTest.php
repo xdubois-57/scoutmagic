@@ -125,13 +125,27 @@ class RentalMilestoneMarkServiceTest extends TestCase
     }
 
     /**
-     * A step the site derives is never ticked by hand, whoever asks: a tick
-     * beside the payments would be a second truth.
+     * A status is never ticked (#708, IT-14): « Réservation confirmée » and
+     * « Location clôturée » are transitions, and « Demande reçue » is
+     * always the site's.
      */
-    public function testADerivedStepIsRefused(): void
+    public function testAStatusStepIsRefused(): void
     {
-        $this->expectException(RentalException::class);
+        foreach (['confirmed', 'closed', 'request_received', 'hold', 'not_a_step'] as $key) {
+            try {
+                $this->service->set($this->booking(), $key, 'Étape', true, null, new \DateTimeImmutable());
+                $this->fail($key . ' was ticked by hand');
+            } catch (RentalException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
 
-        $this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', true, null, new \DateTimeImmutable());
+    /** Any other step is ticked by hand — a deposit paid in cash. */
+    public function testAPaymentStepCanBeTickedByHand(): void
+    {
+        $this->assertTrue(
+            $this->service->set($this->booking(), 'deposit_received', 'Acompte reçu', true, null, new \DateTimeImmutable())
+        );
     }
 }
