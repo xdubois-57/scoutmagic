@@ -104,7 +104,40 @@ class MemberProfileTest extends TestCase
         $this->assertSame('Baloo (John Doe)', $this->profile('JOHN', 'DOE', 'BALOO')->getDisplayNameFull());
     }
 
-    private function profile(string $firstName, string $lastName, ?string $totem): MemberProfile
+    /**
+     * Issue #722: the section totem joins the Desk totem, for the section
+     * the page is about — « Guépard – Akela (Élie Wathelet) ».
+     */
+    public function testGetDisplayNameFullAddsTheTotemOfTheSectionTheCallerNames(): void
+    {
+        $profile = $this->profile('élie', 'wathelet', 'guépard', [3 => 'akela', 5 => 'Hathi']);
+
+        $this->assertSame('Guépard – Akela (Élie Wathelet)', $profile->getDisplayNameFull(3));
+        $this->assertSame('Guépard – Hathi (Élie Wathelet)', $profile->getDisplayNameFull(5));
+        $this->assertSame('Guépard (Élie Wathelet)', $profile->getDisplayNameFull(9));
+    }
+
+    /** No Desk totem: the section totem stands alone in front of the name. */
+    public function testGetDisplayNameFullShowsASectionTotemWithoutDeskTotem(): void
+    {
+        $this->assertSame('Akela (Élie Wathelet)', $this->profile('Élie', 'Wathelet', null, [3 => 'Akela'])->getDisplayNameFull(3));
+    }
+
+    /**
+     * A page that does not know the section shows the section totem only
+     * when there is a single one — with two, it cannot tell which applies.
+     */
+    public function testGetDisplayNameFullWithoutSectionUsesOnlyAnUnambiguousSectionTotem(): void
+    {
+        $this->assertSame('Guépard – Akela (Élie Wathelet)', $this->profile('Élie', 'Wathelet', 'Guépard', [3 => 'Akela'])->getDisplayNameFull());
+        $this->assertSame('Guépard (Élie Wathelet)', $this->profile('Élie', 'Wathelet', 'Guépard', [3 => 'Akela', 5 => 'Hathi'])->getDisplayNameFull());
+        $this->assertSame('Élie Wathelet', $this->profile('Élie', 'Wathelet', null, [])->getDisplayNameFull());
+    }
+
+    /**
+     * @param array<int, string> $sectionTotems
+     */
+    private function profile(string $firstName, string $lastName, ?string $totem, array $sectionTotems = []): MemberProfile
     {
         return new MemberProfile(
             memberYearId: 1,
@@ -125,7 +158,8 @@ class MemberProfileTest extends TestCase
             unitMailConsent: false,
             addresses: [],
             functions: [],
-            scoutYearLabel: '2025-2026'
+            scoutYearLabel: '2025-2026',
+            sectionTotems: $sectionTotems
         );
     }
 

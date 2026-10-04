@@ -57,11 +57,30 @@ final class BannerMenuHookServiceTest extends TestCase
         return new BannerMenuHookService($memberService, $resolver, $viewerRole);
     }
 
-    public function testASiteAdministratorWhoIsNotAChefDuIsOfferedNothing(): void
+    /**
+     * An admin who is not a real chef d'unité gets nothing: that role can
+     * come from any Desk function mapped to it (issue #347 — no link to a
+     * page this account cannot open).
+     */
+    public function testAnAdminWhoIsNotAChefDuIsOfferedNothing(): void
     {
-        $this->assertSame([], $this->hook([], Role::SUPERADMIN)->getMenuEntries('admin@example.org'));
         $this->assertSame([], $this->hook([], Role::ADMIN)->getMenuEntries('admin@example.org'));
     }
+
+    /**
+     * Issue #743: a superadmin with no member behind the account inherits
+     * the Staff d'U's entry — and the page it leads to opens for them.
+     */
+    public function testASuperadminWithoutAnyDeskMemberIsOfferedTheEntry(): void
+    {
+        $this->assertCount(1, $this->hook([], Role::SUPERADMIN)->getMenuEntries('superadmin@example.org'));
+    }
+
+    public function testAChiefIsOfferedNothingEvenWhenStaffDu(): void
+    {
+        $this->assertSame([], $this->hook(['chief@example.org'], Role::CHIEF)->getMenuEntries('chief@example.org'));
+    }
+
 
     public function testAnActualChefDuIsOfferedTheEntry(): void
     {

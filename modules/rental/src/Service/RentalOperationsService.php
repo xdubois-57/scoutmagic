@@ -249,7 +249,7 @@ class RentalOperationsService
         $this->bookingRepository->setHold($booking->id, $until, $origin);
         $this->bookingAudit->record(
             $booking->id,
-            BookingAudit::HOLD_PLACED,
+            BookingAudit::HOLD_EXTENDED,
             $running ? $booking->holdUntil?->format('d/m/Y H:i') : null,
             $until->format('d/m/Y H:i'),
             'Blocage prolongé à l\'envoi du contrat',
@@ -295,7 +295,9 @@ class RentalOperationsService
             throw new RentalException(BookingTransition::refusalReason($booking->status, BookingStatus::CONFIRMED));
         }
 
-        $missing = $milestones !== null ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones) : [];
+        $missing = $milestones !== null
+            ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones)
+            : [];
         if ($missing !== []) {
             throw new RentalException(
                 'La réservation ne peut être confirmée qu\'au bout de l\'accord. Il manque : '

@@ -522,7 +522,7 @@ class BookingJourneyTest extends TestCase
     {
         return [
             'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre réponse : confirmez la réservation.'],
-            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la réponse attend la sienne.'],
+            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la suite attend sa réponse.'],
             'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
             'contrat envoyé' => [BookingStatus::CONTRACT_SENT, "L'accord est complet : la réservation reste à confirmer."],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],
@@ -775,6 +775,19 @@ class BookingJourneyTest extends TestCase
             $this->assertFalse($line->isOutstanding(), $case);
             $this->assertNotSame('hold', BookingJourney::of($milestones, BookingStatus::RECEIVED)->next()?->key, $case);
         }
+    }
+
+    public function testALapsedManagerOptionSaysTheBookingWillExpire(): void
+    {
+        $booking = $this->booking(BookingStatus::PROPOSED, new \DateTimeImmutable('2027-01-09 14:00:00'));
+        $now = new \DateTimeImmutable('2027-01-10 12:00:00');
+        $line = $this->holdLine($booking, '2027-01-10 12:00:00');
+
+        $this->assertNull($booking->holdLapsedSince($now), 'An option is not an automatic hold.');
+        $this->assertTrue($line->isApplicable);
+        $this->assertStringContainsString("L'option est échue depuis le 09/01/2027", (string) $line->warning);
+        $this->assertStringNotContainsString('posez une option', (string) $line->warning);
+        $this->assertFalse($line->isOutstanding());
     }
 
     public function testTheHoldExplanationDependsOnItsOrigin(): void

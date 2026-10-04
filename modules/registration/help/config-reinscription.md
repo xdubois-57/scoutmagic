@@ -7,7 +7,7 @@ role_min: admin
 question: Comment ouvrir la campagne de réinscription aux familles ?
 question: Comment relancer les familles qui n'ont pas répondu ?
 paths: /config/reinscription
-related: reinscription, departs, passage
+related: config-reinscription-emails, reinscription, departs, passage
 ---
 
 Chaque année, l'unité demande aux familles si leur enfant revient. Cette
@@ -26,6 +26,14 @@ s'ouvre pas rétroactivement quelques jours plus tard. C'est volontaire :
 une campagne ouverte en retard annoncerait une échéance déjà plus proche
 que ce qu'elle dit. L'interrupteur manuel est là pour ce cas.
 
+## Les e-mails de la campagne
+
+La campagne écrit d'elle-même aux familles — ouverture, deux rappels,
+clôture — tant que l'interrupteur **« Envoyer les e-mails de la
+campagne »** est actif. Ce que chacun fait, et ce que coupe
+l'interrupteur, est détaillé dans *Les e-mails de la campagne de
+réinscription*.
+
 ## Les rappels
 
 Les deux rappels se comptent **en jours avant la fermeture**. Avec une
@@ -40,8 +48,10 @@ Il force l'état, dans les deux sens, quelles que soient les dates.
 Servez-vous-en pour ouvrir plus tôt, ou pour rouvrir après la fermeture
 le temps qu'une famille en retard réponde.
 
-Le fermer ici envoie l'email de clôture aux familles sans réponse,
-exactement comme une fermeture programmée.
+L'ouvrir ici envoie l'e-mail d'ouverture s'il n'est pas encore parti
+pour cette campagne, et le fermer envoie l'e-mail de clôture aux
+familles sans réponse, exactement comme le feraient les dates — tant que
+les e-mails de la campagne sont actifs.
 
 ## Le suivi
 
@@ -55,10 +65,13 @@ sur « Passage ».
 
 ## Relancer à la main
 
-Le bouton écrit tout de suite aux familles qui n'ont pas encore répondu
+Le bouton écrit, dans les minutes qui suivent, aux familles qui n'ont pas encore répondu
 **pour tous** leurs enfants : une famille qui a répondu pour deux enfants
 sur trois est relancée, et l'email ne cite que celui qui manque. Un email
 par adresse, jamais un par enfant.
 
-Il est indisponible campagne fermée : relancer quelqu'un vers un
-formulaire qu'il ne peut plus remplir ne l'aiderait pas.
+Il est indisponible campagne fermée — relancer quelqu'un vers un
+formulaire qu'il ne peut plus remplir ne l'aiderait pas — et quand les
+e-mails de la campagne sont désactivés. Ce qu'il fait par rapport aux
+rappels automatiques est expliqué dans *Les e-mails de la campagne de
+réinscription*.

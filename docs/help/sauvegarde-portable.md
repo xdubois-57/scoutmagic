@@ -31,9 +31,8 @@ l'unité**. Qui obtient le fichier et la phrase de passe peut tout lire
 — adresses, dates de naissance, téléphones — sur n'importe quelle
 machine, sans rien d'autre.
 
-C'est pour cela qu'elle est un bloc séparé sur la page Maintenance,
-avec son propre avertissement, et qu'elle a trois règles que les
-autres n'ont pas.
+C'est pour cela qu'elle a son propre bloc, son propre avertissement
+et trois règles que les autres n'ont pas.
 
 ## Un mot de passe généré par le site
 
@@ -67,8 +66,13 @@ sauvegarde est censée survivre. Au bout d'une semaine, le site vous le
 rappelle dans ses points d'attention, et le rappel ne s'arrête que
 lorsque l'archive a quitté la liste des sauvegardes.
 
-Rangez-la comme vous rangeriez les statuts de l'unité : ailleurs, et à
-un endroit dont vous vous souviendrez.
+Rangez-la ailleurs, à un endroit dont vous vous souviendrez.
+
+## Ce qu'elle dit d'elle-même, en clair
+
+Sans mot de passe, l'archive indique sa version, sa date, son type et
+**l'adresse du site** : quiconque détient le fichier, Google Drive
+compris, peut lire cette adresse.
 
 ## Ce qu'elle ne contient pas
 

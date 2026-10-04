@@ -63,7 +63,12 @@ class SectionRosterControllerTest extends TestCase
 
         $movementClassifier = new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), $scoutYearService);
         $rosterRepository = new SectionRosterRepository($this->pdo, $this->encryption);
-        $rosterService = new SectionRosterService($rosterRepository, $memberEmailRepository, $movementClassifier);
+        $rosterService = new SectionRosterService(
+            $rosterRepository,
+            $memberEmailRepository,
+            $movementClassifier,
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption)
+        );
         $exportRowBuilder = new MemberExportRowBuilder($rosterRepository, $this->sectionService, $scoutYearService, $memberEmailRepository, $movementClassifier);
         $exportService = new MemberExportService();
 
@@ -197,6 +202,20 @@ class SectionRosterControllerTest extends TestCase
         $response = $this->controller->index($request, []);
 
         $this->assertStringNotContainsString('href="/admin/members/' . $memberYearId . '"', $response->getBody());
+    }
+
+    /** Issue #722: the section totem follows the name, as « · Akela ». */
+    public function testTheSectionTotemFollowsTheName(): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        (new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption))->set($memberYearId, $sectionId, 'Akela');
+
+        $response = $this->controller->index(new Request('GET', '/chefs/membres', [], [], [], []), []);
+
+        $this->assertMatchesRegularExpression('/Alice · Akela\s*</', $response->getBody());
     }
 
     public function testMemberNameIsNotALinkForIntendantRole(): void

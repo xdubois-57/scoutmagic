@@ -38,7 +38,7 @@ class FormRepository
         ?string $closesAt,
         bool $isForceClosed,
         string $responseRoleMin,
-        bool $dailyDigestEnabled,
+        ?string $digestEmail,
         ?int $financeAccountId,
         bool $issuesTicket = false,
         ?string $eventDate = null,
@@ -46,13 +46,13 @@ class FormRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, '
-                . 'response_role_min, daily_digest_enabled, finance_account_id, issues_ticket, event_date, '
+                . 'response_role_min, digest_email, finance_account_id, issues_ticket, event_date, '
                 . 'event_location)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $articleId, $access, $responseLimit, $opensAt, $closesAt,
-            $isForceClosed ? 1 : 0, $responseRoleMin, $dailyDigestEnabled ? 1 : 0, $financeAccountId,
+            $isForceClosed ? 1 : 0, $responseRoleMin, $digestEmail, $financeAccountId,
             $issuesTicket ? 1 : 0, $eventDate, $eventLocation,
         ]);
         return (int) $this->pdo->lastInsertId();
@@ -66,7 +66,7 @@ class FormRepository
         ?string $closesAt,
         bool $isForceClosed,
         string $responseRoleMin,
-        bool $dailyDigestEnabled,
+        ?string $digestEmail,
         ?int $financeAccountId,
         bool $issuesTicket = false,
         ?string $eventDate = null,
@@ -74,12 +74,12 @@ class FormRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE news_forms SET access = ?, response_limit = ?, opens_at = ?, closes_at = ?, is_force_closed = ?, '
-                . 'response_role_min = ?, daily_digest_enabled = ?, finance_account_id = ?, issues_ticket = ?, '
+                . 'response_role_min = ?, digest_email = ?, finance_account_id = ?, issues_ticket = ?, '
                 . 'event_date = ?, event_location = ? WHERE id = ?'
         );
         $stmt->execute([
             $access, $responseLimit, $opensAt, $closesAt,
-            $isForceClosed ? 1 : 0, $responseRoleMin, $dailyDigestEnabled ? 1 : 0, $financeAccountId,
+            $isForceClosed ? 1 : 0, $responseRoleMin, $digestEmail, $financeAccountId,
             $issuesTicket ? 1 : 0, $eventDate, $eventLocation, $id,
         ]);
     }
@@ -97,11 +97,19 @@ class FormRepository
     }
 
     /**
-     * @return NewsForm[] every form with the daily digest enabled — Task\SendResponseDigestHandler's iteration set.
+     * @return NewsForm[] every form with somewhere to send its digest —
+     *                    Task\SendResponseDigestHandler's iteration set.
+     *
+     * An empty string counts as « nowhere », not as an address: the
+     * settings form posts one when the field is cleared, and a NULL check
+     * alone would hand `MailService` an empty recipient (issue #738).
      */
-    public function findAllWithDigestEnabled(): array
+    public function findAllWithDigestEmail(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM news_forms WHERE daily_digest_enabled = 1');
+        $stmt = $this->pdo->query(
+            "SELECT * FROM news_forms WHERE digest_email IS NOT NULL AND digest_email <> ''"
+        );
+
         return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
     }
 
@@ -145,7 +153,7 @@ class FormRepository
             closesAt: $row['closes_at'] !== null ? (string) $row['closes_at'] : null,
             isForceClosed: (bool) $row['is_force_closed'],
             responseRoleMin: (string) $row['response_role_min'],
-            dailyDigestEnabled: (bool) $row['daily_digest_enabled'],
+            digestEmail: ($row['digest_email'] ?? null) !== null ? (string) $row['digest_email'] : null,
             issuesTicket: (bool) $row['issues_ticket'],
             eventDate: ($row['event_date'] ?? null) !== null ? (string) $row['event_date'] : null,
             eventLocation: ($row['event_location'] ?? null) !== null ? (string) $row['event_location'] : null,

@@ -1280,4 +1280,149 @@ class MassMailServiceTest extends TestCase
 
         $service->sendTestEmail($email->id, 'to@test.be');
     }
+
+    // ── Deleting an email before its sending starts (issue #755) ────────
+
+    public function testADraftIsDeletedWithItsYearsAndJournalledWithoutContent(): void
+    {
+        $email = $this->createDraft();
+
+        $this->service->deleteUnsent($email->id, 7);
+
+        $this->assertNull($this->service->findById($email->id));
+        $this->assertSame(0, $this->countWhere('mass_mail_email_scout_years', $email->id));
+        $entries = $this->journalEntries('email_deleted');
+        $this->assertCount(1, $entries);
+        $this->assertStringNotContainsString('Sujet', (string) $entries[0]['description'] . (string) $entries[0]['context']);
+    }
+
+    public function testAnEmailInTestIsDeletedToo(): void
+    {
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+
+        $this->service->deleteUnsent($email->id, null);
+
+        $this->assertNull($this->service->findById($email->id));
+    }
+
+    public function testASendingOrSentEmailIsNeverDeleted(): void
+    {
+        $this->createMemberWithEmail('valid@test.be');
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        foreach ([Email::STATUS_SENDING, Email::STATUS_SENT] as $status) {
+            $this->pdo->prepare('UPDATE mass_mail_emails SET status = ? WHERE id = ?')->execute([$status, $email->id]);
+            try {
+                $this->service->deleteUnsent($email->id, null);
+                $this->fail("a {$status} email was deleted");
+            } catch (MassMailException $e) {
+                $this->assertSame(
+                    "Cet e-mail est déjà en cours d'envoi ou a été envoyé et ne peut plus être supprimé.",
+                    $e->getMessage()
+                );
+            }
+            $this->assertNotNull($this->service->findById($email->id));
+            $this->assertSame(1, $this->countWhere('mass_mail_recipients', $email->id), 'its tracking stays');
+        }
+    }
+
+    /**
+     * The DELETE asks the status itself: a start that won the race since
+     * the email was read leaves it whole.
+     */
+    public function testTheDeletionIsConditionalOnTheStatusAtTheMomentItRuns(): void
+    {
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $repository = new EmailRepository($this->pdo);
+
+        $this->assertTrue($repository->transitionStatus($email->id, Email::STATUS_TEST, Email::STATUS_SENDING));
+        $this->assertFalse($repository->deleteIfNotStarted($email->id), 'started first: the deletion loses');
+        $this->assertNotNull($this->service->findById($email->id));
+    }
+
+    /** And the other way round: a deleted email cannot be started. */
+    public function testADeletedEmailCannotBeStarted(): void
+    {
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $repository = new EmailRepository($this->pdo);
+
+        $this->assertTrue($repository->deleteIfNotStarted($email->id));
+        $this->assertFalse($repository->transitionStatus($email->id, Email::STATUS_TEST, Email::STATUS_SENDING));
+    }
+
+    /** A start whose freeze fails leaves the email in test, nothing frozen. */
+    public function testAFailedFreezeLeavesTheEmailInTest(): void
+    {
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        // A list type nothing can resolve: the freeze throws.
+        $this->pdo->prepare('UPDATE mass_mail_emails SET list_type = ? WHERE id = ?')->execute(['custom', $email->id]);
+
+        try {
+            $this->service->startSending($email->id, null);
+        } catch (\Throwable) {
+        }
+
+        $this->assertSame(Email::STATUS_TEST, $this->service->findById($email->id)?->status);
+        $this->assertSame(0, $this->countWhere('mass_mail_recipients', $email->id));
+    }
+
+    public function testDeletingRemovesTheAttachmentsAndTheirFilesButNotAFileAnotherEmailStillUses(): void
+    {
+        $email = $this->createDraft();
+        $other = $this->createDraft();
+        $own = $this->storedFile('propre');
+        $shared = $this->storedFile('partage');
+        $this->service->addAttachment($email->id, $own['id']);
+        $this->service->addAttachment($email->id, $shared['id']);
+        $this->service->addAttachment($other->id, $shared['id']);
+
+        $this->service->deleteUnsent($email->id, null);
+
+        $this->assertSame(0, $this->countWhere('mass_mail_attachments', $email->id));
+        $this->assertFalse(is_file($own['path']), 'its own file is gone');
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files WHERE id = ' . $own['id'])->fetchColumn());
+        $this->assertTrue(is_file($shared['path']), 'the other email still sends it');
+        $this->assertSame(1, $this->countWhere('mass_mail_attachments', $other->id));
+        @unlink($shared['path']);
+    }
+
+    /** A mail-merge audience is shared and has its own retention: it stays. */
+    public function testDeletingAMergeDraftLeavesItsAudienceToItsOwnRetention(): void
+    {
+        $audienceId = $this->createAudience([['member_id' => null, 'email' => 'a@example.org', 'data' => ['Prénom' => 'Ana']]]);
+        $email = $this->createMergeDraft($audienceId);
+
+        $this->service->deleteUnsent($email->id, null);
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audiences WHERE id = ' . $audienceId)->fetchColumn());
+    }
+
+    private function countWhere(string $table, int $emailId): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE email_id = ?");
+        $stmt->execute([$emailId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @return array{id: int, path: string}
+     */
+    private function storedFile(string $name): array
+    {
+        $relative = 'mass-mail-test-' . bin2hex(random_bytes(4)) . '-' . $name . '.pdf';
+        $path = sys_get_temp_dir() . '/' . $relative;
+        file_put_contents($path, '%PDF-1.4');
+        $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, 'application/pdf', 8, 'chief')"
+        )->execute([$relative, $name . '.pdf']);
+
+        return ['id' => (int) $this->pdo->lastInsertId(), 'path' => $path];
+    }
 }

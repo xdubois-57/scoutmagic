@@ -868,11 +868,20 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // `writeArchive()` itself, in one reading before either starts —
         // so there is no `ensureRoomForDumpAndArchive()` call here, which
         // would charge the same bytes twice against the same budget.
-        $passphrase = (new RemotePassphrase($context->settings, $this->secrets($context)))->current();
+        $remotePassphrase = new RemotePassphrase($context->settings, $this->secrets($context));
+        $passphrase = $remotePassphrase->current();
 
         $result = $backupService->createPortableBackup(
             $passphrase,
-            \Core\Maintenance\VersionFile::read($basePath),
+            \Core\Maintenance\Portable\PortableArchiveHints::now(
+                \Core\Maintenance\VersionFile::read($basePath),
+                (string) ($context->settings->get('base_url') ?? ''),
+                \Core\Maintenance\Portable\PortableArchiveHints::KIND_REMOTE,
+                // Which phrase opens it — the one in force when it was
+                // written, the same number its file name carries
+                // (RemoteRetention::nameFor() counts from 1 too).
+                max(1, $remotePassphrase->generation())
+            ),
             $this->installationId($context)
         );
 

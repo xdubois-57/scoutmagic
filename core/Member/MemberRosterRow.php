@@ -31,7 +31,9 @@ final class MemberRosterRow
         public readonly string $bucket,
         public readonly array $emails,
         public readonly array $phones,
-        public readonly MemberMovementResult $movement
+        public readonly MemberMovementResult $movement,
+        /** The totem carried in this row's section this year (« Akela », #722). */
+        public readonly ?string $sectionTotem = null
     ) {
     }
 }

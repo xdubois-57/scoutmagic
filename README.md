@@ -109,6 +109,7 @@ qu'un passage réel n'a pas été détecté.
 
 ```bash
 composer install
+composer dev-config                # config/app.php de développement (HTTP toléré, voir SECURITY.md § 9)
 composer serve                     # serveur de dev local (localhost:8000)
 vendor/bin/phpunit                 # exécuter les tests PHP (suite complète)
 vendor/bin/phpstan analyse core/   # analyse statique

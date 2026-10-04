@@ -161,7 +161,12 @@ class PdfCompressor
         return $this->runWithTimeout($cmd);
     }
 
-    private function canUseProcOpen(): bool
+    /**
+     * Whether `proc_open` may be called at all — the first step of
+     * {@see detectBackend()}, public so Santé de l'hébergement can tell
+     * « disabled » from « no tool found » (#700).
+     */
+    public function canUseProcOpen(): bool
     {
         if (!function_exists('proc_open')) {
             return false;

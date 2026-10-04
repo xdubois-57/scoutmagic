@@ -256,6 +256,12 @@ class CalendarService implements
         return array_values(array_map(fn(Calendar $c) => $c->id, $visible));
     }
 
+    /** `HH:MM` from a stored `HH:MM[:SS]`, null when there is none. */
+    private static function hourMinute(?string $time): ?string
+    {
+        return $time === null || $time === '' ? null : substr($time, 0, 5);
+    }
+
     /**
      * Api\CalendarEventLookupInterface implementation — see its docblock.
      */
@@ -393,7 +399,9 @@ class CalendarService implements
             description: $event->description,
             location: $location,
             sectionId: $section['id'] ?? null,
-            sectionName: $section['name'] ?? null
+            sectionName: $section['name'] ?? null,
+            startTime: self::hourMinute($event->startTime),
+            endTime: $event->startTime === null ? null : self::hourMinute($event->endTime)
         );
     }
 

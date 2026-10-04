@@ -130,7 +130,9 @@ final class QueryBudgetTest extends TestCase
         $largeCount = $this->statementsOf(fn() => $service->getSectionStaffForSections($large, $this->scoutYearId));
 
         $this->assertSame($smallCount, $largeCount, 'fourteen sections must not cost more statements than two');
-        $this->assertLessThanOrEqual(5, $largeCount);
+        // 6 since #722: the section totems (« Akela ») of every profile,
+        // one batched statement whatever the number of sections.
+        $this->assertLessThanOrEqual(6, $largeCount);
         $this->assertCount(14, $service->getSectionStaffForSections($large, $this->scoutYearId));
         $this->assertSame($smallCount, $this->statementsOf(fn() => $service->getResponsables($large, $this->scoutYearId)));
     }
@@ -151,7 +153,8 @@ final class QueryBudgetTest extends TestCase
         });
 
         $this->assertSame($smallCount, $largeCount);
-        $this->assertLessThanOrEqual(10, $largeCount);
+        // 12 since #722: one batched section-totem statement per call.
+        $this->assertLessThanOrEqual(12, $largeCount);
         $animes = $service->getAnimesForSections($large, $this->scoutYearId);
         $this->assertSame(2 * 5 + 10 * 30, array_sum(array_map('count', $animes)), 'every animé of every section is there');
     }

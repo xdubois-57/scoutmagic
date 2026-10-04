@@ -12,7 +12,6 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
@@ -55,7 +54,6 @@ class SendResponseDigestHandler implements TaskHandlerInterface
             new FormRepository($pdo),
             new FormResponseRepository($pdo, $context->encryption),
             new ArticleRepository($pdo),
-            new UserAccountRepository($pdo, $context->encryption),
             $context->mailService,
             new \Core\Mail\Template\EmailTemplateRenderer(
                 $twig,

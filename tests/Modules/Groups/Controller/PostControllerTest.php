@@ -134,8 +134,7 @@ class PostControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?LinkPreviewFetcher $linkPreviewFetcher = null,
-        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
+        ?LinkPreviewFetcher $linkPreviewFetcher = null
     ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -183,17 +182,13 @@ class PostControllerTest extends TestCase
             new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
             $access
         );
-        // Null unless a test supplies one — which is production's own
-        // "calendar disabled" wiring, so every other test in this file
-        // exercises the degraded path for free.
-        $eventService = new \Modules\Groups\Service\PostEventService($eventLookup);
         $pollService = new \Modules\Groups\Service\PollService(
             new \Modules\Groups\Repository\PollRepository($this->pdo)
         );
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
             $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
-            $readStateService, $eventService, $pollService
+            $readStateService, $pollService
         );
 
         $twig = TestTwig::create([
@@ -228,7 +223,6 @@ class PostControllerTest extends TestCase
                 $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
                 $memberService
             ),
-            $eventService,
             $pollService,
             GroupsTestHelper::identityService($this->pdo)
         );
@@ -1386,58 +1380,15 @@ class PostControllerTest extends TestCase
         $this->assertSame(400, $response->getStatusCode());
     }
 
-    // --- linked calendar event ------------------------------------------
-
-    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
-    {
-        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
-        $lookup->method('findEventById')->willReturn($event);
-        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
-
-        return $lookup;
-    }
-
-    private function summary(int $id = 9): \Modules\Calendar\Api\EventSummary
-    {
-        return new \Modules\Calendar\Api\EventSummary($id, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
-    }
-
-    public function testAPostCanCarryACalendarEventAndShowsItInTheFeed(): void
-    {
-        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
-        $controller = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup($this->summary()));
-
-        $controller->create($this->request(), $this->params());
-
-        $posts = $this->postRepo->findPage($this->groupId, 10);
-        $this->assertSame(9, $posts[0]->calendarEventId);
-
-        $body = $controller->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())->getBody();
-        $this->assertStringContainsString('Réunion de section', $body);
-        $this->assertStringContainsString('/calendar?month=2026-03', $body);
-    }
-
     /**
-     * The id is re-resolved against the calendar's own visibility rules
-     * before anything is stored, so one typed into the form by hand
-     * cannot attach an event this member may not see.
+     * A post could carry an optional calendar event until issue #711
+     * removed the feature. What is pinned here is the absence on the
+     * write side: a `calendar_event_id` still arriving from a stale
+     * cached page, a bookmarked form or a script must publish an
+     * ordinary post and store nothing, rather than reach a column that
+     * no longer exists.
      */
-    public function testAnEventTheMemberMayNotSeeIsNotAttached(): void
-    {
-        $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
-
-        $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
-            ->create($this->request(), $this->params());
-
-        $this->assertNull($this->postRepo->findPage($this->groupId, 10)[0]->calendarEventId);
-    }
-
-    /**
-     * The whole point of the nullable interface: with the calendar module
-     * switched off, posting still works and the card simply shows no
-     * event line (ARCHITECTURE.md §7.5).
-     */
-    public function testWithTheCalendarDisabledAPostStillPublishesWithNoEventLine(): void
+    public function testASubmittedCalendarEventIdIsIgnoredAndThePostStillPublishes(): void
     {
         $this->withCsrf(['body' => 'On en parle samedi', 'calendar_event_id' => '9']);
         $controller = $this->controller([$this->memberId]);
@@ -1445,29 +1396,59 @@ class PostControllerTest extends TestCase
         $response = $controller->create($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $post = $this->postRepo->findPage($this->groupId, 10)[0];
-        $this->assertNull($post->calendarEventId);
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertSame('On en parle samedi', $posts[0]->body);
         $this->assertStringNotContainsString(
             'bi-calendar-event',
             $controller->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())->getBody()
         );
     }
 
-    /**
-     * A stale id — the event was deleted after the post was written —
-     * renders as no line at all rather than as a broken link. That is why
-     * schema.sql carries no foreign key on the column.
-     */
-    public function testAPostWhoseEventHasSinceDisappearedRendersWithoutIt(): void
-    {
-        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'On en parle', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
-        $this->postRepo->setCalendarEventId($postId, 9);
+    // --- the card's own layout ------------------------------------------
 
-        $body = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, null, $this->eventLookup(null))
-            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+    /**
+     * Photos above the text when a message carries both (issue #710).
+     *
+     * One assertion on one observable rather than two string offsets
+     * compared: `preg_match_all` over the two markers gives the sequence
+     * the reader actually sees, so a card that renders the text first,
+     * one that renders either marker twice, and one that has stopped
+     * rendering a marker at all each produce a different array — and none
+     * of them can pass half-way.
+     *
+     * The order is pinned here rather than on the template file because
+     * every context that shows a message renders this same partial: the
+     * feed, a group's search results and the moderator's reports page all
+     * include partials/post_card.html.twig, which is why issue #710's
+     * « vérifier les autres endroits » is answered by one include.
+     */
+    public function testACardRendersThePhotosAboveTheText(): void
+    {
+        $photo = new DelegatedMedia(1, 'photo', 'done', 0, 'photo.jpg', '2026-01-01 10:00:00');
+        $manager = $this->createStub(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        $manager->method('addMedia')->willReturn($photo);
+        $manager->method('listMedia')->willReturn([$photo]);
+
+        $this->withMediaFiles(1);
+        $this->withCsrf(['body' => 'La cordée de samedi']);
+        $controller = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager);
+
+        $controller->create($this->request(), $this->params());
+        $body = $controller
+            ->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())
             ->getBody();
 
-        $this->assertStringNotContainsString('bi-calendar-event', $body);
+        // `groups-media-grid-1`, not `groups-media-grid`: the grid's
+        // class list holds both, and the shorter marker matches twice.
+        preg_match_all('/groups-media-grid-\d|groups-post-body/', $body, $matches);
+
+        $this->assertSame(
+            ['groups-media-grid-1', 'groups-post-body'],
+            $matches[0],
+            'a message carrying both a photo and some text no longer renders the photo first — '
+            . 'issue #710, which also fails this way if either block stopped rendering at all.'
+        );
     }
 
     // --- mentions -------------------------------------------------------

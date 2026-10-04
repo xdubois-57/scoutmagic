@@ -104,6 +104,15 @@
       "label": ""
     },
     {
+      "path": "/config/reinscription/apercu",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "preview",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/config/reinscription/relance",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
@@ -503,15 +512,6 @@
       "label": ""
     },
     {
-      "path": "/passage/relire-commentaires",
-      "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\PassageController",
-      "action": "reviewComments",
-      "menu": "espace_admin",
-      "role_min": "admin",
-      "label": ""
-    },
-    {
       "path": "/passage/membre/{id}/ia",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",
@@ -747,6 +747,13 @@
       "type": "text",
       "label": "Fermeture de la campagne de réinscription",
       "description": "Jour et mois (MM-JJ) auxquels la campagne de réinscription se ferme automatiquement, chaque année (par défaut le 15 mai, 05-15) — jamais d'année à indiquer."
+    },
+    {
+      "key": "registration_reenrollment_emails_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Envoyer les e-mails de la campagne",
+      "description": "Actif, la campagne écrit aux familles : e-mail d'ouverture, rappels automatiques, relance manuelle et e-mail de clôture. Inactif, aucun de ces e-mails ne part ; la campagne s'ouvre et se ferme quand même aux dates prévues."
     },
     {
       "key": "registration_reenrollment_open",

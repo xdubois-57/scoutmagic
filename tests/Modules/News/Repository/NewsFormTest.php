@@ -19,7 +19,7 @@ class NewsFormTest extends TestCase
     ): NewsForm {
         return new NewsForm(
             1, 1, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, $opensAt, $closesAt,
-            $isForceClosed, 'chief', false, $issuesTicket, $eventDate, $eventLocation, null, null, '2026-01-01 00:00:00'
+            $isForceClosed, 'chief', null, $issuesTicket, $eventDate, $eventLocation, null, null, '2026-01-01 00:00:00'
         );
     }
 
