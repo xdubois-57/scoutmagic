@@ -251,6 +251,7 @@ class ReenrollmentSavePlannerTest extends TestCase
         // Opened by hand on 2027-02-01, a month before its date: keyed to
         // the coming close, 2027-05-15 — and so is its closing.
         $this->campaign->open();
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
 
         $plan = $this->plan(['is_open' => false], '2027-02-05 10:00');
 
@@ -258,6 +259,19 @@ class ReenrollmentSavePlannerTest extends TestCase
             [['type' => 'closing', 'campaign' => '2027-05-15', 'families' => 27, 'deferred' => false]],
             $plan->emails
         );
+    }
+
+    public function testASwitchLeftOnPastItsWindowWritesToNobodyWhateverTheDates(): void
+    {
+        // The next opening (2027-01-03) is nearer than the last close
+        // (2026-05-15), yet nothing opened that campaign: closing the
+        // switch tells nobody it has closed.
+        $this->campaign->open();
+
+        $plan = $this->plan(['is_open' => false, 'open_at' => '01-03'], '2026-10-04 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED, $plan->noEmailReason);
     }
 
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void

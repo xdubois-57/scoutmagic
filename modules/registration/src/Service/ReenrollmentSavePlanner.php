@@ -120,7 +120,7 @@ class ReenrollmentSavePlanner
         // ── a closing by the switch ───────────────────────────────────
         $closing = null;
         if ($before['is_open'] && !$after['is_open']) {
-            $key = ReenrollmentCampaignService::campaignKeyToClose($now, $after['open_at'], $after['close_at']);
+            $key = $this->campaign->campaignKeyToClose($now, $after['open_at'], $after['close_at']);
             $closing = ['campaign' => $key];
             $reasons[] = $this->queue(
                 $emails,

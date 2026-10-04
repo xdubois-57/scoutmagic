@@ -213,10 +213,12 @@ class ReenrollmentCampaignService
 
     /**
      * The campaign a save that closes the switch closes: the window in
-     * progress, or — when the switch had opened the next one early — that
-     * next window, the one the opening was keyed to.
+     * progress, or the next one when the switch opened it early — and only
+     * when it really did, as its markers show. A switch left on past its
+     * window is not an early opening: nobody was told the next campaign had
+     * begun, so nobody is told it has closed.
      */
-    public static function campaignKeyToClose(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
+    public function campaignKeyToClose(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
     {
         $openAt = self::validMonthDay($openAt);
         $closeAt = self::validMonthDay($closeAt);
@@ -230,7 +232,24 @@ class ReenrollmentCampaignService
             return $current;
         }
 
-        return self::keyForManualOpening($today, $openAt, $closeAt) ?? $current;
+        $next = self::keyForManualOpening($today, $openAt, $closeAt);
+
+        return $next !== null && $this->openedBefore($next) ? $next : $current;
+    }
+
+    /** Whether the campaign `$key` was opened, by the clock or by hand: a marker says so. */
+    private function openedBefore(string $key): bool
+    {
+        if ($this->alreadyDone(self::MARKER_OPENED, $key)) {
+            return true;
+        }
+        foreach ([self::EMAIL_OPENING, self::EMAIL_REMINDER_1, self::EMAIL_REMINDER_2] as $type) {
+            if ($this->alreadyDone(self::emailMarker($type), $key)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function keyAt(\DateTimeImmutable $now, string $openAt, string $closeAt): ?string
