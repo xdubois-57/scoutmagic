@@ -620,10 +620,11 @@ final class UxConventionsTest extends TestCase
         '/config/reseaux-sociaux/{platform}/retour',
         // The composed image Meta's servers fetch — a JPEG, never a page.
         '/partage/carte/{token}',
-        // The card a chief is about to publish, drawn for the share page's <img>.
-        '/partage/album/{id}/apercu',
-        '/partage/actualite/{id}/apercu',
-        '/communications/{id}/apercu',
+        // The card a chief is about to publish, drawn for the composer's
+        // <img> — by the communication once it exists, and by its source
+        // before that, since « Partager » writes no row on opening.
+        '/medias-sociaux/{id}/apercu',
+        '/medias-sociaux/nouvelle/{kind}/{id}/apercu',
         // XLSX download of one Encadrement page's lists (#727), never a page.
         '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
@@ -1493,6 +1494,72 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertSame([], $found, 'Open the page-medium/page-wide column before the page_header include (issue #471)');
+    }
+
+    /**
+     * The 44px comfort goal lives inside `app.css`'s
+     * `@media (pointer: coarse)` block, and nowhere else in that file.
+     *
+     * AGENTS.md § Touch targets calls it « a comfort goal for small
+     * controls … handled centrally in `app.css`'s `pointer: coarse`
+     * block — never a universal minimum ». A 44px declaration at file
+     * scope is exactly that universal minimum: it inflates the control
+     * for a mouse too, where WCAG 2.2 AA asks 24×24 and Bootstrap's own
+     * 38px already passes, and the `pointer: fine` restore under the
+     * block cannot undo a rule it does not know about.
+     *
+     * The sibling test below bans the same patch in templates. Nothing
+     * banned it in the stylesheet, and `.contributed-action-icon` was
+     * appended to the end of the file with an unconditional 44px pair —
+     * caught in review on the pull request for issue #706, IT-01.
+     *
+     * The block is located by counting braces, not by what surrounds it
+     * in the text, so moving it or adding another `@media` beside it
+     * cannot quietly switch this off.
+     */
+    public function testThe44pxGoalStaysInsideThePointerCoarseBlock(): void
+    {
+        $css = (string) file_get_contents(self::repoRoot() . '/public/assets/css/app.css');
+        // The comments discuss 44px constantly to explain it; only
+        // declarations matter here.
+        $code = (string) preg_replace('#/\*.*?\*/#s', '', $css);
+
+        $start = strpos($code, '@media (pointer: coarse)');
+        self::assertNotFalse($start, 'app.css no longer has a pointer:coarse block');
+        $open = strpos($code, '{', (int) $start);
+        self::assertNotFalse($open);
+
+        $depth = 0;
+        $end = null;
+        for ($i = (int) $open, $len = strlen($code); $i < $len; $i++) {
+            if ($code[$i] === '{') {
+                $depth++;
+            } elseif ($code[$i] === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    $end = $i;
+                    break;
+                }
+            }
+        }
+        self::assertNotNull($end, 'the pointer:coarse block is never closed');
+
+        $outside = [];
+        if (preg_match_all('/min-(?:width|height):\s*44px/', $code, $hits, PREG_OFFSET_CAPTURE) > 0) {
+            foreach ($hits[0] as $hit) {
+                if ($hit[1] < (int) $open || $hit[1] > (int) $end) {
+                    $outside[] = $hit[0];
+                }
+            }
+        }
+
+        self::assertSame(
+            [],
+            $outside,
+            'A 44px touch target belongs inside app.css\'s @media (pointer: coarse) block.'
+            . ' At file scope it is a universal minimum, which AGENTS.md § Touch targets'
+            . ' forbids, and the pointer:fine restore cannot undo it.'
+        );
     }
 
     /**

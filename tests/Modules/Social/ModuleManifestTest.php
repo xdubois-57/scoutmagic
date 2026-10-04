@@ -35,8 +35,8 @@ final class ModuleManifestTest extends TestCase
             if ($route['path'] === '/partage/carte/{token}') {
                 continue;
             }
-            if (str_starts_with($route['path'], '/partage/') || str_starts_with($route['path'], '/communications')) {
-                // Sharing and free communications: a chief at the floor,
+            if (str_starts_with($route['path'], '/medias-sociaux')) {
+                // The composer and the history: a chief at the floor,
                 // narrowed by the gallery's and the news module's own rule,
                 // or the communication's author (ShareSourceResolver).
                 $this->assertSame('chief', $route['role_min'], $route['path']);
@@ -64,6 +64,45 @@ final class ModuleManifestTest extends TestCase
         $this->assertSame(['GET', '/partage/carte/{token}'], [$public[0]['method'], $public[0]['path']]);
     }
 
+    /**
+     * The schema gained `source_kind` / `source_id` for IT-01, and the
+     * chantier asks for the manifest version to go up with it.
+     *
+     * **Not because the bump is what ships the columns** — it is not, and
+     * believing it is would be the dangerous reading of this pin.
+     * `Core\Database\SchemaFiles` migrates every declared schema in one
+     * pass at deploy time, precisely because the old per-module behaviour
+     * applied a schema change only if somebody remembered the bump, and a
+     * forgotten one stayed invisible until a query failed against a
+     * column nobody had added ({@see \Core\Module\ModuleManager}, where
+     * the comparison that remains drives the pruning of settings the new
+     * manifest stopped declaring). The version is the module's stated
+     * version, shown in the registry; this pin is meant to break, so a
+     * schema change is a deliberate decision about it rather than a
+     * silent omission. Raised in review on the pull request for IT-01.
+     */
+    public function testTheVersionRisesWithTheSchema(): void
+    {
+        $this->assertSame('1.1.0', $this->manifest['version']);
+    }
+
+    /**
+     * There is one composer, reached from « Partager » as well as from
+     * « Nouvelle communication »: the two dedicated share pages are gone,
+     * and a route that brought one back would be the regression.
+     */
+    public function testThereIsNoDedicatedSharePageAnyMore(): void
+    {
+        $paths = array_column($this->manifest['routes'], 'path');
+
+        $this->assertContains('/medias-sociaux/nouvelle/{kind}/{id}', $paths);
+        foreach ($paths as $path) {
+            $this->assertStringStartsNotWith('/partage/album', $path);
+            $this->assertStringStartsNotWith('/partage/actualite', $path);
+            $this->assertStringStartsNotWith('/communications', $path);
+        }
+    }
+
     public function testTheBlurSettingIsNotEditable(): void
     {
         $byKey = array_column($this->manifest['settings'], null, 'key');
@@ -76,8 +115,8 @@ final class ModuleManifestTest extends TestCase
     {
         foreach ($this->manifest['routes'] as $route) {
             $reads = in_array($route['action'], [
-                'index', 'connect', 'callback', 'show', 'showAlbum', 'showArticle', 'previewAlbum', 'previewArticle',
-                'history', 'create', 'edit', 'preview', 'picker', 'confirmRetry',
+                'index', 'connect', 'callback', 'show',
+                'history', 'create', 'createFromSource', 'edit', 'preview', 'previewSource', 'picker', 'confirmRetry',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

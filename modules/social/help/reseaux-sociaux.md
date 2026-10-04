@@ -9,14 +9,14 @@ question: Comment relier la Page Facebook de l'unité au site ?
 question: Comment connecter le compte Instagram de l'unité ?
 question: Pourquoi Meta refuse-t-il la connexion du site ?
 paths: /config/reseaux-sociaux
-related: config-rgpd, connecteur-ia
+related: medias-sociaux, config-rgpd, connecteur-ia
 ---
 
 Ce module relie le site à **la Page Facebook** et au **compte Instagram
 professionnel** de l'unité, pour pouvoir y publier depuis le site. Il ne
 publie rien de lui-même : chaque publication est décidée par un
-animateur, depuis un album ou une actualité (voir « Partager un album
-ou une actualité sur Facebook et Instagram »).
+animateur, depuis « Médias sociaux » (voir « Publier sur les médias
+sociaux de l'unité »).
 
 > Un profil Facebook personnel et un groupe Facebook ne sont pas des
 > destinations possibles : Meta ne permet plus à une application de
