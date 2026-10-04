@@ -30,10 +30,27 @@
     {% endif %}
 
     {# 1. The image, as it will be published — it is what is judged. #}
-    <div class="mb-3" data-communication-image>
+    <div class="mb-3" data-communication-image data-card-composer>
         {% if has_image and preview_path %}
+            {# BOTH, on purpose (issue #706, IT-02). The <img> is the card
+               the server composes, and it is what a page whose JavaScript
+               did not load — or a browser that gives no 2D context — still
+               shows. `social-composer.js` draws the same card into the
+               canvas below and takes the <img>'s place only once a draw
+               has SUCCEEDED, so the page never ends up with a blank square
+               where the card was. That matters here more than elsewhere:
+               on a source-backed composer « Publier » is the only button,
+               so a page showing no image would make the first POST an
+               irreversible public post of something nobody saw. #}
             <img src="{{ preview_path }}" alt="Carte qui sera publiée : {{ source.title }}"
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
+            <canvas class="img-fluid rounded border" width="1080" height="1080" hidden
+                    data-card-canvas
+                    data-card-background="{{ background_path }}"
+                    data-card-address="{{ card_address }}"
+                    data-card-blur="{{ blur_ratio }}"
+                    data-card-title="{{ source.title|default('') }}"
+                    aria-label="Carte qui sera publiée : {{ source.title }}"></canvas>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
                 {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
@@ -182,4 +199,10 @@
        exactly the dead pairing that cost `booking_documents.html.twig` a
        review remark on the pull request for issue #756. #}
     <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
+    {# The card drawn in the browser (issue #706, IT-02). The engine first:
+       `social-composer.js` reads `window.ScoutMagicCard` at load and does
+       nothing at all without it, so the order is what makes the canvas
+       appear rather than an error in the console. #}
+    <script src="{{ asset('/assets/js/social-card.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/social-composer.js') }}" defer></script>
 {% endblock %}

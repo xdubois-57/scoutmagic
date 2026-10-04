@@ -184,6 +184,64 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * The composer ASKS for the browser-drawn card, and keeps the
+     * server's one beside it (issue #706, IT-02).
+     *
+     * Every piece of this is an opt-in the server has to write down, and
+     * an opt-in nobody wrote down is a feature that silently does not
+     * exist — which is exactly what cost issue #756 a review remark.
+     * Asserted on the rendered page rather than on the template file: a
+     * variable that stopped reaching the view would still look right in
+     * the source.
+     *
+     * The two images together are the point, not an oversight: the
+     * <canvas> takes the <img>'s place only once a draw has succeeded, so
+     * a browser with no 2D context still shows the card. On a
+     * source-backed composer « Publier » is the only button.
+     */
+    public function testTheComposerAsksForTheBrowserDrawnCardAndKeepsTheServersBeside(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString(
+            'data-card-canvas',
+            $html,
+            'the page no longer asks for the canvas, so the card never follows the typing (issue #706, IT-02).'
+        );
+        $this->assertStringContainsString(
+            'data-card-background="/medias-sociaux/' . $id . '/image"',
+            $html,
+            'the canvas has no background to draw, so it would paint the veil over a grey square.'
+        );
+        $this->assertStringContainsString(
+            'data-card-blur="0.05"',
+            $html,
+            'a gallery photo must carry its blur to the browser, or the card drawn there is sharper'
+            . ' than the one that leaves.'
+        );
+        // The address written at the card's foot, as the card shows it:
+        // `ShareSourceResolver::address()` strips the scheme, because what
+        // survives Instagram's refusal of links is a domain somebody can
+        // type, not a URL.
+        $this->assertStringContainsString('data-card-address="unite.example', $html);
+        $this->assertStringNotContainsString('data-card-address="https://', $html);
+        // Both scripts, in this order: the composer reads
+        // window.ScoutMagicCard at load and does nothing without it.
+        $this->assertMatchesRegularExpression(
+            '#social-card\.js.*social-composer\.js#s',
+            $html,
+            'the engine must be loaded before the wiring, or the canvas never appears.'
+        );
+        // The server's card stays on the page — the fallback the canvas
+        // replaces only once it has drawn.
+        $this->assertStringContainsString('data-card-preview', $html);
+        $this->assertStringContainsString('/medias-sociaux/' . $id . '/apercu', $html);
+    }
+
+    /**
      * The card's background is the source's own bytes, unblurred (issue
      * #706, IT-02).
      *
@@ -1143,6 +1201,13 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('src="/medias-sociaux/' . $id . '/apercu"', $html);
         $this->assertStringNotContainsString('elle est floutée', $html);
         $this->assertSame(200, $this->controller()->preview($this->get(), ['id' => (string) $id])->getStatusCode());
+        // The same promise, on the browser's side of it (issue #706,
+        // IT-02): the canvas is told ZERO rather than the site's setting,
+        // or the card drawn in the browser comes out blurred where the
+        // published one is not. Asserted here rather than in a test of
+        // its own, so both halves of « an uploaded image is not blurred »
+        // move together.
+        $this->assertStringContainsString('data-card-blur="0"', $html);
     }
 
     public function testUploadingWithoutAFileSaysSo(): void

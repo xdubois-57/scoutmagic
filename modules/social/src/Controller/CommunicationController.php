@@ -693,6 +693,23 @@ final class CommunicationController extends AbstractController
                 AuthSession::getUserAccountId(),
                 $communication !== null
             ),
+            // What the BROWSER needs to draw the card itself (issue #706,
+            // IT-02): the source's own photo, beside the composed card
+            // above. Both are kept — the <img> is what a page with no
+            // JavaScript, or a browser with no 2D context, still shows,
+            // and the canvas replaces it only once it has drawn.
+            'background_path' => match (true) {
+                $communication !== null => self::path($communication) . '/image',
+                $prefill !== null => self::HISTORY_PATH . '/nouvelle/' . $prefill->kind . '/'
+                    . $prefill->id . '/image',
+                default => null,
+            },
+            // The address written at the foot of the card, and whether
+            // this photo is blurred — the two things the drawing needs
+            // that are not on the form. Taken from the SOURCE, like the
+            // card the server composes from the same pair.
+            'card_address' => $source->address ?? '',
+            'blur_ratio' => ($source->imageFromGallery ?? false) ? $this->cards->blurRatio() : 0.0,
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
