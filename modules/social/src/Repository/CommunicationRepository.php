@@ -159,6 +159,19 @@ class CommunicationRepository
             ->execute([$ratio, $now->format('Y-m-d H:i:s'), $id]);
     }
 
+    /**
+     * The card the browser posted, now stored (issue #706, IT-02).
+     *
+     * Written once per share and then frozen with the rest: the caller
+     * checks that nothing has left yet, because a destination published
+     * later must receive the same image the first one did.
+     */
+    public function updateCardFile(int $id, int $fileId, \DateTimeImmutable $now): void
+    {
+        $this->pdo->prepare('UPDATE social_communications SET card_file_id = ?, updated_at = ? WHERE id = ?')
+            ->execute([$fileId, $now->format('Y-m-d H:i:s'), $id]);
+    }
+
     /** One image or the other: choosing a gallery photo forgets the uploaded file, and back. */
     public function useGalleryPhoto(int $id, int $mediaId, \DateTimeImmutable $now): void
     {
@@ -192,7 +205,8 @@ class CommunicationRepository
             // Null stays null: it means « never chosen », and the site's
             // own starting position applies. A cast would turn it into a
             // deliberate 0 — « Net » — which is a different answer.
-            ($row['blur_ratio'] ?? null) === null ? null : (float) $row['blur_ratio']
+            ($row['blur_ratio'] ?? null) === null ? null : (float) $row['blur_ratio'],
+            ($row['card_file_id'] ?? null) === null ? null : (int) $row['card_file_id']
         );
     }
 }

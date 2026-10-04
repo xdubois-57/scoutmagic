@@ -52,6 +52,41 @@ class FakeImage {
     }
 }
 
+/** A FileList-alike: what a real DataTransfer hands to input.files. */
+function fileList(files) {
+    const list = { length: files.length, item: (i) => files[i] || null };
+    files.forEach((file, i) => {
+        list[i] = file;
+    });
+
+    return list;
+}
+
+/**
+ * The DataTransfer the browser has and jsdom does not — the same double
+ * `tests/js/finance-receipt-form.test.js` uses, since both files exercise
+ * the one way to rewrite an <input type="file">'s selection.
+ */
+class FakeDataTransfer {
+    constructor() {
+        this._files = [];
+        this.items = { add: (file) => this._files.push(file) };
+    }
+
+    get files() {
+        return fileList(this._files);
+    }
+}
+
+/** `input.files` is read-only in jsdom; the production code assigns to it. */
+function makeFilesWritable(input) {
+    Object.defineProperty(input, 'files', {
+        configurable: true,
+        writable: true,
+        value: fileList([]),
+    });
+}
+
 /** The page the composer runs on, in the shape the Twig renders it. */
 function page({
     background = '/medias-sociaux/7/image',
@@ -60,7 +95,7 @@ function page({
     slider = false,
 } = {}) {
     document.body.innerHTML = `
-        <form>
+        <form data-card-form>
           <div data-communication-image data-card-composer>
             <img src="/medias-sociaux/7/apercu" data-card-preview alt="Carte">
             <canvas width="1080" height="1080" hidden
@@ -79,13 +114,23 @@ function page({
               <span data-card-blur-blurred hidden>On devine l'ambiance, pas les visages.</span>
             </p>
           ` : ''}
+          <input type="file" name="card" data-card-file>
+          <button type="submit" name="action" value="gallery">Galerie</button>
+          <button type="submit" name="action" value="publish">Publier</button>
         </form>
     `;
+
+    const field = document.querySelector('[data-card-file]');
+    makeFilesWritable(field);
 
     return {
         canvas: document.querySelector('[data-card-canvas]'),
         img: document.querySelector('[data-card-preview]'),
         titleField: document.getElementById('communication-title'),
+        form: document.querySelector('[data-card-form]'),
+        cardField: field,
+        publish: document.querySelector('button[value="publish"]'),
+        gallery: document.querySelector('button[value="gallery"]'),
         blurField: document.querySelector('[data-card-blur-input]'),
         sharpNote: document.querySelector('[data-card-blur-sharp]'),
         blurredNote: document.querySelector('[data-card-blur-blurred]'),
@@ -117,8 +162,11 @@ async function run() {
 }
 
 let frames = [];
+/** Every form.submit() the production code performed. */
+let submits = 0;
 
 beforeEach(() => {
+    submits = 0;
     images = [];
     frames = [];
     // rAF collected rather than run, so a test can prove two inputs
@@ -129,6 +177,14 @@ beforeEach(() => {
         return frames.length;
     });
     vi.stubGlobal('Image', FakeImage);
+    // jsdom has no form.submit() implementation and no DataTransfer, the
+    // two things the publish path is built on — both stubbed, and the
+    // absence of DataTransfer is itself covered below, because it is a
+    // real browser state (Safari had no constructor until 14.1).
+    HTMLFormElement.prototype.submit = function () {
+        submits += 1;
+    };
+    vi.stubGlobal('DataTransfer', FakeDataTransfer);
 });
 
 afterEach(() => {
@@ -381,6 +437,146 @@ describe('the blur slider', () => {
 
         expect(dom.blurField).toBeNull();
         expect(card.draws[0].blurRatio).toBe(0.05);
+    });
+});
+
+describe('« Publier » sends the card the page drew', () => {
+    /** The page, drawn, with a card engine whose export resolves to `blob`. */
+    async function ready(blob) {
+        const dom = page({ slider: true });
+        const card = engine();
+        card.toJpeg = () => Promise.resolve(blob);
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        return { dom, card };
+    }
+
+    it('attaches the exported card to the form and posts it', async () => {
+        const blob = { size: 1234, type: 'image/jpeg' };
+        const { dom } = await ready(blob);
+
+        dom.publish.click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(dom.cardField.files).toHaveLength(1);
+        expect(dom.cardField.files[0].name).toBe('carte.jpg');
+        expect(dom.cardField.files[0].type).toBe('image/jpeg');
+        expect(submits).toBe(1);
+    });
+
+    /**
+     * **`form.submit()` does not include the button that submitted.**
+     * Without a hidden field carrying it, `action=publish` is simply
+     * absent and the controller falls through to « no action »: nothing
+     * saved, nothing published, and a page that looks like it worked.
+     */
+    it('carries action=publish in a field, since the button is not submitted', async () => {
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+
+        dom.publish.click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0].value).toBe('publish');
+    });
+
+    it('holds the publish button from the click to the navigation', async () => {
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+
+        dom.publish.click();
+
+        // Held synchronously, before the export has resolved: the click
+        // that starts the export is the click that closes the button.
+        expect(dom.publish.disabled).toBe(true);
+        expect(dom.publish.textContent).toContain('Publication en cours');
+    });
+
+    it('refuses a second « Publier » while the first is still going', async () => {
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+
+        dom.publish.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(submits).toBe(1);
+
+        // The button is disabled, so a real second click cannot happen —
+        // but a submit can still be dispatched (a keyboard Enter, a
+        // script), and a second public post is what this prevents.
+        dom.form.dispatchEvent(new Event('submit', { cancelable: true }));
+        await Promise.resolve();
+
+        expect(submits).toBe(1);
+    });
+
+    it('does not intercept the gallery and upload round trips', async () => {
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+
+        dom.gallery.click();
+        await Promise.resolve();
+
+        // Those two are plain submits that keep the draft: no card, and
+        // nothing prevented, so the browser posts them itself.
+        expect(submits).toBe(0);
+        expect(dom.cardField.files).toHaveLength(0);
+        expect(dom.form.querySelectorAll('input[type="hidden"][name="action"]')).toHaveLength(0);
+    });
+
+    it('still posts when the export fails, so the server composes the card', async () => {
+        const dom = page({ slider: true });
+        const card = engine();
+        card.toJpeg = () => Promise.reject(new Error('tainted canvas'));
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        dom.publish.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // No card travelled, and that is the same path a share made
+        // before IT-02 takes: the publication composes one rather than
+        // refusing to happen.
+        expect(dom.cardField.files).toHaveLength(0);
+        expect(submits).toBe(1);
+    });
+
+    it('posts without a card when the browser has no DataTransfer', async () => {
+        // Safari had no DataTransfer constructor until 14.1.
+        vi.stubGlobal('DataTransfer', undefined);
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+
+        dom.publish.click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(submits).toBe(1);
+        expect(dom.cardField.files).toHaveLength(0);
+    });
+
+    it('lets the form post as it is when nothing was ever drawn', async () => {
+        const dom = page({ slider: true });
+        const card = engine({ drawSucceeds: false });
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        dom.publish.click();
+        await Promise.resolve();
+
+        // Not intercepted — the browser posts it, carrying the button —
+        // but the button is still held, because the request is still
+        // several seconds of waiting.
+        expect(submits).toBe(0);
+        expect(dom.publish.disabled).toBe(true);
     });
 });
 

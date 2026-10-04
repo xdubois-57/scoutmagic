@@ -203,6 +203,13 @@ final class GroupPublishingService
      */
     private function card(ShareSource $source): ?string
     {
+        // The card the browser drew, when there is one: a group receives
+        // exactly what every other destination did, down to the bytes
+        // (issue #706, IT-02).
+        if ($source->card !== null && $source->card !== '') {
+            return $source->card;
+        }
+
         if ($this->cards === null || $source->image === null || $source->image === '') {
             return $source->image;
         }

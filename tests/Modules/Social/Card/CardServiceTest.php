@@ -62,6 +62,21 @@ final class CardServiceTest extends TestCase
      * So a zero now means zero, end to end: the ratio read back, and the
      * card on disk as sharp as one composed with no blur at all.
      */
+    /**
+     * The card, composed — because `issue()` no longer composes (issue
+     * #706, IT-02).
+     *
+     * The browser draws what is published and posts it; the server's job
+     * narrowed to keeping those bytes behind a token. These tests are
+     * about that keeping, so they compose first, exactly as
+     * `PublishingService` does for a share made before the browser drew
+     * any.
+     */
+    private static function composed(CardService $service, string $title): string
+    {
+        return $service->compose(H::groupPhoto(), $title, 'a.be', true);
+    }
+
     public function testAGalleryCardLeavesSharpWhenTheStrengthIsZero(): void
     {
         $this->settings->values = [CardService::BLUR_SETTING => '0'];
@@ -69,7 +84,7 @@ final class CardServiceTest extends TestCase
 
         $this->assertSame(0.0, $service->blurRatio());
 
-        $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+        $card = $service->issue(self::composed($service, 'Camp'), true, $this->now);
         $path = $service->open($this->token($card->path), $this->now);
         $this->assertNotNull($path);
 
@@ -121,7 +136,7 @@ final class CardServiceTest extends TestCase
     public function testTheCardIsServedWithinTheHourAndJournalledWithoutItsToken(): void
     {
         $service = $this->service();
-        $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+        $card = $service->issue(self::composed($service, 'Camp'), true, $this->now);
         $token = $this->token($card->path);
 
         $this->assertMatchesRegularExpression('#^/partage/carte/[a-f0-9]{64}$#', $card->path);
@@ -137,7 +152,7 @@ final class CardServiceTest extends TestCase
     public function testTheTokenExpiresAndTheCardIsNeverServedAfter(): void
     {
         $service = $this->service();
-        $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+        $card = $service->issue(self::composed($service, 'Camp'), true, $this->now);
 
         $this->assertNull($service->open($this->token($card->path), $this->now->modify('+60 minutes')));
         $this->assertNull($service->open($this->token($card->path), $this->now->modify('+2 days')));
@@ -147,7 +162,7 @@ final class CardServiceTest extends TestCase
     public function testAMalformedOrUnknownTokenOpensNothing(): void
     {
         $service = $this->service();
-        $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+        $service->issue(self::composed($service, 'Camp'), true, $this->now);
 
         $this->assertNull($service->open('../../etc/passwd', $this->now));
         $this->assertNull($service->open(str_repeat('a', 64), $this->now));
@@ -156,8 +171,8 @@ final class CardServiceTest extends TestCase
     public function testThePurgeDeletesExpiredCardsFilesAndRows(): void
     {
         $service = $this->service();
-        $old = $service->issue(H::groupPhoto(), 'Old', 'a.be', true, $this->now->modify('-2 hours'));
-        $live = $service->issue(H::groupPhoto(), 'Live', 'a.be', true, $this->now);
+        $old = $service->issue(self::composed($service, 'Old'), true, $this->now->modify('-2 hours'));
+        $live = $service->issue(self::composed($service, 'Live'), true, $this->now);
 
         $this->assertSame(1, $service->purgeExpired($this->now));
 
@@ -171,7 +186,7 @@ final class CardServiceTest extends TestCase
     {
         file_put_contents($this->directory, 'a file where the directory should be');
         try {
-            $this->service()->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
+            $this->service()->issue(self::composed($this->service(), 'Camp'), true, $this->now);
             $this->fail('An image that cannot be stored must not be issued.');
         } catch (\Modules\Social\Card\CardException $e) {
             $this->assertStringContainsString('n\'a pas pu être enregistrée', $e->getMessage());
@@ -185,7 +200,7 @@ final class CardServiceTest extends TestCase
     public function testACardWhoseFileIsGoneIsA404AndThePurgeDropsItsRow(): void
     {
         $service = $this->service();
-        $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now->modify('-2 hours'));
+        $card = $service->issue(self::composed($service, 'Camp'), true, $this->now->modify('-2 hours'));
         foreach (glob($this->directory . '/*.jpg') ?: [] as $file) {
             unlink($file);
         }

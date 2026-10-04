@@ -62,6 +62,7 @@ final class SocialTestHelper
             source_kind TEXT NULL,
             source_id INTEGER NULL,
             blur_ratio REAL NULL,
+            card_file_id INTEGER NULL,
             created_by INTEGER NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL

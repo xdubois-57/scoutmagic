@@ -47,6 +47,17 @@ final class Communication
          * nullable.
          */
         public readonly ?float $blurRatio = null,
+        /**
+         * The card the browser drew and posted at « Publier », stored as
+         * it arrived (issue #706, IT-02).
+         *
+         * Null for every share made before the browser drew anything —
+         * and for those the server still composes a card, so that a retry
+         * of an old failed share remains possible. `CardRenderer` has
+         * left the path a NEW share takes; it has not left the
+         * repository.
+         */
+        public readonly ?int $cardFileId = null,
     ) {
     }
 

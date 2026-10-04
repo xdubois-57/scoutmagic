@@ -7,13 +7,22 @@
 {% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
-{# `data-submit-lock` (issue #756): publishing waits on Meta, several
-   seconds of a page that would otherwise look untouched, and the second
-   tap would be a second public post. The server refuses a replay too
-   (CommunicationController::REPLAY_WINDOW_SECONDS) — this stops the tap,
-   that stops the request. #}
-<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-submit-lock
-      data-submit-lock-label="Publication en cours…">
+{# **No `data-submit-lock` here, and that is not an omission** (issue
+   #706, IT-02). Publishing still waits on Meta for several seconds, and
+   the second tap would still be a second public post — but from IT-02
+   « Publier » is intercepted: the canvas is exported to a JPEG and
+   attached to this form before it is posted. The shared lock cannot live
+   with that. Its own deferred unlock reads `event.defaultPrevented` and
+   GIVES THE BUTTON BACK when something prevented the default (see
+   `form-submit-lock.js`, written that way in #756 for a different form),
+   so opting in here would re-open the very double submit it exists to
+   close, on the one page where a double submit is a second public post.
+
+   `social-composer.js` holds the button itself instead, from the click
+   that starts the export to the navigation that ends it, and
+   `UxConventionsTest::testNoAsyncFormOptsIntoTheSubmitLock` now covers
+   this template so the attribute cannot come back by accident. #}
+<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-card-form>
     {{ csrf_field()|raw }}
 
     {# What is being shared, when this was opened from « Partager ». The
@@ -213,6 +222,21 @@
         help: 'Sur Instagram, une adresse en légende n\'est pas cliquable : c\'est pour ça qu\'elle figure sur l\'image.',
     } only %}
 
+    {# Where the card the browser drew travels (issue #706, IT-02).
+
+       A file input rather than a base64 string in a hidden field: a
+       1080² JPEG is a few hundred kilobytes, and base64 would add a third
+       to that and arrive as a POST value the server would have to decode
+       before it could check anything. `social-composer.js` fills this
+       through `DataTransfer`, as `finance-receipt-form.js` already does
+       for a downscaled photo.
+
+       Hidden rather than absent on a frozen share: the controller
+       ignores a card once something has left, and a field that vanished
+       would make the page's shape depend on state for no reason. #}
+    <input type="file" name="card" accept="image/jpeg" class="d-none" tabindex="-1"
+           aria-hidden="true" data-card-file>
+
     {# 5. The destinations, then publishing. #}
     {% if source and source.blockedReason %}
         <div class="alert alert-warning">{{ source.blockedReason }}</div>
@@ -238,11 +262,6 @@
 {% endblock %}
 
 {% block scripts %}
-    {# The lock the form above asks for. `base.html.twig` loads nothing
-       globally, so the attribute without this script would be inert —
-       exactly the dead pairing that cost `booking_documents.html.twig` a
-       review remark on the pull request for issue #756. #}
-    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
     {# The card drawn in the browser (issue #706, IT-02). The engine first:
        `social-composer.js` reads `window.ScoutMagicCard` at load and does
        nothing at all without it, so the order is what makes the canvas

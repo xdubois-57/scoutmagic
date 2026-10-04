@@ -72,6 +72,21 @@ final class ShareSource
          * why the floor that made zero impossible had to go first.
          */
         public readonly ?float $blurRatio = null,
+        /**
+         * The card the browser drew and posted at « Publier », as stored
+         * (issue #706, IT-02) — the bytes, like `image` above.
+         *
+         * **When this is set, nothing composes anything.** It is what
+         * Instagram receives, what a discussion group receives, what a
+         * retry resends and, from IT-04, what the public page shows. That
+         * is how « what you saw is what left » holds across destinations
+         * published minutes apart.
+         *
+         * Null for every share made before the browser drew one, and for
+         * those the server composes a card as it always did: a retry of
+         * an old failed share has to remain possible.
+         */
+        public readonly ?string $card = null,
     ) {
     }
 

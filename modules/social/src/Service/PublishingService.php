@@ -113,19 +113,7 @@ class PublishingService
 
             try {
                 if ($this->needsImage($source, $platform)) {
-                    $card ??= $this->cards->issue(
-                        (string) $source->image,
-                        $source->title,
-                        $source->address,
-                        $source->imageFromGallery,
-                        $now,
-                        // The strength the chief chose, frozen with the
-                        // rest (issue #706, IT-02). Null here means the
-                        // slider was never moved — every share made
-                        // before it existed — and the site's own starting
-                        // position applies.
-                        $source->blurRatio
-                    );
+                    $card ??= $this->cards->issue($this->cardBytes($source), $source->imageFromGallery, $now);
                 }
                 $remoteId = $this->send($source, $platform, $caption, $base, $card);
             } catch (MetaException | CardException $e) {
@@ -173,6 +161,38 @@ class PublishingService
         }
 
         return $outcomes;
+    }
+
+    /**
+     * The card to publish: the one the browser drew, or a composition for
+     * a share made before it drew any (issue #706, IT-02).
+     *
+     * **`CardRenderer` has left the path a NEW share takes**, which is
+     * what the chantier asks: the browser composes, the server checks and
+     * keeps. It has not left the repository, and the second branch here
+     * is why — a share created before IT-02 has no card stored, and a
+     * retry of one that failed has to remain possible. Pretending
+     * otherwise would turn an old failed publication into one nobody can
+     * ever complete.
+     *
+     * @throws CardException when the stored card is not usable and no
+     *         composition can replace it
+     */
+    private function cardBytes(ShareSource $source): string
+    {
+        if ($source->card !== null && $source->card !== '') {
+            return $source->card;
+        }
+
+        return $this->cards->compose(
+            (string) $source->image,
+            $source->title,
+            $source->address,
+            $source->imageFromGallery,
+            // The strength this share kept, or the site's starting
+            // position when the slider was never moved.
+            $source->blurRatio
+        );
     }
 
     /**

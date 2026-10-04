@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Social\Controller;
 
 use Core\File\UploadException;
+use Core\File\EncryptedFileStorageService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -20,6 +21,7 @@ use Modules\Gallery\Api\PhotoPickerInterface;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
+use Modules\Social\Card\ReceivedCard;
 use Modules\Social\Repository\Communication;
 use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
@@ -91,6 +93,9 @@ final class CommunicationController extends AbstractController
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
+    /** Where the cards the browser posts are kept, under the site's storage. */
+    private const CARD_DIRECTORY = 'social/published-cards';
+
     private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
     private const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -106,6 +111,19 @@ final class CommunicationController extends AbstractController
         private readonly ConnectionRepository $connections,
         private readonly CardService $cards,
         private readonly UploadHandler $uploads,
+        /**
+         * Where the card the browser posted is kept, byte for byte
+         * (issue #706, IT-02).
+         *
+         * Not through {@see UploadHandler}, deliberately: it strips EXIF
+         * by decoding and re-encoding the image, which would re-compress
+         * a card that is already a clean canvas export with no metadata
+         * at all — and « what you saw is what left » cannot survive a
+         * second pass through an encoder. {@see ReceivedCard} does the
+         * checking that `UploadHandler` would have done, and more
+         * strictly.
+         */
+        private readonly EncryptedFileStorageService $cardFiles,
         private readonly UserAccountRepository $accounts,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
@@ -567,6 +585,25 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
         if ($action === 'publish') {
+            // **The card the browser drew arrives with « Publier »**
+            // (issue #706, IT-02), and is kept before anything is
+            // published: what goes to Instagram, to a group, to a retry
+            // and — from IT-04 — to the public page is this one file, so
+            // « what you saw is what left » holds across destinations
+            // published minutes apart.
+            //
+            // A refusal stops the publication rather than falling back to
+            // composing one: the chief looked at a card and pressed
+            // « Publier », and quietly publishing a different image would
+            // be worse than asking them to try again.
+            try {
+                $communication = $this->keepPostedCard($request, $communication);
+            } catch (CardException $e) {
+                FlashMessage::set('error', $e->getMessage());
+
+                return $this->redirect($self);
+            }
+
             return $this->publishNow($request, $communication);
         }
 
@@ -1006,6 +1043,48 @@ final class CommunicationController extends AbstractController
     private static function path(?Communication $communication): string
     {
         return $communication === null ? self::HISTORY_PATH : ShareSourceResolver::path($communication->id);
+    }
+
+    /**
+     * Keeps the card the browser posted, once per share (issue #706,
+     * IT-02).
+     *
+     * **Once**, and the guard is the same as the text's: a destination
+     * published later must receive the image the first one did, so a
+     * communication that has already been tried keeps the card it had.
+     * A POST that carries no card at all — JavaScript off, a canvas the
+     * browser refused — leaves the row as it is, and the publication then
+     * composes one as it always did, rather than refusing to publish at
+     * all.
+     *
+     * @throws CardException when a card arrived and is not usable
+     */
+    private function keepPostedCard(Request $request, Communication $communication): Communication
+    {
+        $file = $request->getFile('card');
+        $tmp = is_array($file) ? ($file['tmp_name'] ?? null) : null;
+        if (!is_string($tmp) || $tmp === '' || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return $communication;
+        }
+        if ($this->isFrozen($communication) || $communication->cardFileId !== null) {
+            return $communication;
+        }
+
+        $bytes = (string) @file_get_contents($tmp);
+        ReceivedCard::assertUsable($bytes);
+
+        $fileId = $this->cardFiles->store(
+            $bytes,
+            ReceivedCard::MIME,
+            'carte.jpg',
+            self::CARD_DIRECTORY,
+            'chief',
+            'social',
+            AuthSession::getUserAccountId()
+        );
+        $this->communications->updateCardFile($communication->id, $fileId, new \DateTimeImmutable());
+
+        return $this->communications->find($communication->id) ?? $communication;
     }
 
     /**

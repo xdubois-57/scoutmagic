@@ -10852,6 +10852,10 @@ if ($isEnabled('social')) {
             $socialConnectionRepo,
             $socialCardService,
             $uploadHandler,
+            // Where the card the browser posts at « Publier » is kept,
+            // byte for byte (issue #706, IT-02) — not through
+            // $uploadHandler, which would re-encode it.
+            $encryptedFileStorageService,
             $userAccountRepo,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds

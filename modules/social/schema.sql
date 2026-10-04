@@ -113,6 +113,14 @@ CREATE TABLE IF NOT EXISTS social_communications (
     -- the slider existed carries. 0 is a real answer — « Net » — and the
     -- floor that used to forbid it is gone.
     blur_ratio DECIMAL(4,3) NULL,
+    -- The card the BROWSER drew and posted at « Publier », kept as it
+    -- arrived (issue #706, IT-02). What is published, retried, and shown
+    -- on the public page is this file — never a fresh composition, so
+    -- « what you saw is what left » holds for every destination and every
+    -- later attempt. NULL for every share made before IT-02, and for
+    -- those the server still composes one: a retry of an old failed share
+    -- has to remain possible.
+    card_file_id INT UNSIGNED NULL,
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,

@@ -84,19 +84,23 @@ class CardService
     }
 
     /**
-     * @param bool $fromGallery whether the background is a gallery photo —
-     *        if it is, it is blurred; there is no other way through
-     * @throws CardException when the image cannot be used
+     * @param string $jpeg the card itself, already composed — checked by
+     *        {@see ReceivedCard} before a byte of it is written
+     * @param bool $fromGallery whether its background was a gallery photo,
+     *        recorded with the card so the journal and the public page can
+     *        say what kind of image left
+     * @throws CardException when the bytes are not a card this site publishes
      */
-    public function issue(
-        string $contents,
-        string $title,
-        string $address,
-        bool $fromGallery,
-        \DateTimeImmutable $now,
-        ?float $blurRatio = null
-    ): IssuedCard {
-        $jpeg = $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurOrDefault($blurRatio));
+    public function issue(string $jpeg, bool $fromGallery, \DateTimeImmutable $now): IssuedCard
+    {
+        // **It takes the card, it no longer draws it** (issue #706,
+        // IT-02). The browser draws what is published and posts it, so
+        // this method's job narrowed to what only the server can do: keep
+        // the bytes where Meta can fetch them, behind a token, for an
+        // hour. Composing moved to {@see compose()}, and the caller
+        // decides whether the bytes are the ones the browser sent or a
+        // composition for a share made before it did.
+        ReceivedCard::assertUsable($jpeg);
 
         if (!is_dir($this->directory) && !@mkdir($this->directory, 0750, true) && !is_dir($this->directory)) {
             throw new CardException('L\'image n\'a pas pu être enregistrée. Réessayez plus tard.');

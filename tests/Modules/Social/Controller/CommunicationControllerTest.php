@@ -184,6 +184,161 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **What the browser posted is what is published**, byte for byte
+     * (issue #706, IT-02).
+     *
+     * This is the promise the whole iteration rests on: the chief looked
+     * at a card and pressed « Publier », so that card is what leaves —
+     * not a second composition that could differ from it. Asserted by
+     * comparing the bytes the fake Meta transport was handed against the
+     * bytes posted, which is the only comparison that proves it.
+     */
+    public function testTheCardThePageSendsIsTheCardThatIsPublished(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $drawn = $this->postedCard('Dessinée par le navigateur');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertTrue(
+            $this->publications->forSource('communication', $id)['instagram']->isPublished()
+        );
+
+        // **What Meta was actually given**, not merely what was stored.
+        // Instagram is handed an address, so the bytes are followed
+        // through it: the card's token, opened, read. An earlier version
+        // of this test compared the STORED file instead and passed even
+        // with the whole frozen-card branch deleted from
+        // `PublishingService` — the publication simply composed one and
+        // still succeeded. A mutation that leaves a test green is a test
+        // that proves nothing.
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $this->assertMatchesRegularExpression('#/partage/carte/[a-f0-9]{64}$#', $url);
+
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $this->assertSame(
+            $drawn,
+            (string) file_get_contents($served),
+            'Instagram was handed a card the browser never drew'
+        );
+    }
+
+    /**
+     * And it is frozen: a destination published later receives the card
+     * the first one did, never a fresh one.
+     */
+    public function testASecondDestinationReceivesTheSameCardAsTheFirst(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $first = $this->postedCard('La première');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['facebook']]),
+            ['id' => (string) $id]
+        );
+        $kept = $this->communications->find($id)?->cardFileId;
+
+        // A second « Publier », posting a DIFFERENT card — a chief who
+        // moved the slider between the two attempts, or simply a reloaded
+        // page. The first card is what the second destination gets.
+        $this->postedCard('La seconde, différente');
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            $kept,
+            $this->communications->find($id)?->cardFileId,
+            'the card was replaced after something had already left'
+        );
+        $this->assertNotSame('', $first);
+    }
+
+    /**
+     * A POST with no card at all still publishes: the server composes one,
+     * as it always did.
+     *
+     * That branch is not a leftover — it is how a share made before the
+     * browser drew anything can still be retried, and how a page whose
+     * JavaScript did not load still works. `CardRenderer` left the path a
+     * NEW share takes; it did not leave the repository.
+     */
+    public function testAShareWithNoPostedCardStillPublishes(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertNull($this->communications->find($id)?->cardFileId);
+        $this->assertTrue(
+            $this->publications->forSource('communication', $id)['instagram']->isPublished(),
+            'a share with no posted card could not be published at all'
+        );
+    }
+
+    /**
+     * Something that is not a card refuses the publication rather than
+     * quietly publishing a composition instead.
+     *
+     * The chief looked at an image and pressed « Publier ». Sending a
+     * different one would be worse than asking them to try again, and the
+     * sentence says what to do.
+     */
+    public function testAPostedCardThatIsNotOneStopsThePublication(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedBytes('<!DOCTYPE html><p>pas une carte</p>');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        // Read ONCE: FlashMessage::get() consumes, so a second call
+        // answers nothing and the assertion would pass on an empty string.
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('JPEG', $flash['message'] ?? '');
+        $this->assertSame([], $this->publications->forSource('communication', $id));
+        $this->assertSame([], $this->meta->requests, 'Meta was called with something that is not a card');
+        $this->assertNull($this->communications->find($id)?->cardFileId);
+    }
+
+    /** A card of the wrong size is refused the same way, naming the size. */
+    public function testAPostedCardOfTheWrongSizeStopsThePublication(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $square = imagecreatetruecolor(600, 600);
+        ob_start();
+        imagejpeg($square, null, 88);
+        $this->postedBytes((string) ob_get_clean());
+        imagedestroy($square);
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertStringContainsString('1080 pixels', FlashMessage::get()['message'] ?? '');
+        $this->assertSame([], $this->publications->forSource('communication', $id));
+    }
+
+    /**
      * The composer ASKS for the browser-drawn card, and keeps the
      * server's one beside it (issue #706, IT-02).
      *
@@ -1515,6 +1670,52 @@ final class CommunicationControllerTest extends TestCase
         );
     }
 
+    /**
+     * A `CardService` over the same database and directory as the
+     * controller's, so a test can open the card whose address was handed
+     * to Meta and read the bytes that were really served.
+     */
+    private function cardsService(): CardService
+    {
+        $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
+
+        return new CardService(
+            new CardRepository($this->pdo),
+            new CardRenderer(),
+            $settings,
+            new JournalService($this->journal),
+            $this->storage . '/cards'
+        );
+    }
+
+    /**
+     * Puts a real card in `$_FILES` as the browser's canvas would, and
+     * answers its bytes so a test can compare what was published against
+     * what was sent.
+     */
+    private function postedCard(string $title): string
+    {
+        $jpeg = (new \Modules\Social\Card\CardRenderer())
+            ->render(H::groupPhoto(), $title, 'unite.example', true, 0.025);
+        $this->postedBytes($jpeg);
+
+        return $jpeg;
+    }
+
+    /** The same, for bytes that are deliberately not a card. */
+    private function postedBytes(string $bytes): void
+    {
+        $tmp = (string) tempnam(sys_get_temp_dir(), 'card');
+        file_put_contents($tmp, $bytes);
+        $_FILES['card'] = [
+            'name' => 'carte.jpg',
+            'tmp_name' => $tmp,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($bytes),
+            'type' => 'image/jpeg',
+        ];
+    }
+
     private function failedInstagram(int $id): void
     {
         $at = new \DateTimeImmutable('-1 hour');
@@ -1648,6 +1849,10 @@ final class CommunicationControllerTest extends TestCase
             $this->connections,
             $cards,
             new UploadHandler($files, $this->storage),
+            // The card the browser posts is kept here, byte for byte —
+            // the same storage the reader above reads back, so a test can
+            // publish a card and then check what reached a destination.
+            new EncryptedFileStorageService($files, H::encryption(), $this->storage),
             new UserAccountRepository($this->pdo, H::encryption()),
             $this->picker,
             []

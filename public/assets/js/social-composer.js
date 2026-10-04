@@ -147,6 +147,97 @@
         sayWhatTheBlurMeans();
     }
 
+    // ————— « Publier » sends the card the page drew —————
+
+    const form = /** @type {HTMLFormElement|null} */ (root.closest('[data-card-form]'));
+    const cardField = /** @type {HTMLInputElement|null} */ (document.querySelector('[data-card-file]'));
+    let sending = false;
+
+    /**
+     * Holds the publish button for the life of the request, label and all.
+     *
+     * Done here rather than by the shared `form-submit-lock.js`: that
+     * file's deferred unlock reads `defaultPrevented` and gives the
+     * button back, which is right for a form whose submission was refused
+     * and wrong for one whose default was prevented ON PURPOSE, to attach
+     * an image before posting it. Opting in would re-open the double
+     * submit on the one page where a double submit is a second public
+     * post.
+     */
+    function hold(button) {
+        sending = true;
+        if (!button) {
+            return;
+        }
+        button.disabled = true;
+        if (button.dataset.publishLabel === undefined) {
+            button.dataset.publishLabel = button.textContent || '';
+        }
+        button.textContent = 'Publication en cours…';
+    }
+
+    /**
+     * Posts the form with the card attached.
+     *
+     * **`form.submit()` does not include the button that submitted**, so
+     * `action=publish` would simply be absent and the controller would
+     * fall through to « no action », saving nothing and publishing
+     * nothing. The value is carried in a hidden field instead — the kind
+     * of thing that looks like it works until the one POST that matters.
+     */
+    function postWith(blob) {
+        if (blob && cardField && typeof DataTransfer === 'function') {
+            try {
+                const transfer = new DataTransfer();
+                transfer.items.add(new File([blob], 'carte.jpg', { type: 'image/jpeg' }));
+                cardField.files = transfer.files;
+            } catch (error) {
+                // Safari had no DataTransfer constructor until 14.1. The
+                // card simply does not travel, and the server composes
+                // one — which is the same path a share made before IT-02
+                // takes, so nothing is lost but the exactness.
+            }
+        }
+
+        const action = document.createElement('input');
+        action.type = 'hidden';
+        action.name = 'action';
+        action.value = 'publish';
+        form.appendChild(action);
+        form.submit();
+    }
+
+    if (form) {
+        form.addEventListener('submit', function (event) {
+            const submitter = /** @type {HTMLButtonElement|null} */ (event.submitter);
+            // The gallery and upload buttons are round trips that keep the
+            // draft; only « Publier » sends an image.
+            if (!submitter || submitter.value !== 'publish') {
+                return;
+            }
+            if (sending) {
+                event.preventDefault();
+
+                return;
+            }
+            // Nothing drawn: let the form post as it is, and the server
+            // composes the card as it always did.
+            if (!shown) {
+                hold(submitter);
+
+                return;
+            }
+
+            event.preventDefault();
+            // Taken before the first await, so the click that starts the
+            // export is also the click that closes the button.
+            hold(submitter);
+            engine.toJpeg(canvas).then(postWith, function () {
+                postWith(null);
+            });
+        });
+    }
+
     if (backgroundUrl !== '') {
         const image = new Image();
         // The background comes from this site, so the canvas is never

@@ -1600,9 +1600,22 @@ final class UxConventionsTest extends TestCase
      */
     public function testNoAsyncFormOptsIntoTheSubmitLock(): void
     {
+        // Every template whose forms a script sends or rewrites before
+        // the browser posts them. Widened past `rental/` in issue #706,
+        // IT-02, when the social composer joined them: the rule was never
+        // about the rental module, only discovered there.
+        $intercepted = [
+            'modules/rental/views/',
+            'modules/social/views/communications/edit.html.twig',
+        ];
+
         $offenders = [];
         foreach (self::templates() as $rel) {
-            if (!str_starts_with($rel, 'modules/rental/views/')) {
+            $covered = false;
+            foreach ($intercepted as $prefix) {
+                $covered = $covered || str_starts_with($rel, $prefix);
+            }
+            if (!$covered) {
                 continue;
             }
             $source = self::templateSource($rel);
@@ -1621,9 +1634,12 @@ final class UxConventionsTest extends TestCase
         self::assertSame(
             [],
             $offenders,
-            'A form sent with fetch must not carry data-submit-lock: the lock cannot tell a'
-            . ' refusal from a request in flight, and releases the button mid-upload.'
-            . ' api.withDisabled already guards these forms.'
+            'A form a script sends or rewrites must not carry data-submit-lock: the lock cannot'
+            . ' tell a refusal from a request in flight, and its deferred unlock reads'
+            . ' `defaultPrevented` — so it GIVES THE BUTTON BACK to a script that prevented the'
+            . ' default on purpose. The rental forms are guarded by api.withDisabled; the social'
+            . ' composer holds its publish button itself (social-composer.js), because there a'
+            . ' second tap is a second public post.'
         );
     }
 
