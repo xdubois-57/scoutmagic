@@ -217,7 +217,7 @@
             text.textContent = block.text;
             el.appendChild(text);
         }
-        if (block.items && block.items.length) {
+        if (block.items?.length) {
             var list = document.createElement('ul');
             list.className = 'mb-0 mt-1';
             block.items.forEach(function (item) {

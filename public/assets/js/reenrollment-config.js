@@ -95,7 +95,7 @@
 
         void api.postJson(form.dataset.previewEndpoint || '', values(form)).then(function (res) {
             var data = res.data?.success ? res.data : null;
-            if (!data || !data.changed || !data.dialog) {
+            if (!data?.changed || !data.dialog) {
                 // Nothing changes — the server says so after the submit —
                 // or the plan could not be read, in which case the server
                 // shows the confirmation itself rather than save unasked.
