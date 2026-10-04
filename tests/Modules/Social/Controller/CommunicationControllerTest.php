@@ -387,6 +387,110 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * A share recorded by the RETIRED route must not look like this new
+     * communication's own.
+     *
+     * `/partage/album/{id}` recorded its publications under
+     * `('album', <albumId>)`, and this PR adds no migration rewriting
+     * them. The prefilled composer carries that same pair, so reading
+     * publications by it showed an older share of the album as the state
+     * of a communication that does not exist yet — Facebook ticked and
+     * greyed out, and the album impossible to share again. Raised in
+     * review on the pull request for IT-01.
+     *
+     * Publishing is still keyed on the communication once it exists, so
+     * this only concerns the composer before its first save.
+     */
+    public function testAnOldAlbumShareIsNotTheNewCommunicationsState(): void
+    {
+        $at = new \DateTimeImmutable('-1 day');
+        // Exactly what the retired route left behind.
+        $this->publications->claim(
+            'album',
+            self::ALBUM_ID,
+            'facebook',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            self::ALBUM_TITLE,
+            'Les photos sont en ligne'
+        );
+        $this->publications->markPublished('album', self::ALBUM_ID, 'facebook', '42_9', $at, $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        // Nothing has been published by this communication, because there
+        // is no communication yet.
+        $this->assertStringNotContainsString('Déjà publié', $html);
+        $this->assertStringNotContainsString('data-destination-state="published"', $html);
+    }
+
+    /**
+     * The same for a discussion group, which keys its publications the
+     * same way (`group:<id>` under the source's pair). Its own test
+     * because nothing else exercises `groupsFor()`'s side of this: with
+     * the guard mutated away, the whole Social suite still passed.
+     */
+    public function testAnOldAlbumShareToAGroupIsNotTheNewCommunicationsState(): void
+    {
+        $this->groups = new FakeGroupPublisher();
+        $at = new \DateTimeImmutable('-1 day');
+        $key = \Modules\Social\Service\GroupPublishingService::KEY_PREFIX . '3';
+        $this->publications->claim(
+            'album',
+            self::ALBUM_ID,
+            $key,
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            self::ALBUM_TITLE,
+            'Les photos sont en ligne'
+        );
+        $this->publications->markPublished('album', self::ALBUM_ID, $key, 'g_9', $at, $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        // Staff Lutins is offered, not reported as already posted to.
+        $this->assertStringContainsString('Staff Lutins', $html);
+        $this->assertStringNotContainsString('Déjà publié', $html);
+    }
+
+    /**
+     * The other side of the flag: once the row exists, its OWN
+     * publications are its own and must still show.
+     */
+    public function testASavedCommunicationStillShowsItsOwnPublications(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $at = new \DateTimeImmutable('-1 day');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'facebook',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            'Week-end',
+            'Texte'
+        );
+        $this->publications->markPublished('communication', $id, 'facebook', '42_9', $at, $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('Déjà publié', $html);
+    }
+
+    /**
      * When the source has gone, the page must not send the visitor to it.
      *
      * `from_source` is read from the row's own `source_kind`, which

@@ -528,13 +528,21 @@ final class CommunicationController extends AbstractController
                     . $prefill->id . '/apercu',
                 default => null,
             },
-            'destinations' => $source === null ? $this->unsavedDestinations() : $this->states->forSource($source),
+            // `$communication !== null` is « this row exists, so its own
+            // publications are its own ». Before it exists the prefill
+            // carries the ALBUM's key, under which the retired
+            // /partage/album/{id} route recorded its shares — see
+            // DestinationStates::forSource().
+            'destinations' => $source === null
+                ? $this->unsavedDestinations()
+                : $this->states->forSource($source, $communication !== null),
             'offers_groups' => $this->states->offersGroups() && $source !== null,
             'groups' => $source === null ? [] : $this->states->groupsFor(
                 $source,
                 AuthSession::getEmail(),
                 AuthSession::getRole(),
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                $communication !== null
             ),
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
