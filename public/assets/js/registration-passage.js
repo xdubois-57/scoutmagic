@@ -225,15 +225,13 @@
         var noteQueue = Promise.resolve();
         field.addEventListener('blur', function () {
             var written = field.value;
-            noteQueue = noteQueue.then(function () {
+            noteQueue = noteQueue.then(async function () {
                 if (written === savedNote) {
-                    return undefined;
+                    return;
                 }
-                return autoSave(field, { note: written }).then(function (recorded) {
-                    if (recorded) {
-                        savedNote = written;
-                    }
-                });
+                if (await autoSave(field, { note: written })) {
+                    savedNote = written;
+                }
             });
         });
     });

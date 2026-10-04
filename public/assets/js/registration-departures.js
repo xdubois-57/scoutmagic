@@ -106,15 +106,13 @@
         var commentQueue = Promise.resolve();
         field.addEventListener('blur', function () {
             var written = field.value;
-            commentQueue = commentQueue.then(function () {
+            commentQueue = commentQueue.then(async function () {
                 if (written === savedComment) {
-                    return undefined;
+                    return;
                 }
-                return save(field.dataset.memberYearId || '', { comment: written }).then(function (recorded) {
-                    if (recorded) {
-                        savedComment = written;
-                    }
-                });
+                if (await save(field.dataset.memberYearId || '', { comment: written })) {
+                    savedComment = written;
+                }
             });
         });
     });

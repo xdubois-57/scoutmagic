@@ -115,24 +115,23 @@
             // A document's saves run one after the other, in blur order: an
             // older answer can then never overwrite what a newer one
             // recorded. Two documents stay independent.
-            var previous = documentQueues[documentId] || Promise.resolve();
-            documentQueues[documentId] = previous.then(function () {
+            var previous = documentQueues[documentId] ?? Promise.resolve();
+            documentQueues[documentId] = previous.then(async function () {
                 if (savedDocuments[documentId] === snapshot) {
-                    return undefined;
+                    return;
                 }
-                return api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
+                var res = await api.postJson('/chefs/staffs/documents/' + encodeURIComponent(documentId), {
                     title: title,
                     description: description
-                }).then(function (res) {
-                    if (res.data?.success) {
-                        savedDocuments[documentId] = snapshot;
-                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
-                        return;
-                    }
-                    // The text stays as typed: putting the old one back would
-                    // throw away what the chief just wrote.
-                    toastError(res, 'Erreur.');
                 });
+                if (res.data?.success) {
+                    savedDocuments[documentId] = snapshot;
+                    window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                    return;
+                }
+                // The text stays as typed: putting the old one back would
+                // throw away what the chief just wrote.
+                toastError(res, 'Erreur.');
             });
         });
     });
