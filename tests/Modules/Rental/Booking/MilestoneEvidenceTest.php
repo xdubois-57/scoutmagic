@@ -560,11 +560,73 @@ class MilestoneEvidenceTest extends TestCase
 
         $this->assertTrue($evidence->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
         $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_COUNTERSIGNED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED], 'the earlier steps follow');
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT], 'the earlier steps follow');
         $this->assertSame(
-            [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED],
-            $evidence->manual
+            [BookingMilestones::CONTRACT_COUNTERSIGNED],
+            $evidence->manual,
+            'the copy does not reopen while the countersignature stands'
         );
         $this->assertArrayNotHasKey('contract_accepted', $evidence->done);
+    }
+
+    /**
+     * The contract's steps follow one another: a contract signed on paper
+     * and filed by hand was drawn up and sent, even with no trace of either
+     * on the site — the journey never asks to generate a signed contract.
+     * An earlier step done says nothing of the later ones.
+     */
+    public function testALaterContractStepDoneSaysTheEarlierOnesWere(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [$this->document(DocumentType::SIGNED_CONTRACT)],
+            $this->payment(),
+            null,
+            null,
+            null
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame([], $evidence->manual, 'implied, never ticked: nothing to reopen');
+
+        $generatedOnly = MilestoneEvidence::collect(
+            $this->booking(),
+            [$this->document(DocumentType::CONTRACT)],
+            $this->payment(),
+            null,
+            null,
+            null
+        );
+
+        $this->assertTrue($generatedOnly->done[BookingMilestones::CONTRACT_GENERATED]);
+        $this->assertFalse($generatedOnly->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertFalse($generatedOnly->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
+    }
+
+    /**
+     * Two contract steps ticked by hand: only the later one reopens. The
+     * earlier one, reopened while the later stands, would be done again on
+     * the next read — the page would show it done and the booking would
+     * have gone back to « Demande reçue » underneath.
+     */
+    public function testAnEarlierContractStepDoesNotReopenWhileALaterOneStands(): void
+    {
+        $at = ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne'];
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            [BookingMilestones::CONTRACT_SENT => $at, BookingMilestones::SIGNED_COPY_RECEIVED => $at]
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame([BookingMilestones::SIGNED_COPY_RECEIVED], $evidence->manual);
     }
 
     /** A step that does not apply here cannot be ticked into being. */

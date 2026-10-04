@@ -51,6 +51,14 @@ final class MilestoneEvidence
      */
     public const LEGACY_CONTRACT_ACCEPTED = 'contract_accepted';
 
+    /** The contract's steps, in the order they happen (#708, IT-16). */
+    private const CONTRACT_CHAIN = [
+        BookingMilestones::CONTRACT_GENERATED,
+        BookingMilestones::CONTRACT_SENT,
+        BookingMilestones::SIGNED_COPY_RECEIVED,
+        BookingMilestones::CONTRACT_COUNTERSIGNED,
+    ];
+
     /**
      * @param array<string, bool> $done keyed by BookingMilestones' constants;
      *   a key absent from this map is "not applicable"
@@ -274,6 +282,26 @@ final class MilestoneEvidence
             $done[$key] = true;
             $details[$key] = self::byHand($mark);
             $manual[] = (string) $key;
+        }
+
+        // The contract's steps follow one another: a later one done says the
+        // earlier ones were, even where the site holds no trace of them — a
+        // contract signed on paper was drawn up and handed over off the site,
+        // and a retired « Conditions et contrat acceptés » mark covered the
+        // whole agreement. Without this the journey would ask to generate a
+        // contract that is already signed. For the same reason an earlier
+        // step does not reopen while a later one stands: reopened, it would
+        // be done again on the next read. The last one reopens first.
+        $later = false;
+        foreach (array_reverse(self::CONTRACT_CHAIN) as $key) {
+            if (!array_key_exists($key, $done)) {
+                continue;
+            }
+            if ($later) {
+                $done[$key] = true;
+                $manual = array_values(array_diff($manual, [$key]));
+            }
+            $later = $done[$key];
         }
 
         return new self($done, $details, $offsite, $manual);
