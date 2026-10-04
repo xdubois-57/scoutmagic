@@ -2140,7 +2140,12 @@ function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, cal
         }
         $canary = 'canary-' . bin2hex(random_bytes(8)) . '.txt';
         $content = 'scoutmagic-restore-canary-' . bin2hex(random_bytes(16));
-        file_put_contents($incoming . '/' . $canary, $content);
+        // Fail closed: a canary that was never written answers 404, which
+        // would read as « protected » without anything having been tested.
+        if (@file_put_contents($incoming . '/' . $canary, $content) === false) {
+            return ['ok' => false, 'detail' => "Le témoin de protection n'a pas pu être écrit dans le dossier de "
+                . "réception : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration."];
+        }
         try {
             $probe = $httpGet('https://' . $host . '/' . BOOTSTRAP_INCOMING_DIR . '/' . $canary);
         } finally {

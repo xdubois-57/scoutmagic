@@ -372,6 +372,37 @@ final class BootstrapAccessTest extends TestCase
         $this->assertTrue($protected['ok']);
     }
 
+    /**
+     * Fail closed: when the canary cannot be written, its URL answers 404 —
+     * which reads as « protected ». The check refuses instead of passing
+     * without having tested anything.
+     */
+    public function testInLayoutBACanaryThatCouldNotBeWrittenRefusesTheUpload(): void
+    {
+        if (!is_dir('/proc') || @file_put_contents('/proc/scoutmagic-write-test', 'x') !== false) {
+            $this->markTestSkipped('needs a directory nobody, root included, can create files in');
+        }
+        $state = $this->installedState('B');
+        $incoming = $state['install_target'] . '/' . \BOOTSTRAP_INCOMING_DIR;
+        mkdir(dirname($incoming), 0700, true);
+        // A reception folder that exists and refuses every new file: /proc.
+        symlink('/proc', $incoming);
+
+        try {
+            $result = \bootstrapArchiveBegin(
+                $this->docRoot,
+                $state,
+                'unite.example.org',
+                static fn (): array => ['status' => 404, 'body' => '']
+            );
+        } finally {
+            unlink($incoming); // the link, never what it points to
+        }
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString("n'a pas pu être écrit", (string) $result['detail']);
+    }
+
     public function testCleanupSendsTheOperatorToTheRestoreModeOnlyWhenAnArchiveWaits(): void
     {
         $state = $this->installedState();
