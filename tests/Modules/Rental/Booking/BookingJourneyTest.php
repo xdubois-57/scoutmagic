@@ -497,7 +497,7 @@ class BookingJourneyTest extends TestCase
     {
         return [
             'reçue' => [BookingStatus::RECEIVED, 'Cette demande attend votre réponse : confirmez la réservation.'],
-            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la réponse attend la sienne.'],
+            'précision demandée' => [BookingStatus::INFO_REQUESTED, 'Une précision a été demandée au locataire : la suite attend sa réponse.'],
             'proposition' => [BookingStatus::PROPOSED, 'Une proposition attend la réponse du locataire.'],
             'contrat envoyé' => [BookingStatus::CONTRACT_SENT, "L'accord est complet : la réservation reste à confirmer."],
             'confirmée' => [BookingStatus::CONFIRMED, 'Tout est réglé : la location peut être clôturée.'],

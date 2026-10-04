@@ -257,6 +257,24 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame(HoldOrigin::AUTOMATIC, $this->reload($none)->holdOrigin);
     }
 
+    /**
+     * The history names the extension for what it is: « Blocage prolongé »,
+     * never « Option posée », which carries an expiry an automatic hold
+     * does not have.
+     */
+    public function testTheContractHoldIsRecordedAsAnExtensionNotAnOption(): void
+    {
+        $booking = $this->createBooking('LOC-2027-0304', '2027-09-01', '2027-09-04');
+        $this->service->contractSent($booking, 1, $this->now());
+
+        $keys = array_map(
+            static fn($entry) => $entry->fieldKey,
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id)
+        );
+        $this->assertContains(BookingAudit::HOLD_EXTENDED, $keys);
+        $this->assertNotContains(BookingAudit::HOLD_PLACED, $keys);
+    }
+
     public function testTheContractHoldNeverRunsPastTheStartOfTheStay(): void
     {
         $soon = $this->createBooking('LOC-2027-0401', '2027-02-08', '2027-02-10');

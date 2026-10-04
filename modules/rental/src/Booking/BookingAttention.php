@@ -104,7 +104,7 @@ final class BookingAttention
             ) {
                 $reasons[] = AttentionReason::RENTER_LATE;
                 $stepLines[AttentionReason::RENTER_LATE->value] = 'En retard : ' . self::renterWait($next)
-                    . ' attendu depuis le ' . $renterDeadline->expected->format('d/m/Y');
+                    . ' depuis le ' . $renterDeadline->expected->format('d/m/Y');
             }
         }
 
@@ -147,15 +147,18 @@ final class BookingAttention
         };
     }
 
-    /** What the renter owes, as the thing expected. */
+    /**
+     * What the renter owes, as the thing expected — with its participle,
+     * which agrees with it: « caution attendue », « acompte attendu ».
+     */
     private static function renterWait(BookingMilestone $step): string
     {
         return match ($step->key) {
-            BookingMilestones::CONTRACT_ACCEPTED => 'contrat accepté',
-            BookingMilestones::DEPOSIT_RECEIVED => 'acompte',
-            BookingMilestones::BALANCE_RECEIVED => 'solde',
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution',
-            default => mb_strtolower($step->label),
+            BookingMilestones::CONTRACT_ACCEPTED => 'contrat accepté attendu',
+            BookingMilestones::DEPOSIT_RECEIVED => 'acompte attendu',
+            BookingMilestones::BALANCE_RECEIVED => 'solde attendu',
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution attendue',
+            default => 'étape « ' . $step->label . ' » attendue',
         };
     }
 

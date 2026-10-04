@@ -39,6 +39,12 @@ final class BookingAudit
     public const STATUS_CHANGED = 'status_changed';
     public const HOLD_PLACED = 'hold_placed';
     public const HOLD_CLEARED = 'hold_cleared';
+    /**
+     * The dates held longer when the contract goes out — not an option:
+     * an automatic hold that lapses frees the dates, it does not expire
+     * the booking the way a manager's option does.
+     */
+    public const HOLD_EXTENDED = 'hold_extended';
     public const PRICE_CHANGED = 'price_changed';
     public const DATES_CHANGED = 'dates_changed';
     public const CHANGE_REQUESTED = 'change_requested';
@@ -57,6 +63,7 @@ final class BookingAudit
         self::STATUS_CHANGED => 'Statut',
         self::HOLD_PLACED => 'Option posée',
         self::HOLD_CLEARED => 'Option levée',
+        self::HOLD_EXTENDED => 'Blocage prolongé',
         self::PRICE_CHANGED => 'Prix',
         self::DATES_CHANGED => 'Dates',
         self::CHANGE_REQUESTED => 'Demande de modification',

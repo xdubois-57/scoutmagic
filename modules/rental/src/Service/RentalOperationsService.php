@@ -249,7 +249,7 @@ class RentalOperationsService
         $this->bookingRepository->setHold($booking->id, $until, $origin);
         $this->bookingAudit->record(
             $booking->id,
-            BookingAudit::HOLD_PLACED,
+            BookingAudit::HOLD_EXTENDED,
             $running ? $booking->holdUntil?->format('d/m/Y H:i') : null,
             $until->format('d/m/Y H:i'),
             'Blocage prolongé à l\'envoi du contrat',

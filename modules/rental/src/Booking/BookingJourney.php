@@ -151,7 +151,7 @@ final class BookingJourney
         // While the renter has a question or a proposal to answer, that is
         // what holds the booking up, whatever the next line says.
         if ($this->status === BookingStatus::INFO_REQUESTED) {
-            return 'Une précision a été demandée au locataire : la réponse attend la sienne.';
+            return 'Une précision a été demandée au locataire : la suite attend sa réponse.';
         }
         if ($this->status === BookingStatus::PROPOSED) {
             return 'Une proposition attend la réponse du locataire.';
