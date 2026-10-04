@@ -762,6 +762,19 @@ class BookingJourneyTest extends TestCase
         $this->assertFalse($line->isOutstanding());
     }
 
+    /** Once the contract is out, a lapsed option frees the dates like any hold (IT-13). */
+    public function testALapsedOptionOnAContractSentWarnsTheDatesAreFree(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, new \DateTimeImmutable('2027-01-09 14:00:00'));
+        $now = new \DateTimeImmutable('2027-01-10 12:00:00');
+        $line = $this->holdLine($booking, '2027-01-10 12:00:00');
+
+        $this->assertFalse($booking->lapseEndsTheBooking());
+        $this->assertNull($booking->optionLapsedSince($now));
+        $this->assertStringContainsString('ne sont plus bloquées depuis le 09/01/2027', (string) $line->warning);
+        $this->assertStringContainsString('la demande reste en attente', (string) $line->explanation);
+    }
+
     public function testTheHoldExplanationDependsOnItsOrigin(): void
     {
         $automatic = $this->holdLine($this->automaticallyHeld(new \DateTimeImmutable('2027-01-29 14:00:00')), '2027-01-10 12:00:00');

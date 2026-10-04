@@ -43,7 +43,8 @@ final class BookingAudit
      * The dates held longer when the contract goes out (#708, IT-13). The
      * hold keeps its origin — an option stays an option, an automatic hold
      * stays automatic — so « Option posée » would record a manager decision
-     * nobody took, and with it an expiry an automatic hold does not have.
+     * nobody took. And once the contract is out, no hold's lapse expires
+     * the booking (RentalBooking::lapseEndsTheBooking()).
      */
     public const HOLD_EXTENDED = 'hold_extended';
     public const PRICE_CHANGED = 'price_changed';
