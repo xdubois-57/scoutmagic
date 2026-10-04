@@ -356,6 +356,15 @@ class RentalSignedContractService
         if ($copy->isRefused() || $this->finalContract($booking->id) !== null) {
             throw new RentalException('Cette copie a déjà reçu une réponse.');
         }
+        // Signed from a contract the booking has outgrown (#708, IT-20) —
+        // a page opened before the change still posts its id. Countersigned,
+        // it would file a contract « signed by both parties » on terms that
+        // no longer hold, which nothing could void afterwards.
+        if ($copy->isSuperseded()) {
+            throw new RentalException(
+                'Cette copie a été remplacée : la réservation a changé depuis. Un nouveau contrat doit partir.'
+            );
+        }
 
         return $copy;
     }
