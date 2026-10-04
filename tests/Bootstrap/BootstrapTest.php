@@ -591,6 +591,8 @@ PHP;
             'installed_entries' => ['index.php', 'core'],
             'temp_dir' => null,
         ]);
+        // HTTPS verified: that refusal comes first in step 1, and is not the one under test.
+        \bootstrapWriteAccess($this->tempDir, ['https_verified_at' => time()]);
 
         // No lock file: simulates the operator having already cleared it
         // (via the 10-minute expiry or the manual-remedy hint) before

@@ -583,12 +583,11 @@ final class SetupPortableRestoreTest extends TestCase
 
     /**
      * The archive the page was showing is gone — purged, or removed by FTP
-     * meanwhile: both actions say so, in JSON, rather than failing.
+     * meanwhile: both actions say so, in JSON, rather than failing. The
+     * check needs no database, so it is not tied to one either.
      */
-    #[Group('database')]
-    public function testWithoutADepositedArchiveBothActionsSaySoInJson(): void
+    public function testWithoutADepositedArchiveTheCheckSaysSoInJson(): void
     {
-        $this->realDbConnection();
         $_SESSION['setup_token_verified'] = true;
 
         $check = $this->controller()->checkDepositedArchive(new Request('POST', '/setup/restore-deposited/check', [], [
@@ -600,6 +599,14 @@ final class SetupPortableRestoreTest extends TestCase
             'Aucune sauvegarde déposée',
             (string) (json_decode($check->getBody(), true)['message'] ?? '')
         );
+    }
+
+    /** The restore tests its target database first, so this half needs one. */
+    #[Group('database')]
+    public function testWithoutADepositedArchiveTheRestoreSaysSoInJson(): void
+    {
+        $this->realDbConnection();
+        $_SESSION['setup_token_verified'] = true;
 
         $restore = $this->controller()->restorePortable(new Request('POST', '/setup/restore-portable', [], $this->targetCredentials() + [
             '_csrf_token' => $this->issueCsrfToken(),

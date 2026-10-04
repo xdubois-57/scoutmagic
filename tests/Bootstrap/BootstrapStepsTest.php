@@ -565,7 +565,8 @@ class BootstrapStepsTest extends TestCase
 
             $this->expectException(RuntimeException::class);
             $this->expectExceptionMessageMatches('/déjà une installation/');
-            \bootstrapStepPreflight($this->tempDir, []);
+            // HTTPS verified: that refusal comes first, and is not the one under test.
+            \bootstrapStepPreflight($this->tempDir, ['site_https_verified' => true]);
         } finally {
             if ($scriptName === null) {
                 unset($_SERVER['SCRIPT_NAME']);

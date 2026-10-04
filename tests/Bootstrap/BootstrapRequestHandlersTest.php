@@ -750,6 +750,7 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertSame('1.4.2', $written['release_version'] ?? null);
         $this->assertFalse($written['site_https_verified'] ?? true);
         $this->assertSame(1, $written['failed_step'] ?? null);
+        $this->assertStringContainsString('HTTPS', (string) ($written['error'] ?? ''));
     }
 
     #[RunInSeparateProcess]
@@ -869,6 +870,7 @@ class BootstrapRequestHandlersTest extends TestCase
         foreach (['step', 'gate-report', 'abort', 'https-check', 'choose-archive', 'archive-begin', 'archive-chunk'] as $action) {
             $json = json_decode($this->main(['action' => $action], 'POST', '{}'), true);
             $this->assertStringContainsString('Jeton', (string) ($json['error'] ?? ''), $action);
+            $this->assertTrue($json['auth_required'] ?? false, $action);
         }
         $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_LOCK_FILE, 'no step ran');
     }

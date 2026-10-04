@@ -1143,6 +1143,12 @@ function bootstrapReleaseLock(string $path): void
  */
 function bootstrapStepPreflight(string $docRoot, array $state): array
 {
+    // Blocking (#719, B3), and first: nothing is installed — nor even
+    // probed — before the site has been seen answering over HTTPS from
+    // this folder. Injected from the access file by
+    // bootstrapHandleStepRequest().
+    bootstrapRequireVerifiedHttps($state);
+
     $checks = [
         bootstrapCheckLocation($_SERVER),
         bootstrapCheckPhpVersion(),
@@ -1164,11 +1170,6 @@ function bootstrapStepPreflight(string $docRoot, array $state): array
     if (bootstrapAlreadyInstalled($docRoot)) {
         throw new RuntimeException('Ce dossier contient déjà une installation ScoutMagic.');
     }
-
-    // Blocking (#719, B3): nothing is installed before the site has been
-    // seen answering over HTTPS from this folder. Injected from the access
-    // file by bootstrapHandleStepRequest().
-    bootstrapRequireVerifiedHttps($state);
 
     $state['doc_root'] = $docRoot;
     $state['layout'] = $layoutInfo['layout'];
@@ -2756,9 +2757,24 @@ HTML;
 }
 
 /**
+ * Sets the proof cookie: HttpOnly, SameSite=Strict, Secure on HTTPS, for
+ * {@see BOOTSTRAP_PROOF_LIFETIME_SECONDS} from now.
+ */
+function bootstrapSetProofCookie(string $token, int $now): void
+{
+    setcookie(BOOTSTRAP_PROOF_COOKIE, bootstrapProofValue($token, $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS), [
+        'expires' => $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS,
+        'path' => '/',
+        'secure' => bootstrapRequestIsHttps($_SERVER),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+/**
  * POST ?action=verify-token — `{"token": "…"}`. On success the proof
- * cookie is set: HttpOnly, SameSite=Strict, Secure on HTTPS, two hours,
- * and the setup wizard accepts it in place of a typed token (#719, B2).
+ * cookie is set ({@see bootstrapSetProofCookie()}), and the setup wizard
+ * accepts it in place of a typed token (#719, B2).
  */
 function bootstrapHandleVerifyToken(string $docRoot, int $now): void
 {
@@ -2767,14 +2783,8 @@ function bootstrapHandleVerifyToken(string $docRoot, int $now): void
     ob_start();
 
     $result = bootstrapVerifyToken($docRoot, (string) (bootstrapJsonInput()['token'] ?? ''), $now);
-    if ($result['ok'] && isset($result['cookie'])) {
-        setcookie(BOOTSTRAP_PROOF_COOKIE, $result['cookie'], [
-            'expires' => $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS,
-            'path' => '/',
-            'secure' => bootstrapRequestIsHttps($_SERVER),
-            'httponly' => true,
-            'samesite' => 'Strict',
-        ]);
+    if ($result['ok']) {
+        bootstrapSetProofCookie(bootstrapReadTokenValue($docRoot), $now);
         bootstrapSendJson(['ok' => true], $buffering);
         return;
     }
@@ -3499,6 +3509,11 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
   function runStep(step) {
     setProgress(step, 0);
     postJson('?action=step', { step: step }).then(function (data) {
+      // The proof lapsed: nothing ran, and nothing was rolled back.
+      if (data.auth_required) {
+        logLine(data.error + " L'installation n'a pas été annulée.", true);
+        return;
+      }
       if (data.error && !data.done) {
         logLine('Erreur : ' + data.error, true);
         return;
@@ -3737,13 +3752,22 @@ function bootstrapMain(?string $docRoot = null): void
         if ($action !== '') {
             http_response_code(403);
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['done' => true, 'error' => "Jeton d'installation requis — rechargez la page."]);
+            echo json_encode([
+                'done' => true,
+                'auth_required' => true,
+                'error' => "Jeton d'installation requis — rechargez la page.",
+            ]);
             return;
         }
         bootstrapEnsureTokenFile($docRoot);
         bootstrapRenderTokenScreen($docRoot);
         return;
     }
+
+    // A sliding proof: two hours since the operator's last request, not
+    // since the token was typed — a 2 GB upload on a slow line outlasts
+    // the latter. The expiry is inside the signed value, so it is re-signed.
+    bootstrapSetProofCookie(bootstrapReadTokenValue($docRoot), $now);
 
     if ($action === 'https-check' && $method === 'POST') {
         bootstrapHandleHttpsCheck($docRoot, 'bootstrapDefaultHttpGet', $now);
