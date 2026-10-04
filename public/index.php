@@ -7422,7 +7422,19 @@ if ($isEnabled('sos_staff')) {
     $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
     $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
 
-    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
+    // Simulated telephony (ARCHITECTURE.md §8.63): where test_tools is on,
+    // the installation is a reference or local one, AND the switch is
+    // armed, a simulated line stands in for the configured provider so an
+    // end-to-end run can drive this module. Null everywhere else.
+    $sosSimulatedProvider = $isEnabled('test_tools')
+        && \Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)
+        ? new \Modules\TestTools\Telephony\SimulatedPhoneProvider($settingService)
+        : null;
+    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService(
+        $sosProviderCredentialRepo,
+        null,
+        $sosSimulatedProvider
+    );
     // The responsable hook resolves at CONSTRUCTION here, which is
     // order-sensitive by design: trombinoscope's block (the registrant)
     // runs before this one, exactly as it had to when the hook travelled
@@ -10135,7 +10147,10 @@ if ($isEnabled('test_tools')) {
 
     $frontController->registerController(
         \Modules\TestTools\Controller\TestToolsController::class,
-        new \Modules\TestTools\Controller\TestToolsController($twig)
+        new \Modules\TestTools\Controller\TestToolsController(
+            $twig,
+            new \Modules\TestTools\Telephony\SimulatedTelephony($settingService, $journalService)
+        )
     );
 
     $frontController->registerController(

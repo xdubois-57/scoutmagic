@@ -9,10 +9,10 @@ declare(strict_types=1);
 namespace Modules\SosStaff\Provider\Ovh;
 
 use Core\Exception\UserFacingMessage;
-use Modules\SosStaff\Provider\ForwardingState;
-use Modules\SosStaff\Provider\PhoneLine;
-use Modules\SosStaff\Provider\PhoneProviderInterface;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\ForwardingState;
+use Modules\SosStaff\Api\PhoneLine;
+use Modules\SosStaff\Api\PhoneProviderInterface;
+use Modules\SosStaff\Api\ProviderException;
 
 /**
  * OVH Télécom implementation (module spec §7) — the only provider

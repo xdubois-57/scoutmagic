@@ -812,6 +812,18 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         e2eBaseUrl($port)
     );
 
+    // Simulated telephony (ARCHITECTURE.md §8.63): without a provider the
+    // SOS page shows only its configuration warning (#750), and a hermetic
+    // suite cannot reach OVH — so the instance talks to a simulated line.
+    // Honoured because the harness's base URL makes it a local installation.
+    if (in_array('test_tools', $activated, true)) {
+        $settingService->setInternal(
+            Modules\TestTools\Telephony\SimulatedTelephony::SETTING_ARMED,
+            '1',
+            Modules\TestTools\Service\MailSandboxService::MODULE_ID
+        );
+    }
+
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
     echo 'E2E: ' . count($activated) . ' modules activated: ' . implode(', ', $activated) . ".\n";
 }
