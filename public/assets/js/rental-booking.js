@@ -67,9 +67,17 @@
      * like any other — matching on the wrapper and replacing its contents,
      * never trying to find a card that is not there any more.
      *
+     * The page says it is busy until the panels are swapped, not merely
+     * until the answer arrives: parsing and swapping come after, and a
+     * line typed in between — an inventory line saves on its own
+     * (rental-inventory.js) — would be replaced by its older render.
+     *
      * @returns {Promise<void>}
      */
     function refreshPanels() {
+        var page = /** @type {HTMLElement} */ (root);
+        page.setAttribute('aria-busy', 'true');
+
         return fetch(window.location.href, {
             headers: { Accept: 'text/html' },
             // Re-reading our own page: it must be the state the server has
@@ -100,6 +108,8 @@
             // A refresh that fails leaves the panels as they were: the
             // action itself already succeeded and was reported, and a page
             // wiped by a network hiccup would be the worse answer.
+        }).finally(function () {
+            page.removeAttribute('aria-busy');
         });
     }
 

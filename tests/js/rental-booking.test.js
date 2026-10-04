@@ -144,6 +144,58 @@ describe('rental-booking.js: posting a form without leaving the page', () => {
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 
+    /**
+     * Busy until the panels are swapped, not until the answer arrives: the
+     * end-to-end run types the next inventory line on that signal, and a
+     * line typed before the swap is replaced by its older render (#809).
+     */
+    it('says the page is busy until the panels are swapped, and only until then', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        let release;
+        let call = 0;
+        global.fetch = vi.fn(() => {
+            call += 1;
+            if (call === 1) {
+                return jsonResponse({ success: true, message: 'Contrat envoyé.' });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 200,
+                text: () => new Promise((resolve) => { release = () => resolve(pageHtml('Fait')); }),
+            });
+        });
+        await boot();
+        const page = document.querySelector('[data-rental-booking]');
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        expect(page.getAttribute('aria-busy')).toBe('true');
+        expect(document.getElementById('milestone').textContent).toBe('À faire');
+
+        release();
+
+        await vi.waitFor(() => expect(page.hasAttribute('aria-busy')).toBe(false));
+        expect(document.getElementById('milestone').textContent).toBe('Fait');
+    });
+
+    it('stops saying it is busy when the refresh itself fails', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        let call = 0;
+        global.fetch = vi.fn(() => {
+            call += 1;
+            return call === 1
+                ? jsonResponse({ success: true, message: 'Fait.' })
+                : Promise.reject(new Error('offline'));
+        });
+        await boot();
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(document.querySelector('[data-rental-booking]').hasAttribute('aria-busy')).toBe(false));
+    });
+
     it('reports a refused action as an error and still refreshes nothing away', async () => {
         document.body.innerHTML = pageHtml('À faire');
         global.fetch = actionThenRefresh(

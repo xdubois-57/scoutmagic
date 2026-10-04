@@ -508,6 +508,11 @@ async function submitAndRefresh(page, action, submit) {
     await submit();
     await posted;
     await refreshed;
+    // The answer is in, but the panels are swapped only once it is parsed;
+    // rental-booking.js says busy until then. An inventory line saved in
+    // between is replaced by its older render, value and « Enregistré »
+    // gone (#809).
+    await expect(page.locator('[data-rental-booking]')).not.toHaveAttribute('aria-busy', 'true');
 }
 
 /**
