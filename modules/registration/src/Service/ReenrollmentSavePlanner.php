@@ -42,12 +42,9 @@ class ReenrollmentSavePlanner
      *        silent ones for the rest
      * @param \Closure(string $type, string $campaignKey): bool|null $inFlight whether
      *        that e-mail of that campaign is queued and has not finished: a
-     *        marker is only written once the batch has gone out
-     */
-    /**
-     * @param \Closure(string $type, string $campaignKey): bool|null $inFlight whether
-     *        that e-mail is already queued and on its way — handOver() would
-     *        not queue it again, so the plan must not announce it
+     *        marker is only written once the batch has gone out, and
+     *        handOver() would not queue it again, so the plan must neither
+     *        announce it nor treat its campaign as unopened
      */
     public function __construct(
         private ReenrollmentCampaignService $campaign,
@@ -211,7 +208,7 @@ class ReenrollmentSavePlanner
 
         return [
             'key' => $key,
-            'label' => ReenrollmentCampaignService::targetLabelOf($key),
+            'label' => $this->campaign->targetLabelOf($key),
             'opens' => ReenrollmentCampaignService::openingDateOf($key, (string) $state['open_at'])?->format('Y-m-d'),
             'closes' => $key,
             'reminders' => $reminders,

@@ -125,7 +125,7 @@ class ReenrollmentConfigController extends AbstractController
             // The campaign the switch opens and closes, named under it
             // (issue #796, D3): there is only one, the target year's.
             'campaign_label' => $campaignKey !== null
-                ? ReenrollmentCampaignService::targetLabelOf($campaignKey)
+                ? $this->campaign->targetLabelOf($campaignKey)
                 : null,
             // When each email of this campaign actually went out. A chief
             // who has just clicked « Relancer » gets a scheduled job and a
