@@ -51,12 +51,23 @@
                 </div>
             {% endif %}
 
+            {#
+              `data-submit-lock`: a 4 MB photo on a phone takes several
+              seconds to leave, during which this page used to look exactly
+              as it did before — so the second tap sent the same photo
+              again (issue #756). form-submit-lock.js disables the button on
+              the first submit and says « Envoi en cours… ».
+            #}
             <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/photos"
-                  enctype="multipart/form-data" class="card">
+                  enctype="multipart/form-data" class="card" data-submit-lock>
                 <div class="card-body">
                     <h2 class="h6 mb-3">Ajouter une photo</h2>
                     {{ csrf_field()|raw }}
                     <div class="mb-3">
+                        {# `drop-zone-preview`: this zone takes images and
+                           nothing else, so it asks for the thumbnail. A phone
+                           photo is called IMG_4821.HEIC, which tells its owner
+                           nothing about which one they just picked (#756). #}
                         {% include 'partials/drop_zone.html.twig' with {
                             id: 'photo-drop-zone',
                             input_id: 'photo-file',
@@ -65,7 +76,7 @@
                             accept: 'image/*',
                             icon: 'bi-image',
                             message: 'Déposez la photo ici, ou cliquez pour la choisir',
-                            data: { 'drop-zone-for': 'photo-file' },
+                            data: { 'drop-zone-for': 'photo-file', 'drop-zone-preview': 'image' },
                         } only %}
                         <output class="form-text d-block" id="photo-drop-zone-selection"></output>
                     </div>
@@ -78,7 +89,9 @@
 
 {% block scripts %}
     <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
-    {# Names the file that was picked: the zone's input is visually hidden,
-       so a zone that says nothing looks the same before and after a drop. #}
+    {# Names the file that was picked, and — this zone having asked for it
+       — shows a thumbnail of it: the zone's input is visually hidden, so a
+       zone that says nothing looks the same before and after a drop. #}
     <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
 {% endblock %}

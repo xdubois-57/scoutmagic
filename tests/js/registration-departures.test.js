@@ -124,13 +124,14 @@ describe('registration-departures.js', () => {
             expect(staffNote('33').style.display).toBe('');
         });
 
-        it('says nothing on success — this is a list gone down one row at a time', async () => {
+        it('confirms a recorded departure with a toast', async () => {
             await boot();
             box('31').checked = true;
             box('31').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            expect(box('31').checked).toBe(true);
         });
 
         it('PUTS THE BOX BACK when the server refuses — the screen never claims an unrecorded departure', async () => {
@@ -182,20 +183,57 @@ describe('registration-departures.js', () => {
                 url: '/departs/32',
                 body: { comment: 'Part en secondaire', _csrf_token: 'tok-123' },
             });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('waits for the first save of a comment before sending the next one', async () => {
+            const pending = [];
+            global.fetch = vi.fn(() => new Promise((resolve) => pending.push(resolve)));
+            await boot();
+
+            comment('32').value = 'A';
+            comment('32').dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            comment('32').value = 'B';
+            comment('32').dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            pending[0]({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+            expect(lastRequest().body.comment).toBe('B');
         });
 
         it('saves an emptied comment — clearing one is a change like any other', async () => {
             await boot();
+            comment('32').value = 'Part en secondaire';
+            comment('32').dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1));
+
             comment('32').value = '';
             comment('32').dispatchEvent(new Event('blur'));
-
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
             expect(lastRequest().body.comment).toBe('');
+        });
+
+        it('sends nothing and says nothing for a comment left as it was', async () => {
+            await boot();
+            comment('32').value = 'Part en secondaire';
+            comment('32').dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1));
+
+            comment('32').dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1);
         });
 
         it('says why when the comment could not be saved', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Trop long.' }));
             await boot();
+            comment('32').value = 'Un commentaire bien trop long';
             comment('32').dispatchEvent(new Event('blur'));
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());

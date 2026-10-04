@@ -113,10 +113,14 @@ class ModuleManifestTest extends TestCase
      * carrying it reads back as `received` — and goes on through the rest
      * of #708's fourth lot: the automatic hold in days, the « Contrat
      * envoyé » status, and steps completed by hand.
+     *
+     * 1.36.0 drops `rental_blocks.units` — a period the unit blocks takes
+     * the whole asset — and blocks dates by a gesture on the calendar,
+     * with its own route and a route for a period's reason (#708, IT-07).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.35.0', $this->manifest->version);
+        $this->assertSame('1.36.0', $this->manifest->version);
     }
 
     /**
@@ -133,7 +137,8 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/ligne',
             '/mes-locations/proposition',
             '/mes-locations/demande',
-            '/mes-locations/blocage',
+            '/mes-locations/blocage-motif',
+            '/mes-locations/{slug}/calendrier/jours',
             '/mes-locations/blocage-supprimer',
             '/mes-locations/caution',
             '/mes-locations/gabarit',

@@ -20,6 +20,25 @@ import {
 } from '../../public/assets/js/rental-calendar.js';
 
 describe('nextSelection', () => {
+    it('ends a stay on a day another stay arrives on (#708, IT-08)', () => {
+        expect(nextSelection('2027-07-17', '2027-07-14', '', true)).toEqual({
+            arrival: '2027-07-14',
+            departure: '2027-07-17',
+        });
+    });
+
+    it('never starts a stay on a day another stay arrives on', () => {
+        expect(nextSelection('2027-07-17', '', '', true)).toEqual({ arrival: '', departure: '' });
+        expect(nextSelection('2027-07-17', '2027-07-01', '2027-07-04', true)).toEqual({
+            arrival: '2027-07-01',
+            departure: '2027-07-04',
+        });
+        expect(nextSelection('2027-07-17', '2027-07-20', '', true)).toEqual({
+            arrival: '2027-07-20',
+            departure: '',
+        });
+    });
+
     it('sets the arrival on the first tap', () => {
         expect(nextSelection('2027-07-17', '', '')).toEqual({
             arrival: '2027-07-17',

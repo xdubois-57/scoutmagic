@@ -499,7 +499,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testABlockAppearsAsUnavailableToAnOrdinaryReader(): void
     {
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier toiture', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier toiture', null);
 
         $events = $this->collect($this->viewer('nobody@test.be'));
 
@@ -512,7 +512,7 @@ class RentalVirtualEventProviderTest extends TestCase
     public function testAManagerSeesWhyTheAssetIsBlocked(): void
     {
         $this->addManager('manager@test.be');
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier toiture', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier toiture', null);
 
         $this->assertSame(
             'Chantier toiture',
@@ -580,7 +580,7 @@ class RentalVirtualEventProviderTest extends TestCase
         for ($i = 2; $i <= 6; $i++) {
             $assetId = $this->createAsset('Bien ' . $i, 'bien-' . $i);
             $this->createBooking('LOC-2027-01' . $i, $assetId);
-            $this->blockRepository->create($assetId, '2027-07-20', '2027-07-22', 1, null, null);
+            $this->blockRepository->create($assetId, '2027-07-20', '2027-07-22', null, null);
         }
         $this->createBooking('LOC-2027-0001');
 
@@ -771,7 +771,7 @@ class RentalVirtualEventProviderTest extends TestCase
             [self::CALENDAR_ID, self::CALENDAR_ID + 1],
             PublishFrom::CONFIRMATION
         );
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier', null);
 
         $events = $this->collect($this->viewer('nobody@test.be', [self::CALENDAR_ID, self::CALENDAR_ID + 1]));
 
