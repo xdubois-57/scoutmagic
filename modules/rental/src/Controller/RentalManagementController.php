@@ -1597,10 +1597,14 @@ class RentalManagementController extends AbstractController
         }
 
         $said = FlashMessage::get();
-        FlashMessage::set('warning', trim(
-            ($said['message'] ?? '') . ' La réservation ne correspond plus à son contrat : il est marqué « Remplacé », '
-            . 'et un nouveau contrat doit partir.'
-        ));
+        FlashMessage::set(
+            'warning',
+            trim(
+                ($said['message'] ?? '')
+                . ' La réservation ne correspond plus à son contrat : il est marqué « Remplacé », '
+                . 'et un nouveau contrat doit partir.'
+            )
+        );
     }
 
     /**
@@ -2037,7 +2041,8 @@ class RentalManagementController extends AbstractController
             // envoyé ».
             if ($document->isSuperseded()) {
                 throw new RentalException(
-                    'Ce document a été remplacé : la réservation a changé depuis. Générez-en une nouvelle version.'
+                    'Ce document a été remplacé : la réservation a changé depuis. '
+                        . 'Générez-en une nouvelle version.'
                 );
             }
 

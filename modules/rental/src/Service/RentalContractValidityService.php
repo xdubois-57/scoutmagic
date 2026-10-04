@@ -100,11 +100,18 @@ class RentalContractValidityService
         }
 
         $current = ContractFingerprint::of(
-            $this->documents->valuesFor($booking, $asset, $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings()),
+            $this->documents->valuesFor(
+                $booking,
+                $asset,
+                $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings()
+            ),
             $booking->effectivePrice()
         );
 
-        $stale = array_values(array_filter($contracts, static fn(RentalDocument $d): bool => $d->fingerprint !== $current));
+        $stale = array_values(array_filter(
+            $contracts,
+            static fn(RentalDocument $d): bool => $d->fingerprint !== $current
+        ));
         if ($stale === []) {
             return false;
         }
@@ -120,7 +127,8 @@ class RentalContractValidityService
 
         $void = array_map(static fn(RentalDocument $d): int => $d->id, $stale);
         foreach ($documents as $document) {
-            $signed = $document->type === DocumentType::SIGNED_COPY || $document->type === DocumentType::SIGNED_CONTRACT;
+            $signed = $document->type === DocumentType::SIGNED_COPY
+                || $document->type === DocumentType::SIGNED_CONTRACT;
             if ($signed && ($validSince === null || $document->id < $validSince)) {
                 $void[] = $document->id;
             }

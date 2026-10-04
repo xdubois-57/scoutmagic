@@ -830,7 +830,9 @@ class RentalRequestController extends AbstractController
                 FlashMessage::set(
                     'success',
                     'Proposition acceptée. Votre réservation a été mise à jour.'
-                    . ($voided ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.' : '')
+                    . ($voided
+                        ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
+                        : '')
                 );
             } else {
                 $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::RENTER, null);
