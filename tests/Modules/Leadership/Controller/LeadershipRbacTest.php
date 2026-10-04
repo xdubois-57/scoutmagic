@@ -588,6 +588,7 @@ class LeadershipRbacTest extends TestCase
             [['email' => 'candidat@example.org', 'values' => ['Nom' => 'Prénom1 Nom1', 'Section' => 'Louveteaux']]],
             $this->draft->calls[0]['rows']
         );
+        $this->assertJournaled('leadership_list_draft_created', '"recipient_count":1');
     }
 
     public function testAnUnknownListIsNotADraft(): void
@@ -640,6 +641,20 @@ class LeadershipRbacTest extends TestCase
         $this->assertSame('Prénom1 Nom1', $sheet[1][1]);
         $this->assertSame('candidat@example.org', $sheet[1][6]);
         $this->assertSame('0470 12 34 56', $sheet[1][7]);
+
+        // Journaled with the page and a count, never a name or an address.
+        $this->assertJournaled('leadership_list_exported', '"page":"obligations"');
+    }
+
+    private function assertJournaled(string $action, string $contextFragment): void
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ?');
+        $stmt->execute([$action]);
+        $context = $stmt->fetchColumn();
+        $this->assertNotFalse($context, $action . ' is journaled');
+        $this->assertStringContainsString($contextFragment, (string) $context);
+        $this->assertStringNotContainsString('candidat@example.org', (string) $context);
+        $this->assertStringNotContainsString('Nom1', (string) $context);
     }
 
     public function testAnUnknownPageHasNoExport(): void
@@ -765,6 +780,7 @@ class LeadershipRbacTest extends TestCase
                 new MemberYearRepository($this->pdo)
             ),
             new EditableContentService(new EditableContentRepository($this->pdo)),
+            $journalService,
             $this->draft
         );
     }

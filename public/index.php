@@ -12056,6 +12056,7 @@ if ($isEnabled('leadership')) {
             new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
             $scoutYearResolver,
             $editableContentService,
+            $journalService,
             // Null when mass_mail is off: the lists then offer no draft.
             $massMailDraftForOthers
         )

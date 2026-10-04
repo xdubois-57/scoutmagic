@@ -14,6 +14,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -59,6 +60,7 @@ class LeadershipController extends AbstractController
         private StewardService $stewardService,
         private ScoutYearResolver $scoutYearResolver,
         private EditableContentService $editableContentService,
+        private JournalService $journalService,
         /** Null when mass_mail is off: the draft button is then not offered (§7.5). */
         private ?MassMailDraftInterface $massMailDraft = null
     ) {
@@ -251,6 +253,17 @@ class LeadershipController extends AbstractController
             }
         }
 
+        // Which page and how many lines, never who: the journal holds no
+        // personal data (AGENTS.md).
+        $this->journalService->log(
+            'leadership',
+            'leadership_list_exported',
+            'info',
+            'Export d\'une page Encadrement',
+            ['page' => $page, 'row_count' => count($rows)],
+            AuthSession::getUserAccountId()
+        );
+
         $title = self::LIST_PAGES[$page];
         $spreadsheet = TabularSpreadsheet::buildSpreadsheet(
             ['Liste', 'Nom', 'Totem', 'Section', 'Détail', 'Remarque', 'E-mail', 'Téléphone', 'Échéance'],
@@ -316,6 +329,15 @@ class LeadershipController extends AbstractController
 
             return $this->redirect($back);
         }
+
+        $this->journalService->log(
+            'leadership',
+            'leadership_list_draft_created',
+            'info',
+            'Brouillon de publipostage depuis une liste Encadrement',
+            ['list' => $listId, 'recipient_count' => count($rows)],
+            AuthSession::getUserAccountId()
+        );
 
         FlashMessage::set('success', "Le brouillon est prêt — relisez-le, il n'a pas été envoyé.");
 
