@@ -131,6 +131,76 @@ class RetroBoardControllerTest extends TestCase
         $this->assertStringContainsString('Super ambiance', $response->getBody());
     }
 
+    /**
+     * Issue #736: whoever reaches the Rétrospectives list gets the full
+     * trail; a public visitor of the link gets no link into the Espace
+     * animateurs at all.
+     */
+    public function testAStaffMemberSeesTheFullBreadcrumbOnTheBoard(): void
+    {
+        AuthSession::login(3, 'intendant@test.be', 'intendant');
+        [$id, $token] = $this->createBoard();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->show(
+            new Request('GET', '/r/' . $token, [], [], [], []),
+            ['token' => $token]
+        )->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#Espace animateurs</li>.*<a href="/retro" [^>]*>Rétrospectives</a>.*<a href="/retro/' . $id . '/edit" [^>]*>Camp</a></li>.*aria-current="page">Tableau</li>#',
+            $body
+        );
+    }
+
+    /**
+     * An intendant who may not configure boards gets no link to the board
+     * name: it could only lead back to this very page.
+     */
+    public function testAViewerWhoCannotConfigureGetsTheNameAsPlainText(): void
+    {
+        $this->settingService->register('retro_role_min_create_board', 'intendant', 'select', 'Création', '', 'retro');
+        $this->settingService->set('retro_role_min_create_board', 'chief', 'retro');
+        AuthSession::login(3, 'intendant@test.be', 'intendant');
+        [, $token] = $this->createBoard();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->show(
+            new Request('GET', '/r/' . $token, [], [], [], []),
+            ['token' => $token]
+        )->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#<a href="/retro" [^>]*>Rétrospectives</a>.*aria-current="page">Camp · Tableau</li>#',
+            $body
+        );
+        $this->assertStringNotContainsString('href="/r/' . $token . '"', $body);
+    }
+
+    public function testAPublicVisitorGetsNoLinkIntoTheEspaceAnimateurs(): void
+    {
+        [, $token] = $this->createBoard();
+
+        $body = (string) $this->controller->show(new Request('GET', '/r/' . $token, [], [], [], []), ['token' => $token])->getBody();
+
+        $this->assertStringNotContainsString('href="/retro"', $body);
+        $this->assertStringNotContainsString('Espace animateurs', $body);
+    }
+
+    /** The link is shared by its two buttons, never printed (issue #736). */
+    public function testTheBoardSharesItsLinkWithoutPrintingIt(): void
+    {
+        [, $token] = $this->createBoard();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->show(
+            new Request('GET', '/r/' . $token, [], [], [], []),
+            ['token' => $token]
+        )->getBody());
+
+        $this->assertStringContainsString('</i> Copier le lien </button>', $body);
+        $this->assertStringContainsString('</i> QR code </button>', $body);
+        $this->assertSame(1, substr_count($body, '/r/dummy-token'), 'only in the copy button\'s data');
+        $this->assertStringContainsString('data-url="/r/dummy-token"', $body);
+    }
+
     public function testShowRedactsHiddenCommentBodyForNonChief(): void
     {
         [$id, $token] = $this->createBoard();
