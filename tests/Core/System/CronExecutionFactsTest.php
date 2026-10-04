@@ -136,9 +136,11 @@ class CronExecutionFactsTest extends TestCase
     {
         $cron = (string) file_get_contents(dirname(__DIR__, 3) . '/public/cron.php');
 
-        $this->assertStringContainsString(
-            '\Core\System\CronExecutionFacts::recordIfDue($cronSettingRepository, time());',
-            $cron
-        );
+        $record = strpos($cron, '\Core\System\CronExecutionFacts::recordIfDue($cronSettingRepository, time());');
+        $this->assertNotFalse($record);
+        // After the scheduled work: a stalled probe never delays a task.
+        $work = strpos($cron, '$processed = $runner->processOverdue();');
+        $this->assertNotFalse($work);
+        $this->assertGreaterThan($work, $record);
     }
 }

@@ -172,10 +172,12 @@ class GalleryConfigControllerTest extends TestCase
 
     public function testIndexSaysFfmpegIsMissingOnceTheCronHasMeasuredIt(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+        $request = new Request('GET', '/config/gallery', ['onglet' => 'videos'], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
 
         $this->assertStringContainsString("FFmpeg n'est pas disponible pour la tâche planifiée.", $body);
-        $this->assertStringNotContainsString("FFmpeg n'a pas encore été vérifié.", $body);
+        $this->assertStringNotContainsString("FFmpeg n'a pas encore été vérifié", $body);
+        $this->assertStringContainsString('FFmpeg indisponible pour la tâche planifiée', $body);
     }
 
     /** Never measured by the cron (#700): « not checked yet », never « missing ». */
@@ -183,10 +185,14 @@ class GalleryConfigControllerTest extends TestCase
     {
         $this->ffmpegState = FfmpegAvailability::UNKNOWN;
 
-        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+        $request = new Request('GET', '/config/gallery', ['onglet' => 'videos'], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
 
         $this->assertStringContainsString("FFmpeg n'a pas encore été vérifié.", $body);
         $this->assertStringNotContainsString("FFmpeg n'est pas disponible pour la tâche planifiée.", $body);
+        // The Vidéos tab says the same as the banner, never « indisponible ».
+        $this->assertStringContainsString("FFmpeg n'a pas encore été vérifié — l'envoi de vidéos reste", $body);
+        $this->assertStringNotContainsString('FFmpeg indisponible', $body);
     }
 
     public function testIndexNoLongerRendersTheRemovedAllowLocalSetting(): void

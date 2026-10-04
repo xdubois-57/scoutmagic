@@ -31,8 +31,9 @@ hébergeur. Un bandeau en haut compte les lignes à régler.
   ligne est obligatoire.
 - **Exécution de commandes**, deux lignes : le PHP qui répond aux
   visiteurs et celui du cron peuvent avoir des droits différents. La
-  vidéo dépend de celui du cron, qui se vérifie à chaque passage ; avant
-  le premier, l'état est « pas encore vérifié », pas « absent ».
+  vidéo dépend de celui du cron, vérifié par le cron au plus toutes les
+  dix minutes ; avant la première vérification, l'état est « pas encore
+  vérifié », pas « absent ».
 - **ffmpeg et ffprobe** — sans eux, la galerie et les groupes refusent
   les vidéos. La ligne recopie l'erreur exacte à transmettre.
 - **Compression des PDF** — sans outil, les PDF ne sont pas compressés ;

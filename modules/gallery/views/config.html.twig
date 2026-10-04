@@ -183,8 +183,10 @@
                             <input class="form-check-input" type="checkbox" id="gallery-allow-video" name="gallery_allow_video" value="1" {{ gallery_allow_video ? 'checked' : '' }}>
                             <label class="form-check-label" for="gallery-allow-video">Autoriser l'envoi de vidéos</label>
                         </div>
-                        {% if not ffmpeg_available %}
-                            <div class="form-text text-warning">FFmpeg indisponible — l'envoi de vidéos restera désactivé même si cette option est cochée.</div>
+                        {% if ffmpeg_state == 'unknown' %}
+                            <div class="form-text text-body-secondary">FFmpeg n'a pas encore été vérifié — l'envoi de vidéos reste désactivé tant que la tâche planifiée ne l'a pas trouvé.</div>
+                        {% elseif not ffmpeg_available %}
+                            <div class="form-text text-warning">FFmpeg indisponible pour la tâche planifiée — l'envoi de vidéos restera désactivé même si cette option est cochée.</div>
                         {% endif %}
                     </div>
                     <div class="col-12 col-md-6">
