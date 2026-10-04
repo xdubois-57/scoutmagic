@@ -3525,9 +3525,13 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
 HTML;
 }
 
-function bootstrapMain(): void
+/**
+ * @param string|null $docRoot where the installer runs — its own folder;
+ *                             a test passes a temporary one
+ */
+function bootstrapMain(?string $docRoot = null): void
 {
-    $docRoot = __DIR__;
+    $docRoot ??= __DIR__;
     $stateFile = $docRoot . '/' . BOOTSTRAP_STATE_FILE;
 
     if (bootstrapAlreadyInstalled($docRoot) && !is_file($stateFile)) {

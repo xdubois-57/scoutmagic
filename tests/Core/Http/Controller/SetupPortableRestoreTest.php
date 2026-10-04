@@ -581,6 +581,38 @@ final class SetupPortableRestoreTest extends TestCase
         $this->assertTrue($deposit->exists());
     }
 
+    /**
+     * The archive the page was showing is gone — purged, or removed by FTP
+     * meanwhile: both actions say so, in JSON, rather than failing.
+     */
+    #[Group('database')]
+    public function testWithoutADepositedArchiveBothActionsSaySoInJson(): void
+    {
+        $this->realDbConnection();
+        $_SESSION['setup_token_verified'] = true;
+
+        $check = $this->controller()->checkDepositedArchive(new Request('POST', '/setup/restore-deposited/check', [], [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'passphrase' => self::PASSPHRASE,
+        ], [], []), []);
+        $this->assertSame(400, $check->getStatusCode());
+        $this->assertStringContainsString(
+            'Aucune sauvegarde déposée',
+            (string) (json_decode($check->getBody(), true)['message'] ?? '')
+        );
+
+        $restore = $this->controller()->restorePortable(new Request('POST', '/setup/restore-portable', [], $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'source' => 'deposited',
+            'passphrase' => self::PASSPHRASE,
+        ], [], ['HTTP_HOST' => 'nouveau.example']), []);
+        $this->assertSame(400, $restore->getStatusCode());
+        $this->assertStringContainsString(
+            'Aucune sauvegarde déposée',
+            (string) (json_decode($restore->getBody(), true)['message'] ?? '')
+        );
+    }
+
     /** A copy of an archive, placed where the bootstrap deposits one. */
     private function deposit(string $zipPath): DepositedArchive
     {

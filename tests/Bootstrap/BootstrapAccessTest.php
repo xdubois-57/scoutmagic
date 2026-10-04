@@ -144,6 +144,30 @@ final class BootstrapAccessTest extends TestCase
         $this->assertStringContainsString('relancez la vérification', $result['detail']);
     }
 
+    public function testWithoutAUsableHostTheCheckSaysHowToReachThePage(): void
+    {
+        $result = \bootstrapCheckSiteHttps($this->docRoot, null, function (): array {
+            $this->fail('no request without a host');
+        });
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString("l'adresse publique", $result['detail']);
+    }
+
+    public function testAMalformedOrEmptyProofIsNeverValid(): void
+    {
+        $this->assertFalse(\bootstrapProofIsValid('', str_repeat('a', 64), self::NOW));
+        $this->assertFalse(\bootstrapProofIsValid('123.xyz', str_repeat('a', 64), self::NOW));
+        $this->assertFalse(\bootstrapProofIsValid(\bootstrapProofValue('', self::NOW + 60), '', self::NOW));
+    }
+
+    public function testAChunkBeforeTheReceptionFolderWasPreparedIsRefused(): void
+    {
+        $state = $this->installedState();
+
+        $this->assertSame(409, \bootstrapArchiveAppend($state, 0, 'x', false)['status']);
+    }
+
     public function testOnlyAPlainHostNameIsEverPutInAUrl(): void
     {
         $this->assertSame('unite.example.org', \bootstrapRequestHost(['HTTP_HOST' => 'Unite.Example.org']));
