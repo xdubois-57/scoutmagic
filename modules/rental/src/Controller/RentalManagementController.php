@@ -1549,25 +1549,13 @@ class RentalManagementController extends AbstractController
             }
         }
 
-        // What `RentalOperationsService::contractSent()` will make of the
-        // hold: lengthened to the floor, never shortened, and nothing to
-        // say once the booking firmly occupies the asset.
-        $holdUntil = null;
-        if (!$booking->status->isFinal() && !$booking->status->firmlyOccupiesTheAsset()) {
-            $floor = RentalBookingService::capAtArrival(
-                $now->modify('+' . $this->contractHoldMinDays() . ' days'),
-                $now,
-                $booking->arrivalDate
-            );
-            $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
-            $holdUntil = $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
-        }
-
         return [
             'latest' => $latest,
             'is_locked' => $this->documentService->textIsLocked($booking, DocumentType::CONTRACT),
             'renter_email' => $booking->renterEmail,
-            'hold_until' => $holdUntil,
+            // What the send will make of the hold, from the rule the send
+            // itself applies.
+            'hold_until' => $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
             'landlord' => $this->documentService->landlordFor($asset),
         ];
     }
