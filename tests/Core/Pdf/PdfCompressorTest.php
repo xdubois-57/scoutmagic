@@ -115,6 +115,58 @@ class PdfCompressorTest extends TestCase
     }
 
     /**
+     * A PDF written with compressed cross-references — what a phone's
+     * scanner produces, and what FPDI's free parser refuses — comes back
+     * as a classic PDF 1.4 FPDI reads (#708, IT-16). Skipped without
+     * Ghostscript, which is the only thing that can rewrite it.
+     */
+    public function testRewriteForImportProducesAPdfFpdiReads(): void
+    {
+        exec('which gs 2>/dev/null', $out, $exit);
+        if ($exit !== 0) {
+            $this->markTestSkipped('Ghostscript not available in this environment.');
+        }
+
+        // Ghostscript itself, asked for PDF 1.7 with object streams, is
+        // the simplest way to get a file the free parser refuses.
+        $source = $this->tempDirectory . '/source.pdf';
+        $modern = $this->tempDirectory . '/modern.pdf';
+        @mkdir($this->tempDirectory, 0755, true);
+        $pdf = new \FPDF();
+        $pdf->AddPage();
+        $pdf->SetFont('Helvetica', '', 12);
+        $pdf->Text(20, 20, 'Contrat signe');
+        file_put_contents($source, $pdf->Output('S'));
+        exec(sprintf(
+            'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.7 -dWriteObjStms=true -dWriteXRefStm=true -sOutputFile=%s %s',
+            escapeshellarg($modern),
+            escapeshellarg($source)
+        ));
+        $bytes = (string) file_get_contents($modern);
+        @unlink($source);
+        @unlink($modern);
+
+        $rewritten = (new PdfCompressor($this->tempDirectory))->rewriteForImport($bytes);
+
+        $this->assertIsString($rewritten);
+        $this->assertStringStartsWith('%PDF-1.4', $rewritten);
+        $path = $this->tempDirectory . '/rewritten.pdf';
+        file_put_contents($path, $rewritten);
+        $this->assertSame(1, (new \setasign\Fpdi\Fpdi())->setSourceFile($path));
+        @unlink($path);
+    }
+
+    public function testRewriteForImportAnswersNullForSomethingThatIsNotAPdf(): void
+    {
+        exec('which gs 2>/dev/null', $out, $exit);
+        if ($exit !== 0) {
+            $this->markTestSkipped('Ghostscript not available in this environment.');
+        }
+
+        $this->assertNull((new PdfCompressor($this->tempDirectory))->rewriteForImport('not a pdf at all'));
+    }
+
+    /**
      * Real Ghostscript round-trip — skipped if unavailable. Doesn't
      * assert a specific size outcome (Ghostscript can legitimately grow
      * a trivial input, per the class's own contract), only that the

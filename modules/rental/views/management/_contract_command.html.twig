@@ -1,0 +1,51 @@
+{#
+  The contract's two commands (#708, IT-16): generating a version and
+  sending the latest one, from the step they belong to rather than from the
+  Documents page — the manager is already on the dashboard, and the step
+  is where the question « has the contract gone? » is answered.
+
+  « Vérifier et contresigner » leads to the renter's copy, answered in its
+  own step (`_countersign_step.html.twig`).
+
+  Two gestures rather than one, so the PDF can be read before it leaves.
+  Sending asks first, and says what cannot be taken back: the address it
+  goes to, that the text is then locked (§22.6), and how long the dates
+  stay held while the renter signs (IT-13) — computed by
+  RentalManagementController::contractStep() the way contractSent() will.
+
+  Nothing at all to send while no version exists: the step above it is
+  the one to do, and a button that can only answer « générez-le d'abord »
+  is one too many.
+
+  Requires `action` (a command Booking\MilestoneAction), `contract_step`,
+  `asset` and `booking`; optional `primary` and `small`, as
+  `_milestone_action.html.twig`.
+#}
+{% set button_class = 'btn ' ~ (primary|default(false) ? 'btn-primary' : 'btn-outline-secondary') ~ (small|default(false) ? ' btn-sm' : '') %}
+{% if contract_step %}
+    {% if action.command == 'generate_contract' %}
+        <form method="post" action="/mes-locations/document-generer" class="d-inline" data-contract-command="generate">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="dashboard">
+            <input type="hidden" name="document_type" value="contract">
+            <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+        </form>
+    {% elseif action.command == 'send_contract' and contract_step.latest %}
+        {% set contract = contract_step.latest %}
+        <form method="post" action="/mes-locations/document-envoyer" class="d-inline" data-contract-command="send"
+              data-confirm="Envoyer « {{ contract.label }} » à {{ contract_step.renter_email }} ? Il part immédiatement et ne peut pas être rappelé, et son texte ne sera plus modifiable.{% if contract_step.hold_until %} Les dates restent bloquées jusqu'au {{ contract_step.hold_until|datetime_fr }} le temps qu'il le signe.{% endif %}"
+              data-confirm-label="Envoyer le contrat">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="dashboard">
+            <input type="hidden" name="document_id" value="{{ contract.id }}">
+            <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+        </form>
+    {% elseif action.command == 'countersign' %}
+        {# The copy is opened and answered in its step, where it is shown. #}
+        <a class="{{ button_class }}" href="#contresignature">{{ action.label }}</a>
+    {% endif %}
+{% endif %}

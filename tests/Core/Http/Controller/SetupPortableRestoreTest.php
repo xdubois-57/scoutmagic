@@ -19,6 +19,7 @@ use Core\Http\Controller\SetupController;
 use Core\Http\Request;
 use Core\Mail\DkimManager;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\Portable\DepositedArchive;
 use Core\Security\SecretManager;
 use Core\Statistics\InstallationIdentityService;
 use Core\View\TwigFactory;
@@ -281,6 +282,9 @@ final class SetupPortableRestoreTest extends TestCase
         // And the origin's column key did arrive, or none of that matters.
         $this->assertSame(self::ORIGIN_ENCRYPTION_KEY, $restored['encryption_key'] ?? null);
 
+        // Restored: the copy of the unit's data does not stay behind (#719).
+        $this->assertFalse((new DepositedArchive($this->installRoot))->exists());
+
         // And the restored site is a new installation, not a second copy of
         // the old one (D6).
         $identity = $this->readSetting($connection->getPdo(), InstallationIdentityService::INSTALLATION_ID_SETTING);
@@ -466,6 +470,126 @@ final class SetupPortableRestoreTest extends TestCase
         $this->assertFileDoesNotExist($this->installRoot . '/storage/keys/master.key');
         $this->assertFileDoesNotExist($this->installRoot . '/storage/uploads/tresorerie.pdf');
         $this->assertFalse($this->secretManager->isInitialized());
+
+        // **Except the archive itself** (#719): a wrong passphrase costs a
+        // retype, not a second upload of two gigabytes.
+        $this->assertTrue($decoded['kept'] ?? false);
+        $this->assertTrue((new DepositedArchive($this->installRoot))->exists());
+    }
+
+    /**
+     * The archive the bootstrap deposited (or a previous upload left, or
+     * FTP put there) is restored without being sent again (#719, C).
+     */
+    #[Group('database')]
+    public function testADepositedArchiveIsRestoredWithoutBeingSentAgain(): void
+    {
+        $connection = $this->realDbConnection();
+        $origin = $this->buildOriginArchive($connection);
+        $this->emptyDatabase($connection->getPdo());
+        $this->migrate($connection);
+        $deposit = $this->deposit($origin['zipPath']);
+
+        $_SESSION['setup_token_verified'] = true;
+        $body = $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'source' => 'deposited',
+            'passphrase' => self::PASSPHRASE,
+        ];
+
+        $response = $this->controller()->restorePortable(
+            new Request('POST', '/setup/restore-portable', [], $body, [], ['HTTP_HOST' => 'nouveau.example']),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertTrue($decoded['success'] ?? false, (string) ($decoded['message'] ?? 'no message'));
+        $this->assertFileExists($this->installRoot . '/storage/uploads/tresorerie.pdf');
+        $this->assertFalse($deposit->exists());
+    }
+
+    /**
+     * The passphrase first, checked at once (#719, C): the archive is
+     * opened and its encrypted manifest read, and nothing is written —
+     * neither on success nor on a wrong phrase, which keeps the archive.
+     */
+    #[Group('database')]
+    public function testCheckingThePassphraseSaysWhatTheArchiveReallyIsAndWritesNothing(): void
+    {
+        $connection = $this->realDbConnection();
+        $origin = $this->buildOriginArchive($connection);
+        $deposit = $this->deposit($origin['zipPath']);
+        $_SESSION['setup_token_verified'] = true;
+
+        $wrong = $this->controller()->checkDepositedArchive(new Request('POST', '/setup/restore-deposited/check', [], [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'passphrase' => 'une phrase tout à fait différente',
+        ], [], []), []);
+        $wrongBody = json_decode($wrong->getBody(), true);
+
+        $this->assertFalse($wrongBody['success'] ?? true);
+        $this->assertStringContainsString('phrase de passe', (string) ($wrongBody['message'] ?? ''));
+        $this->assertTrue($deposit->exists());
+
+        $right = $this->controller()->checkDepositedArchive(new Request('POST', '/setup/restore-deposited/check', [], [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'passphrase' => self::PASSPHRASE,
+        ], [], []), []);
+        $rightBody = json_decode($right->getBody(), true);
+
+        $this->assertTrue($rightBody['success'] ?? false, (string) ($rightBody['message'] ?? ''));
+        $this->assertSame('0.0.1', $rightBody['version'] ?? null);
+        $this->assertTrue($deposit->exists());
+        $this->assertFileDoesNotExist($this->installRoot . '/storage/keys/master.key');
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
+    public function testAbandoningTheDepositedArchiveRemovesIt(): void
+    {
+        $zip = $this->tempDir . '/anything.zip';
+        file_put_contents($zip, 'PK');
+        $deposit = $this->deposit($zip);
+        $_SESSION['setup_token_verified'] = true;
+
+        $response = $this->controller()->discardDepositedArchive(
+            new Request('POST', '/setup/restore-deposited/discard', [], ['_csrf_token' => $this->issueCsrfToken()], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFalse($deposit->exists());
+    }
+
+    /** The token gate holds for both new actions, like for the restore. */
+    public function testTheDepositedArchiveActionsNeedAVerifiedTokenAndACsrfToken(): void
+    {
+        $zip = $this->tempDir . '/anything.zip';
+        file_put_contents($zip, 'PK');
+        $deposit = $this->deposit($zip);
+
+        [$status] = $this->call('discardDepositedArchive', '/setup/restore-deposited/discard');
+        $this->assertSame(403, $status);
+
+        $_SESSION['setup_token_verified'] = true;
+        $_POST['_csrf_token'] = 'forged';
+        $_SESSION['_csrf_token'] = 'the-real-one';
+        [$status] = $this->call('discardDepositedArchive', '/setup/restore-deposited/discard');
+        $this->assertSame(403, $status);
+
+        [$status] = $this->call('checkDepositedArchive', '/setup/restore-deposited/check');
+        $this->assertSame(403, $status);
+        $this->assertTrue($deposit->exists());
+    }
+
+    /** A copy of an archive, placed where the bootstrap deposits one. */
+    private function deposit(string $zipPath): DepositedArchive
+    {
+        $copy = $this->tempDir . '/deposit-' . uniqid() . '.zip';
+        copy($zipPath, $copy);
+        $deposit = new DepositedArchive($this->installRoot);
+        $deposit->adopt($copy);
+
+        return $deposit;
     }
 
     /**

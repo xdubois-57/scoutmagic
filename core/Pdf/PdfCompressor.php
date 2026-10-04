@@ -12,7 +12,7 @@ namespace Core\Pdf;
  * Best-effort, server-side-only PDF compression — no external API, ever.
  * Detects an available system binary at runtime (Ghostscript first, then
  * qpdf, then pdftocairo — in the spirit of a pluggable-backend interface
- * like Modules\SosStaff\Provider\PhoneProviderInterface, though this
+ * like Modules\SosStaff\Api\PhoneProviderInterface, though this
  * stays a single class since there's nothing to configure per backend).
  * Every process runs with a hard timeout and is killed if it overruns;
  * paths are always shell-escaped; temp files live under a random name in
@@ -97,6 +97,52 @@ class PdfCompressor
             }
 
             return $output;
+        } finally {
+            @unlink($inputPath);
+            @unlink($outputPath);
+        }
+    }
+
+    /**
+     * The same document rewritten as a classic PDF 1.4 — cross-reference
+     * table, no object streams — which is what FPDI's free parser reads.
+     *
+     * A phone's scanner or a word processor writes PDF 1.5+ with compressed
+     * cross-references more often than not, and FPDI refuses those. Only
+     * Ghostscript rewrites a file that way, so this is null without it, on
+     * a failure, or when the output is not a PDF: callers then say the
+     * file could not be read, never that it was.
+     */
+    public function rewriteForImport(string $content): ?string
+    {
+        if (!$this->canUseProcOpen() || !$this->binaryAnswers('gs', ['-version'])) {
+            return null;
+        }
+
+        if (!is_dir($this->tempDirectory)) {
+            mkdir($this->tempDirectory, 0755, true);
+        }
+        $inputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
+        $outputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
+
+        try {
+            if (file_put_contents($inputPath, $content) === false) {
+                return null;
+            }
+
+            $ran = $this->runWithTimeout(sprintf(
+                'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 '
+                    . '-sOutputFile=%s %s',
+                escapeshellarg($outputPath),
+                escapeshellarg($inputPath)
+            ));
+            if (!$ran || !is_file($outputPath)) {
+                return null;
+            }
+
+            $output = file_get_contents($outputPath);
+
+            return is_string($output) && str_starts_with($output, '%PDF-') ? $output : null;
         } finally {
             @unlink($inputPath);
             @unlink($outputPath);

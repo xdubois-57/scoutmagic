@@ -19,6 +19,7 @@ use Core\Service\DateInput;
 use Core\View\EditableContentService;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\Landlord;
@@ -51,10 +52,12 @@ use Modules\Rental\Support;
  * come from a form an anonymous visitor filled in, so they are the least
  * trustworthy thing in the document.
  *
- * **Nothing here is downloadable by a renter.** The `is_for_renter` flag
- * means "attach it to an email"; an external renter has no account and the
- * tracking token is not a file credential (§6.24, §6.26). The only recourse
- * for a lost email is a manager resending it.
+ * **Nothing here is downloadable by a renter — but one document.** The
+ * `is_for_renter` flag means "attach it to an email"; an external renter has
+ * no account and the tracking token is not a file credential (§6.24,
+ * §6.26). The one exception is the contract signed by both parties (#708,
+ * IT-16), served by `RentalSignedContractService` to that booking's own
+ * tracking page and to nothing else.
  *
  * Files go through `Core\File\FileRepository` and are served only through
  * `FileAccessGuard`/`file_url()`, never from under `public/`.
@@ -85,8 +88,35 @@ class RentalDocumentService
         private HtmlSanitizer $sanitizer,
         private SettingService $settingService,
         private JournalService $journal,
-        private string $storagePath
+        private string $storagePath,
+        /**
+         * The archive of the conditions (issue #494), so a contract names
+         * the version the renter accepted with the request (#708, IT-16).
+         * Nullable where nothing is generated; without it the contract
+         * says « — » rather than point at a text nobody accepted.
+         */
+        private ?RentalConditionsService $conditions = null
     ) {
+    }
+
+    /**
+     * The archived conditions the renter accepted with the request — the
+     * very text, checked against the fingerprint stored with the booking.
+     * Null when none was accepted, or when that version is not in the
+     * archive: pointing at some other text would be worse than nothing.
+     */
+    public function acceptedConditions(RentalBooking $booking): ?ConditionsVersion
+    {
+        if ($this->conditions === null
+            || $booking->conditionsVersion === null
+            || $booking->conditionsHash === null
+        ) {
+            return null;
+        }
+
+        $version = $this->conditions->find($booking->assetId, $booking->conditionsVersion);
+
+        return $version !== null && hash_equals($version->hash, $booking->conditionsHash) ? $version : null;
     }
 
     // ── Level 1: the asset's template (§6.25) ───────────────────────────
@@ -342,17 +372,25 @@ class RentalDocumentService
         $version = $this->documentRepository->claimNextVersion($booking->id, $type);
         $fileName = RentalDocument::fileNameFor($type, $booking->reference, $version);
 
+        $header = [
+            'Bien : ' . $asset->name,
+            'Séjour : du '
+                . self::frenchDate($booking->arrivalDate)
+                . ' au '
+                . self::frenchDate($booking->departureDate),
+        ];
+        // In the frame rather than only as a keyword: a unit whose own
+        // template predates the keyword still sends a contract that names
+        // the conditions its renter accepted — never today's (#708, IT-16).
+        if ($type === DocumentType::CONTRACT && $this->acceptedConditions($booking) !== null) {
+            $header[] = 'Conditions de location acceptées : ' . $values['conditions_acceptees'];
+        }
+
         $pdf = $this->pdfService->generate(
             $type->label() . ' — ' . $booking->reference,
             $rendered,
             (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
-            [
-                'Bien : ' . $asset->name,
-                'Séjour : du '
-                    . self::frenchDate($booking->arrivalDate)
-                    . ' au '
-                    . self::frenchDate($booking->departureDate),
-            ],
+            $header,
             $type === DocumentType::INVOICE ? $this->vatNote($asset) : null
         );
 
@@ -438,6 +476,35 @@ class RentalDocumentService
         );
 
         return $documentId;
+    }
+
+    /**
+     * Files a PDF this module produced elsewhere — the contract signed by
+     * both parties (#708, IT-16) — under `storage/`, like a generated one.
+     *
+     * @throws RentalException
+     */
+    public function attachPdf(
+        RentalBooking $booking,
+        string $pdf,
+        DocumentType $type,
+        string $displayName,
+        bool $isForRenter,
+        ?int $actorMemberId = null
+    ): RentalDocument {
+        $fileId = $this->storePdf($pdf, $displayName, $booking->id);
+        $documentId = $this->documentRepository->create(
+            $booking->id,
+            $fileId,
+            $type,
+            1,
+            $isForRenter,
+            null,
+            $actorMemberId
+        );
+
+        return $this->documentRepository->findById($documentId)
+            ?? throw new RentalException("Le document n'a pas pu être enregistré.");
     }
 
     /**
@@ -619,7 +686,37 @@ class RentalDocumentService
             'unite' => (string) ($this->settingService->get('site_name') ?: 'Unité scoute'),
             'date_du_jour' => (new \DateTimeImmutable())->format('d/m/Y'),
             'mention_tva' => $this->vatNote($asset),
+            'conditions_acceptees' => $this->acceptedConditionsLine($booking, $asset),
         ];
+    }
+
+    /**
+     * « version du 12/09/2027, https://…/locations/salle/conditions/a1b2c3d4e5f6 »
+     * — the version the renter accepted and the permanent address of THAT
+     * text, the same one every email to them ends with.
+     *
+     * Never empty: the standard contract cites it inside a sentence, which
+     * a bare « — » would leave reading « lors de sa demande (—) ». When the
+     * archive cannot name the text — it was overwritten before the archive
+     * existed, or the request predates acceptance being recorded — the
+     * line says when the conditions in question were in force.
+     */
+    private function acceptedConditionsLine(RentalBooking $booking, RentalAsset $asset): string
+    {
+        $version = $this->acceptedConditions($booking);
+        if ($version === null) {
+            return 'en vigueur le ' . ($booking->conditionsAcceptedAt ?? $booking->receivedAt)->format('d/m/Y');
+        }
+
+        $dated = $version->dateKnownAt($booking->conditionsAcceptedAt);
+        $line = $dated !== null
+            ? 'version du ' . $dated->format('d/m/Y')
+            : 'version acceptée le ' . $booking->conditionsAcceptedAt?->format('d/m/Y');
+        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
+
+        return $baseUrl === ''
+            ? $line
+            : $line . ', ' . $baseUrl . '/locations/' . $asset->slug . '/conditions/' . $version->version;
     }
 
     /**

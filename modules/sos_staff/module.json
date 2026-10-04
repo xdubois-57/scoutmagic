@@ -2,7 +2,7 @@
   "id": "sos_staff",
   "name": "Téléphone d'urgence",
   "description": "Dévie le numéro d'urgence de l'unité vers le staff de garde.",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "enabled_by_default": false,
   "routes": [
     {

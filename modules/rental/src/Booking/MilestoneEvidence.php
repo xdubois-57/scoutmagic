@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 use Core\Service\DateInput;
+use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
@@ -43,6 +44,21 @@ use Modules\Rental\Stay\Settlement;
  */
 final class MilestoneEvidence
 {
+    /**
+     * « Conditions et contrat acceptés », the one agreement step before the
+     * contract had steps of its own (#708, IT-16). Ticked by hand since
+     * IT-14, its mark may still be stored.
+     */
+    public const LEGACY_CONTRACT_ACCEPTED = 'contract_accepted';
+
+    /** The contract's steps, in the order they happen (#708, IT-16). */
+    private const CONTRACT_CHAIN = [
+        BookingMilestones::CONTRACT_GENERATED,
+        BookingMilestones::CONTRACT_SENT,
+        BookingMilestones::SIGNED_COPY_RECEIVED,
+        BookingMilestones::CONTRACT_COUNTERSIGNED,
+    ];
+
     /**
      * @param array<string, bool> $done keyed by BookingMilestones' constants;
      *   a key absent from this map is "not applicable"
@@ -85,6 +101,8 @@ final class MilestoneEvidence
      *   the lines a manager ticked by hand, keyed by milestone
      * @param ?\DateTimeImmutable $today what a due date is measured against;
      *   null leaves the payment lines without one
+     * @param ?ConditionsVersion $acceptedConditions the archived version of the
+     *   conditions the renter accepted with the request, when it is found
      */
     public static function collect(
         RentalBooking $booking,
@@ -95,11 +113,22 @@ final class MilestoneEvidence
         ?Settlement $settlement,
         bool $assetKeepsInventory = true,
         array $marks = [],
-        ?\DateTimeImmutable $today = null
+        ?\DateTimeImmutable $today = null,
+        ?ConditionsVersion $acceptedConditions = null
     ): self {
         $done = [];
         $details = [];
         $offsite = [];
+
+        // The conditions are accepted with the request, never with the
+        // contract (#708, IT-16): a fact of « Demande reçue », with the
+        // version the renter actually saw.
+        if ($booking->conditionsAcceptedAt !== null) {
+            $versionDate = $acceptedConditions?->dateKnownAt($booking->conditionsAcceptedAt);
+            $details['request_received'] = $versionDate !== null
+                ? 'conditions acceptées, version du ' . $versionDate->format('d/m/Y')
+                : 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y');
+        }
 
         $record = static function (string $key, bool $isDone, ?string $detail = null) use (&$done, &$details): void {
             $done[$key] = $isDone;
@@ -109,26 +138,42 @@ final class MilestoneEvidence
         };
 
         if ($documents !== null) {
+            $generated = self::latestOfType($documents, DocumentType::CONTRACT);
+            $record(
+                BookingMilestones::CONTRACT_GENERATED,
+                $generated !== null,
+                $generated !== null
+                    ? 'v' . $generated->version . ' du ' . $generated->createdAt->format('d/m/Y')
+                    : null
+            );
+
             $sentContract = self::lastSent($documents, DocumentType::CONTRACT);
             $record(
                 BookingMilestones::CONTRACT_SENT,
                 $sentContract !== null,
-                $sentContract?->sentAt?->format('d/m/Y')
+                $sentContract !== null
+                    ? 'v' . $sentContract->version . ' le ' . $sentContract->sentAt?->format('d/m/Y')
+                    : null
             );
 
-            // "Accepté" is the signed copy coming back, not the manager
-            // pressing send: the conditions the renter ticked on the public
-            // form are the other half of the same line, and they are what
-            // the detail shows while the contract itself is still out.
-            $signed = self::firstOfType($documents, DocumentType::SIGNED_CONTRACT);
+            // The two signatures (#708, IT-16). A contract signed by both
+            // parties is the renter's signature too: one filed by hand —
+            // countersigned on paper, scanned whole — ticks both lines.
+            $countersigned = self::firstOfType($documents, DocumentType::SIGNED_CONTRACT);
+            // A refused copy is on file, and does not count (#708, IT-16).
+            $copy = self::firstOfType(
+                array_filter($documents, static fn(RentalDocument $d): bool => !$d->isRefused()),
+                DocumentType::SIGNED_COPY
+            ) ?? $countersigned;
             $record(
-                BookingMilestones::CONTRACT_ACCEPTED,
-                $signed !== null,
-                $signed !== null
-                    ? $signed->createdAt->format('d/m/Y')
-                    : ($booking->conditionsAcceptedAt !== null
-                        ? 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y')
-                        : null)
+                BookingMilestones::SIGNED_COPY_RECEIVED,
+                $copy !== null,
+                $copy?->createdAt->format('d/m/Y')
+            );
+            $record(
+                BookingMilestones::CONTRACT_COUNTERSIGNED,
+                $countersigned !== null,
+                $countersigned?->createdAt->format('d/m/Y')
             );
         }
 
@@ -215,6 +260,19 @@ final class MilestoneEvidence
         // paid in cash and later reconciled in Finances is the site's again
         // — and a step that is not applicable here cannot be ticked into
         // being.
+        // A mark on the retired step stood for the whole agreement: it
+        // carries over to the two signatures it covered, rather than
+        // vanishing and leaving a booking that was ready to confirm waiting
+        // on steps nobody was ever asked for.
+        if (isset($marks[self::LEGACY_CONTRACT_ACCEPTED])) {
+            $legacy = $marks[self::LEGACY_CONTRACT_ACCEPTED];
+            unset($marks[self::LEGACY_CONTRACT_ACCEPTED]);
+            $marks += [
+                BookingMilestones::SIGNED_COPY_RECEIVED => $legacy,
+                BookingMilestones::CONTRACT_COUNTERSIGNED => $legacy,
+            ];
+        }
+
         $manual = [];
         foreach ($marks as $key => $mark) {
             if (!array_key_exists($key, $done) || $done[$key]) {
@@ -224,6 +282,26 @@ final class MilestoneEvidence
             $done[$key] = true;
             $details[$key] = self::byHand($mark);
             $manual[] = (string) $key;
+        }
+
+        // The contract's steps follow one another: a later one done says the
+        // earlier ones were, even where the site holds no trace of them — a
+        // contract signed on paper was drawn up and handed over off the site,
+        // and a retired « Conditions et contrat acceptés » mark covered the
+        // whole agreement. Without this the journey would ask to generate a
+        // contract that is already signed. For the same reason an earlier
+        // step does not reopen while a later one stands: reopened, it would
+        // be done again on the next read. The last one reopens first.
+        $later = false;
+        foreach (array_reverse(self::CONTRACT_CHAIN) as $key) {
+            if (!array_key_exists($key, $done)) {
+                continue;
+            }
+            if ($later) {
+                $done[$key] = true;
+                $manual = array_values(array_diff($manual, [$key]));
+            }
+            $later = $done[$key];
         }
 
         return new self($done, $details, $offsite, $manual);
@@ -268,6 +346,23 @@ final class MilestoneEvidence
                 continue;
             }
             if ($found === null || $document->sentAt > $found->sentAt) {
+                $found = $document;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * The highest version of a generated type: the one that would be sent.
+     *
+     * @param RentalDocument[] $documents
+     */
+    private static function latestOfType(array $documents, DocumentType $type): ?RentalDocument
+    {
+        $found = null;
+        foreach ($documents as $document) {
+            if ($document->type === $type && ($found === null || $document->version > $found->version)) {
                 $found = $document;
             }
         }

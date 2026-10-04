@@ -793,8 +793,9 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     booking_id INT UNSIGNED NOT NULL,
     file_id INT UNSIGNED NOT NULL,
 
-    -- 'contract' | 'signed_contract' | 'invoice' | 'inventory' | 'photo'
-    -- | 'meter_reading' | 'certificate' | 'evidence' | 'unsorted' | 'other'.
+    -- 'contract' | 'signed_copy' | 'signed_contract' | 'invoice' | 'inventory'
+    -- | 'photo' | 'meter_reading' | 'certificate' | 'evidence' | 'unsorted'
+    -- | 'other'.
     document_type VARCHAR(30) NOT NULL,
     -- 1 for the first generation of a type, 2 for the next… An uploaded
     -- document is always version 1: versioning is about regeneration.
@@ -821,6 +822,13 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     -- When it was last emailed to the renter, so a manager can see whether
     -- a resend is a resend.
     sent_at DATETIME NULL,
+
+    -- A renter's signed copy the unit refused (#708, IT-16): when, and the
+    -- short reason the renter was sent, 300 characters at most. The copy
+    -- stays on file — it is what the renter actually sent — but no longer
+    -- counts as received, and the renter may send another.
+    refused_at DATETIME NULL,
+    refusal_reason VARCHAR(300) NULL,
 
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1247,4 +1255,21 @@ CREATE TABLE IF NOT EXISTS rental_conditions_versions (
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE,
     CONSTRAINT fk_rental_conditions_versions_author
         FOREIGN KEY (created_by_user_account_id) REFERENCES user_accounts (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- rental_manager_signatures: the signature each manager countersigns
+-- contracts with (#708, IT-16), drawn or imported once.
+--
+-- It would let anyone forge a signed contract, so it is treated as the most
+-- sensitive thing this module keeps: encrypted at rest, never under a
+-- public address, read only by its owner — the account it is keyed by —
+-- and deleted whenever they ask. It is applied to a document only at the
+-- countersignature, never to a copy the renter has not signed yet. A PNG,
+-- re-encoded on the way in, so no metadata of the original image survives.
+CREATE TABLE IF NOT EXISTS rental_manager_signatures (
+    user_account_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    image_encrypted MEDIUMBLOB NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_rental_manager_signatures_account
+        FOREIGN KEY (user_account_id) REFERENCES user_accounts (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

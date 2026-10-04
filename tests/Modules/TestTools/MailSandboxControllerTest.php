@@ -19,6 +19,7 @@ use Core\Security\CsrfGuard;
 use Core\View\TwigFactory;
 use Modules\TestTools\Controller\MailSandboxController;
 use Modules\TestTools\Controller\TestToolsController;
+use Modules\TestTools\Telephony\SimulatedTelephony;
 use Modules\TestTools\Repository\CapturedEmailRepository;
 use Modules\TestTools\Service\MailSandboxService;
 use PHPUnit\Framework\Attributes\Group;
@@ -38,6 +39,7 @@ class MailSandboxControllerTest extends TestCase
     private MailSandboxService $sandboxService;
     private CapturedEmailRepository $repository;
     private string $tempDir;
+    private SimulatedTelephony $simulatedTelephony;
 
     protected function setUp(): void
     {
@@ -63,6 +65,24 @@ class MailSandboxControllerTest extends TestCase
             null,
             null,
             false
+        );
+
+        foreach ([SimulatedTelephony::SETTING_ARMED => 'boolean', SimulatedTelephony::SETTING_FORWARDING => 'text'] as $key => $type) {
+            $settingService->register(
+                $key,
+                $type === 'boolean' ? '0' : '',
+                $type,
+                'Téléphonie simulée',
+                'Réglage de test.',
+                MailSandboxService::MODULE_ID,
+                null,
+                null,
+                false
+            );
+        }
+        $this->simulatedTelephony = new SimulatedTelephony(
+            $settingService,
+            new JournalService(new JournalRepository($this->pdo))
         );
 
         $settingService->register(
@@ -119,7 +139,10 @@ class MailSandboxControllerTest extends TestCase
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
 
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
-        $frontController->registerController(TestToolsController::class, new TestToolsController($this->twig));
+        $frontController->registerController(
+            TestToolsController::class,
+            new TestToolsController($this->twig, $this->simulatedTelephony)
+        );
         $frontController->registerController(
             MailSandboxController::class,
             new MailSandboxController($this->twig, $this->sandboxService)
@@ -347,6 +370,92 @@ class MailSandboxControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertTrue($this->sandboxService->armed());
+    }
+
+    public function testTheToolboxPageOffersTheSimulatedTelephonySwitch(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $body = $this->frontController('/test-tools', TestToolsController::class, 'index')
+            ->handle(new Request('GET', '/test-tools', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Téléphonie simulée', $body);
+        $this->assertStringContainsString('action="/test-tools/simulated-telephony"', $body);
+        $this->assertStringContainsString('Activer la simulation', $body);
+    }
+
+    public function testTheSimulatedTelephonySwitchIsSetThroughTheRouteAndJournaled(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $post = fn (string $armed) => $this->frontController(
+            '/test-tools/simulated-telephony',
+            TestToolsController::class,
+            'toggleSimulatedTelephony',
+            'POST'
+        )->handle(new Request(
+            'POST',
+            '/test-tools/simulated-telephony',
+            [],
+            ['armed' => $armed, '_csrf_token' => CsrfGuard::generateToken()],
+            [],
+            []
+        ));
+
+        $this->assertSame(302, $post('1')->getStatusCode());
+        $this->assertTrue($this->simulatedTelephony->armed());
+        $post('0');
+        $this->assertFalse($this->simulatedTelephony->armed());
+
+        $entries = $this->pdo->query(
+            "SELECT event_type, level FROM event_log WHERE event_type LIKE 'simulated_telephony_%' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame([
+            ['event_type' => 'simulated_telephony_armed', 'level' => 'security'],
+            ['event_type' => 'simulated_telephony_disarmed', 'level' => 'security'],
+        ], $entries);
+    }
+
+    public function testAdminIsRejectedFromTheSimulatedTelephonySwitch(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $response = $this->frontController(
+            '/test-tools/simulated-telephony',
+            TestToolsController::class,
+            'toggleSimulatedTelephony',
+            'POST'
+        )->handle(new Request(
+            'POST',
+            '/test-tools/simulated-telephony',
+            [],
+            ['armed' => '1', '_csrf_token' => CsrfGuard::generateToken()],
+            [],
+            []
+        ));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->simulatedTelephony->armed());
+    }
+
+    public function testTheSimulatedTelephonySwitchRefusesABadToken(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        CsrfGuard::generateToken();
+
+        $response = $this->frontController(
+            '/test-tools/simulated-telephony',
+            TestToolsController::class,
+            'toggleSimulatedTelephony',
+            'POST'
+        )->handle(new Request('POST', '/test-tools/simulated-telephony', [], ['armed' => '1', '_csrf_token' => 'faux'], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        $this->assertFalse($this->simulatedTelephony->armed());
     }
 
     public function testTheListShowsCapturedMessagesNewestFirst(): void

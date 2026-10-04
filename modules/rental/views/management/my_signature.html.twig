@@ -1,0 +1,96 @@
+{% extends 'base.html.twig' %}
+{% block title %}Ma signature — {{ site_name }}{% endblock %}
+{#
+  The signature this manager countersigns contracts with (#708, IT-16).
+
+  It would let anyone forge a signed contract, and the page says so: it is
+  kept encrypted, shown to its owner alone — the image below comes from a
+  route that reads the account asking, with no id to change — and deleted
+  whenever they ask. It is applied only at the countersignature, on a page
+  added after the renter's signed copy.
+
+  Two ways to record it, one form: trace it on the pad, or import an image
+  of it. An untouched pad posts nothing, so an import is never overwritten
+  by an empty drawing.
+
+  Requires `has_signature` and `return_to` (a booking's address to come
+  back to after saving, or null).
+#}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with { title: 'Ma signature' } only %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <p>
+                    Votre signature est apposée sur une dernière page du contrat quand vous le
+                    <strong>contresignez</strong>, après la signature du locataire — jamais avant.
+                </p>
+                <p class="text-body-secondary small mb-0">
+                    Elle permettrait de signer en votre nom : elle est chiffrée, vous seul pouvez la voir et
+                    l'utiliser, aucun autre gestionnaire n'y a accès, et vous pouvez la supprimer à tout moment.
+                </p>
+            </div>
+        </div>
+
+        {% if has_signature %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Votre signature enregistrée</h2>
+                    <img src="/mes-locations/ma-signature/image" alt="Votre signature enregistrée"
+                         class="img-fluid border rounded bg-white p-2 mb-3" style="max-height: 160px;">
+                    <form method="post" action="/mes-locations/ma-signature/supprimer"
+                          data-confirm="Supprimer votre signature ? Les contrats déjà contresignés la gardent ; pour en contresigner d'autres, il faudra en enregistrer une nouvelle."
+                          data-confirm-label="Supprimer">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer ma signature</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">{{ has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' }}</h2>
+                <form method="post" action="/mes-locations/ma-signature" enctype="multipart/form-data"
+                      data-signature-form>
+                    {{ csrf_field()|raw }}
+                    {% if return_to %}
+                        <input type="hidden" name="retour" value="{{ return_to }}">
+                    {% endif %}
+                    <input type="hidden" name="signature_data" value="">
+
+                    <p class="form-label mb-1" id="signature-pad-label">Tracez votre signature</p>
+                    {#
+                      Traced with a pointer, so no role of its own: « img »
+                      would tell assistive technology there is nothing to
+                      do here. The import below is the way in without one.
+                    #}
+                    <canvas data-signature-pad width="900" height="300"
+                            aria-labelledby="signature-pad-label" aria-describedby="signature-file-help"
+                            class="border rounded bg-white w-100 d-block"
+                            style="max-width: 600px; aspect-ratio: 3 / 1;"></canvas>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="signature-file">Ou importez une image de votre signature</label>
+                        <input type="file" class="form-control" id="signature-file" name="signature_file"
+                               accept="image/png,image/jpeg,image/webp" aria-describedby="signature-file-help">
+                        <p class="form-text" id="signature-file-help">
+                            PNG, JPEG ou WebP, 5 Mo au plus — de préférence sur fond blanc ou transparent.
+                        </p>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Enregistrer ma signature</button>
+                    {% if return_to %}
+                        <a class="ms-2" href="{{ return_to }}">Revenir à la réservation</a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/rental-signature.js') }}"></script>
+{% endblock %}

@@ -463,9 +463,36 @@
             label.classList.toggle('text-body-secondary', name === null);
         }
 
+        // The dot says the same as the words (issue #750): green, someone
+        // is on call; grey, the default number; red, nobody at all.
+        var dot = /** @type {HTMLElement|null} */ (row.querySelector('[data-day-dot]'));
+        if (dot) {
+            var hasDefault = dayList.dataset.defaultHasMember === '1';
+            dot.classList.toggle('text-success', name !== null);
+            dot.classList.toggle('text-body-secondary', name === null && hasDefault);
+            dot.classList.toggle('text-danger', name === null && !hasDefault);
+        }
+
         var flag = /** @type {HTMLElement|null} */ (row.querySelector('[data-day-multiple]'));
         if (flag) {
             flag.classList.toggle('d-none', onCallCountForDate(date) <= 1);
+        }
+    }
+
+    /**
+     * The sections' events of a day, as the server wrote them on its row
+     * (« Section — titre »). Never parsed into anything else: the calendar
+     * is the calendar module's, and this only lists what it said.
+     *
+     * @param {HTMLElement} row
+     * @returns {string[]}
+     */
+    function activityOf(row) {
+        try {
+            var parsed = JSON.parse(row.dataset.activity || '[]');
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+            return [];
         }
     }
 
@@ -553,10 +580,15 @@
         }
 
         var activity = document.getElementById('sos-day-sheet-activity');
-        if (activity) {
-            var text = row.dataset.activity || '';
-            activity.textContent = text;
-            activity.classList.toggle('d-none', text === '');
+        var activityList = document.getElementById('sos-day-sheet-activity-list');
+        if (activity && activityList) {
+            var items = activityOf(row);
+            activityList.replaceChildren(...items.map(function (text) {
+                var li = document.createElement('li');
+                li.textContent = text;
+                return li;
+            }));
+            activity.classList.toggle('d-none', items.length === 0);
         }
 
         var status = document.getElementById('sos-day-sheet-status');

@@ -58,6 +58,12 @@ class SosAdminControllerTest extends TestCase
     private SosSettingsService $settingsService;
     private \Modules\SosStaff\Service\RedirectService $redirectService;
     private int $scoutYearId;
+    /**
+     * What the stubbed provider configuration answers: a provider by
+     * default (the page's ordinary state), null for « nothing configured ».
+     */
+    private ?\Modules\SosStaff\Api\PhoneProviderInterface $activeProvider = null;
+    private \Modules\SosStaff\Api\ForwardingState|\Modules\SosStaff\Api\ProviderException $forwarding;
 
     protected function setUp(): void
     {
@@ -101,7 +107,22 @@ class SosAdminControllerTest extends TestCase
         $schedulerService = new SchedulerService($this->schedulerRepository);
         $onCallService = new OnCallService($this->onCallRepository, $schedulerService, $this->settingsService);
 
-        $providerConfigService = new ProviderConfigService(new ProviderCredentialRepository($this->pdo, $encryption));
+        // A stubbed configuration with a provider whose state each test
+        // can choose (issue #750): the real one would need OVH
+        // credentials, and the live state would be a network call.
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(false, null);
+        $provider = $this->createStub(\Modules\SosStaff\Api\PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnCallback(function () {
+            if ($this->forwarding instanceof \Modules\SosStaff\Api\ProviderException) {
+                throw $this->forwarding;
+            }
+
+            return $this->forwarding;
+        });
+        $this->activeProvider = $provider;
+        $providerConfigService = $this->createStub(ProviderConfigService::class);
+        $providerConfigService->method('getActiveProvider')->willReturnCallback(fn() => $this->activeProvider);
+        $providerConfigService->method('getSosNumber')->willReturn('+32 2 000 00 00');
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $this->redirectService = $this->createStub(RedirectService::class);
@@ -203,14 +224,127 @@ class SosAdminControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('SOS Staff', $response->getBody());
+        $this->assertStringContainsString("Gérer le téléphone d&#039;urgence", $response->getBody());
     }
 
-    public function testIndexShowsProviderNotConfiguredWarning(): void
+    public function testWithoutAProviderThePageIsOneWarningAndNothingElse(): void
     {
-        $response = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), []);
+        $this->activeProvider = null;
 
-        $this->assertStringContainsString('Aucun fournisseur', $response->getBody());
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'class="alert alert-warning"'), 'one warning, not two');
+        $this->assertStringContainsString("La téléphonie n'est pas encore configurée", $body);
+        $this->assertStringNotContainsString('Aucun fournisseur de téléphonie actif configuré', $body);
+        foreach (['sos-grid', 'sos-day-list', 'planned-transitions-list', 'sos-settings', 'sos-admin.js'] as $absent) {
+            $this->assertStringNotContainsString($absent, $body, "{$absent} has no use without a provider");
+        }
+    }
+
+    public function testThePageLinksToTheConfigurationOnlyForWhoeverCanOpenIt(): void
+    {
+        $this->activeProvider = null;
+
+        \Core\Security\AuthSession::login(1, 'super@test.be', 'superadmin');
+        $this->assertStringContainsString(
+            'href="/config/sos"',
+            $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody()
+        );
+
+        \Core\Security\AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->assertStringNotContainsString(
+            'href="/config/sos"',
+            $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody()
+        );
+    }
+
+    public function testTheBannerSaysWhereTheCallsReallyGoToAKnownMember(): void
+    {
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, $this->firstStaffMobile());
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Redirection active chez le fournisseur', $body);
+        $this->assertMatchesRegularExpression(
+            '/redirigés vers\s*<strong>[^<]+ — ' . preg_quote($this->firstStaffMobile(), '/') . '<\/strong>/',
+            $body
+        );
+    }
+
+    public function testAnUnknownNumberIsShownWithoutAnInventedName(): void
+    {
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32 499 99 99 99');
+
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('<strong>+32 499 99 99 99</strong>', $body);
+    }
+
+    public function testAnInactiveRedirectionAndAReadErrorAreTwoDistinctStates(): void
+    {
+        $inactive = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('Redirection inactive chez le fournisseur', $inactive);
+
+        $this->forwarding = new \Modules\SosStaff\Api\ProviderException('Le fournisseur ne répond pas.');
+        $error = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('État de la redirection illisible chez le fournisseur', $error);
+        $this->assertStringContainsString('Le fournisseur ne répond pas.', $error);
+        $this->assertStringNotContainsString('Redirection inactive', $error);
+    }
+
+    public function testAShortSentenceExplainsTheDefaultNumberBeforeThePlanning(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="sos-planning-explanation"', $body);
+        $this->assertStringContainsString('sauf les jours où quelqu\'un', html_entity_decode($body, ENT_QUOTES));
+    }
+
+    public function testTheSettingsAreInPlainSightAndTheNotificationSwitchHasItsLabel(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('accordion', $body);
+        $this->assertStringContainsString('<h2 class="h5 mb-3" id="sos-settings-title">Réglages</h2>', $body);
+        // The switch and its label share one .form-check — the shape that
+        // drew the switch over the start of the sentence put the label
+        // outside it, with nothing beside the input.
+        $this->assertMatchesRegularExpression(
+            '/<div class="form-check form-switch">\s*<input[^>]+id="email-notifications-toggle"[^>]*>\s*'
+                . '<label class="form-check-label[^"]*" for="email-notifications-toggle">Notifications de garde<\/label>/s',
+            $body
+        );
+        $this->assertStringContainsString('quand sa garde commence', $body);
+    }
+
+    public function testThePhoneTableHasTwoColumnsAndNoSectionColumn(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '/<table[^>]+id="sos-day-list"[^>]*>\s*<thead>\s*<tr>\s*<th scope="col">Date<\/th>\s*'
+                . '<th scope="col">Personne de garde<\/th>\s*<\/tr>/s',
+            $body
+        );
+    }
+
+    public function testTheDaySheetHasAPlaceForTheDaysEventsAndThreeStatesPerMember(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Événements ce jour-là', $body);
+        $this->assertStringContainsString('id="sos-day-sheet-activity-list"', $body);
+    }
+
+    private function firstStaffMobile(): string
+    {
+        $options = $this->settingsService->getStaffOptions($this->scoutYearId);
+        if ($options === []) {
+            $this->createStaffduMember('Akela', '+32470000001');
+            $options = $this->settingsService->getStaffOptions($this->scoutYearId);
+        }
+
+        return $options[0]['mobile'];
     }
 
     public function testIndexRendersSectionActivityFromTheCalendarReadApi(): void
@@ -800,12 +934,46 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('>Rien</button>', $body);
     }
 
+    /**
+     * The day button is named by what it shows — who receives the calls —
+     * never by an aria-label that would hide it from a screen reader; the
+     * row header already says which day it is.
+     */
+    public function testADayButtonIsNamedByItsRecipientNotByADateLabel(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, preg_match('/<tr class="sos-day-row[^"]*".*?<button[^>]*>(.*?)<\/button>/s', $body, $m));
+        $this->assertStringNotContainsString('Modifier les gardes du', $body);
+        $this->assertStringContainsString('data-day-target', $m[1]);
+        $this->assertStringContainsString('<span class="visually-hidden">— modifier les gardes</span>', $m[1]);
+    }
+
     public function testIndexOffersTheTwoPhoneTabs(): void
     {
         $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('Le mois', $body);
         $this->assertStringContainsString('Ma disponibilité', $body);
+    }
+
+    /**
+     * A dot means a different thing on each tab, so each tab carries its
+     * own legend: who receives the calls on « Le mois » (including the
+     * default number, the most common day), the member's own state on
+     * « Ma disponibilité ».
+     */
+    public function testEachPhoneTabExplainsItsOwnDots(): void
+    {
+        $legend = function (array $query): string {
+            $body = $this->controller->index(new Request('GET', '/admin/sos', $query, [], [], []), [])->getBody();
+            $this->assertSame(1, preg_match('/<p[^>]+id="sos-legend"[^>]*>(.*?)<\/p>/s', $body, $m));
+
+            return trim((string) preg_replace('/\s+/', ' ', strip_tags($m[1])));
+        };
+
+        $this->assertSame("quelqu'un de garde numéro par défaut aucun numéro", $legend([]));
+        $this->assertSame('de garde indisponible', $legend(['tab' => 'me']));
     }
 
     /**

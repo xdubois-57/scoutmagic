@@ -603,6 +603,20 @@ class LeadershipRbacTest extends TestCase
         $this->assertSame([], $this->draft->calls);
     }
 
+    /** A bad token on an unknown list goes back to the dashboard, a real page. */
+    public function testABadTokenOnAnUnknownListReturnsToTheDashboard(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        \Core\Security\CsrfGuard::generateToken();
+
+        $response = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/draft', [], ['list' => 'tout-le-monde', '_csrf_token' => 'faux'], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/leadership', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame([], $this->draft->calls);
+    }
+
     /** Without mass_mail, the lists offer no draft button at all. */
     public function testWithoutMassMailNoDraftIsOffered(): void
     {
