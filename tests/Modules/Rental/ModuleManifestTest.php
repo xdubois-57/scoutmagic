@@ -117,10 +117,14 @@ class ModuleManifestTest extends TestCase
      * 1.36.0 drops `rental_blocks.units` — a period the unit blocks takes
      * the whole asset — and blocks dates by a gesture on the calendar,
      * with its own route and a route for a period's reason (#708, IT-07).
+     *
+     * 1.37.0 brings the contract's two signatures (#708, IT-16): a refused
+     * signed copy keeps its reason, and each manager's own signature is
+     * kept encrypted.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.36.0', $this->manifest->version);
+        $this->assertSame('1.37.0', $this->manifest->version);
     }
 
     /**

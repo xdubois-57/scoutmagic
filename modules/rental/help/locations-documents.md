@@ -63,5 +63,6 @@ avec sa demande, jamais à celle en vigueur.
 Envoyer le contrat ne verrouille que le contrat : la facture reste
 modifiable tant qu'elle n'est pas partie elle-même.
 
-Le locataire ne télécharge jamais rien depuis le site — ses documents lui
-parviennent par email, et un email perdu se renvoie.
+Le locataire ne télécharge rien depuis le site, sauf le contrat signé par
+les deux parties — ses documents lui parviennent par email, et un email
+perdu se renvoie.

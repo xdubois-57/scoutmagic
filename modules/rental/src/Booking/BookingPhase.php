@@ -53,7 +53,7 @@ enum BookingPhase: string
     {
         return match ($this) {
             self::REQUEST => 'Ce que le locataire a demandé, et la décision qui lui revient.',
-            self::AGREEMENT => "Le contrat, son acceptation et l'acompte : ce qui engage les deux parties.",
+            self::AGREEMENT => "Le contrat, ses signatures et l'acompte : ce qui engage les deux parties.",
             self::BEFORE_STAY => "Le solde et la caution, avant que les clés ne changent de main.",
             self::STAY => 'Les états des lieux et les relevés, pendant et autour du séjour.',
             self::AFTER_STAY => 'Le décompte, la restitution de la caution et la clôture du dossier.',

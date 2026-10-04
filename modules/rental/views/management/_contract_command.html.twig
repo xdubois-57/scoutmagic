@@ -4,6 +4,9 @@
   Documents page — the manager is already on the dashboard, and the step
   is where the question « has the contract gone? » is answered.
 
+  « Vérifier et contresigner » leads to the renter's copy, answered in its
+  own step (`_countersign_step.html.twig`).
+
   Two gestures rather than one, so the PDF can be read before it leaves.
   Sending asks first, and says what cannot be taken back: the address it
   goes to, that the text is then locked (§22.6), and how long the dates
@@ -41,5 +44,8 @@
             <input type="hidden" name="document_id" value="{{ contract.id }}">
             <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
         </form>
+    {% elseif action.command == 'countersign' %}
+        {# The copy is opened and answered in its step, where it is shown. #}
+        <a class="{{ button_class }}" href="#contresignature">{{ action.label }}</a>
     {% endif %}
 {% endif %}

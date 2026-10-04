@@ -250,7 +250,11 @@ class RentalManagementController extends AbstractController
          * The version of the conditions in force, which the Gabarits list
          * dates (#708, IT-10). Without it the line simply has no date.
          */
-        private ?RentalConditionsService $conditionsService = null
+        private ?RentalConditionsService $conditionsService = null,
+        /** The contract's two signatures (#708, IT-16). Null offers neither. */
+        private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
+        /** Each manager's own signature, readable by its owner alone. */
+        private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null
     ) {
         parent::__construct($twig);
     }
@@ -1552,6 +1556,8 @@ class RentalManagementController extends AbstractController
             }
         }
 
+        $account = AuthSession::getUserAccountId();
+
         return [
             'latest' => $latest,
             'is_locked' => $this->documentService->textIsLocked($booking, DocumentType::CONTRACT),
@@ -1560,7 +1566,224 @@ class RentalManagementController extends AbstractController
             // itself applies.
             'hold_until' => $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
             'landlord' => $this->documentService->landlordFor($asset),
+            // The countersignature (#708, IT-16): the copy waiting for an
+            // answer, and whether THIS manager has a signature to sign with.
+            'pending_copy' => $this->signedContractService?->pendingCopy($booking->id),
+            'refused_copy' => $this->signedContractService?->lastRefusedCopy($booking->id),
+            'has_signature' => $account !== null && ($this->signatureRepository?->has($account) ?? false),
+            'max_refusal_length' => \Modules\Rental\Service\RentalSignedContractService::MAX_REFUSAL_LENGTH,
         ];
+    }
+
+    /**
+     * POST /mes-locations/contrat-contresigner — checks the renter's copy
+     * and countersigns it with this manager's own signature, in one
+     * gesture (#708, IT-16). The renter receives the contract signed by
+     * both parties.
+     *
+     * @param array<string, string> $params
+     */
+    public function countersignContract(Request $request, array $params): Response
+    {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            $account = AuthSession::getUserAccountId();
+            if ($this->signedContractService === null || $account === null) {
+                throw new RentalException("La contresignature n'est pas disponible.");
+            }
+
+            $memberId = $this->actorMemberId();
+            $names = $memberId !== null
+                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
+                : [];
+            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
+
+            $final = $this->signedContractService->countersign(
+                $booking,
+                $asset,
+                (int) $request->getBody('document_id', 0),
+                $account,
+                $memberId,
+                $name ?? 'un gestionnaire',
+                new \DateTimeImmutable()
+            );
+
+            // Said as it happened: an e-mail that did not leave is not « il
+            // le reçoit », and a manager told so has no reason to resend it.
+            FlashMessage::set(
+                $final->sentAt !== null ? 'success' : 'warning',
+                $final->sentAt !== null
+                    ? 'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger '
+                        . 'depuis sa page de suivi.'
+                    : "Contrat contresigné, mais l'e-mail au locataire n'a pas pu partir. Il peut le "
+                        . 'télécharger depuis sa page de suivi ; renvoyez-le depuis Documents.'
+            );
+        };
+
+        return $this->bookingAction($request, $work);
+    }
+
+    /**
+     * POST /mes-locations/copie-refuser — refuses the renter's copy with a
+     * short reason they are sent; they may send another (#708, IT-16).
+     *
+     * @param array<string, string> $params
+     */
+    public function refuseSignedCopy(Request $request, array $params): Response
+    {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+            if ($this->signedContractService === null) {
+                throw new RentalException("Le refus d'une copie n'est pas disponible.");
+            }
+
+            $mailed = $this->signedContractService->refuseCopy(
+                $booking,
+                $asset,
+                (int) $request->getBody('document_id', 0),
+                (string) $request->getBody('reason', ''),
+                $this->actorMemberId(),
+                new \DateTimeImmutable()
+            );
+
+            FlashMessage::set(
+                $mailed ? 'success' : 'warning',
+                $mailed
+                    ? 'Copie refusée : le locataire a reçu le motif et peut en déposer une autre.'
+                    : "Copie refusée, mais l'e-mail au locataire n'a pas pu partir. Sa page de suivi "
+                        . 'dit le motif ; prévenez-le autrement.'
+            );
+        };
+
+        return $this->bookingAction($request, $work);
+    }
+
+    /**
+     * GET /mes-locations/ma-signature — the signature this manager
+     * countersigns contracts with (#708, IT-16): drawn or imported once,
+     * shown to them alone, deleted whenever they ask.
+     *
+     * Only for someone who manages an asset: nobody else countersigns
+     * anything, and a page offering to keep their signature would be a
+     * question with no reason to ask it.
+     *
+     * @param array<string, string> $params
+     */
+    public function mySignature(Request $request, array $params): Response
+    {
+        $account = AuthSession::getUserAccountId();
+        if ($account === null || $this->signatureRepository === null) {
+            return $this->notFound();
+        }
+        if ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) === []) {
+            return new Response($this->renderToString('@rental/management/no_access.html.twig', []), 403);
+        }
+
+        return $this->render('@rental/management/my_signature.html.twig', [
+            'has_signature' => $this->signatureRepository->has($account),
+            'return_to' => self::signatureReturn((string) $request->getQuery('retour', '')),
+            'csrf_token' => CsrfGuard::generateToken(),
+        ])->setHeader('Cache-Control', 'private, no-store');
+    }
+
+    /**
+     * POST /mes-locations/ma-signature — a drawn signature (the pad's PNG)
+     * or an imported image, re-encoded and kept encrypted.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSignature(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/mes-locations/ma-signature')) !== null) {
+            return $guard;
+        }
+
+        $account = AuthSession::getUserAccountId();
+        if ($account === null || $this->signatureRepository === null) {
+            return $this->notFound();
+        }
+        if ($this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId()) === []) {
+            return new Response($this->renderToString('@rental/management/no_access.html.twig', []), 403);
+        }
+
+        $back = self::signatureReturn((string) $request->getBody('retour', ''));
+
+        try {
+            $drawn = trim((string) $request->getBody('signature_data', ''));
+            $file = $request->getFile('signature_file');
+            if ($drawn !== '') {
+                $png = \Modules\Rental\Document\SignatureImage::fromDataUrl($drawn);
+            } elseif ($file !== null && is_uploaded_file((string) ($file['tmp_name'] ?? ''))) {
+                $png = \Modules\Rental\Document\SignatureImage::normalize(
+                    (string) file_get_contents((string) $file['tmp_name'])
+                );
+            } else {
+                throw new RentalException('Tracez votre signature ou choisissez une image.');
+            }
+
+            $this->signatureRepository->save($account, $png, new \DateTimeImmutable());
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            $query = $back !== null ? '?retour=' . rawurlencode($back) : '';
+
+            return $this->redirect('/mes-locations/ma-signature' . $query);
+        }
+
+        FlashMessage::set('success', 'Votre signature est enregistrée. Vous seul la voyez et pouvez la supprimer.');
+
+        return $this->redirect($back ?? '/mes-locations/ma-signature');
+    }
+
+    /**
+     * POST /mes-locations/ma-signature/supprimer — gone, whenever its owner
+     * asks; contracts already countersigned keep the page they carry.
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteSignature(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/mes-locations/ma-signature')) !== null) {
+            return $guard;
+        }
+
+        $account = AuthSession::getUserAccountId();
+        if ($account === null || $this->signatureRepository === null) {
+            return $this->notFound();
+        }
+
+        $this->signatureRepository->delete($account);
+        FlashMessage::set('success', 'Votre signature est supprimée.');
+
+        return $this->redirect('/mes-locations/ma-signature');
+    }
+
+    /**
+     * GET /mes-locations/ma-signature/image — the signature itself, to its
+     * owner and to nobody else: the account asking is the account read,
+     * there is no id in the address to change.
+     *
+     * @param array<string, string> $params
+     */
+    public function signatureImage(Request $request, array $params): Response
+    {
+        $account = AuthSession::getUserAccountId();
+        $png = $account !== null ? $this->signatureRepository?->findPng($account) : null;
+        if ($png === null) {
+            return $this->notFound();
+        }
+
+        return (new Response($png))
+            ->setHeader('Content-Type', 'image/png')
+            ->setHeader('Cache-Control', 'private, no-store')
+            ->setHeader('X-Content-Type-Options', 'nosniff');
+    }
+
+    /**
+     * Where to come back to after saving a signature: a booking of this
+     * module's own, never an address from elsewhere.
+     */
+    private static function signatureReturn(string $candidate): ?string
+    {
+        return preg_match('#^/mes-locations/[a-z0-9-]+/reservations/\d+$#', $candidate) === 1 ? $candidate : null;
     }
 
     /**

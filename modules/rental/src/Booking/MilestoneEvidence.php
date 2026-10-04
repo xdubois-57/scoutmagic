@@ -160,7 +160,11 @@ final class MilestoneEvidence
             // parties is the renter's signature too: one filed by hand —
             // countersigned on paper, scanned whole — ticks both lines.
             $countersigned = self::firstOfType($documents, DocumentType::SIGNED_CONTRACT);
-            $copy = self::firstOfType($documents, DocumentType::SIGNED_COPY) ?? $countersigned;
+            // A refused copy is on file, and does not count (#708, IT-16).
+            $copy = self::firstOfType(
+                array_filter($documents, static fn(RentalDocument $d): bool => !$d->isRefused()),
+                DocumentType::SIGNED_COPY
+            ) ?? $countersigned;
             $record(
                 BookingMilestones::SIGNED_COPY_RECEIVED,
                 $copy !== null,

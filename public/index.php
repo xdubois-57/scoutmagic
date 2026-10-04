@@ -11889,6 +11889,25 @@ if ($isEnabled('rental')) {
         $rentalConditionsService
     );
 
+    // The contract's two signatures (#708, IT-16): the renter's copy, the
+    // manager's own signature, the contract signed by both parties.
+    $rentalSignatureRepository = new \Modules\Rental\Repository\RentalManagerSignatureRepository(
+        $pdo,
+        $encryptionService
+    );
+    $rentalSignedContractService = new \Modules\Rental\Service\RentalSignedContractService(
+        $rentalDocumentService,
+        $rentalDocumentRepository,
+        $rentalSignatureRepository,
+        $rentalBookingAudit,
+        $rentalBookingMailService,
+        new \Core\Pdf\PdfCompressor($storagePath . '/temp'),
+        $journalService,
+        $notificationService,
+        $rentalManagerRecipients,
+        static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId)
+    );
+
     // The asset paperwork register (§6.33). A reminder list, never a
     // compliance check: nothing here knows a regulation.
     $rentalComplianceService = new \Modules\Rental\Service\RentalComplianceService(
@@ -12089,7 +12108,11 @@ if ($isEnabled('rental')) {
             $rentalManagerRecipients,
             // Dates the version of the conditions in force on the Gabarits
             // list, and links to it from their page (#708, IT-10).
-            $rentalConditionsService
+            $rentalConditionsService,
+            // The countersignature and each manager's own signature (#708,
+            // IT-16).
+            $rentalSignedContractService,
+            $rentalSignatureRepository
         )
     );
     $frontController->registerController(
@@ -12121,7 +12144,12 @@ if ($isEnabled('rental')) {
             // « Nouvelle demande de location » (#708, IT-05): a notification
             // to the asset's reachable managers, the Staff d'U when none.
             $notificationService,
-            $rentalManagerRecipients
+            $rentalManagerRecipients,
+            // The renter sends their signed copy and downloads the contract
+            // signed by both parties (#708, IT-16).
+            $rentalSignedContractService,
+            $rentalDocumentService,
+            $uploadHandler
         )
     );
 
