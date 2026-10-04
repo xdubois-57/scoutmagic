@@ -10,6 +10,7 @@ namespace Modules\Rental\Service;
 
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingMilestones;
+use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Repository\RentalMilestoneMarkRepository;
 
@@ -67,6 +68,10 @@ class RentalMilestoneMarkService
             ? $this->repository->mark($booking->id, $milestoneKey, $actorMemberId, $at)
             : $this->repository->unmark($booking->id, $milestoneKey);
 
+        if (!$done) {
+            $changed = $this->reopenRetiredAgreementMark($booking->id, $milestoneKey) || $changed;
+        }
+
         if ($changed) {
             $this->bookingAudit->record(
                 $booking->id,
@@ -79,5 +84,33 @@ class RentalMilestoneMarkService
         }
 
         return $changed;
+    }
+
+    /**
+     * Reopening one of the two signatures a retired « Conditions et
+     * contrat acceptés » mark stands for (MilestoneEvidence::collect()).
+     * That mark ticks both, so it goes — and the other signature, which
+     * nobody reopened, gets a mark of its own with the same author and
+     * date, so it stays done. Whether the retired mark was there.
+     */
+    private function reopenRetiredAgreementMark(int $bookingId, string $milestoneKey): bool
+    {
+        $signatures = [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED];
+        if (!in_array($milestoneKey, $signatures, true)) {
+            return false;
+        }
+
+        $legacy = $this->repository->findForBooking($bookingId)[MilestoneEvidence::LEGACY_CONTRACT_ACCEPTED] ?? null;
+        if ($legacy === null) {
+            return false;
+        }
+
+        foreach ($signatures as $other) {
+            if ($other !== $milestoneKey) {
+                $this->repository->mark($bookingId, $other, $legacy['marked_by_member_id'], $legacy['marked_at']);
+            }
+        }
+
+        return $this->repository->unmark($bookingId, MilestoneEvidence::LEGACY_CONTRACT_ACCEPTED);
     }
 }

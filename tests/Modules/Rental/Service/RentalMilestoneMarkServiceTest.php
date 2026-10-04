@@ -112,6 +112,33 @@ class RentalMilestoneMarkServiceTest extends TestCase
     }
 
     /**
+     * Reopening a signature that a retired « Conditions et contrat
+     * acceptés » mark stands for removes that mark — it is what ticks the
+     * step — and only that step reopens: the other signature, which the
+     * same mark ticked, keeps a mark of its own with the same date.
+     */
+    public function testReopeningASignatureRemovesTheRetiredAgreementMark(): void
+    {
+        $at = new \DateTimeImmutable('2027-03-01 10:00:00');
+        (new RentalMilestoneMarkRepository($this->pdo))->mark(5, 'contract_accepted', null, $at);
+
+        $reopened = $this->service->set(
+            $this->booking(),
+            'signed_copy_received',
+            'Contrat signé reçu',
+            false,
+            null,
+            $at
+        );
+
+        $this->assertTrue($reopened);
+
+        $marks = $this->service->marksFor(5);
+        $this->assertSame(['contract_countersigned'], array_keys($marks));
+        $this->assertEquals($at, $marks['contract_countersigned']['marked_at']);
+    }
+
+    /**
      * Pressing twice is not a second fact, and the history does not say it
      * happened twice.
      */

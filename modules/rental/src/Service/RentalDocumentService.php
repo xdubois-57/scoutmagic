@@ -702,7 +702,10 @@ class RentalDocumentService
             return null;
         }
 
-        $line = 'version du ' . $version->createdAt->format('d/m/Y');
+        $dated = $version->dateKnownAt($booking->conditionsAcceptedAt);
+        $line = $dated !== null
+            ? 'version du ' . $dated->format('d/m/Y')
+            : 'version acceptée le ' . $booking->conditionsAcceptedAt?->format('d/m/Y');
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return $baseUrl === ''

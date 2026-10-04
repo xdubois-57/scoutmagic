@@ -929,6 +929,36 @@ class RentalDocumentServiceTest extends TestCase
     }
 
     /**
+     * A version archived after the renter accepted it carries the date of
+     * that late archiving, which post-dates the acceptance: the contract
+     * then says when the version was accepted, never a date after it.
+     */
+    public function testAVersionArchivedAfterTheAcceptanceIsNamedByTheAcceptance(): void
+    {
+        $versions = new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo);
+        $hash = hash('sha256', '<p>Conditions anciennes</p>');
+        $accepted = $versions->archive(
+            $this->assetId,
+            $hash,
+            '<p>Conditions anciennes</p>',
+            new \DateTimeImmutable('2026-09-12 10:00:00'),
+            null
+        );
+        $booking = $this->createBooking();
+        $this->pdo->prepare(
+            'UPDATE rental_bookings SET conditions_version = ?, conditions_hash = ?, conditions_accepted_at = ?'
+                . ' WHERE id = ?'
+        )->execute([$accepted->version, $hash, '2025-06-01 09:00:00', $booking->id]);
+        $booking = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($booking);
+
+        $values = $this->serviceWithConditions($versions)->valuesFor($booking, $this->asset(), $this->settings());
+
+        $this->assertStringStartsWith('version acceptée le 01/06/2025', (string) $values['conditions_acceptees']);
+        $this->assertStringNotContainsString('12/09/2026', (string) $values['conditions_acceptees']);
+    }
+
+    /**
      * A booking whose fingerprint matches no archived text names none: a
      * link to some other wording would be worse than a dash.
      */

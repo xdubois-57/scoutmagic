@@ -45,6 +45,13 @@ use Modules\Rental\Stay\Settlement;
 final class MilestoneEvidence
 {
     /**
+     * « Conditions et contrat acceptés », the one agreement step before the
+     * contract had steps of its own (#708, IT-16). Ticked by hand since
+     * IT-14, its mark may still be stored.
+     */
+    public const LEGACY_CONTRACT_ACCEPTED = 'contract_accepted';
+
+    /**
      * @param array<string, bool> $done keyed by BookingMilestones' constants;
      *   a key absent from this map is "not applicable"
      * @param array<string, string> $details the small grey suffix each line
@@ -109,8 +116,9 @@ final class MilestoneEvidence
         // contract (#708, IT-16): a fact of « Demande reçue », with the
         // version the renter actually saw.
         if ($booking->conditionsAcceptedAt !== null) {
-            $details['request_received'] = $acceptedConditions !== null
-                ? 'conditions acceptées, version du ' . $acceptedConditions->createdAt->format('d/m/Y')
+            $versionDate = $acceptedConditions?->dateKnownAt($booking->conditionsAcceptedAt);
+            $details['request_received'] = $versionDate !== null
+                ? 'conditions acceptées, version du ' . $versionDate->format('d/m/Y')
                 : 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y');
         }
 
@@ -244,6 +252,19 @@ final class MilestoneEvidence
         // paid in cash and later reconciled in Finances is the site's again
         // — and a step that is not applicable here cannot be ticked into
         // being.
+        // A mark on the retired step stood for the whole agreement: it
+        // carries over to the two signatures it covered, rather than
+        // vanishing and leaving a booking that was ready to confirm waiting
+        // on steps nobody was ever asked for.
+        if (isset($marks[self::LEGACY_CONTRACT_ACCEPTED])) {
+            $legacy = $marks[self::LEGACY_CONTRACT_ACCEPTED];
+            unset($marks[self::LEGACY_CONTRACT_ACCEPTED]);
+            $marks += [
+                BookingMilestones::SIGNED_COPY_RECEIVED => $legacy,
+                BookingMilestones::CONTRACT_COUNTERSIGNED => $legacy,
+            ];
+        }
+
         $manual = [];
         foreach ($marks as $key => $mark) {
             if (!array_key_exists($key, $done) || $done[$key]) {
