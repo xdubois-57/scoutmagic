@@ -285,7 +285,9 @@ final class MilestoneEvidence
         // contract signed on paper was drawn up and handed over off the site,
         // and a retired « Conditions et contrat acceptés » mark covered the
         // whole agreement. Without this the journey would ask to generate a
-        // contract that is already signed.
+        // contract that is already signed. For the same reason an earlier
+        // step does not reopen while a later one stands: reopened, it would
+        // be done again on the next read. The last one reopens first.
         $later = false;
         foreach (array_reverse(self::CONTRACT_CHAIN) as $key) {
             if (!array_key_exists($key, $done)) {
@@ -293,6 +295,7 @@ final class MilestoneEvidence
             }
             if ($later) {
                 $done[$key] = true;
+                $manual = array_values(array_diff($manual, [$key]));
             }
             $later = $done[$key];
         }

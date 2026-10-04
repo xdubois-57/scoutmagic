@@ -563,8 +563,9 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED], 'the earlier steps follow');
         $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT], 'the earlier steps follow');
         $this->assertSame(
-            [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED],
-            $evidence->manual
+            [BookingMilestones::CONTRACT_COUNTERSIGNED],
+            $evidence->manual,
+            'the copy does not reopen while the countersignature stands'
         );
         $this->assertArrayNotHasKey('contract_accepted', $evidence->done);
     }
@@ -602,6 +603,30 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertTrue($generatedOnly->done[BookingMilestones::CONTRACT_GENERATED]);
         $this->assertFalse($generatedOnly->done[BookingMilestones::CONTRACT_SENT]);
         $this->assertFalse($generatedOnly->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
+    }
+
+    /**
+     * Two contract steps ticked by hand: only the later one reopens. The
+     * earlier one, reopened while the later stands, would be done again on
+     * the next read — the page would show it done and the booking would
+     * have gone back to « Demande reçue » underneath.
+     */
+    public function testAnEarlierContractStepDoesNotReopenWhileALaterOneStands(): void
+    {
+        $at = ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne'];
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            [BookingMilestones::CONTRACT_SENT => $at, BookingMilestones::SIGNED_COPY_RECEIVED => $at]
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame([BookingMilestones::SIGNED_COPY_RECEIVED], $evidence->manual);
     }
 
     /** A step that does not apply here cannot be ticked into being. */
