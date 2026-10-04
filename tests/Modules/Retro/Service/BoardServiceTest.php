@@ -697,6 +697,18 @@ class BoardServiceTest extends TestCase
         $this->assertNotNull($link);
     }
 
+    /** Issue #743: the audience is cumulative — a superadmin meets it, Desk member or not. */
+    public function testFindLinkedBoardLinkForUnitChiefAudienceAcceptsASuperadminWithoutAnyDeskMember(): void
+    {
+        $service = $this->service();
+        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
+        $this->linkBoardToEvent($board->id, 42);
+        $this->memberService->method('isUnitChief')->willReturn(false);
+
+        $this->assertNotNull($service->findLinkedBoardLink(42, Role::SUPERADMIN, 'superadmin@example.com', 1));
+        $this->assertNull($service->findLinkedBoardLink(42, Role::ADMIN, 'admin@example.com', 1), 'an admin still has to be Staff d\'U');
+    }
+
     public function testFindLinkedBoardLinkForUnitChiefAudienceRejectsWithoutAnEmailOrScoutYear(): void
     {
         $service = $this->service();
