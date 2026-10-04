@@ -1217,12 +1217,21 @@ class RentalManagementControllerTest extends TestCase
             $this->assertSame(404, $response->getStatusCode(), $path . ' must be refused.');
         }
 
-        $this->assertSame(404, $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-09-01',
-            'end' => '2027-09-05',
+        $this->assertSame(404, $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10)],
         ])->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // A period's reason too: an id in a POST is no authorisation.
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $this->assertSame(404, $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => 'Pris',
+        ])->getStatusCode());
+        $this->assertSame('Camp', $this->blockRepository->findById($blockId)?->reason);
     }
 
     public function testAWriteWithoutAValidCsrfTokenIsRefused(): void
@@ -1279,7 +1288,7 @@ class RentalManagementControllerTest extends TestCase
     public function testABlockCannotBeDeletedThroughAnAssetTheManagerDoesControl(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', 1, null, null);
+        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', null, null);
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $this->post('/mes-locations/blocage-supprimer', 'deleteBlock', [
@@ -1682,33 +1691,220 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(31000, $fresh?->effectiveTotalCents());
     }
 
-    public function testABlockIsAcceptedOverABookedPeriodAndTheManagerIsWarned(): void
+    // ── Blocking dates on the calendar (#708, IT-07) ────────────────────
+
+    public function testDaysBlockedOnTheCalendarBecomeOnePeriodWithoutAReason(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10), $this->futureDay(11), $this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertSame(
+            [$this->futureDay(10) => null, $this->futureDay(11) => null, $this->futureDay(12) => null],
+            $payload['changed']
+        );
+        $this->assertStringContainsString('Motif', $payload['list']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame($this->futureDay(10), $blocks[0]->startDate);
+        $this->assertSame($this->futureDay(12), $blocks[0]->endDate);
+        $this->assertNull($blocks[0]->reason);
+    }
+
+    /**
+     * The list under the grid is re-rendered after a gesture with the
+     * window the page drew it with — the month on screen, not today.
+     */
+    public function testTheListAfterAGestureKeepsTheWindowOfTheMonthOnScreen(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $month = (new \DateTimeImmutable('first day of +2 months'));
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$month->modify('+3 days')->format('Y-m-d')],
+            'month' => $month->format('Y-m'),
+        ])->getBody(), true);
+        $this->assertStringNotContainsString('Camp', $payload['list'], 'A block ended before that month stays out.');
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(20)],
+        ])->getBody(), true);
+        $this->assertStringContainsString('Camp', $payload['list'], 'With no month, the window is this one.');
+    }
+
+    public function testReleasingTheMiddleOfAPeriodCutsItInTwoKeepingTheReason(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'release',
+            'days' => [$this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertSame([$this->futureDay(12) => 'Camp'], $payload['changed']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertSame(
+            [[$this->futureDay(10), $this->futureDay(11), 'Camp'], [$this->futureDay(13), $this->futureDay(14), 'Camp']],
+            array_map(static fn($b) => [$b->startDate, $b->endDate, $b->reason], $blocks)
+        );
+    }
+
+    public function testUndoingAReleaseWithItsReasonsRebuildsThePeriod(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+        $this->postCalendarDays('local-saint-georges', ['mode' => 'release', 'days' => [$this->futureDay(12)]]);
+
+        $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(12)],
+            'reasons' => [$this->futureDay(12) => 'Camp'],
+        ]);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame([$this->futureDay(10), $this->futureDay(14), 'Camp'], [$blocks[0]->startDate, $blocks[0]->endDate, $blocks[0]->reason]);
+    }
+
+    public function testAPastDayIsRefusedAndNothingIsWritten(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [(new \DateTimeImmutable('yesterday'))->format('Y-m-d'), $this->futureDay(3)],
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testAGestureWithoutAValidCsrfTokenIsRefused(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(3)],
+            '_csrf_token' => 'forged',
+        ]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testABlockOverABookedPeriodIsAcceptedAndBothStayOnTheCalendar(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $this->completeTheAgreement($booking);
-        $this->post('/mes-locations/statut', 'changeStatus', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'status' => 'confirmed',
-        ]);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->blockRepository->create($this->assetId, '2027-07-02', '2027-07-02', 'Concierge absent', null);
 
-        $response = $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-07-01',
-            'end' => '2027-07-04',
-            'reason' => 'Chantier toiture',
-        ]);
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar',
+            ['month' => '2027-07']
+        )->getBody();
 
-        $this->assertSame(302, $response->getStatusCode());
-        // Neither failed nor overwrote the booking (§6.18).
-        $this->assertCount(1, $this->blockRepository->findUpcoming($this->assetId, '2027-01-01'));
+        // Neither failed nor overwrote the booking (§6.18): the day carries
+        // the booking's state AND the unit's marker.
         $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
-        // Accepted, but said out loud, so an accidental overlap is visible
-        // rather than silent.
-        $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('warning', $flash['type'] ?? null);
-        $this->assertStringContainsString('coexistent', $flash['message'] ?? '');
+        $this->assertMatchesRegularExpression(
+            '/data-date="2027-07-02"\s+data-state="occupied"\s+data-unit-block="1"/',
+            $body
+        );
+        $this->assertStringContainsString('Occupé — et réservé par l&#039;unité', $body);
+    }
+
+    public function testTheCalendarOffersNoDateFormNorQuantityAnyMore(): void
+    {
+        $this->loginAsManager();
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar'
+        )->getBody();
+
+        $this->assertStringContainsString('id="rental-block-calendar"', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/blocage"', $body);
+        $this->assertStringNotContainsString('name="units"', $body);
+        $this->assertStringContainsString('rental-block-days.js', $body);
+    }
+
+    public function testAPeriodsReasonIsGivenFromTheList(): void
+    {
+        $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => '  Chantier toiture ',
+        ]);
+
+        $this->assertSame('Chantier toiture', $this->blockRepository->findById($blockId)?->reason);
+    }
+
+    public function testAnotherAssetsPeriodsReasonCannotBeChanged(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->blockRepository->create($this->otherAssetId, $this->futureDay(10), $this->futureDay(12), 'X', null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $foreign,
+            'reason' => 'Pris',
+        ]);
+
+        $this->assertSame('X', $this->blockRepository->findById($foreign)?->reason);
+    }
+
+    private function futureDay(int $days): string
+    {
+        return (new \DateTimeImmutable('today'))->modify('+' . $days . ' days')->format('Y-m-d');
+    }
+
+    /**
+     * The calendar's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postCalendarDays(string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $path = '/mes-locations/{slug}/calendrier/jours';
+
+        $router = new Router();
+        $router->addRoute('POST', $path, RentalManagementController::class, 'calendarDays', 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                '/mes-locations/' . $slug . '/calendrier/jours',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── Internal comments never cross the boundary ──────────────────────
@@ -1844,7 +2040,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->createBooking();
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier toiture', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier toiture', null);
 
         $body = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -3864,16 +4060,17 @@ class RentalManagementControllerTest extends TestCase
     // ── Fields the site renders the same way everywhere ─────────────────
 
     /**
-     * The calendar's blocking form and the compliance register were the
+     * The calendar's period list and the compliance register were the
      * last two hand-written control stacks in the managed space: labels
      * whose classes did not match the rest of the site, and help texts no
      * screen reader ever announced because nothing pointed at them. The
      * `form_field` partial renders label, control, help text and required
      * marker as one unit with `aria-describedby` wired (design.md §7.9).
      */
-    public function testTheBlockingFormIsRenderedThroughTheSharedField(): void
+    public function testAPeriodsReasonFieldIsRenderedThroughTheSharedField(): void
     {
         $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
 
         $html = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -3881,14 +4078,8 @@ class RentalManagementControllerTest extends TestCase
             'calendar'
         )->getBody();
 
-        // The required marker comes from the partial, not from a « * »
-        // somebody typed into the label.
         $this->assertMatchesRegularExpression(
-            '#<label class="form-label small" for="block-start">\s*Du\s*<span class="text-danger" aria-hidden="true">\*</span>#',
-            $html
-        );
-        $this->assertMatchesRegularExpression(
-            '#<input type="date" class="form-control form-control-sm" id="block-end"\s+name="end"\s+value=""\s+required#',
+            '#<label class="form-label small" for="block-reason-' . $blockId . '">\s*Motif#',
             $html
         );
     }

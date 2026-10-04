@@ -537,7 +537,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testAManualBlockOnTheSamePeriodStopsAConfirmation(): void
     {
-        $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 1, 'Chantier toiture', 1);
+        $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 'Chantier toiture', 1);
 
         $this->expectException(RentalException::class);
 
@@ -1831,7 +1831,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $this->service->confirm($booking, $this->asset(), 1, $this->now());
 
-        $blockId = $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 1, 'Chantier', 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 'Chantier', 1);
 
         $this->assertNotNull($this->blockRepository->findById($blockId));
         $this->assertSame(BookingStatus::CONFIRMED, $this->reload($booking)->status);
@@ -1840,7 +1840,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testABlockMakesTheDaysUnavailable(): void
     {
-        $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $occupancies = $this->blockRepository->findOccupancies(
             $this->assetId,
@@ -1857,7 +1857,7 @@ class RentalOperationsServiceTest extends TestCase
     {
         // A block and a booking must be indistinguishable to the public,
         // which they are because Occupancy has no discriminator.
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, 'Chantier toiture', 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 'Chantier toiture', 1);
         $block = $this->blockRepository->findById($blockId);
         $this->assertNotNull($block);
 
@@ -1869,14 +1869,14 @@ class RentalOperationsServiceTest extends TestCase
     {
         $this->expectException(RentalException::class);
 
-        $this->blockService->create($this->assetId, '2027-09-05', '2027-09-01', 1, null, 1);
+        $this->blockService->create($this->assetId, '2027-09-05', '2027-09-01', null, 1);
     }
 
     public function testAMalformedBlockDateIsRefused(): void
     {
         $this->expectException(RentalException::class);
 
-        $this->blockService->create($this->assetId, '05/09/2027', '2027-09-10', 1, null, 1);
+        $this->blockService->create($this->assetId, '05/09/2027', '2027-09-10', null, 1);
     }
 
     public function testABlockCannotBeDeletedThroughAnotherAsset(): void
@@ -1884,7 +1884,7 @@ class RentalOperationsServiceTest extends TestCase
         // The asset check is the real guard: a block id alone must not let a
         // manager of one asset delete another asset's block.
         $otherAssetId = $this->stockAsset(4);
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $this->expectException(RentalException::class);
 
@@ -1893,7 +1893,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testDeletingABlockRemovesIt(): void
     {
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $this->blockService->delete($this->assetId, $blockId);
 

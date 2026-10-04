@@ -61,6 +61,16 @@ final class DayState
      */
     public const STATE_DEPARTING = 'departing';
 
+    /**
+     * Free in the morning, occupied from the afternoon: the first day of a
+     * range that is taken up during the day, so a previous range may end on
+     * it. The exact counterpart of STATE_DEPARTING — the same half-open
+     * ("nights") reading seen from the other end — and first-class for the
+     * same reason: shown fully occupied, the morning a visitor could still
+     * leave on would read as taken.
+     */
+    public const STATE_ARRIVING = 'arriving';
+
     /** Day is inside the visitor's current selection. */
     public const STATE_SELECTED = 'selected';
 

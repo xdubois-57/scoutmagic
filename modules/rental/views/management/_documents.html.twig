@@ -257,6 +257,18 @@
             </div>
         {% endif %}
 
+        {# **No `data-submit-lock` here, deliberately** (issue #756). Every
+           form in these panels is intercepted by `rental-booking.js` and
+           sent with `fetch` instead of navigating, and the lock is built
+           for the opposite case: a form that posts, leaves, and takes
+           several seconds doing it. The lock's listener sits on the form
+           and fires at the target, while the interceptor sits on
+           `[data-rental-booking]`, an ancestor, and fires later in the
+           bubble phase — so the lock cannot tell « nobody sent this »
+           from « somebody is sending it by fetch », and would release the
+           button in the middle of the upload. `api.withDisabled` already
+           holds the button for exactly as long as the request lasts.
+           `UxConventionsTest` keeps this true. #}
         <form method="post" action="/mes-locations/document-ajouter" enctype="multipart/form-data"
               class="row g-2 align-items-end mt-2">
             {{ csrf_field()|raw }}
@@ -264,6 +276,10 @@
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
             <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
             <div class="col-12 col-md-4">
+                {# `drop-zone-preview`: this zone takes a PDF or a photograph
+                   of one, so it asks for the thumbnail and gets it only for
+                   the photographs — a PDF has no preview to draw and keeps
+                   its name alone (#756). #}
                 {% include 'partials/drop_zone.html.twig' with {
                     id: 'document-drop-zone',
                     input_id: 'document-file',
@@ -271,7 +287,7 @@
                     input_label: 'Document à ajouter',
                     accept: '.pdf,image/jpeg,image/png,image/webp,image/heic',
                     message: 'Déposez le document ici, ou cliquez pour le choisir',
-                    data: { 'drop-zone-for': 'document-file' },
+                    data: { 'drop-zone-for': 'document-file', 'drop-zone-preview': 'image' },
                 } only %}
                 <output class="form-text d-block" id="document-drop-zone-selection"></output>
             </div>

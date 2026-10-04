@@ -41,8 +41,12 @@
             </div>
         {% endif %}
 
+        {# `data-submit-lock` (issue #756): same several-second wait as the
+           photos page, same second tap. No thumbnail here — this zone takes
+           a contract or a plan as readily as a picture, and a preview it
+           could only draw half the time would be worse than none. #}
         <form method="post" action="/chefs/camps/sejours/{{ camp.id }}/documents"
-              enctype="multipart/form-data" class="card">
+              enctype="multipart/form-data" class="card" data-submit-lock>
             <div class="card-body">
                 <h2 class="h6 mb-3">Joindre un document</h2>
                 {{ csrf_field()|raw }}
@@ -76,4 +80,5 @@
     {# Names the file that was picked: the zone's input is visually hidden,
        so a zone that says nothing looks the same before and after a drop. #}
     <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
 {% endblock %}

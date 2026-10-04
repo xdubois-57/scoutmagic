@@ -64,3 +64,9 @@ DROP TABLE IF EXISTS rental_booking_events;
 -- copy that left the clear value behind would leave the defect behind too.
 -- Dropping it in the same release would race that backfill and lose the
 -- country of every booking that had one.
+
+-- A manual block's quantity. A period the unit blocks now always takes the
+-- whole asset, whatever its number of units (#708, IT-07): a stored count
+-- would leave units bookable on a closed period the day the asset grew.
+-- The site is in test: partial blocks are not carried over.
+ALTER TABLE rental_blocks DROP COLUMN units;
