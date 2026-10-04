@@ -1961,7 +1961,8 @@ function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): arr
         return [
             'ok' => false,
             'locked_until' => $lockedUntil,
-            'error' => 'Trop de tentatives — nouvel essai possible dans ' . bootstrapDelayLabel($lockedUntil - $now) . '.',
+            'error' => 'Trop de tentatives — nouvel essai possible dans '
+                . bootstrapDelayLabel($lockedUntil - $now) . '.',
         ];
     }
 
@@ -1986,7 +1987,8 @@ function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): arr
         ? [
             'ok' => false,
             'locked_until' => $now + $lock,
-            'error' => 'Jeton invalide. Trop de tentatives — nouvel essai possible dans ' . bootstrapDelayLabel($lock) . '.',
+            'error' => 'Jeton invalide. Trop de tentatives — nouvel essai possible dans '
+                . bootstrapDelayLabel($lock) . '.',
         ]
         : ['ok' => false, 'error' => 'Jeton invalide.'];
 }
@@ -2010,7 +2012,11 @@ function bootstrapRequestHost(array $server): ?string
 {
     $host = $server['HTTP_HOST'] ?? null;
 
-    return is_string($host) && preg_match('/^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/', $host) === 1 ? strtolower($host) : null;
+    if (!is_string($host) || preg_match('/^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/', $host) !== 1) {
+        return null;
+    }
+
+    return strtolower($host);
 }
 
 /**
@@ -2042,7 +2048,8 @@ function bootstrapCheckSiteHttps(string $docRoot, ?string $host, callable $httpG
 
     $status = (int) ($result['status'] ?? 0);
     if ($status === 0) {
-        return ['ok' => false, 'detail' => "https://{$host}/ ne répond pas en HTTPS : le certificat est absent, expiré "
+        return ['ok' => false, 'detail' => "https://{$host}/ ne répond pas en HTTPS : le certificat est absent, "
+            . "expiré "
             . "ou ne correspond pas à cette adresse, ou le port 443 est fermé. Activez le certificat HTTPS dans le "
             . "panneau de votre hébergeur (souvent « Let's Encrypt »), attendez qu'il soit émis, puis relancez la "
             . "vérification."];
@@ -2054,7 +2061,8 @@ function bootstrapCheckSiteHttps(string $docRoot, ?string $host, callable $httpG
     }
     if (trim((string) ($result['body'] ?? '')) !== $content) {
         return ['ok' => false, 'detail' => "https://{$host}/ sert un autre dossier que celui-ci : l'adresse HTTPS et "
-            . "l'adresse HTTP ne mènent pas au même endroit chez votre hébergeur. Faites-les pointer vers ce dossier, "
+            . "l'adresse HTTP ne mènent pas au même endroit chez votre hébergeur. "
+            . "Faites-les pointer vers ce dossier, "
             . "puis relancez la vérification."];
     }
 
@@ -2113,7 +2121,10 @@ function bootstrapParseArchiveComment(string $comment): ?array
 function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, callable $httpGet): array
 {
     if (empty($state['gate_passed']) || empty($state['install_target'])) {
-        return ['ok' => false, 'detail' => "L'installation n'est pas terminée : l'archive ne peut pas encore être envoyée."];
+        return [
+            'ok' => false,
+            'detail' => "L'installation n'est pas terminée : l'archive ne peut pas encore être envoyée.",
+        ];
     }
 
     $incoming = $state['install_target'] . '/' . BOOTSTRAP_INCOMING_DIR;
@@ -2135,8 +2146,10 @@ function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, cal
         } finally {
             @unlink($incoming . '/' . $canary);
         }
-        if (!bootstrapEvaluateProtectionProbe((int) ($probe['status'] ?? 0), (string) ($probe['body'] ?? ''), $content)) {
-            return ['ok' => false, 'detail' => "Le dossier de réception de l'archive n'est pas prouvé inaccessible depuis "
+        $status = (int) ($probe['status'] ?? 0);
+        if (!bootstrapEvaluateProtectionProbe($status, (string) ($probe['body'] ?? ''), $content)) {
+            return ['ok' => false, 'detail' => "Le dossier de réception de l'archive n'est pas prouvé "
+                . "inaccessible depuis "
                 . "le web : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration."];
         }
     }
@@ -2713,7 +2726,8 @@ function bootstrapHandleChooseArchive(string $docRoot): void
         unset($access['release_version']);
     } elseif (!is_string($version) || !bootstrapIsReleaseVersion($version)) {
         bootstrapSendJson(['ok' => false, 'error' => 'Cette sauvegarde vient d\'une version de développement, qui '
-            . 'n\'est pas publiée : installez sans sauvegarde, puis envoyez-la dans l\'assistant de configuration.'], $buffering);
+            . 'n\'est pas publiée : installez sans sauvegarde, puis envoyez-la dans l\'assistant de '
+            . 'configuration.'], $buffering);
         return;
     } else {
         $access['release_version'] = $version;
@@ -2880,7 +2894,8 @@ aux fichiers de ce serveur : rien d'autre ne se fait avant.</p>
 {$lockedNote}
 <form id="token-form">
   <label for="token-input">Jeton d'installation</label><br>
-  <input type="text" id="token-input" autocomplete="off" spellcheck="false" style="width:100%;font-family:monospace;padding:.5rem">
+  <input type="text" id="token-input" autocomplete="off" spellcheck="false"
+    style="width:100%;font-family:monospace;padding:.5rem">
   <p><button type="submit" id="token-submit">Continuer</button></p>
 </form>
 <div id="token-result" class="alert" hidden></div>
@@ -2899,9 +2914,15 @@ HTML;
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScoutMagic — Installation</title>
 <style>
-  body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5;
+  }
   h1 { font-size: 1.4rem; }
-  button { min-height: 44px; font-size: 1rem; padding: .6rem 1.2rem; border-radius: .5rem; border: none; background: #0d6efd; color: #fff; cursor: pointer; }
+  button {
+    min-height: 44px; font-size: 1rem; padding: .6rem 1.2rem; border-radius: .5rem;
+    border: none; background: #0d6efd; color: #fff; cursor: pointer;
+  }
   .alert { border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
   .alert-error { background: #fdecea; color: #611a15; }
   [hidden] { display: none !important; }
@@ -3310,7 +3331,9 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
           method: 'POST',
           headers: { 'Content-Type': 'application/octet-stream' },
           body: file.slice(offset, end)
-        }).then(function (res) { return res.json().then(function (data) { return { status: res.status, data: data }; }); })
+        }).then(function (res) {
+          return res.json().then(function (data) { return { status: res.status, data: data }; });
+        })
           .then(function (reply) {
             if (reply.status === 409 && retries < 5) {
               retries++;
