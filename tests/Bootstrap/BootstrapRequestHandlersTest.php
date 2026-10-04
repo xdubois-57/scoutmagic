@@ -735,6 +735,17 @@ class BootstrapRequestHandlersTest extends TestCase
 
         $this->withRequestBody(['version' => null], fn () => \bootstrapHandleChooseArchive($this->tempDir));
         $this->assertArrayNotHasKey('release_version', \bootstrapReadAccess($this->tempDir));
+
+        // A choice that cannot be recorded is refused, never reported as made.
+        unlink($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        mkdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $json = json_decode($this->outputOf(
+            (string) json_encode(['version' => '1.4.2']),
+            fn () => \bootstrapHandleChooseArchive($this->tempDir)
+        ), true);
+        rmdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('écriture', (string) ($json['error'] ?? ''));
     }
 
     #[RunInSeparateProcess]

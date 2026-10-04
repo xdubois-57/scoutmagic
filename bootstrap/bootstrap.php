@@ -2912,7 +2912,14 @@ function bootstrapHandleChooseArchive(string $docRoot): void
     } else {
         $access['release_version'] = $version;
     }
-    bootstrapWriteAccess($docRoot, $access);
+    // Unrecorded, the choice would silently install the latest release —
+    // found out only after the whole archive was sent.
+    if (!bootstrapWriteAccess($docRoot, $access)) {
+        bootstrapSendJson(['ok' => false, 'error' => "Ce dossier n'est pas accessible en écriture pour PHP : le "
+            . "choix de la sauvegarde ne peut pas être enregistré. Donnez à PHP le droit d'écrire dans ce dossier, "
+            . 'puis réessayez.'], $buffering);
+        return;
+    }
 
     bootstrapSendJson(['ok' => true, 'version' => $access['release_version'] ?? null], $buffering);
 }
@@ -3499,9 +3506,12 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
   // ————— Sending the archive, resumable (#719, B6) —————
   // After the gate, so the folder it lands in is the installed site's own;
   // in chunks small enough for any post_max_size, each one appended only
-  // at the offset the server holds, so a dropped request resumes. When
-  // the server cannot prove the folder unreachable from the web, nothing
-  // is sent and the wizard takes the upload instead.
+  // at the offset the server holds, so a dropped request resumes: a
+  // network error, a 5xx or a body that is not JSON waits, asks the
+  // server again where this same file stands (archive-begin), and goes
+  // on from there — five times in a row at most. A refusal (403, 413,
+  // 422) is final. When the server cannot prove the folder unreachable
+  // from the web, nothing is sent and the wizard takes the upload instead.
   function uploadArchive() {
     var file = chosenArchive.file;
     logLine("Préparation de l'envoi de la sauvegarde…");
@@ -3514,6 +3524,20 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
       var chunk = begin.chunk_bytes || 2097152;
       var lastReported = -1;
       var retries = 0;
+      var failures = 0;
+
+      function resume(err) {
+        if (failures >= 5) { throw err; }
+        failures++;
+        logLine('Envoi interrompu (' + (err && err.message ? err.message : err) + ') — reprise dans '
+          + (failures * 2) + ' s…');
+        return new Promise(function (resolve) { setTimeout(resolve, failures * 2000); })
+          .then(function () { return postJson('?action=archive-begin', identity); })
+          .then(function (again) {
+            if (!again.ok) { throw new Error(again.detail || "l'envoi ne peut pas reprendre"); }
+            return next(again.received || 0);
+          }, function (beginErr) { return resume(beginErr); });
+      }
 
       function next(offset) {
         // The server resumes only a shorter copy of this same file: an
@@ -3526,17 +3550,20 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
           headers: { 'Content-Type': 'application/octet-stream' },
           body: file.slice(offset, end)
         }).then(function (res) {
-          return res.json().then(function (data) { return { status: res.status, data: data }; });
+          return res.json().then(function (data) { return { status: res.status, data: data }; },
+            function () { return { status: res.status, data: {} }; });
         })
           .then(function (reply) {
             if (reply.status === 409 && retries < 5) {
               retries++;
               return next(reply.data.received || 0);
             }
-            if (reply.status !== 200) {
-              throw new Error(reply.data.error || ('Erreur HTTP ' + reply.status));
-            }
+            var error = new Error(reply.data.error || ('Erreur HTTP ' + reply.status));
+            // A refusal is final; anything else (5xx, a proxy's page) is transient.
+            var refused = reply.status === 403 || reply.status === 413 || reply.status === 422;
+            if (reply.status !== 200) { return refused ? Promise.reject(error) : resume(error); }
             retries = 0;
+            failures = 0;
             var percent = Math.floor((reply.data.received / file.size) * 100);
             if (percent >= lastReported + 10 || reply.data.done) {
               lastReported = percent;
@@ -3547,7 +3574,7 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
               return;
             }
             return next(reply.data.received);
-          });
+          }, function (networkErr) { return resume(networkErr); });
       }
 
       return next(begin.received || 0);
