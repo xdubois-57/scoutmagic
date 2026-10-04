@@ -12,22 +12,8 @@ paths: /setup
 related: reglages, sauvegardes, config-notifications
 ---
 
-La page « Installation & serveur » regroupe les fondations du site.
-C'est elle qui sert d'assistant à la toute première installation, puis
-reste la page de l'identité du site, de la base de données et de la
-tâche cron.
-
-Une fois le site installé, elle ne garde que ce qui relève du serveur :
-l'envoi d'e-mails et les comptes ont chacun leur page.
-
-## L'identité du site
-
-Le nom de l'unité, le nom court (cinq caractères au plus — il préfixe
-l'objet de tous les e-mails, par exemple « [25SV] ») et l'adresse du
-site. Le logo de l'unité se téléverse ici : il devient l'icône de
-l'application installée et le favicon. Après un changement de logo, un
-lien permet de prévenir les membres sur iPhone, qui doivent
-réinstaller l'application pour voir la nouvelle icône.
+« Installation & serveur » sert à la première installation puis aux réglages
+qui dépendent directement de l'hébergement.
 
 ## La base de données
 
@@ -42,17 +28,14 @@ tant qu'un test n'a pas réussi.
 
 ## L'envoi d'e-mails, pendant l'installation seulement
 
-L'assistant demande le mode d'envoi et ses accès, parce qu'un site
-doit pouvoir écrire avant qu'on puisse ouvrir une page de
-configuration. « Envoyer un test » les essaie sans enregistrer, et
-« Configuration DNS requise » donne les enregistrements à créer chez
-votre hébergeur de domaine.
+L'assistant demande le mode d'envoi et ses accès. « Envoyer un test » les
+essaie sans enregistrer et « Configuration DNS requise » donne les
+enregistrements à créer chez votre hébergeur de domaine.
 
 **Ensuite, ces réglages ne sont plus ici.** Le relais se règle dans
 « Courrier sortant › Fournisseurs » ; un test s'envoie depuis la
-« Sonde », qui passe par la vraie chaîne ; les adresses, la clé de
-signature, sa régénération et la vérification DNS vivent dans
-« Courrier sortant › Authentification ».
+« Sonde » ; les adresses, la clé de signature et la vérification DNS vivent
+dans « Courrier sortant › Authentification ».
 
 ## La tâche cron
 
@@ -75,17 +58,12 @@ configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 
 ## Les mises à jour automatiques
 
-Après l'installation, la page « Configuration › Maintenance » permet
-d'activer les mises à jour automatiques et de générer le secret utilisé
-pour authentifier GitHub. Dans les paramètres du dépôt GitHub, ajoutez
-alors un webhook avec l'URL `https://votre-domaine.be/api/webhook/github`,
-le type de contenu `application/json`, le secret affiché par ScoutMagic et
-l'événement **Releases** uniquement.
-
-Le webhook avertit immédiatement le site lorsqu'une nouvelle release est
-publiée. Le canal stable dispose aussi d'une vérification quotidienne de
-secours si une livraison du webhook est manquée ; le détail du mécanisme
-est documenté dans `ARCHITECTURE.md` §8.17.
+Dans « Configuration › Maintenance », activez les mises à jour et générez le
+secret. Côté GitHub, créez un webhook vers
+`https://votre-domaine.be/api/webhook/github`, en `application/json`, avec ce
+secret et l'événement **Releases** uniquement. Le canal stable vérifie aussi
+les releases chaque jour si le webhook manque une livraison. Le mécanisme est
+détaillé dans `ARCHITECTURE.md` §8.17.
 
 ## Le compte administrateur, pendant l'installation seulement
 
