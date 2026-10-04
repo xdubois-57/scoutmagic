@@ -2192,6 +2192,58 @@ class RentalManagementControllerTest extends TestCase
      * it leaves — and the send says, before anything goes, to whom and how
      * long the dates stay held.
      */
+    /**
+     * The dashboard's contract step warns about an empty landlord address
+     * as the Documents page does — until the address is filled in, and no
+     * longer once the contract is sent and its text locked.
+     */
+    public function testTheDashboardContractStepWarnsWhileTheLandlordHasNoAddress(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $step = self::step($body, 'contract_generated');
+        $this->assertStringContainsString('data-landlord-address-missing', $step);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reglages#bailleur"', $step);
+
+        $this->assetRepository->saveLandlord(
+            $this->assetId,
+            'ASBL Les Amis du Local',
+            'Place du Parc 3, 1300 Wavre',
+            null
+        );
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('data-landlord-address-missing', $body);
+    }
+
+    public function testTheDashboardWarningGoesOnceTheContractIsSent(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $document->id,
+        ]);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString(
+            'data-landlord-address-missing',
+            $body,
+            'the sent text can no longer change'
+        );
+    }
+
     public function testTheContractIsGeneratedThenSentFromTheDashboard(): void
     {
         $this->loginAsManager();
