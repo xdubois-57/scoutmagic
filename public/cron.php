@@ -511,6 +511,9 @@ $deleted = $journalService->cleanup($retentionDays);
 // LoginThrottler::purgeStale() / PdfThumbnailCache::purgeStale()).
 (new \Core\Security\LoginThrottler($connection))->purgeStale();
 \Core\File\PdfThumbnailCache::purgeStale(dirname(__DIR__) . '/storage');
+// A portable archive deposited for a restore that never happened (#719):
+// a full copy of a unit's data, gone after a week untouched.
+(new \Core\Maintenance\Portable\DepositedArchive(dirname(__DIR__)))->purgeAbandoned(time());
 
 if ($processed > 0 || $deleted > 0) {
     echo "Processed {$processed} task(s), deleted {$deleted} old journal entry/entries.\n";

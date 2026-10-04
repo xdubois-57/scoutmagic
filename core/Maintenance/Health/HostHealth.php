@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Health;
 
 use Core\Config\SettingService;
+use Core\Http\InsecureBrowserAccess;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Scheduler\CronHealth;
@@ -104,6 +105,7 @@ final class HostHealth
             procOpen: $pdf->canUseProcOpen(),
             // The web PHP's tool: it compresses an upload as it arrives.
             pdfBackend: $pdf->detectBackend(),
+            lastInsecureAccessAt: (new InsecureBrowserAccess($this->settingService))->lastObservedAt(),
             measuredAt: time(),
         );
     }
@@ -113,6 +115,7 @@ final class HostHealth
     {
         return [
             self::cronCheck($facts->cron),
+            self::secureConnection($facts->lastInsecureAccessAt, $facts->measuredAt),
             self::webExecution($facts),
             self::cronExecution($facts),
             self::video($facts),
@@ -512,6 +515,32 @@ final class HostHealth
             $consequence,
             "Passer à {$engine} {$testedLabel} ou plus récent, la version sur laquelle "
                 . 'chaque mise à jour de ScoutMagic est testée.'
+        );
+    }
+
+    /**
+     * The same state as the « Connexion sécurisée » attention point and
+     * notification (#751): what browsers observed, read from
+     * {@see InsecureBrowserAccess}, never the scheme PHP sees — which,
+     * behind a host terminating TLS, is HTTP on a perfectly secure site.
+     */
+    public static function secureConnection(?int $lastInsecureAccessAt, int $now): HostCheck
+    {
+        $active = InsecureBrowserAccess::activeAt($lastInsecureAccessAt, $now);
+
+        return new HostCheck(
+            'secure_connection',
+            'Connexion sécurisée',
+            $active ? HostCheck::STATE_MISSING : HostCheck::STATE_OK,
+            match (true) {
+                $active && $lastInsecureAccessAt !== null => 'Accès non sécurisé observé '
+                    . InsecureBrowserAccess::ago($lastInsecureAccessAt, $now),
+                $lastInsecureAccessAt !== null => 'Aucun accès non sécurisé depuis plus de 24 h',
+                default => 'Aucun accès non sécurisé observé',
+            },
+            'Sans elle, les mots de passe et les données des membres circulent en clair entre le '
+                . 'navigateur et le serveur.',
+            'Activer le certificat HTTPS de l\'hébergement et rediriger l\'adresse en http:// vers https://.'
         );
     }
 

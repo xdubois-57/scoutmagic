@@ -301,7 +301,21 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Service\RentalConditionsService(
                 new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
                 new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
-            )
+            ),
+            // The contract's two signatures (#708, IT-16).
+            $this->signedContractService = new \Modules\Rental\Service\RentalSignedContractService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->signatureRepository = new \Modules\Rental\Repository\RentalManagerSignatureRepository(
+                    $this->pdo,
+                    $this->encryption
+                ),
+                $bookingAudit,
+                $this->recordingMailService(),
+                new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
+                $journal
+            ),
+            $this->signatureRepository
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -324,6 +338,9 @@ class RentalManagementControllerTest extends TestCase
      * reached it, with which manager's word, and — for the ones a renter
      * can still act on — with a token at all.
      */
+    private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
+    private \Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository;
+
     private function recordingMailService(): \Modules\Rental\Service\RentalBookingMailService
     {
         $mock = $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class);
@@ -1118,7 +1135,7 @@ class RentalManagementControllerTest extends TestCase
 
     /**
      * A confirmed booking with a step of the unit's left — here the
-     * contract to send — stays on « À traiter », and the line names the step
+     * contract to generate — stays on « À traiter », and the line names the step
      * (#708, IT-12). It used to vanish the moment it was confirmed.
      */
     public function testAConfirmedBookingWithAUnitStepLeftIsOnTheList(): void
@@ -1131,7 +1148,7 @@ class RentalManagementControllerTest extends TestCase
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
-        $this->assertStringContainsString('À faire : envoyer le contrat', $body);
+        $this->assertStringContainsString('À faire : générer le contrat', $body);
         $this->assertStringNotContainsString('Aucune demande en attente.', $body);
     }
 
@@ -2187,6 +2204,314 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * The contract is generated, read, then sent from its own steps on the
+     * dashboard (#708, IT-16) — two gestures, so the PDF can be read before
+     * it leaves — and the send says, before anything goes, to whom and how
+     * long the dates stay held.
+     */
+    /**
+     * The dashboard's contract step warns about an empty landlord address
+     * as the Documents page does — until the address is filled in, and no
+     * longer once the contract is sent and its text locked.
+     */
+    public function testTheDashboardContractStepWarnsWhileTheLandlordHasNoAddress(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $step = self::step($body, 'contract_generated');
+        $this->assertStringContainsString('data-landlord-address-missing', $step);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reglages#bailleur"', $step);
+
+        $this->assetRepository->saveLandlord(
+            $this->assetId,
+            'ASBL Les Amis du Local',
+            'Place du Parc 3, 1300 Wavre',
+            null
+        );
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('data-landlord-address-missing', $body);
+    }
+
+    public function testTheDashboardWarningGoesOnceTheContractIsSent(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $document->id,
+        ]);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString(
+            'data-landlord-address-missing',
+            $body,
+            'the sent text can no longer change'
+        );
+    }
+
+    public function testTheContractIsGeneratedThenSentFromTheDashboard(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'dashboard',
+            'document_type' => 'contract',
+        ]);
+        $this->assertStringEndsWith(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id,
+            (string) $response->getHeaders()['Location']
+        );
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $nextStep = self::panel($body, 'next-step');
+        $this->assertStringContainsString('data-contract-command="send"', $nextStep);
+        $this->assertStringContainsString('à jeanne@example.be ?', html_entity_decode($nextStep));
+        $this->assertStringContainsString("Les dates restent bloquées jusqu'au", html_entity_decode($nextStep));
+
+        $generated = self::step($body, 'contract_generated');
+        $this->assertStringContainsString('Relire « Contrat v1 »', html_entity_decode($generated));
+        $this->assertStringContainsString('Générer à nouveau', $generated);
+        $this->assertStringContainsString('Ajuster le', $generated);
+
+        $document = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'dashboard',
+            'document_id' => (string) $document->id,
+        ]);
+
+        // Once it has gone its text is locked: nothing to regenerate or
+        // adjust, only the version that left to read again.
+        $sent = self::step($this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'contract_generated');
+        $this->assertStringContainsString('Relire « Contrat v1 »', html_entity_decode($sent));
+        $this->assertStringNotContainsString('Générer à nouveau', $sent);
+        $this->assertStringNotContainsString('Ajuster le', $sent);
+    }
+
+    // ── The countersignature (#708, IT-16) ──────────────────────────────
+
+    /** A booking whose contract went out and whose renter sent a signed photo. */
+    private function bookingWithASignedCopy(): array
+    {
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
+        ]);
+
+        $image = imagecreatetruecolor(600, 800);
+        ob_start();
+        imagejpeg($image);
+        $bytes = (string) ob_get_clean();
+        @mkdir($this->storagePath . '/rental/documents', 0755, true);
+        $relative = 'rental/documents/' . bin2hex(random_bytes(8)) . '.jpg';
+        file_put_contents($this->storagePath . '/' . $relative, $bytes);
+        $fileId = $this->fileRepository->create($relative, 'copie.jpg', 'image/jpeg', strlen($bytes), 'identified', 'rental', null);
+
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+        $copy = $this->signedContractService->receiveCopy($fresh, $asset, $fileId);
+
+        return [$fresh, $copy];
+    }
+
+    private static function signatureDataUrl(): string
+    {
+        $image = imagecreatetruecolor(300, 100);
+        ob_start();
+        imagepng($image);
+
+        return 'data:image/png;base64,' . base64_encode((string) ob_get_clean());
+    }
+
+    /**
+     * The copy is opened and answered from its step; a manager with no
+     * signature yet is sent to record one, and brought straight back.
+     */
+    public function testACopyWaitsOnTheDashboardAndAManagerWithoutASignatureIsSentToRecordOne(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithASignedCopy();
+
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('href="#contresignature"', self::panel($body, 'next-step'));
+        $step = self::step($body, 'contract_countersigned');
+        $this->assertStringContainsString('Ouvrir la copie reçue', $step);
+        $this->assertStringContainsString(
+            'href="/mes-locations/ma-signature?retour=' . rawurlencode('/mes-locations/local-saint-georges/reservations/' . $booking->id) . '"',
+            $step
+        );
+        $this->assertStringNotContainsString('/mes-locations/contrat-contresigner', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($body, 'signed_copy_received'));
+    }
+
+    public function testAManagerCountersignsWithTheirOwnSignature(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->signatureRepository->save(1, base64_decode(substr(self::signatureDataUrl(), 22)), new \DateTimeImmutable());
+
+        $before = self::step($this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'contract_countersigned');
+        $this->assertStringContainsString('/mes-locations/contrat-contresigner', $before);
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+        ]);
+
+        $final = $this->signedContractService->finalContract($booking->id);
+        $this->assertNotNull($final);
+        $this->assertSame(\Modules\Rental\Document\DocumentType::SIGNED_CONTRACT, $final->type);
+        $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_countersigned'));
+    }
+
+    public function testAManagerRefusesACopyWithAReasonAndTheRenterMaySendAnother(): void
+    {
+        $this->loginAsManager();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+
+        $this->post('/mes-locations/copie-refuser', 'refuseSignedCopy', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'reason' => '',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertNotNull($this->signedContractService->pendingCopy($booking->id));
+
+        $this->post('/mes-locations/copie-refuser', 'refuseSignedCopy', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+            'reason' => 'La deuxième page n\'est pas signée.',
+        ]);
+
+        $this->assertNull($this->signedContractService->pendingCopy($booking->id));
+        $this->assertTrue($this->signedContractService->acceptsCopy($booking));
+        $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        // Back to waiting on the renter, and the reason is on the step.
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($body, 'signed_copy_received'));
+        $this->assertStringContainsString('pas signée', html_entity_decode(self::step($body, 'contract_countersigned')));
+    }
+
+    /** Drawn, kept, shown to its owner — and to nobody else. */
+    public function testAManagerRecordsTheirSignatureAndOnlyTheySeeIt(): void
+    {
+        $this->loginAsManager();
+        $this->assertSame(200, $this->get('/mes-locations/ma-signature', '/mes-locations/ma-signature', 'mySignature')->getStatusCode());
+
+        $response = $this->post('/mes-locations/ma-signature', 'saveSignature', [
+            'signature_data' => self::signatureDataUrl(),
+            'retour' => '/mes-locations/local-saint-georges/reservations/7',
+        ]);
+        $this->assertSame('/mes-locations/local-saint-georges/reservations/7', $response->getHeaders()['Location'] ?? null);
+        $this->assertTrue($this->signatureRepository->has(1));
+
+        $image = $this->get('/mes-locations/ma-signature/image', '/mes-locations/ma-signature/image', 'signatureImage');
+        $this->assertSame('image/png', $image->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringStartsWith("\x89PNG", (string) $image->getBody());
+
+        // Another manager of the very same asset gets nothing.
+        $this->addManager($this->assetId, 'other@test.be');
+        AuthSession::login(2, 'other@test.be', 'identified');
+        $this->assertSame(404, $this->get('/mes-locations/ma-signature/image', '/mes-locations/ma-signature/image', 'signatureImage')->getStatusCode());
+
+        // And a return address from elsewhere is never followed.
+        AuthSession::login(1, 'manager@test.be', 'identified');
+        $response = $this->post('/mes-locations/ma-signature', 'saveSignature', [
+            'signature_data' => self::signatureDataUrl(),
+            'retour' => 'https://ailleurs.example/piege',
+        ]);
+        $this->assertSame('/mes-locations/ma-signature', $response->getHeaders()['Location'] ?? null);
+
+        $this->post('/mes-locations/ma-signature/supprimer', 'deleteSignature', []);
+        $this->assertFalse($this->signatureRepository->has(1));
+    }
+
+    public function testSomeoneWhoManagesNothingKeepsNoSignatureHere(): void
+    {
+        AuthSession::login(9, 'nobody@test.be', 'identified');
+
+        $this->assertSame(403, $this->get('/mes-locations/ma-signature', '/mes-locations/ma-signature', 'mySignature')->getStatusCode());
+        $this->post('/mes-locations/ma-signature', 'saveSignature', ['signature_data' => self::signatureDataUrl()]);
+        $this->assertFalse($this->signatureRepository->has(9));
+    }
+
+    /**
+     * Once the contract has gone, Documents generates a new version of it:
+     * the dashboard step no longer does, and a price changed on a
+     * confirmed booking says the contract is to be generated again.
+     */
+    public function testTheDocumentsPageGeneratesANewVersionOnceTheContractWasSent(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
+        ]);
+
+        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString(
+            'Générer une nouvelle version du contrat',
+            (string) preg_replace('/\s+/', ' ', $body)
+        );
+    }
+
+    /**
+     * Documents still lists the contract and resends it, but no longer
+     * generates it, nor links to its text (#708, IT-16).
+     */
+    public function testTheDocumentsPageNoLongerGeneratesTheContract(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringNotContainsString('Générer le contrat', $body);
+        $this->assertStringNotContainsString('nouvelle version du', $body, 'nothing sent yet');
+        $this->assertStringNotContainsString('/document/contract"', $body);
+        $this->assertStringContainsString('Générer la facture', $body);
+    }
+
+    /**
      * A milestone belonging to something this installation cannot do at
      * all still renders greyed — that is what the applicability flag is
      * for, and ticking every box unconditionally would be the opposite
@@ -2335,8 +2660,10 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre réponse : envoyez le contrat.', $nextStep);
-        $this->assertStringContainsString('Préparer le contrat', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre réponse : générez le contrat.', $nextStep);
+        // Generated right there, from the dashboard (#708, IT-16).
+        $this->assertStringContainsString('data-contract-command="generate"', $nextStep);
+        $this->assertStringContainsString('Générer le contrat', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
         $this->assertStringNotContainsString('value="confirmed"', $nextStep);
     }
@@ -2900,6 +3227,33 @@ class RentalManagementControllerTest extends TestCase
         $this->assertEquals($sent?->holdUntil, $reopened?->holdUntil);
     }
 
+    /**
+     * The mark and the status it carries are one write: a reopened
+     * « Contrat envoyé » whose status cannot go back keeps its mark, so
+     * the page never shows the step to do while the booking still says
+     * the contract went out.
+     */
+    public function testAReopenWhoseStatusFailsKeepsTheMark(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->markStep($booking, 'contract_sent');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_received BEFORE UPDATE ON rental_bookings WHEN NEW.status = 'received' "
+                . "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->markStep($booking, 'contract_sent', false);
+            $this->fail('the status write was expected to fail');
+        } catch (\PDOException) {
+        }
+
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $this->assertArrayHasKey('contract_sent', $marks->findForBooking($booking->id));
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
     /** A step ticked by hand moves the journey on, like the site's own answer. */
     public function testAHandTickMovesTheNextStepOn(): void
     {
@@ -3434,10 +3788,17 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->setContractTemplate();
         $booking = $this->createBooking();
-        $this->post('/mes-locations/statut', 'changeStatus', [
+        // The contract out, the renter's signed copy is what holds the
+        // booking up — and its way is the Documents page.
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'confirmed',
+            'document_type' => 'contract',
+        ]);
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
         ]);
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();

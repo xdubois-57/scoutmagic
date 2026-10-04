@@ -13,9 +13,11 @@ namespace Core\Alert;
  *
  * `CronSilenceCheck` cannot, because a cron that has stopped never runs
  * the task that would notice — an alert about the engine cannot live
- * inside the engine. `HttpsCheck` cannot, because a scheme belongs to a
- * request and a CLI pass has none. Both therefore run on ordinary web
- * requests, which raises the obvious problem this class exists for: a
+ * inside the engine. `HttpsCheck` should not: its reading changes state
+ * at a precise hour, 24 hours after the last insecure browser access
+ * (`Core\Http\InsecureBrowserAccess`), and the daily task would notice
+ * up to a day late. Both therefore run on ordinary web requests, which
+ * raises the obvious problem this class exists for: a
  * check on every request is a database write on every request.
  *
  * So: at most once every {@see INTERVAL_SECONDS}, decided by the mtime of

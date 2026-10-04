@@ -284,6 +284,38 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame('2027-02-08 00:00:00', $this->reload($soon)->holdUntil?->format('Y-m-d H:i:s'));
     }
 
+    /**
+     * The date the send's confirmation announces is the one the send then
+     * writes — one rule, read before and applied after — and nothing is
+     * announced for a booking the send would not hold.
+     */
+    public function testTheAnnouncedHoldIsTheOneTheSendApplies(): void
+    {
+        $cases = [
+            'longer' => ['LOC-2027-0501', '2027-07-01', '2027-03-15 10:00:00'],
+            'shorter' => ['LOC-2027-0502', '2027-08-01', '2027-02-05 10:00:00'],
+            'none' => ['LOC-2027-0503', '2027-09-01', null],
+            'soon' => ['LOC-2027-0504', '2027-02-08', null],
+        ];
+        foreach ($cases as $label => [$reference, $arrival, $hold]) {
+            $departure = (new \DateTimeImmutable($arrival))->modify('+3 days')->format('Y-m-d');
+            $booking = $this->createBooking($reference, $arrival, $departure);
+            if ($hold !== null) {
+                $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable($hold), HoldOrigin::MANAGER);
+            }
+
+            $announced = $this->service->contractHoldUntil($this->reload($booking), $this->now());
+            $this->service->contractSent($this->reload($booking), 1, $this->now());
+
+            $this->assertNotNull($announced, $label);
+            $this->assertEquals($announced, $this->reload($booking)->holdUntil, $label);
+        }
+
+        $confirmed = $this->createBooking('LOC-2027-0505', '2027-10-01', '2027-10-04');
+        $this->bookingRepository->setStatus($confirmed->id, BookingStatus::CONFIRMED, $this->now());
+        $this->assertNull($this->service->contractHoldUntil($this->reload($confirmed), $this->now()));
+    }
+
     /** Confirmation refused while a step of the agreement is missing, accepted once done. */
     public function testConfirmationWaitsForTheAgreement(): void
     {

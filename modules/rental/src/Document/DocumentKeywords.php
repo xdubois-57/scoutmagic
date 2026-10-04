@@ -79,6 +79,7 @@ final class DocumentKeywords
         'unite' => "Le nom de l'unité, qui n'est pas forcément le bailleur",
         'date_du_jour' => "La date du jour de génération",
         'mention_tva' => 'La mention d\'exonération de TVA configurée pour ce bien',
+        'conditions_acceptees' => 'La version des conditions de location acceptée avec la demande, et son adresse',
     ];
 
     /**

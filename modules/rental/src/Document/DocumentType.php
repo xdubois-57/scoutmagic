@@ -19,6 +19,13 @@ namespace Modules\Rental\Document;
 enum DocumentType: string
 {
     case CONTRACT = 'contract';
+    /**
+     * The renter's signed copy of the contract, as it came back — a PDF, a
+     * scan or a photo (#708, IT-16). Not yet the agreement: the unit has
+     * still to countersign it.
+     */
+    case SIGNED_COPY = 'signed_copy';
+    /** The contract signed by both parties: the agreement itself. */
     case SIGNED_CONTRACT = 'signed_contract';
     case INVOICE = 'invoice';
     case INVENTORY = 'inventory';
@@ -33,7 +40,8 @@ enum DocumentType: string
     {
         return match ($this) {
             self::CONTRACT => 'Contrat',
-            self::SIGNED_CONTRACT => 'Contrat signé',
+            self::SIGNED_COPY => 'Copie signée du locataire',
+            self::SIGNED_CONTRACT => 'Contrat signé par les deux parties',
             self::INVOICE => 'Facture',
             self::INVENTORY => 'État des lieux',
             self::PHOTO => 'Photo',

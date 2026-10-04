@@ -186,6 +186,67 @@ class RentalDocumentRepository implements AttachedFileRepository
         $stmt->execute([$sentAt->format('Y-m-d H:i:s'), $id]);
     }
 
+    /**
+     * A renter's signed copy refused, with the reason they are sent (#708,
+     * IT-16). Only a copy not refused already: two managers refusing the
+     * same copy send the renter one reason, not two. Returns whether this
+     * call is the one that refused it.
+     */
+    /**
+     * Runs `$work` holding the booking's row, as one transaction (#708,
+     * IT-16): the answer to a renter's copy — a countersignature or a
+     * refusal — is decided and written under it, so two managers answering
+     * the same copy at once cannot both file a signed contract, nor refuse
+     * a copy the other is countersigning. A failure inside `$work` rolls
+     * back everything it wrote: no half-answered copy is left behind.
+     *
+     * `FOR UPDATE` only on MySQL/MariaDB: SQLite, the test engine, has no
+     * row locks and serialises writers on its own — the same carve-out as
+     * `RentalBookingRepository::withAssetLocked()`.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withBookingLocked(int $bookingId, callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $lock = $this->pdo->prepare('SELECT id FROM rental_bookings WHERE id = ? FOR UPDATE');
+                $lock->execute([$bookingId]);
+                $lock->fetchAll();
+            }
+
+            $result = $work();
+
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    public function markRefused(int $id, string $reason, \DateTimeImmutable $at): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_documents SET refused_at = ?, refusal_reason = ? WHERE id = ? AND refused_at IS NULL'
+        );
+        $stmt->execute([$at->format('Y-m-d H:i:s'), $reason, $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM rental_documents WHERE id = ?');
@@ -435,7 +496,9 @@ class RentalDocumentRepository implements AttachedFileRepository
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             source: isset($row['source']) && (string) $row['source'] !== ''
                 ? (string) $row['source']
-                : RentalDocument::SOURCE_MANUAL
+                : RentalDocument::SOURCE_MANUAL,
+            refusedAt: DateInput::fromStorage(isset($row['refused_at']) ? (string) $row['refused_at'] : null),
+            refusalReason: isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null
         );
     }
 }

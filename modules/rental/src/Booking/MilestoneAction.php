@@ -9,21 +9,39 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 /**
- * One thing a manager can do about a milestone (issue #462, D6–D7): either a
- * status transition, pressed right there, or a way to the box where the
- * thing is done.
+ * One thing a manager can do about a milestone (issue #462, D6–D7): a
+ * status transition, pressed right there; a way to the box where the thing
+ * is done; or a command the step itself carries out — generating or sending
+ * the contract, where the manager already is (#708, IT-16).
  *
- * Exactly one of the two is set. A target rather than a URL, because the
+ * Exactly one of the three is set. A target rather than a URL, because the
  * URL belongs to the page that renders it (`BookingBox::href()` builds it
- * from the booking's own address), and this type stays pure.
+ * from the booking's own address, `_contract_command.html.twig` the
+ * command's form), and this type stays pure.
  */
 final class MilestoneAction
 {
+    /** Renders a new version of the booking's contract. */
+    public const GENERATE_CONTRACT = 'generate_contract';
+    /** Emails the latest version to the renter, with a confirmation. */
+    public const SEND_CONTRACT = 'send_contract';
+    /** Opens the renter's copy where it is countersigned or refused. */
+    public const COUNTERSIGN = 'countersign';
+
     private function __construct(
         public readonly string $label,
         public readonly ?BookingStatus $transition,
-        public readonly ?BookingBox $box
+        public readonly ?BookingBox $box,
+        public readonly ?string $command = null
     ) {
+    }
+
+    /**
+     * @param self::GENERATE_CONTRACT|self::SEND_CONTRACT|self::COUNTERSIGN $command
+     */
+    public static function command(string $label, string $command): self
+    {
+        return new self($label, null, null, $command);
     }
 
     public static function transition(BookingStatus $to, BookingStatus $from): self

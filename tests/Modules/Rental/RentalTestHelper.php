@@ -271,7 +271,15 @@ class RentalTestHelper
             created_by_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             source TEXT NOT NULL DEFAULT \'manual\',
+            refused_at TEXT,
+            refusal_reason TEXT,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_manager_signatures (
+            user_account_id INTEGER PRIMARY KEY,
+            image_encrypted BLOB NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
         $pdo->exec('CREATE TABLE rental_booking_document_texts (

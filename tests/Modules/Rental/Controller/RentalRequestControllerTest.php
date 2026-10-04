@@ -96,6 +96,10 @@ class RentalRequestControllerTest extends TestCase
     /** @var list<int> the Staff d'U member ids the fallback finds */
     private array $unitStaff = [];
 
+    private string $storagePath;
+    private \Modules\Rental\Service\RentalDocumentService $documentService;
+    private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -188,18 +192,49 @@ class RentalRequestControllerTest extends TestCase
         $this->twig->addGlobal('current_path', '/locations');
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
 
+        $mailService = new RentalBookingMailService(
+            $this->recordingMailService(),
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settingService,
+            $journalService
+        );
+
+        // The contract's two signatures (#708, IT-16): real files, under a
+        // storage directory of this test's own.
+        $this->storagePath = sys_get_temp_dir() . '/rental_tracking_' . bin2hex(random_bytes(6));
+        mkdir($this->storagePath . '/rental/documents', 0755, true);
+        $fileRepository = new \Core\File\FileRepository($this->pdo);
+        $documentRepository = new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo);
+        $this->documentService = new \Modules\Rental\Service\RentalDocumentService(
+            $documentRepository,
+            $this->bookingRepository,
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $this->editableContentService,
+            $fileRepository,
+            new \Core\File\AttachedFileRemover($fileRepository, $this->storagePath),
+            new \Core\Pdf\DocumentPdfService(),
+            new \Core\Security\HtmlSanitizer(),
+            $settingService,
+            $journalService,
+            $this->storagePath
+        );
+        $this->signedContractService = new \Modules\Rental\Service\RentalSignedContractService(
+            $this->documentService,
+            $documentRepository,
+            new \Modules\Rental\Repository\RentalManagerSignatureRepository($this->pdo, $this->encryption),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $mailService,
+            new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
+            $journalService
+        );
+
         $this->controller = new RentalRequestController(
             $this->twig,
             $this->assetRepository,
             $bookingService,
             $availabilityService,
             $this->pricingService,
-            new RentalBookingMailService(
-                $this->recordingMailService(),
-                EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
-                $settingService,
-                $journalService
-            ),
+            $mailService,
             new RentalManagerService($this->managerRepository, $memberService, $journalService),
             $scoutYearService,
             $this->editableContentService,
@@ -226,7 +261,10 @@ class RentalRequestControllerTest extends TestCase
                 new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
                 $journalService,
                 fn(): array => $this->unitStaff
-            )
+            ),
+            $this->signedContractService,
+            $this->documentService,
+            new \Core\File\UploadHandler($fileRepository, $this->storagePath)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -242,6 +280,14 @@ class RentalRequestControllerTest extends TestCase
         AuthSession::logout();
         $_SESSION = [];
         $_POST = [];
+        $_FILES = [];
+
+        foreach (glob($this->storagePath . '/rental/documents/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($this->storagePath . '/rental/documents');
+        @rmdir($this->storagePath . '/rental');
+        @rmdir($this->storagePath);
     }
 
     /**
@@ -1908,5 +1954,131 @@ class RentalRequestControllerTest extends TestCase
         $body = (string) $this->track($bookingId, $token)->getBody();
 
         $this->assertStringContainsString('360,00', $body);
+    }
+
+    // ── The contract's two signatures (#708, IT-16) ─────────────────────
+
+    /** The contract generated and sent, as the unit's answer. */
+    private function sendTheContract(int $bookingId): void
+    {
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+        $contract = $this->documentService->generate(
+            $booking,
+            $this->trackedAsset(),
+            \Modules\Rental\Document\DocumentType::CONTRACT,
+            new \Modules\Rental\Payment\PaymentSettings()
+        );
+        $this->documentService->markSent($contract->id, new \DateTimeImmutable());
+    }
+
+    private function postSignedCopy(int $bookingId, string $token, string $bytes): \Core\Http\Response
+    {
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'copy-');
+        file_put_contents($temporary, $bytes);
+        $_FILES['signed_copy'] = [
+            'name' => 'contrat-signe.jpg',
+            'type' => 'image/jpeg',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($bytes),
+        ];
+        $body = ['_csrf_token' => CsrfGuard::generateToken()];
+        $_POST = $body;
+
+        return $this->controller->uploadSignedCopy(
+            new Request('POST', '/locations/suivi/' . $bookingId . '/' . $token . '/contrat', [], $body, [], []),
+            ['id' => (string) $bookingId, 'token' => $token]
+        );
+    }
+
+    private static function jpeg(): string
+    {
+        $image = imagecreatetruecolor(600, 800);
+        ob_start();
+        imagejpeg($image);
+
+        return (string) ob_get_clean();
+    }
+
+    public function testTheContractCardAppearsOnceTheContractHasGone(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $this->assertStringNotContainsString('id="contrat"', (string) $this->track($bookingId, $token)->getBody());
+
+        $this->sendTheContract($bookingId);
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringContainsString('id="contrat"', $body);
+        $this->assertStringContainsString('Envoyer ma copie signée', $body);
+        // A photo is enough, and the types say so — HEIC left out so an
+        // iPhone converts its photo as it sends it.
+        $this->assertStringContainsString('accept="application/pdf,image/jpeg,image/png,image/webp"', $body);
+    }
+
+    public function testARenterSendsTheirSignedCopyFromTheirPage(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+
+        $response = $this->postSignedCopy($bookingId, $token, self::jpeg());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('#contrat', (string) $response->getHeaders()['Location']);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $pending = $this->signedContractService->pendingCopy($bookingId);
+        $this->assertNotNull($pending);
+        $this->assertSame(\Modules\Rental\Document\DocumentType::SIGNED_COPY, $pending->type);
+        $this->assertStringContainsString('est bien reçue', (string) $this->track($bookingId, $token)->getBody());
+    }
+
+    /** Nothing lands on disk while no contract waits for a signature. */
+    public function testACopyBeforeAnyContractIsRefusedAndNotStored(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $this->postSignedCopy($bookingId, $token, self::jpeg());
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
+    }
+
+    /**
+     * The one file a tracking token opens: the contract signed by both
+     * parties, of THIS booking, and only once it exists.
+     */
+    public function testTheSignedContractDownloadsWithTheTokenAndOnlyOnceCountersigned(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $download = fn(string $withToken): \Core\Http\Response => $this->controller->downloadSignedContract(
+            new Request('GET', '/locations/suivi/' . $bookingId . '/' . $withToken . '/contrat-signe.pdf', [], [], [], []),
+            ['id' => (string) $bookingId, 'token' => $withToken]
+        );
+
+        $this->sendTheContract($bookingId);
+        $this->assertSame(404, $download($token)->getStatusCode(), 'the unsigned contract is never served');
+
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+        $this->documentService->attachPdf(
+            $booking,
+            (string) (new \FPDF())->Output('S'),
+            \Modules\Rental\Document\DocumentType::SIGNED_CONTRACT,
+            'contrat-signe.pdf',
+            true
+        );
+
+        $this->assertSame(404, $download(str_repeat('0', strlen($token)))->getStatusCode());
+        $response = $download($token);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertSame('noindex', $response->getHeaders()['X-Robots-Tag'] ?? null, 'SECURITY.md §6: a capability URL is never indexed');
+        $this->assertStringStartsWith('%PDF-', (string) $response->getBody());
+        $this->assertStringContainsString('Télécharger le contrat signé', (string) $this->track($bookingId, $token)->getBody());
     }
 }

@@ -1,0 +1,73 @@
+{#
+  « Contrat contresigné » (#708, IT-16): the renter's copy, opened, then
+  answered in one gesture — countersigned, or refused with a short reason
+  the renter is sent.
+
+  « Valider et contresigner » asks first: the manager's own signature goes
+  on a page added at the end of the renter's copy, and the renter receives
+  the result. A manager who has no signature yet is sent to record one, and
+  comes straight back here.
+
+  The refusal is a field rather than a question in a dialog: its reason is
+  what the renter reads, it is required, and it has a length the field can
+  say (300 characters, checked again on the server).
+
+  Requires `contract_step`, `asset`, `booking` and `booking_url`.
+#}
+{% if contract_step %}
+    {% set copy = contract_step.pending_copy %}
+    <div id="contresignature" class="mt-2 small" data-countersign-step>
+        {% if copy %}
+            <p class="mb-2">
+                Copie signée reçue le {{ copy.createdAt|date_fr }}.
+                <a href="{{ file_url(copy.fileId) }}" target="_blank" rel="noopener">Ouvrir la copie reçue</a>
+            </p>
+            <div class="d-flex flex-wrap gap-2 align-items-start">
+                {% if contract_step.has_signature %}
+                    <form method="post" action="/mes-locations/contrat-contresigner" class="d-inline"
+                          data-confirm="Valider cette copie et la contresigner ? Votre signature est ajoutée sur une dernière page, et le locataire reçoit le contrat signé par les deux parties."
+                          data-confirm-label="Valider et contresigner">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="booking_page" value="dashboard">
+                        <input type="hidden" name="document_id" value="{{ copy.id }}">
+                        <button type="submit" class="btn btn-sm btn-primary">Valider et contresigner</button>
+                    </form>
+                {% else %}
+                    <a class="btn btn-sm btn-primary"
+                       href="/mes-locations/ma-signature?retour={{ booking_url|url_encode }}">Enregistrer ma signature</a>
+                    <span class="text-body-secondary align-self-center">
+                        Votre signature n'est pas encore enregistrée : elle est apposée à la contresignature.
+                    </span>
+                {% endif %}
+            </div>
+            <details class="mt-2">
+                <summary>Refuser la copie</summary>
+                <form method="post" action="/mes-locations/copie-refuser" class="mt-2"
+                      data-confirm="Refuser cette copie ? Le locataire reçoit votre motif par e-mail et peut en déposer une autre."
+                      data-confirm-label="Refuser la copie">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="dashboard">
+                    <input type="hidden" name="document_id" value="{{ copy.id }}">
+                    <label class="form-label" for="refusal-reason-{{ copy.id }}">Motif envoyé au locataire</label>
+                    <textarea class="form-control form-control-sm" id="refusal-reason-{{ copy.id }}" name="reason"
+                              rows="3" maxlength="{{ contract_step.max_refusal_length }}" required
+                              aria-describedby="refusal-reason-help-{{ copy.id }}"></textarea>
+                    <p class="form-text" id="refusal-reason-help-{{ copy.id }}">
+                        {{ contract_step.max_refusal_length }} caractères au plus — par exemple : « La deuxième page
+                        n'est pas signée. »
+                    </p>
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Refuser la copie</button>
+                </form>
+            </details>
+        {% elseif contract_step.refused_copy %}
+            <p class="text-body-secondary mb-0">
+                Dernière copie refusée le {{ contract_step.refused_copy.refusedAt|date_fr }} :
+                « {{ contract_step.refused_copy.refusalReason }} ». Le locataire peut en déposer une autre.
+            </p>
+        {% endif %}
+    </div>
+{% endif %}
