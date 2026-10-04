@@ -19,6 +19,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Registration\Service\ReenrollmentCampaignService;
 use Modules\Registration\Service\ReenrollmentSavePlan;
+use Modules\Registration\Service\ReenrollmentSavePlanPresenter;
 use Modules\Registration\Service\ReenrollmentSavePlanner;
 use Twig\Environment;
 
@@ -50,8 +51,18 @@ class ReenrollmentConfigController extends AbstractController
 {
     private const PAGE_URL = '/config/reinscription';
 
-    private const OPENING_QUESTION = "Cette configuration va ouvrir la campagne de réinscription immédiatement. "
-        . "Un e-mail d'ouverture sera envoyé aux familles concernées. Voulez-vous continuer ?";
+    /**
+     * The fields a save carries, in the form's own names — what the
+     * confirmation page posts back, unchanged, once the chief agrees.
+     */
+    private const FORM_FIELDS = [
+        ReenrollmentCampaignService::SETTING_OPEN_AT,
+        ReenrollmentCampaignService::SETTING_CLOSE_AT,
+        ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS,
+        ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS,
+        ReenrollmentCampaignService::SETTING_EMAILS_ENABLED,
+        'is_open',
+    ];
 
     /** @var \Closure(): \DateTimeImmutable */
     private \Closure $clock;
@@ -67,7 +78,8 @@ class ReenrollmentConfigController extends AbstractController
         private SchedulerService $schedulerService,
         private JournalService $journalService,
         private ReenrollmentSavePlanner $planner,
-        ?\Closure $clock = null
+        ?\Closure $clock = null,
+        private ReenrollmentSavePlanPresenter $presenter = new ReenrollmentSavePlanPresenter()
     ) {
         $this->clock = $clock ?? static fn (): \DateTimeImmutable => new \DateTimeImmutable();
     }
@@ -83,6 +95,7 @@ class ReenrollmentConfigController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $closeDate = $this->campaign->closeDate($this->now());
+        $campaignKey = $this->campaign->currentCampaignKey($this->now());
 
         return $this->render('@registration/reenrollment_config.html.twig', [
             'is_open' => $this->campaign->isOpen(),
@@ -109,6 +122,11 @@ class ReenrollmentConfigController extends AbstractController
                 ''
             ),
             'close_date' => $closeDate?->format('d/m/Y'),
+            // The campaign the switch opens and closes, named under it
+            // (issue #796, D3): there is only one, the target year's.
+            'campaign_label' => $campaignKey !== null
+                ? ReenrollmentCampaignService::targetLabelOf($campaignKey)
+                : null,
             // When each email of this campaign actually went out. A chief
             // who has just clicked « Relancer » gets a scheduled job and a
             // success message; without this the page never told them
@@ -160,12 +178,14 @@ class ReenrollmentConfigController extends AbstractController
     }
 
     /**
-     * POST /config/reinscription/apercu — what saving the form as it is
-     * filled in would set off, asked BEFORE it is saved (issue #732).
+     * POST /config/reinscription/apercu — the plan of the form as it is
+     * filled in, asked BEFORE it is saved (issue #796, D1, D2): what changes,
+     * and whether an e-mail leaves, in the words of the dialog — with the
+     * fingerprint the save will be checked against.
      *
-     * Answers with the question to put to the chief, or null when there is
-     * nothing to ask. The same computation guards save() itself, so a
-     * browser without this script cannot skip the question either.
+     * The same plan, worded by the same presenter, is what save() shows a
+     * browser without the script, so the question cannot be skipped and
+     * cannot be different there.
      *
      * @param array<string, string> $params
      */
@@ -180,12 +200,14 @@ class ReenrollmentConfigController extends AbstractController
         }
 
         $values = $this->submittedValues(static fn(string $key): string => (string) ($data[$key] ?? ''));
+        $now = $this->now();
+        $plan = $this->planner->plan($values, $now);
 
         return $this->json([
             'success' => true,
-            'confirm' => self::needsOpeningConfirmation($this->planner->plan($values, $this->now()))
-                ? self::OPENING_QUESTION
-                : null,
+            'changed' => $plan->hasChanges(),
+            'fingerprint' => $plan->fingerprint(),
+            'dialog' => $this->presenter->dialog($plan, $now),
         ]);
     }
 
@@ -206,17 +228,23 @@ class ReenrollmentConfigController extends AbstractController
         $now = $this->now();
         $plan = $this->planner->plan($values, $now);
 
-        // Asked before anything is written (issue #732): a save that opens
-        // the campaign AND writes to every family needs the chief to have
-        // said yes. Without it, nothing is saved and nothing opens.
-        if (self::needsOpeningConfirmation($plan) && (string) $request->getBody('confirm_opening', '') !== '1') {
-            FlashMessage::set(
-                'error',
-                "Rien n'a été enregistré : cette configuration ouvre la campagne et envoie l'e-mail d'ouverture "
-                    . 'aux familles, ce qui doit être confirmé.'
-            );
+        if (!$plan->hasChanges()) {
+            FlashMessage::set('warning', 'Aucun changement à enregistrer.');
 
             return $this->redirect(self::PAGE_URL);
+        }
+
+        // **Every save that changes something is confirmed, on the exact
+        // plan** (issue #796, D2, D7). No fingerprint: the chief has not
+        // been asked yet — a browser without the script, or a script that
+        // could not reach /apercu — and is shown the confirmation here, by
+        // the server. A fingerprint that no longer matches: something moved
+        // between the question and the answer (a family answered, an e-mail
+        // left, another chief saved), and the answer is to a question that
+        // is no longer the one being asked. Nothing is written either way.
+        $confirmed = (string) $request->getBody('plan_fingerprint', '');
+        if ($confirmed !== $plan->fingerprint()) {
+            return $this->confirmation($request, $plan, $now, $confirmed !== '');
         }
 
         foreach ([
@@ -281,7 +309,7 @@ class ReenrollmentConfigController extends AbstractController
             }
         }
 
-        FlashMessage::set('success', 'Campagne enregistrée.');
+        FlashMessage::set('success', $this->presenter->afterSave($plan, $now));
 
         return $this->redirect(self::PAGE_URL);
     }
@@ -331,14 +359,24 @@ class ReenrollmentConfigController extends AbstractController
     }
 
     /**
-     * Whether `$plan` is the one case the opening question covers: a save
-     * that opens the campaign now and writes the opening e-mail now.
+     * The confirmation, rendered by the server: the same dialog the script
+     * shows, as a page, with the form's fields carried along unchanged and
+     * the plan's fingerprint (issue #796, D7). « Annuler » goes back to the
+     * page; nothing has been written.
      */
-    private static function needsOpeningConfirmation(ReenrollmentSavePlan $plan): bool
+    private function confirmation(Request $request, ReenrollmentSavePlan $plan, \DateTimeImmutable $now, bool $stale): Response
     {
-        $email = $plan->email(ReenrollmentCampaignService::EMAIL_OPENING);
+        $fields = [];
+        foreach (self::FORM_FIELDS as $name) {
+            $fields[$name] = (string) $request->getBody($name, '');
+        }
 
-        return $email !== null && !$email['deferred'];
+        return $this->render('@registration/reenrollment_confirm.html.twig', [
+            'dialog' => $this->presenter->dialog($plan, $now),
+            'fields' => $fields,
+            'fingerprint' => $plan->fingerprint(),
+            'stale' => $stale,
+        ]);
     }
 
     /**

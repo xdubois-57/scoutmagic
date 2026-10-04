@@ -203,6 +203,29 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
     }
 
+    /**
+     * Queued and on its way, not yet marked: handOver() would not queue it
+     * a second time, so the plan does not announce it a second time.
+     */
+    public function testAnEmailAlreadyOnItsWayIsNotAnnouncedAgain(): void
+    {
+        $planner = new ReenrollmentSavePlanner(
+            $this->campaign,
+            $this->settingService,
+            static fn (bool $silentOnly): int => 27,
+            static fn (string $type, string $key): bool => $type === 'closing' && $key === '2027-05-15'
+        );
+        $this->campaign->open();
+
+        $plan = $planner->plan([
+            'open_at' => null, 'close_at' => null, 'reminder_1_days' => null, 'reminder_2_days' => null,
+            'is_open' => false, 'emails_enabled' => true,
+        ], new \DateTimeImmutable('2027-04-20 10:00'));
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
+    }
+
     // ── opening ───────────────────────────────────────────────────────
 
     public function testAnOpeningDateOfTodayOpensNowAndWritesToEveryFamily(): void

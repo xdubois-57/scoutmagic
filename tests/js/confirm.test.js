@@ -88,6 +88,31 @@ describe('ScoutMagicConfirm.ask()', () => {
         expect(buttonLabelled('Appliquer').className).not.toContain('btn-danger');
     });
 
+    it('renders structured content under the message, as text only', async () => {
+        const answer = window.ScoutMagicConfirm.ask({
+            title: "Confirmer l'enregistrement",
+            message: '',
+            content: [
+                { kind: 'box', tone: 'muted', title: 'Ouvre la campagne <b>2027-2028</b>', text: 'Fermeture le 15/05/2027.' },
+                { kind: 'list', title: 'Ce qui change', items: ['Campagne : fermée → ouverte', '<img src=x>'] },
+                { kind: 'box', tone: 'warning', title: '41 e-mails vont partir', items: ["L'e-mail d'ouverture"], note: 'Un e-mail envoyé ne se rappelle pas.' },
+            ],
+            confirmLabel: 'Enregistrer et envoyer',
+        });
+
+        const body = document.getElementById('sm-confirm-modal-body');
+        expect(body.textContent).toContain('Ouvre la campagne <b>2027-2028</b>');
+        expect(body.querySelector('b')).toBeNull();
+        expect(body.querySelector('img')).toBeNull();
+        expect([...body.querySelectorAll('li')].map((li) => li.textContent))
+            .toEqual(['Campagne : fermée → ouverte', '<img src=x>', "L'e-mail d'ouverture"]);
+        expect(body.querySelector('.alert-warning')?.textContent).toContain('Un e-mail envoyé ne se rappelle pas.');
+        expect(document.getElementById('sm-confirm-modal-title').textContent).toBe("Confirmer l'enregistrement");
+
+        document.querySelector('#sm-confirm-modal .btn-danger').click();
+        await expect(answer).resolves.toBe(true);
+    });
+
     it('puts focus on Annuler, never on the destructive button', async () => {
         const smConfirm = await loadConfirm();
         smConfirm.ask('Supprimer définitivement cet album ?');

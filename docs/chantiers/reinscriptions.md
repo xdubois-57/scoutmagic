@@ -134,3 +134,75 @@ une famille qui a répondu après le changement recevrait un rappel. Une
 campagne en cours à ce moment-là se termine donc sans e-mail de clôture, et
 celle de l'année suivante prend la relève. La revue de la PR a fait renoncer
 à une première version qui la maintenait jusqu'à sa clôture.
+
+---
+
+## IT-03 — La confirmation universelle
+
+**Livré.**
+
+- **Le serveur impose la confirmation** à tout enregistrement qui change
+  quelque chose (D2, D7). `save()` calcule le plan. S'il ne change rien,
+  `save()` répond « Aucun changement à enregistrer » et n'ouvre aucun
+  dialogue. Sinon, il n'écrit rien sans le champ `plan_fingerprint`, et ce
+  champ doit être l'empreinte du plan qu'il calcule à ce moment-là.
+  - **Sans empreinte**, le serveur rend lui-même l'écran de confirmation
+    (`reenrollment_confirm.html.twig`). Le formulaire y est repris tel quel,
+    et « Annuler » revient à la page. C'est ce qu'obtient un navigateur sans
+    script, ou un script qui n'a pas pu joindre `/apercu`. Personne n'est
+    bloqué, personne n'enregistre sans question.
+  - **Avec une empreinte périmée**, l'enregistrement est refusé. Le même
+    écran revient, avec « La situation a changé depuis la question ».
+    L'empreinte change, par exemple, si une famille a répondu, si un e-mail
+    est parti ou si un autre chef a enregistré entre-temps.
+- **Une seule façon de confirmer.** `confirm_opening` et l'ancienne question
+  d'ouverture disparaissent. `/config/reinscription/apercu` reste, mais rend
+  désormais le plan : le dialogue, l'empreinte et « change ou non ».
+- **`Service\ReenrollmentSavePlanPresenter`** met le plan en mots, et l'écran
+  serveur comme le dialogue du script lisent ses phrases. Le dialogue
+  contient :
+  - l'encadré de la campagne concernée, avec son année et ses dates (D6),
+    et la durée quand une ouverture à la main la laisse ouverte plusieurs
+    mois (D4) ;
+  - « Ce qui change » ;
+  - puis l'un ou l'autre :
+    - **« N e-mails vont partir »**, en ambre, avec « Un e-mail envoyé ne se
+      rappelle pas » ;
+    - **« Aucun e-mail ne partira »**, en vert, avec la raison ;
+  - un bouton « Enregistrer et envoyer » (style danger) ou « Enregistrer ».
+- **Le message après enregistrement** dit ce qui est parti et ce qui ne l'est
+  pas (D8).
+- **Sous l'interrupteur**, une phrase nomme la campagne : « Interrupteur
+  manuel pour la campagne de réinscription pour 2027-2028. »
+- **`window.ScoutMagicConfirm.ask()` accepte un contenu structuré**
+  (`content` : encadrés et listes, rendus en texte seulement). Le composant
+  est étendu de façon générique, sans second dialogue.
+
+**Décision autonome — un e-mail « en route ».** Le plan considère comme
+déjà parti un e-mail déjà mis en file mais pas encore marqué envoyé. C'est
+la garde `hasLiveStartingWith()` de `handOver()` : `handOver()` ne le
+remettrait pas en file, le plan ne doit donc pas l'annoncer. Les tests l'ont
+trouvé en rouvrant une campagne juste après l'avoir ouverte : le plan
+annonçait un second e-mail d'ouverture qui ne partait pas.
+
+**Le mécanisme sans script (D7), noté comme demandé.** Le serveur rend
+l'écran de confirmation, et le script se contente de l'anticiper dans un
+dialogue. Les deux lisent le même plan et le même texte.
+
+**Tests.**
+
+- `ReenrollmentConfigControllerTest` :
+  - une ligne par cas de la matrice : le dialogue annonce exactement ce qui
+    est ensuite mis en file ;
+  - sans confirmation, rien n'est écrit ;
+  - l'écran serveur renvoie le formulaire et enregistre ;
+  - un plan périmé est refusé ;
+  - une ouverture nomme sa campagne et sa durée ;
+  - le message après enregistrement dit ce qui est parti.
+- Vitest :
+  - `reenrollment-config.test.js` est réécrit pour le plan ;
+  - `confirm.test.js` vérifie le contenu structuré, rendu en texte
+    seulement.
+- L'attente de `ReenrollmentConfigControllerTest` sur « Aucun autre rappel
+  automatique n'est prévu | Prochain rappel… » reste inchangée : elle porte
+  sur le dialogue « Relancer maintenant », qu'IT-04 reprend.

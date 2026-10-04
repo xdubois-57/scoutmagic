@@ -44,13 +44,17 @@ final class ReenrollmentSavePlan
      * @param array{campaign: ?string, scheduled: bool}|null $opening
      * @param array{campaign: ?string}|null $closing
      * @param list<array{type: string, campaign: string, families: int, deferred: bool}> $emails
+     * @param array{key: string, label: string, opens: ?string, closes: string, reminders: list<string>}|null $campaign
+     *        the campaign an opening or a closing concerns, with the dates it
+     *        will run on once saved — what the dialog names (D6)
      */
     public function __construct(
         public readonly array $changes,
         public readonly ?array $opening,
         public readonly ?array $closing,
         public readonly array $emails,
-        public readonly ?string $noEmailReason
+        public readonly ?string $noEmailReason,
+        public readonly ?array $campaign = null
     ) {
     }
 
@@ -86,7 +90,14 @@ final class ReenrollmentSavePlan
      */
     public function fingerprint(): string
     {
-        $asked = [$this->changes, $this->opening, $this->closing, $this->emails, $this->noEmailReason];
+        $asked = [
+            $this->changes,
+            $this->opening,
+            $this->closing,
+            $this->emails,
+            $this->noEmailReason,
+            $this->campaign,
+        ];
 
         return hash('sha256', (string) json_encode($asked));
     }
