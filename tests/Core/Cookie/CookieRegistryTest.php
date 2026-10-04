@@ -9,14 +9,31 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsNineCookies(): void
+    public function testGetCoreCookiesReturnsTenCookies(): void
     {
         // Six historical entries, plus theme_preference (the dark-mode
         // choice, functional, stored client-side), offline-config (the
-        // third Cache Storage entry, issue #233) and sm_display (the
-        // installed application's display mode, issue #502).
+        // third Cache Storage entry, issue #233), sm_display (the
+        // installed application's display mode, issue #502) and
+        // scoutmagic_setup_proof (the installer's token proof, #719).
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(9, $cookies);
+        $this->assertCount(10, $cookies);
+    }
+
+    /**
+     * #719: the installer's proof that the token was typed. Strictly
+     * necessary — the install cannot go on without it — and declared with
+     * the very lifetime Core\Security\BootstrapHandoff gives it.
+     */
+    public function testTheInstallersTokenProofIsDeclared(): void
+    {
+        $byName = array_column(CookieRegistry::getCoreCookies(), null, 'name');
+
+        $this->assertArrayHasKey(\Core\Security\BootstrapHandoff::PROOF_COOKIE, $byName);
+        $proof = $byName[\Core\Security\BootstrapHandoff::PROOF_COOKIE];
+        $this->assertSame('necessary', $proof['category']);
+        $this->assertSame(7200, \Core\Security\BootstrapHandoff::PROOF_LIFETIME_SECONDS);
+        $this->assertSame('2 heures', $proof['duration']);
     }
 
     /**

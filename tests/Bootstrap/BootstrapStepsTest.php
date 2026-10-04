@@ -304,9 +304,32 @@ class BootstrapStepsTest extends TestCase
                 $this->assertFileExists($probe['file'], $probe['id'] . ' must have written its canary');
             }
         }
-        // B2 overwrites token.php with a placeholder: the real token is
-        // only written once the whole gate has passed.
-        $this->assertStringContainsString('gate probe', (string) file_get_contents($this->tempDir . '/token.php'));
+    }
+
+    /**
+     * Regression (#719): B2 used to overwrite token.php with a placeholder,
+     * which — since the token is written first and the proof cookie is
+     * checked against it on every request — locked the operator out at the
+     * gate report. The probe now fetches the real file, untouched.
+     */
+    public function testTheGateProbesTheRealTokenAndTheOperatorsProofSurvivesIt(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $before = (string) file_get_contents($this->tempDir . '/token.php');
+        $proof = [\BOOTSTRAP_PROOF_COOKIE => \bootstrapProofValue(\bootstrapReadTokenValue($this->tempDir), time() + 600)];
+        $state = $this->installedLayoutB();
+        $this->removeDirectory($state['temp_dir']);
+
+        $state = \bootstrapStepGatePrepare($this->tempDir, $state);
+
+        $b2 = array_values(array_filter($state['probes'], static fn (array $p): bool => $p['id'] === 'B2'))[0];
+        $this->assertSame('/token.php', $b2['url']);
+        $this->assertSame($before, file_get_contents($this->tempDir . '/token.php'));
+        $this->assertTrue(\bootstrapIsAuthorized($this->tempDir, $proof, time()));
+
+        // And it outlives the probes' cleanup, ready for step 10.
+        \bootstrapCleanupGateProbes($state);
+        $this->assertTrue(\bootstrapStepToken($this->tempDir, ['gate_passed' => true])['token_written']);
     }
 
     public function testStepGatePrepareRollsTheInstallBackWhenAStaticCheckFails(): void

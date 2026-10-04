@@ -890,24 +890,27 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertStringNotContainsString('id="token-form"', $missing);
     }
 
+    /**
+     * Open without the proof, so it must neither delete on a stranger's
+     * word nor make the server fetch anything (no Host-steered request):
+     * only the token actually read from the exposed file deletes it.
+     */
     #[RunInSeparateProcess]
-    public function testAnExposedTokenIsDeletedOnlyWhenTheServerReadsItBackItself(): void
+    public function testAnExposedTokenIsDeletedOnlyByWhoeverReadItFromTheFile(): void
     {
         \bootstrapEnsureTokenFile($this->tempDir);
         $token = \bootstrapReadTokenValue($this->tempDir);
-        $_SERVER['HTTP_HOST'] = 'unite.example.org';
 
-        $kept = json_decode($this->outputOf('', fn () => \bootstrapHandleTokenExposed(
-            $this->tempDir,
-            static fn (): array => ['status' => 200, 'body' => '']
-        )), true);
-        $this->assertFalse($kept['exposed']);
-        $this->assertFileExists($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+        foreach (['{}', '{"token":"faux"}', (string) json_encode(['token' => str_repeat('0', 64)])] as $body) {
+            $kept = json_decode($this->outputOf($body, fn () => \bootstrapHandleTokenExposed($this->tempDir)), true);
+            $this->assertFalse($kept['exposed'], $body);
+            $this->assertFileExists($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+        }
 
-        $gone = json_decode($this->outputOf('', fn () => \bootstrapHandleTokenExposed(
-            $this->tempDir,
-            static fn (): array => ['status' => 200, 'body' => '<?php /* TOKEN: ' . $token . ' */']
-        )), true);
+        $gone = json_decode($this->outputOf(
+            (string) json_encode(['token' => $token]),
+            fn () => \bootstrapHandleTokenExposed($this->tempDir)
+        ), true);
         $this->assertTrue($gone['exposed']);
         $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
     }

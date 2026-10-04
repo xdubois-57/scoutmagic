@@ -1438,10 +1438,12 @@ function bootstrapWriteGateProbes(string $docRoot, array $state): array
     ];
 
     // B2 — token.php must execute as PHP (empty body), never be served as
-    // source. Written temporarily here; overwritten with the real token
-    // only after the whole gate passes (step 10).
-    $tokenFile = $docRoot . '/' . BOOTSTRAP_TOKEN_FILE;
-    file_put_contents($tokenFile, "<?php /* gate probe */\n");
+    // source. Probed as it is: since #719 it holds the real token from the
+    // first load, and the operator's proof cookie is checked against it on
+    // every request — a stand-in written here would lock them out at the
+    // gate report. Served as source, its token shows and the gate fails,
+    // and the rollback removes the file.
+    bootstrapEnsureTokenFile($docRoot);
     $probes[] = [
         'id' => 'B2',
         'kind' => 'php_exec',
@@ -1562,7 +1564,7 @@ function bootstrapCleanupGateProbes(array $state): void
 {
     foreach ((array) ($state['probes'] ?? []) as $probe) {
         if (($probe['id'] ?? '') === 'B2') {
-            continue; // token.php — handled by whichever caller (rollback or step 10) separately.
+            continue; // the real token.php — kept, or removed by a rollback.
         }
         if (!empty($probe['file']) && is_file($probe['file'])) {
             @unlink($probe['file']);
@@ -2653,29 +2655,22 @@ function bootstrapHandleVerifyToken(string $docRoot, int $now): void
 }
 
 /**
- * POST ?action=token-exposed — the page found token.php readable as text.
- * Not taken on the browser's word, since this action needs no token: the
- * server fetches the file itself, and only a token it can read back gets
- * the file deleted (#719, B1).
+ * POST ?action=token-exposed — `{"token": "…"}`: the page read token.php
+ * as text, and sends back the token it found there. Open without the
+ * proof cookie, so nothing is taken on the browser's word and no request
+ * leaves the server: only a caller who actually read the token — which
+ * is the exposure — gets the file deleted (#719, B1). A stranger can
+ * neither delete it nor make the server fetch anything.
  */
-function bootstrapHandleTokenExposed(string $docRoot, callable $httpGet): void
+function bootstrapHandleTokenExposed(string $docRoot): void
 {
     header('Content-Type: application/json; charset=utf-8');
     $buffering = ob_get_level();
     ob_start();
 
     $token = bootstrapReadTokenValue($docRoot);
-    $host = bootstrapRequestHost($_SERVER);
-    $exposed = false;
-    if ($token !== '' && $host !== null) {
-        foreach (['https', 'http'] as $scheme) {
-            $result = $httpGet($scheme . '://' . $host . '/' . BOOTSTRAP_TOKEN_FILE);
-            if (str_contains((string) ($result['body'] ?? ''), $token)) {
-                $exposed = true;
-                break;
-            }
-        }
-    }
+    $read = strtolower(trim((string) (bootstrapJsonInput()['token'] ?? '')));
+    $exposed = $token !== '' && $read !== '' && hash_equals($token, $read);
     if ($exposed) {
         @unlink($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
     }
@@ -2923,11 +2918,16 @@ HTML;
   function show(text) { result.textContent = text; result.className = 'alert alert-error'; result.hidden = false; }
 
   // token.php must run as PHP and print nothing. A host serving it as text
-  // would hand the token to anybody: the server checks for itself and
-  // deletes it (#719, B1).
+  // hands the token to anybody: the token read here goes back to the
+  // server, which deletes the file once it matches (#719, B1).
   fetch('{$tokenFile}', { cache: 'no-store' }).then(function (res) { return res.text(); }).then(function (text) {
-    if (text.indexOf('TOKEN') === -1) { return; }
-    return fetch('?action=token-exposed', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (data) {
+    var found = /TOKEN:\s*([0-9a-f]{64})/i.exec(text);
+    if (!found) { return; }
+    return fetch('?action=token-exposed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: found[1] })
+    }).then(function (r) { return r.json(); }).then(function (data) {
       if (data.exposed) {
         show("Ce serveur affiche token.php comme du texte au lieu de l'exécuter : le jeton a été supprimé et "
           + "l'installation est impossible ici. Demandez à votre hébergeur d'activer PHP pour ce dossier.");
@@ -3555,7 +3555,7 @@ function bootstrapMain(?string $docRoot = null): void
         return;
     }
     if ($action === 'token-exposed' && $method === 'POST') {
-        bootstrapHandleTokenExposed($docRoot, 'bootstrapDefaultHttpGet');
+        bootstrapHandleTokenExposed($docRoot);
         return;
     }
 
