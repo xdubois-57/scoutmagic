@@ -422,6 +422,16 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_NO_FAMILIES, $plan->noEmailReason);
     }
 
+    public function testAReminderAlreadyBehindIsNotAnnouncedInTheCampaignBox(): void
+    {
+        // Opening by hand on 2027-05-10 a campaign closing 2027-05-15 with
+        // reminders 14 and 2 days before: the first fell on 05-01, behind
+        // us, and the clock never catches up; only the second will go.
+        $plan = $this->plan(['is_open' => true], '2027-05-10 10:00');
+
+        $this->assertSame(['2027-05-13'], $plan->campaign['reminders'] ?? null);
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();
