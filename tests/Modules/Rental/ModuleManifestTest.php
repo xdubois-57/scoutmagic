@@ -109,13 +109,18 @@ class ModuleManifestTest extends TestCase
      * `expected_count`), and moves the Gabarits page to lists edited in
      * place (#708, IT-10).
      *
-     * 1.35.0 drops `rental_blocks.units` — a period the unit blocks takes
+     * 1.35.0 retires the `reviewing` status (#708, IT-11) — a row still
+     * carrying it reads back as `received` — and goes on through the rest
+     * of #708's fourth lot: the automatic hold in days, the « Contrat
+     * envoyé » status, and steps completed by hand.
+     *
+     * 1.36.0 drops `rental_blocks.units` — a period the unit blocks takes
      * the whole asset — and blocks dates by a gesture on the calendar,
      * with its own route and a route for a period's reason (#708, IT-07).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.35.0', $this->manifest->version);
+        $this->assertSame('1.36.0', $this->manifest->version);
     }
 
     /**

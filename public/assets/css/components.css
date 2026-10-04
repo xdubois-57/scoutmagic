@@ -1373,3 +1373,9 @@
     background: var(--bs-body-bg);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
 }
+
+/* Staffs page — the section text's invitation to write (#725), shown only
+   while the preview is empty, including after an in-place save. */
+.section-text .rich-text-field-preview:not(:empty) + .section-text-empty {
+    display: none;
+}

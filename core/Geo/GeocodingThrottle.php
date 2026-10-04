@@ -34,6 +34,13 @@ use Core\Database\AdvisoryLock;
 class GeocodingThrottle
 {
     public const LOCK_NAME = 'scoutmagic_geocoding';
+
+    /**
+     * The same one-call-per-second slot for the route server (#703, OSRM's
+     * demonstration server asks for it too) — a lock of its own, so a
+     * route never waits behind an address lookup.
+     */
+    public const ROUTING_LOCK_NAME = 'scoutmagic_routing';
     private const MIN_INTERVAL_MICROSECONDS = 1_000_000;
     private const RETRY_MICROSECONDS = 100_000;
 
@@ -52,9 +59,15 @@ class GeocodingThrottle
      * @param (\Closure(int): void)|null $pause microseconds to wait —
      *        usleep() in production, recorded in the tests
      * @param (\Closure(): float)|null $clock seconds, as microtime(true)
+     * @param string $lockName which third party this slot paces —
+     *        {@see LOCK_NAME} for Nominatim, {@see ROUTING_LOCK_NAME} for OSRM
      */
-    public function __construct(private \PDO $pdo, ?\Closure $pause = null, ?\Closure $clock = null)
-    {
+    public function __construct(
+        private \PDO $pdo,
+        ?\Closure $pause = null,
+        ?\Closure $clock = null,
+        private string $lockName = self::LOCK_NAME
+    ) {
         $this->pause = $pause ?? static function (int $microseconds): void {
             usleep($microseconds);
         };
@@ -70,7 +83,7 @@ class GeocodingThrottle
      */
     public function run(callable $call): array
     {
-        if (!AdvisoryLock::acquire($this->pdo, self::LOCK_NAME)) {
+        if (!AdvisoryLock::acquire($this->pdo, $this->lockName)) {
             return [false, null];
         }
 
@@ -100,11 +113,11 @@ class GeocodingThrottle
             if (!self::asks($stillWanted)) {
                 return [self::NOT_WANTED, null];
             }
-            if (AdvisoryLock::acquire($this->pdo, self::LOCK_NAME)) {
+            if (AdvisoryLock::acquire($this->pdo, $this->lockName)) {
                 // Asked again now that the slot is ours: a newer request
                 // may have arrived during the try itself.
                 if (!self::asks($stillWanted)) {
-                    AdvisoryLock::release($this->pdo, self::LOCK_NAME);
+                    AdvisoryLock::release($this->pdo, $this->lockName);
 
                     return [self::NOT_WANTED, null];
                 }
@@ -146,7 +159,7 @@ class GeocodingThrottle
             if ($elapsed < self::MIN_INTERVAL_MICROSECONDS) {
                 ($this->pause)(self::MIN_INTERVAL_MICROSECONDS - $elapsed);
             }
-            AdvisoryLock::release($this->pdo, self::LOCK_NAME);
+            AdvisoryLock::release($this->pdo, $this->lockName);
         }
     }
 }

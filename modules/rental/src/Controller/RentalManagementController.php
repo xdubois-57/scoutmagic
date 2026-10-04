@@ -242,6 +242,11 @@ class RentalManagementController extends AbstractController
         /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
         private ?RentalMilestoneMarkService $milestoneMarkService = null,
         /**
+         * Whether anybody on the asset can be told about a request (#708,
+         * IT-05) — the overview warns when nobody can. Null says nothing.
+         */
+        private ?\Modules\Rental\Service\ManagerRecipientResolver $recipientResolver = null,
+        /**
          * The version of the conditions in force, which the Gabarits list
          * dates (#708, IT-10). Without it the line simply has no date.
          */
@@ -714,6 +719,10 @@ class RentalManagementController extends AbstractController
             // the anonymous aggregates a purge left behind — otherwise the
             // year's revenue drops to zero the morning the purge runs.
             'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
+            // Requests and reminders go to the Staff d'U when nobody on the
+            // asset can be told (#708, IT-05): said where it can be fixed.
+            'managers_unreachable' => $this->recipientResolver !== null
+                && !$this->recipientResolver->hasReachableManager($asset->id),
             'nav_page' => 'overview',
         ]);
     }
@@ -3032,9 +3041,9 @@ class RentalManagementController extends AbstractController
      * guessing, and guessing here ends with a second phone call.
      *
      * A null decision means nothing was decided that the renter should
-     * hear about (a booking moved to « en cours d'examen », a hold that
-     * lapsed) — see RenterDecision::forStatus(). Nothing is sent and
-     * nothing is added to the flash.
+     * hear about (a booking put back on hold, a hold that lapsed) — see
+     * RenterDecision::forStatus(). Nothing is sent and nothing is added to
+     * the flash.
      *
      * Never throws. A decision is already recorded by the time this runs,
      * and an SMTP timeout must not turn a confirmed booking into a red

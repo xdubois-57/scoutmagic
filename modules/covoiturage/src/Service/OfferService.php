@@ -35,6 +35,12 @@ class OfferService
     /** A car, not a coach. */
     public const MAX_SEATS = 8;
 
+    /**
+     * A word of explanation on a refusal or a withdrawal, not a message:
+     * shorter than an offer's 500-character note on purpose (#703).
+     */
+    public const COMMENT_MAX_LENGTH = 200;
+
     public function __construct(
         private OfferRepository $offers,
         private SeatRequestRepository $requests,
@@ -279,16 +285,22 @@ class OfferService
     }
 
     /** @throws CarpoolException */
-    public function refuse(SeatRequest $request, Offer $offer, CarpoolViewer $viewer, Carpool $carpool): void
-    {
+    public function refuse(
+        SeatRequest $request,
+        Offer $offer,
+        CarpoolViewer $viewer,
+        Carpool $carpool,
+        ?string $comment = null
+    ): void {
         $this->assertDriver($offer, $viewer);
+        $comment = self::comment($comment);
         if (!$request->isPending()) {
             throw new CarpoolException('Cette demande a déjà reçu une réponse.');
         }
         if (!$this->requests->transition($request->id, SeatRequest::PENDING, SeatRequest::REFUSED)) {
             throw new CarpoolException('Cette demande a déjà reçu une réponse.');
         }
-        $this->notifier?->requestRefused($carpool, $offer, $request);
+        $this->notifier?->requestRefused($carpool, $offer, $request, $comment);
     }
 
     /**
@@ -315,8 +327,14 @@ class OfferService
      *
      * @throws CarpoolException
      */
-    public function withdraw(SeatRequest $request, CarpoolViewer $viewer, Carpool $carpool, Offer $offer): void
-    {
+    public function withdraw(
+        SeatRequest $request,
+        CarpoolViewer $viewer,
+        Carpool $carpool,
+        Offer $offer,
+        ?string $comment = null
+    ): void {
+        $comment = self::comment($comment);
         if ($request->requesterAccountId !== $viewer->accountId) {
             throw new CarpoolException('Cette demande n\'est pas la vôtre.');
         }
@@ -324,7 +342,32 @@ class OfferService
             throw new CarpoolException('Cette demande n\'est plus en cours.');
         }
         $this->requests->delete($request->id);
-            $this->notifier?->requestWithdrawn($carpool, $offer, $request);
+        $this->notifier?->requestWithdrawn($carpool, $offer, $request, $comment);
+    }
+
+    /**
+     * The optional word that goes with a refusal or a withdrawal (#703):
+     * empty means none, and past {@see COMMENT_MAX_LENGTH} it is refused
+     * rather than cut — a sentence truncated mid-word says something its
+     * author did not. It lives in the notification and nowhere else: a
+     * withdrawn request is deleted outright, and a refusal has no column
+     * for it.
+     *
+     * @throws CarpoolException
+     */
+    private static function comment(?string $comment): ?string
+    {
+        $comment = trim((string) $comment);
+        if ($comment === '') {
+            return null;
+        }
+        if (mb_strlen($comment) > self::COMMENT_MAX_LENGTH) {
+            throw new CarpoolException(
+                'Le commentaire est trop long (' . self::COMMENT_MAX_LENGTH . ' caractères au plus).'
+            );
+        }
+
+        return $comment;
     }
 
     /**

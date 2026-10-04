@@ -524,6 +524,48 @@ class RentalConfigControllerTest extends TestCase
         );
     }
 
+    /**
+     * Each manager who cannot be told about a request is flagged with the
+     * reason, and the page says the Staff d'U gets them while nobody can
+     * (#708, IT-05) — where a unit corrects it.
+     */
+    public function testAManagerWhoCannotBeToldIsFlaggedOnTheManagersList(): void
+    {
+        $assetId = $this->createAsset();
+        $manager = $this->createMember('D-MGR', ['first' => 'Marie', 'last' => 'Dupont', 'totem' => null, 'birth' => self::yearsAgo(41)]);
+        $this->managerRepository->grant($assetId, $manager, false);
+
+        $controller = new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService(
+                $this->assetRepository,
+                new RentalSlugGenerator($this->assetRepository),
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            recipientResolver: new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new \Core\Import\MemberYearRepository($this->pdo),
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+                new JournalService(new JournalRepository($this->pdo))
+            )
+        );
+
+        $body = (string) $controller->index(
+            new Request('GET', '/admin/locations', ['asset_id' => (string) $assetId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString(
+            "Ne peut pas être prévenu des demandes : n'a pas de compte sur le site",
+            html_entity_decode((string) preg_replace('/\s+/', ' ', $body), ENT_QUOTES)
+        );
+        $this->assertStringContainsString('data-managers-unreachable', $body);
+    }
+
     public function testAnOrdinaryGrantStillWorks(): void
     {
         $assetId = $this->createAsset();

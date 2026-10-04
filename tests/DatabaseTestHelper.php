@@ -617,6 +617,18 @@ class DatabaseTestHelper
             FOREIGN KEY (badge_id) REFERENCES badges(id)
         )');
 
+        $pdo->exec('CREATE TABLE member_section_totems (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_year_id INTEGER NOT NULL,
+            section_id INTEGER NOT NULL,
+            totem_encrypted BLOB NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by INTEGER,
+            UNIQUE(member_year_id, section_id),
+            FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
+            FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE module_registry (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             module_id TEXT NOT NULL UNIQUE,

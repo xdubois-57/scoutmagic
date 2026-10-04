@@ -110,7 +110,9 @@ CREATE TABLE IF NOT EXISTS carpool_offers (
 -- carpool_requests: seats asked on one offer, for named people. A request
 -- is accepted WHOLE (D4); seats are counted in people, never in requests,
 -- which is why passenger_count sits in clear beside the encrypted names.
--- The requester's phone is revealed to the driver only once accepted.
+-- The requester's phone is shown to the driver from the moment the request
+-- is made (#703); the driver's phone reaches the requester only once
+-- accepted.
 --
 -- status: pending → accepted | refused; accepted → revoked (the driver
 -- took a granted seat back — not the same thing as never having had one).

@@ -44,9 +44,8 @@ class BookingTransitionTest extends TestCase
         }
     }
 
-    public function testAReceivedRequestCanBeExaminedRefusedOrConfirmed(): void
+    public function testAReceivedRequestCanBeRefusedOrConfirmed(): void
     {
-        $this->assertTrue(BookingTransition::isAllowed(BookingStatus::RECEIVED, BookingStatus::REVIEWING));
         $this->assertTrue(BookingTransition::isAllowed(BookingStatus::RECEIVED, BookingStatus::REFUSED));
         $this->assertTrue(BookingTransition::isAllowed(BookingStatus::RECEIVED, BookingStatus::CONFIRMED));
     }
@@ -61,7 +60,30 @@ class BookingTransitionTest extends TestCase
         }
 
         sort($reachable);
-        $this->assertSame(['info_requested', 'proposed', 'received', 'reviewing'], $reachable);
+        $this->assertSame(['info_requested', 'proposed', 'received'], $reachable);
+    }
+
+    /**
+     * « Remettre en attente » leads back to « Demande reçue » from both
+     * states that wait on the renter (#708, IT-11).
+     */
+    public function testARequestWaitingOnTheRenterCanBePutBackOnHold(): void
+    {
+        foreach ([BookingStatus::INFO_REQUESTED, BookingStatus::PROPOSED] as $from) {
+            $this->assertTrue(BookingTransition::isAllowed($from, BookingStatus::RECEIVED), $from->value);
+            $this->assertSame('Remettre en attente', BookingTransition::actionLabel($from, BookingStatus::RECEIVED));
+        }
+    }
+
+    /** The internal « En cours d'examen » label is gone, and so is its action. */
+    public function testThereIsNoReviewingStatusAnyMore(): void
+    {
+        $this->assertNull(BookingStatus::tryFrom('reviewing'));
+        foreach (BookingStatus::cases() as $from) {
+            foreach (BookingTransition::allowedFrom($from) as $to) {
+                $this->assertNotSame('Mettre en examen', BookingTransition::actionLabel($from, $to));
+            }
+        }
     }
 
     public function testAConfirmedBookingCanOnlyBeClosedOrCancelled(): void

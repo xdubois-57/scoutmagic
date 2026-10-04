@@ -43,7 +43,16 @@ final class EventSummary
          */
         public readonly ?int $sectionId = null,
         /** That section's display name, for a label; null with $sectionId. */
-        public readonly ?string $sectionName = null
+        public readonly ?string $sectionName = null,
+        /**
+         * When the event starts and ends on its days, `HH:MM` — added for
+         * the carpool module, which suggests a departure from them (#703).
+         * **Null start means a whole-day event** (the calendar's own
+         * `isAllDay()` is that same test): it has no hour, and a consumer
+         * must not read it as midnight. The end may be null on its own.
+         */
+        public readonly ?string $startTime = null,
+        public readonly ?string $endTime = null
     ) {
     }
 }

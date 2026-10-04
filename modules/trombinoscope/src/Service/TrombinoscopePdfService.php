@@ -174,6 +174,8 @@ class TrombinoscopePdfService
                     $data['lead'] === $profile,
                     $profile->memberYearId,
                     $profile->getDisplayName(),
+                    // A chief's « Akela » changes the card (issue #722).
+                    $profile->sectionTotemFor((int) $sectionId),
                     $profile->firstName,
                     $profile->lastName,
                     $showContacts ? ($profile->mobile ?: $profile->phone) : null,
@@ -307,13 +309,14 @@ class TrombinoscopePdfService
         foreach ($sections as $section) {
             $data = $staffBySection[(int) $section['id']] ?? ['lead' => null, 'staff' => []];
 
+            $sectionId = (int) $section['id'];
             $lead = $data['lead'] !== null
-                ? $this->toStaffView($data['lead'], $scoutYearId, true, $showContacts)
+                ? $this->toStaffView($data['lead'], $scoutYearId, true, $showContacts, $sectionId)
                 : null;
 
             $staff = $lead !== null ? [$lead] : [];
             foreach ($data['staff'] as $member) {
-                $staff[] = $this->toStaffView($member, $scoutYearId, false, $showContacts);
+                $staff[] = $this->toStaffView($member, $scoutYearId, false, $showContacts, $sectionId);
             }
 
             $views[] = new SectionView(
@@ -331,12 +334,20 @@ class TrombinoscopePdfService
         return $views;
     }
 
-    private function toStaffView(MemberProfile $member, int $scoutYearId, bool $isLead, bool $showContacts): StaffView
-    {
+    private function toStaffView(
+        MemberProfile $member,
+        int $scoutYearId,
+        bool $isLead,
+        bool $showContacts,
+        int $sectionId
+    ): StaffView {
         $civilName = trim($member->firstName . ' ' . $member->lastName);
+        // The card's title, as on the page (issue #722): « Guépard (Akela) »,
+        // « Élie (Akela) » — the civil name always follows underneath.
+        $sectionTotem = $member->sectionTotemFor($sectionId);
 
         return new StaffView(
-            displayName: $member->getDisplayName(),
+            displayName: $member->getDisplayName() . ($sectionTotem !== null ? ' (' . $sectionTotem . ')' : ''),
             civilName: $civilName,
             initials: $this->initials($member),
             photoDataUri: $this->photoEmbedder->dataUriFor($member->memberId, $scoutYearId),
