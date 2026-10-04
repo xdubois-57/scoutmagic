@@ -92,6 +92,30 @@ class CronExecutionFactsTest extends TestCase
         $this->assertTrue($this->read()?->videoReady());
     }
 
+    /**
+     * A refusal in a legacy charset (here Latin-1 « é ») is not valid
+     * UTF-8: it must neither wipe the stored facts nor switch the
+     * throttle off by leaving an empty row.
+     */
+    public function testARefusalInALegacyCharsetIsStoredAndKeepsTheThrottle(): void
+    {
+        $probes = 0;
+        $probe = static function (int $now) use (&$probes): CronExecutionFacts {
+            $probes++;
+
+            return new CronExecutionFacts($now, 'cli', true, false, 'exec', "acc\xE8s refus\xE9", null, null);
+        };
+
+        CronExecutionFacts::recordIfDue($this->repository, 1_800_000_000, $probe);
+        CronExecutionFacts::recordIfDue($this->repository, 1_800_000_000 + 60, $probe);
+
+        $facts = $this->read();
+        $this->assertNotNull($facts, 'the facts were stored');
+        $this->assertSame(1_800_000_000, $facts->probedAt);
+        $this->assertTrue(mb_check_encoding($facts->shellDetail, 'UTF-8'));
+        $this->assertSame(1, $probes, 'the second pass is still throttled');
+    }
+
     /** A diagnostic must never be why a cron pass fails. */
     public function testAFailingProbeIsSwallowed(): void
     {

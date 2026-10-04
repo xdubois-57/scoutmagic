@@ -107,7 +107,12 @@ final class CronExecutionFacts
             }
 
             $facts = $probe !== null ? $probe($now) : self::probe($now);
-            $repository->updateValue(null, self::SETTING, (string) json_encode($facts->toArray()));
+            // A host's refusal message may arrive in a legacy charset: never let
+            // it turn the stored facts into '' (and the throttle off with them).
+            $encoded = json_encode($facts->toArray(), JSON_INVALID_UTF8_SUBSTITUTE);
+            if ($encoded !== false) {
+                $repository->updateValue(null, self::SETTING, $encoded);
+            }
         } catch (\Throwable) {
             // Never fatal: see the doc comment.
         }

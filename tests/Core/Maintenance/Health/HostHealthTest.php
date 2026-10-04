@@ -179,6 +179,21 @@ final class HostHealthTest extends TestCase
         );
     }
 
+    /**
+     * proc_open allowed, yet this PHP launches nothing: the tools may be
+     * installed, so the line points at the execution line instead of
+     * asking for Ghostscript.
+     */
+    public function testWithNoProgramLaunchableThePdfLineDoesNotAskToInstallATool(): void
+    {
+        $line = $this->line('pdf_compression', $this->facts(shellWorks: false, pdfBackend: 'none'));
+
+        $this->assertSame(HostCheck::STATE_DEGRADED, $line->state);
+        $this->assertSame('Impossible : ce PHP ne lance aucun programme', $line->status);
+        $this->assertStringContainsString('Exécution de commandes (PHP web)', $line->ask);
+        $this->assertStringNotContainsString('Installer Ghostscript', $line->ask);
+    }
+
     public function testTheInstallationAdviceForPdfIsWrittenOnceAndOnlyHere(): void
     {
         $root = dirname(__DIR__, 4);

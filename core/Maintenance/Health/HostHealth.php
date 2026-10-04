@@ -319,6 +319,19 @@ final class HostHealth
                     . 'pas fait.'
             );
         }
+        if (!isset($tools[$facts->pdfBackend]) && $facts->shellDeclared && !$facts->shellWorks) {
+            // proc_open is allowed but this PHP launches nothing at all: the
+            // tools may well be installed, so asking for them would be wrong.
+            return new HostCheck(
+                'pdf_compression',
+                'Compression des PDF',
+                HostCheck::STATE_DEGRADED,
+                'Impossible : ce PHP ne lance aucun programme',
+                $consequence,
+                'Voir la ligne « Exécution de commandes (PHP web) » : tant que PHP ne peut lancer aucun '
+                    . 'programme, la compression ne peut pas tourner, que Ghostscript soit installé ou non.'
+            );
+        }
         if (!isset($tools[$facts->pdfBackend])) {
             return new HostCheck(
                 'pdf_compression',
