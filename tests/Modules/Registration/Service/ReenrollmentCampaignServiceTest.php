@@ -282,14 +282,90 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertNull($this->campaign->closingDueToday(new \DateTimeImmutable('2027-05-14')));
     }
 
-    public function testTheCampaignKeyIsTheCloseDateOfTheWindowInProgress(): void
+    /**
+     * **One campaign: the target year's** (issue #796, D3). The public year
+     * is 2026-2027, so the families are asked about 2027-2028, whose
+     * campaign closes on 2027-05-15 — before its dates, during them and
+     * after them, whatever today is.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function datesOfTheYear(): array
     {
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-01')));
-        // Just after closing, still the campaign that has just ended —
-        // which is what makes a closing e-mail belong to it.
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-16')));
-        // Before the first opening of the year, last year's.
-        $this->assertSame('2026-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-02-01')));
+        return [
+            'the day the public year is 2026-2027' => ['2026-09-01'],
+            'in October, between two campaigns' => ['2026-10-04'],
+            'before the opening' => ['2027-02-20'],
+            'during the campaign' => ['2027-04-20'],
+            'the day it closes' => ['2027-05-15'],
+            'after the close' => ['2027-06-12'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('datesOfTheYear')]
+    public function testTheCampaignIsTheTargetYearsWhateverTheDay(string $today): void
+    {
+        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable($today)));
+    }
+
+    public function testTheNextPublicYearMovesToTheNextCampaign(): void
+    {
+        $this->usePublicYear('2027-2028');
+
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-08-20')));
+    }
+
+    /**
+     * **The day the public year changes** must not replace in silence a
+     * campaign that is still running: it stays current until it closes.
+     */
+    public function testAPublicYearChangedMidCampaignKeepsTheRunningOneUntilItCloses(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
+        $this->usePublicYear('2027-2028');
+
+        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
+        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-15')));
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-16')));
+    }
+
+    public function testAPublicYearChangedBeforeTheCampaignBeganMovesOnAtOnce(): void
+    {
+        $this->usePublicYear('2027-2028');
+
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
+    }
+
+    /**
+     * A window that straddles new year (November → February): the campaign
+     * of 2027-2028 closes in February 2027 and opens in November 2026.
+     */
+    public function testAWindowAcrossNewYearOpensTheYearBeforeItCloses(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '11-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '02-15', 'registration');
+
+        $this->assertSame('2027-02-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2026-10-04')));
+        $this->assertSame('2027-02-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2026-11-01')));
+        $this->assertNull($this->campaign->openingDueToday(new \DateTimeImmutable('2027-11-01')));
+        $this->assertSame('2027-02-15', $this->campaign->closingDueToday(new \DateTimeImmutable('2027-02-15')));
+        $this->assertSame(
+            '2027-02-01',
+            $this->campaign->reminderDate(ReenrollmentCampaignService::EMAIL_REMINDER_1, new \DateTimeImmutable('2026-12-01'))
+                ?->format('Y-m-d')
+        );
+    }
+
+    public function testTheYearACampaignAsksAboutIsTheOneStartingTheYearItCloses(): void
+    {
+        $this->assertSame('2027-2028', ReenrollmentCampaignService::targetLabelOf('2027-05-15'));
+        $this->assertSame('2027-2028', ReenrollmentCampaignService::targetLabelOf('2027-02-15'));
+    }
+
+    private function usePublicYear(string $label): void
+    {
+        $id = (new ScoutYearService($this->pdo))->ensureYear($label);
+        $this->settingService->set(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $id);
     }
 
     public function testAWindowStraddlingNewYearClosesTheYearAfterItOpens(): void
@@ -391,14 +467,31 @@ class ReenrollmentCampaignServiceTest extends TestCase
     }
 
     /**
-     * Whether it then writes to anybody is Service\ReenrollmentSavePlanner's
-     * answer (issue #796): a campaign with no key announces nothing.
+     * No distance rule (issue #796, D3): after its close, the switch reopens
+     * the same campaign — for a late family. Whether that writes to anybody
+     * is Service\ReenrollmentSavePlanner's answer.
      */
-    public function testTheSwitchShortlyAfterTheCloseReopensAFinishedCampaignWithoutAKey(): void
+    public function testTheSwitchAfterTheCloseReopensTheSameCampaign(): void
     {
         $this->assertSame(
-            ['key' => null, 'scheduled' => false],
+            ['key' => '2027-05-15', 'scheduled' => false],
             $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'))
+        );
+    }
+
+    /**
+     * And in October it opens the target year's campaign — never the one
+     * that ended in May, whichever date is nearer (D4).
+     */
+    public function testTheSwitchInOctoberOpensTheTargetYearsCampaign(): void
+    {
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2026-10-04'))
+        );
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2026-10-08'))
         );
     }
 

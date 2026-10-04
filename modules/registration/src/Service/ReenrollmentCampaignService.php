@@ -93,10 +93,11 @@ class ReenrollmentCampaignService
      * opens nothing — a missed date is missed, as everywhere else here.
      *
      * Null when nothing would open (or the campaign is already open).
-     * Otherwise the campaign the opening belongs to — null when the dates
-     * do not designate one, in which case no e-mail can follow — and
-     * whether it is the scheduled opening rather than the switch. Whether
-     * an e-mail then leaves is Service\ReenrollmentSavePlanner's answer.
+     * Otherwise the campaign the opening belongs to — always the campaign of
+     * the target year (issue #796, D3), null only when the dates designate
+     * none — and whether it is the scheduled opening rather than the
+     * switch. Whether an e-mail then leaves is
+     * Service\ReenrollmentSavePlanner's answer.
      *
      * @return array{key: ?string, scheduled: bool}|null
      */
@@ -111,91 +112,65 @@ class ReenrollmentCampaignService
         }
 
         $now ??= new \DateTimeImmutable();
-        $today = $now->setTime(0, 0);
-        $openAt = self::validMonthDay($openAt);
-        $closeAt = self::validMonthDay($closeAt);
+        $key = $this->campaignKeyFor($now, $openAt, $closeAt);
+        $openOn = $key !== null ? self::openingDateOf($key, (string) self::validMonthDay($openAt)) : null;
 
-        if ($openAt !== null && $closeAt !== null) {
-            $openOn = self::dateIn((int) $today->format('Y'), $openAt);
-            if ($openOn !== null && $openOn->format('Y-m-d') === $today->format('Y-m-d')) {
-                $key = self::keyForOpening($today, $closeAt);
-                if ($key !== null && !$this->alreadyDone(self::MARKER_OPENED, $key)) {
-                    return ['key' => $key, 'scheduled' => true];
-                }
-            }
+        if (
+            $key !== null
+            && $openOn !== null
+            && $openOn->format('Y-m-d') === $now->format('Y-m-d')
+            && !$this->alreadyDone(self::MARKER_OPENED, $key)
+        ) {
+            return ['key' => $key, 'scheduled' => true];
         }
 
         if (!$switchOn) {
             return null;
         }
 
-        return ['key' => self::keyForManualOpening($today, $openAt, $closeAt), 'scheduled' => false];
+        // **No distance rule any more** (issue #796, D3, D4). Outside the
+        // dates, the switch used to guess between reopening the campaign
+        // that had just ended and opening the next one early, by whichever
+        // date was nearer — so the same click reopened May's campaign
+        // without an e-mail until 7 October and wrote to every family about
+        // next year's from the 8th, and nothing said so. There is now one
+        // campaign the switch can open, the target year's: opened by hand,
+        // it opens now, and keeps the close date, reminders and closing
+        // e-mail of the settings, however far away they are.
+        return ['key' => $key, 'scheduled' => false];
     }
 
     /**
-     * The campaign a MANUAL opening opens, when it opens one that still
-     * has a deadline ahead — the only kind an opening e-mail can announce.
+     * The campaign of the year the families are asked about, as its own
+     * close date (`Y-m-d`) — the key every marker is written against
+     * (issue #796, D3).
      *
-     * Inside a campaign's window, that campaign. Outside every window the
-     * switch serves two purposes, and the calendar tells them apart: just
-     * after a close it lets a late family back into the campaign that has
-     * just ended, and ahead of the next opening date it opens that next
-     * campaign early. Whichever of the two dates is nearer decides, a tie
-     * going to the campaign just closed. Reopening a finished campaign is
-     * null: an « ouverture » e-mail whose closing date has already passed
-     * would announce a deadline that is behind everybody.
-     */
-    private static function keyForManualOpening(
-        \DateTimeImmutable $today,
-        ?string $openAt,
-        ?string $closeAt
-    ): ?string {
-        if ($openAt === null || $closeAt === null) {
-            return null;
-        }
-
-        $current = self::keyAt($today, $openAt, $closeAt);
-        if ($current !== null && $current >= $today->format('Y-m-d')) {
-            return $current;
-        }
-
-        $year = (int) $today->format('Y');
-        $nextOpen = self::dateIn($year, $openAt);
-        if ($nextOpen !== null && $nextOpen < $today) {
-            $nextOpen = self::dateIn($year + 1, $openAt);
-        }
-        if ($nextOpen === null) {
-            return null;
-        }
-
-        $lastClose = $current !== null ? DateInput::parse('!Y-m-d', $current) : null;
-        if ($lastClose !== null && $today->diff($lastClose)->days <= $today->diff($nextOpen)->days) {
-            return null;
-        }
-
-        return self::keyForOpening($nextOpen, $closeAt);
-    }
-
-    /**
-     * The campaign a given moment belongs to, as its own close date
-     * (`Y-m-d`) — the key every marker is written against.
+     * **One campaign at a time, and it is the target year's.** The target
+     * year is the scout year after the public one (`years()`); its campaign
+     * closes on the close date of the calendar year that target year starts
+     * in — 2027-2028 closes on 2027-05-15. It does not depend on today: the
+     * campaign is « the one for 2027-2028 » from the day the public year
+     * becomes 2026-2027 until the day it becomes 2027-2028, before its dates,
+     * during them and after them. That is what lets the page and every
+     * e-mail name the year, and what makes a 2027-2028 label impossible to
+     * pair with a 2026 date — the incident of issue #796.
      *
-     * The close date of the campaign whose window CONTAINS or most
-     * recently preceded `$now`: a campaign that opens on 01-03 and closes
-     * on 15-05 is "the 2027 one" from March until the following March,
-     * which is what makes a closing e-mail sent on the 16th belong to the
-     * campaign that just ended rather than to next year's.
+     * The key is still the close date, so every marker written before this
+     * rule keeps its meaning (D5).
+     *
+     * **The day the public year changes.** Moving to the next public year
+     * moves the target, and would replace the campaign in silence. A
+     * campaign that is still running — its close date not reached, and
+     * opened, by hand or by the clock — keeps being the current one until
+     * it closes; only then does the next one take over.
      */
     public function currentCampaignKey(?\DateTimeImmutable $now = null): ?string
     {
-        $now ??= new \DateTimeImmutable();
-        $closeAt = $this->monthDay(self::SETTING_CLOSE_AT);
-        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
-        if ($closeAt === null || $openAt === null) {
-            return null;
-        }
-
-        return self::keyAt($now, $openAt, $closeAt);
+        return $this->campaignKeyFor(
+            $now ?? new \DateTimeImmutable(),
+            $this->monthDay(self::SETTING_OPEN_AT),
+            $this->monthDay(self::SETTING_CLOSE_AT)
+        );
     }
 
     /**
@@ -203,54 +178,47 @@ class ReenrollmentCampaignService
      * ones a chief is about to save. Null when either date is missing or
      * malformed.
      */
-    public static function campaignKeyFor(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
+    public function campaignKeyFor(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
     {
-        $openAt = self::validMonthDay($openAt);
-        $closeAt = self::validMonthDay($closeAt);
-
-        return $openAt !== null && $closeAt !== null ? self::keyAt($now, $openAt, $closeAt) : null;
-    }
-
-    /**
-     * The campaign a save that closes the switch closes: the window in
-     * progress, or the next one when the switch opened it early — and only
-     * when it really did, as its markers show. A switch left on past its
-     * window is not an early opening: nobody was told the next campaign had
-     * begun, so nobody is told it has closed.
-     *
-     * An opening e-mail still queued has not written its marker yet, so
-     * `$openingInFlight` says whether it is on its way for a campaign key.
-     *
-     * @param \Closure(string $campaignKey): bool|null $openingInFlight
-     */
-    public function campaignKeyToClose(
-        \DateTimeImmutable $now,
-        ?string $openAt,
-        ?string $closeAt,
-        ?\Closure $openingInFlight = null
-    ): ?string {
         $openAt = self::validMonthDay($openAt);
         $closeAt = self::validMonthDay($closeAt);
         if ($openAt === null || $closeAt === null) {
             return null;
         }
 
-        $today = $now->setTime(0, 0);
-        $current = self::keyAt($today, $openAt, $closeAt);
-        if ($current !== null && $current >= $today->format('Y-m-d')) {
-            return $current;
+        $targetStart = (int) explode('-', $this->years()['target_label'])[0];
+        $key = self::dateIn($targetStart, $closeAt)?->format('Y-m-d');
+
+        $previous = self::dateIn($targetStart - 1, $closeAt)?->format('Y-m-d');
+        if ($previous !== null && $previous >= $now->format('Y-m-d') && $this->stillRunning($previous)) {
+            return $previous;
         }
 
-        $next = self::keyForManualOpening($today, $openAt, $closeAt);
-
-        $opened = $next !== null
-            && ($this->openedBefore($next) || ($openingInFlight !== null && $openingInFlight($next)));
-
-        return $opened ? $next : $current;
+        return $key;
     }
 
-    /** Whether the campaign `$key` was opened, by the clock or by hand: a marker says so. */
-    private function openedBefore(string $key): bool
+    /**
+     * Whether the campaign `$key` has begun: its opening date is behind us,
+     * or it was opened before it — by the clock or by the switch with its
+     * opening e-mail. A campaign that has not begun has nobody to tell it
+     * is over (issue #796): closing it writes to nobody.
+     */
+    public function hasStarted(string $key, \DateTimeImmutable $now): bool
+    {
+        $openOn = self::openingDateOf($key, (string) $this->monthDay(self::SETTING_OPEN_AT));
+        if ($openOn !== null && $openOn->format('Y-m-d') <= $now->format('Y-m-d')) {
+            return true;
+        }
+
+        return $this->stillRunning($key);
+    }
+
+    /**
+     * Whether the campaign `$key` has been opened and has written to
+     * families or opened by the clock — the campaigns a change of public
+     * year must not replace before they close.
+     */
+    private function stillRunning(string $key): bool
     {
         if ($this->alreadyDone(self::MARKER_OPENED, $key)) {
             return true;
@@ -264,23 +232,37 @@ class ReenrollmentCampaignService
         return false;
     }
 
-    private static function keyAt(\DateTimeImmutable $now, string $openAt, string $closeAt): ?string
+    /**
+     * The date the campaign `$key` opens: the opening day before its close
+     * — the same calendar year, or the year before when the window
+     * straddles new year (open in November, close in February).
+     */
+    public static function openingDateOf(string $key, string $openAt): ?\DateTimeImmutable
     {
-        $year = (int) $now->format('Y');
-        foreach ([$year, $year - 1] as $candidateYear) {
-            // A window that straddles New Year closes the calendar year after
-            // it opens (open 11-01, close 02-15).
-            $close = self::dateIn($closeAt >= $openAt ? $candidateYear : $candidateYear + 1, $closeAt);
-            if ($close === null) {
-                continue;
-            }
-            $openOn = self::dateIn($candidateYear, $openAt);
-            if ($openOn !== null && $now->setTime(0, 0) >= $openOn) {
-                return $close->format('Y-m-d');
-            }
+        $close = DateInput::parse('!Y-m-d', $key);
+        if ($close === null || self::validMonthDay($openAt) === null) {
+            return null;
         }
 
-        return null;
+        $open = self::dateIn((int) $close->format('Y'), $openAt);
+        if ($open !== null && $open > $close) {
+            $open = self::dateIn((int) $close->format('Y') - 1, $openAt);
+        }
+
+        return $open;
+    }
+
+    /**
+     * The scout year label a campaign asks about: the one starting in the
+     * calendar year the campaign closes (`2027-05-15` → `2027-2028`). Every
+     * e-mail of the campaign carries this label, never one recomputed from
+     * whatever the public year is when it leaves (issue #796).
+     */
+    public static function targetLabelOf(string $key): string
+    {
+        $year = (int) substr($key, 0, 4);
+
+        return sprintf('%d-%d', $year, $year + 1);
     }
 
     /**
@@ -303,17 +285,14 @@ class ReenrollmentCampaignService
     {
         $now ??= new \DateTimeImmutable();
         $openAt = $this->monthDay(self::SETTING_OPEN_AT);
-        if ($openAt === null) {
+        $key = $this->currentCampaignKey($now);
+        if ($openAt === null || $key === null) {
             return null;
         }
 
-        $today = $now->setTime(0, 0);
-        $openOn = $this->openDateFor((int) $today->format('Y'));
-        if ($openOn === null || $openOn->format('Y-m-d') !== $today->format('Y-m-d')) {
-            return null;
-        }
+        $openOn = self::openingDateOf($key, $openAt);
 
-        return $this->campaignKeyForOpening($today);
+        return $openOn !== null && $openOn->format('Y-m-d') === $now->format('Y-m-d') ? $key : null;
     }
 
     /**
@@ -367,11 +346,7 @@ class ReenrollmentCampaignService
 
         $due = $close->modify('-' . max(0, (int) $daysBeforeClose) . ' days');
 
-        // The window opened the calendar year before it closes when it
-        // straddles New Year (open 11-01, close 02-15).
-        $openOn = $openAt !== null
-            ? self::dateIn((int) $close->format('Y') - ($close->format('m-d') < $openAt ? 1 : 0), $openAt)
-            : null;
+        $openOn = $openAt !== null ? self::openingDateOf($close->format('Y-m-d'), $openAt) : null;
         if ($openOn !== null && $due < $openOn) {
             return null;
         }
@@ -586,43 +561,9 @@ class ReenrollmentCampaignService
         ];
     }
 
-    private function openDateFor(int $year): ?\DateTimeImmutable
-    {
-        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
-
-        return $openAt !== null ? self::dateIn($year, $openAt) : null;
-    }
-
     private static function dateIn(int $year, string $monthDay): ?\DateTimeImmutable
     {
         return DateInput::parse('!Y-m-d', sprintf('%04d-%s', $year, $monthDay));
-    }
-
-    /**
-     * The close date of the campaign that opens on `$openDay` — the same
-     * calendar year when the close month follows the open month, the next
-     * one when the window straddles new year.
-     */
-    private function campaignKeyForOpening(\DateTimeImmutable $openDay): ?string
-    {
-        $closeAt = $this->monthDay(self::SETTING_CLOSE_AT);
-
-        return $closeAt !== null ? self::keyForOpening($openDay, $closeAt) : null;
-    }
-
-    private static function keyForOpening(\DateTimeImmutable $openDay, string $closeAt): ?string
-    {
-        $year = (int) $openDay->format('Y');
-        $close = self::dateIn($year, $closeAt);
-        if ($close === null) {
-            return null;
-        }
-
-        if ($close < $openDay) {
-            $close = self::dateIn($year + 1, $closeAt);
-        }
-
-        return $close?->format('Y-m-d');
     }
 
     private function monthDay(string $setting): ?string

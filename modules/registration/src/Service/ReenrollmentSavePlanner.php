@@ -132,22 +132,22 @@ class ReenrollmentSavePlanner
         // ── a closing by the switch ───────────────────────────────────
         $closing = null;
         if ($before['is_open'] && !$after['is_open']) {
-            $key = $this->campaign->campaignKeyToClose(
-                $now,
-                $after['open_at'],
-                $after['close_at'],
-                fn (string $campaignKey): bool => $this->inFlight !== null
-                    && ($this->inFlight)(ReenrollmentCampaignService::EMAIL_OPENING, $campaignKey)
-            );
+            $key = $this->campaign->campaignKeyFor($now, $after['open_at'], $after['close_at']);
             $closing = ['campaign' => $key];
-            $reasons[] = $this->queue(
-                $emails,
-                ReenrollmentCampaignService::EMAIL_CLOSING,
-                $key,
-                $after['emails_enabled'],
-                $today,
-                false
-            );
+            if ($key !== null && !$this->campaign->hasStarted($key, $now) && !$this->openingInFlight($key)) {
+                // A switch left on before its campaign began — closing it
+                // tells nobody « it is over »: nobody was told it began.
+                $reasons[] = ReenrollmentSavePlan::REASON_NOT_STARTED;
+            } else {
+                $reasons[] = $this->queue(
+                    $emails,
+                    ReenrollmentCampaignService::EMAIL_CLOSING,
+                    $key,
+                    $after['emails_enabled'],
+                    $today,
+                    false
+                );
+            }
         }
 
         // ── what the save makes due at the next hourly pass ───────────
@@ -192,14 +192,16 @@ class ReenrollmentSavePlanner
         if ($key === null) {
             return ReenrollmentSavePlan::REASON_NO_CAMPAIGN;
         }
-        if ($key < $today->format('Y-m-d')) {
-            return ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED;
-        }
+        // The most specific reason first: « already sent » says more than
+        // « ended » about a campaign reopened after its close (D5).
         if (!$emailsEnabled) {
             return ReenrollmentSavePlan::REASON_EMAILS_DISABLED;
         }
         if ($this->campaign->alreadyDone(ReenrollmentCampaignService::emailMarker($type), $key)) {
             return ReenrollmentSavePlan::REASON_ALREADY_SENT;
+        }
+        if ($key < $today->format('Y-m-d')) {
+            return ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED;
         }
         foreach ($emails as $email) {
             if ($email['type'] === $type && $email['campaign'] === $key) {
@@ -229,7 +231,7 @@ class ReenrollmentSavePlanner
      */
     private function dueToday(array $state, \DateTimeImmutable $now): array
     {
-        $key = ReenrollmentCampaignService::campaignKeyFor($now, $state['open_at'], $state['close_at']);
+        $key = $this->campaign->campaignKeyFor($now, $state['open_at'], $state['close_at']);
         if ($key === null) {
             return [];
         }
@@ -306,5 +308,15 @@ class ReenrollmentSavePlanner
     private static function shown(string|bool|null $value): string
     {
         return is_bool($value) ? ($value ? '1' : '0') : (string) $value;
+    }
+
+    /**
+     * An opening e-mail queued by the switch and not finished has not
+     * written its marker yet: the campaign has started all the same.
+     */
+    private function openingInFlight(string $campaignKey): bool
+    {
+        return $this->inFlight !== null
+            && ($this->inFlight)(ReenrollmentCampaignService::EMAIL_OPENING, $campaignKey);
     }
 }

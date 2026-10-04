@@ -34,6 +34,8 @@ final class ReenrollmentSavePlan
     public const REASON_ALREADY_SENT = 'already_sent';
     /** The campaign's close date is behind us: there is nobody left to tell. */
     public const REASON_CAMPAIGN_ENDED = 'campaign_ended';
+    /** The campaign has not begun: nobody has been asked anything yet. */
+    public const REASON_NOT_STARTED = 'not_started';
     /** The dates designate no campaign at all. */
     public const REASON_NO_CAMPAIGN = 'no_campaign';
 

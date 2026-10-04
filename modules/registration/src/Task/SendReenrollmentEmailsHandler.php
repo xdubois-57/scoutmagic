@@ -88,7 +88,13 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
             $context->settings,
             new \Core\Import\MemberYearRepository($pdo)
         ))->getCurrentPublicYear();
-        $targetLabel = ScoutYearService::nextLabel((string) $publicYear['label']);
+        // **The label of the CAMPAIGN, not of today** (issue #796). It was
+        // recomputed from the public year at the moment of sending, so a
+        // closing e-mail written in October named next year's campaign
+        // beside May's date. The campaign key is its close date, and the
+        // year it asks about is the one starting that calendar year: the
+        // same label in May and in October.
+        $targetLabel = ReenrollmentCampaignService::targetLabelOf($campaignKey);
         $targetYearId = $scoutYearService->ensureYear($targetLabel);
 
         $recipients = new ReenrollmentRecipientService(
