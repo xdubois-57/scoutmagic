@@ -29,6 +29,8 @@ use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Repository\RentalMilestoneMarkRepository;
+use Modules\Rental\Repository\RentalReminderRepository;
+use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Service\RentalContractValidityService;
 use Modules\Rental\Service\RentalDocumentService;
 use PHPUnit\Framework\TestCase;
@@ -48,6 +50,7 @@ class RentalContractValidityServiceTest extends TestCase
     private RentalBookingRepository $bookingRepository;
     private RentalAssetRepository $assetRepository;
     private RentalMilestoneMarkRepository $marks;
+    private RentalReminderRepository $reminders;
     private RentalContractValidityService $service;
     private int $assetId;
 
@@ -90,7 +93,8 @@ class RentalContractValidityServiceTest extends TestCase
             $this->bookingRepository,
             $audit,
             null,
-            $this->marks
+            $this->marks,
+            $this->reminders = new RentalReminderRepository($this->pdo)
         );
 
         $this->assetId = $this->assetRepository->create(
@@ -206,6 +210,42 @@ class RentalContractValidityServiceTest extends TestCase
         $this->assertSame(BookingStatus::RECEIVED, $this->fresh($booking->id)->status);
         $this->assertFalse($this->documents->textIsLocked($booking, DocumentType::CONTRACT), 'a new contract must be writable');
         $this->assertSame([], $this->marks->findForBooking($booking->id));
+    }
+
+    /**
+     * The text a void contract was made from opens again — and the write
+     * itself agrees, not only the check before it: its UPDATE still read
+     * the void contract's `sent_at` as a lock.
+     */
+    public function testTheTextOfAVoidContractCanBeSavedAgain(): void
+    {
+        $booking = $this->bookingWithItsContractSent();
+        // A text of its own, so the save goes through the guarded UPDATE.
+        $this->documentRepository->saveText($booking->id, DocumentType::CONTRACT, '<p>Avant</p>');
+
+        $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);
+        $this->service->recheck($this->fresh($booking->id), $this->asset(), null, new \DateTimeImmutable('2027-01-10 09:00'));
+
+        $this->documents->saveBookingText($this->fresh($booking->id), DocumentType::CONTRACT, '<p>Après</p>');
+        $this->assertStringContainsString('Après', (string) $this->documentRepository->findText($booking->id, DocumentType::CONTRACT));
+    }
+
+    /**
+     * « Copie signée attendue » is said once per booking: the new
+     * contract's deadline must be said too.
+     */
+    public function testAVoidContractLetsTheSignedCopyReminderBeSaidAgain(): void
+    {
+        $booking = $this->bookingWithItsContractSent();
+        $this->assertTrue($this->reminders->claim('booking', $booking->id, ReminderKind::SIGNED_COPY_DUE, new \DateTimeImmutable('2027-01-05')));
+
+        $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);
+        $this->service->recheck($this->fresh($booking->id), $this->asset(), null, new \DateTimeImmutable('2027-01-10 09:00'));
+
+        $this->assertTrue(
+            $this->reminders->claim('booking', $booking->id, ReminderKind::SIGNED_COPY_DUE, new \DateTimeImmutable('2027-01-20')),
+            'claimable again for the new contract'
+        );
     }
 
     /** Going back would free its dates: a confirmed booking stays confirmed. */

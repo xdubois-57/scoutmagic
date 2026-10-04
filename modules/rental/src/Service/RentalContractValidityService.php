@@ -21,6 +21,8 @@ use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalDocumentRepository;
 use Modules\Rental\Repository\RentalMilestoneMarkRepository;
+use Modules\Rental\Repository\RentalReminderRepository;
+use Modules\Rental\Reminder\ReminderKind;
 
 /**
  * A contract becomes void the moment the booking changes (#708, IT-20).
@@ -39,6 +41,8 @@ use Modules\Rental\Repository\RentalMilestoneMarkRepository;
  *   no longer holds, and are no longer downloadable;
  * - **reopens the contract's steps** — they read only documents still in
  *   force, and a step ticked by hand is unticked;
+ * - **forgets the « copie signée attendue » reminder** already sent: it is
+ *   said once per booking, and the new contract has a deadline of its own;
  * - **takes a booking that was « Contrat envoyé » back to « Demande
  *   reçue »**: a new contract must go out. The hold is not shortened;
  * - **leaves a confirmed booking confirmed** — going back would free its
@@ -62,7 +66,8 @@ class RentalContractValidityService
         private RentalBookingRepository $bookingRepository,
         private BookingAudit $bookingAudit,
         private ?RentalPaymentService $paymentService = null,
-        private ?RentalMilestoneMarkRepository $marks = null
+        private ?RentalMilestoneMarkRepository $marks = null,
+        private ?RentalReminderRepository $reminders = null
     ) {
     }
 
@@ -128,6 +133,14 @@ class RentalContractValidityService
         foreach ([...self::CONTRACT_STEPS, MilestoneEvidence::LEGACY_CONTRACT_ACCEPTED] as $step) {
             $this->marks?->unmark($booking->id, $step);
         }
+
+        // Said once per booking, never per contract: left claimed, the
+        // renter would never hear of the replacement's deadline.
+        $this->reminders?->forget(
+            ReminderKind::SIGNED_COPY_DUE->subjectType(),
+            $booking->id,
+            ReminderKind::SIGNED_COPY_DUE
+        );
 
         $this->bookingAudit->record(
             $booking->id,

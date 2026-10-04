@@ -11914,7 +11914,8 @@ if ($isEnabled('rental')) {
         $rentalBookingRepository,
         $rentalBookingAudit,
         $rentalPaymentService,
-        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo)
+        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+        new \Modules\Rental\Repository\RentalReminderRepository($pdo)
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a

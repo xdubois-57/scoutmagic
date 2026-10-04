@@ -147,7 +147,7 @@
                                            aria-label="Ouvrir « {{ document.label }} » dans un nouvel onglet">
                                             <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                                         </a>
-                                        {% if document.isForRenter %}
+                                        {% if document.isForRenter and not document.isSuperseded %}
                                             {#
                                               Asks on EVERY send, and the
                                               attribute is outside any {% if %}

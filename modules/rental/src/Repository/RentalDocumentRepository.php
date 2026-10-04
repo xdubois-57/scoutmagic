@@ -438,6 +438,7 @@ class RentalDocumentRepository implements AttachedFileRepository
                        WHERE d.booking_id = rental_booking_document_texts.booking_id
                          AND d.document_type = rental_booking_document_texts.document_type
                          AND d.sent_at IS NOT NULL
+                         AND d.superseded_at IS NULL
                    )'
             );
             $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
@@ -491,6 +492,7 @@ class RentalDocumentRepository implements AttachedFileRepository
                     WHERE d.booking_id = t.booking_id
                       AND d.document_type = t.document_type
                       AND d.sent_at IS NOT NULL
+                      AND d.superseded_at IS NULL
                 )'
         );
         $stmt->execute([$bookingId, $type->value, $bodyHtml]);

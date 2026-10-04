@@ -2031,6 +2031,15 @@ class RentalManagementController extends AbstractController
             if ($document === null || $document->bookingId !== $booking->id) {
                 throw new RentalException("Ce document n'existe pas.");
             }
+            // A void contract (#708, IT-20) describes a booking that no
+            // longer exists: sending it again would put the renter to work
+            // on the wrong terms, and take the booking back to « Contrat
+            // envoyé ».
+            if ($document->isSuperseded()) {
+                throw new RentalException(
+                    'Ce document a été remplacé : la réservation a changé depuis. Générez-en une nouvelle version.'
+                );
+            }
 
             $path = $this->documentService->absolutePath($document);
             if ($path === null) {

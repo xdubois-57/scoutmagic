@@ -323,7 +323,8 @@ class RentalManagementControllerTest extends TestCase
                 $this->bookingRepository,
                 $bookingAudit,
                 $this->paymentService,
-                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo)
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
+                new \Modules\Rental\Repository\RentalReminderRepository($this->pdo)
             )
         );
 
@@ -2530,6 +2531,23 @@ class RentalManagementControllerTest extends TestCase
         // The new version is generated from the dashboard again — where the
         // step reopened, and the only place a contract is generated.
         $this->assertStringContainsString('Générer le contrat', self::panel($dashboard, 'next-step'));
+
+        // A void contract is never sent again: no « Renvoyer » on it, and
+        // the server refuses — the renter would sign the wrong terms, and
+        // the booking would go back to « Contrat envoyé ».
+        $this->assertStringNotContainsString(
+            'Renvoyer « ' . $contract->label() . ' »',
+            html_entity_decode($documents)
+        );
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        $refusal = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $refusal['type'] ?? null);
+        $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /** What the contract does not state — an internal comment — voids nothing. */
