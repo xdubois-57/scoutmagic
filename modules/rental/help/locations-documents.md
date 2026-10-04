@@ -46,9 +46,6 @@ site vous prévient avant la génération.
 **Le contrat se génère et s'envoie depuis le tableau de bord**, à son
 étape : générez, relisez le PDF, puis envoyez. La facture se génère ici.
 Cette page liste le contrat avec les autres documents et le renvoie.
-Une fois le contrat envoyé, c'est ici que vous en générez **une nouvelle
-version** si la réservation a changé — un prix modifié, par exemple —, puis
-que vous l'envoyez depuis la liste.
 
 Générer produit un PDF. Chaque génération crée une version de plus **sans
 écraser la précédente** : une version déjà signée reste intacte. Le

@@ -74,13 +74,15 @@
 
         <div class="d-flex flex-wrap gap-2 mb-3">
             {#
-              Once a contract has gone, its dashboard step no longer
-              generates one — yet a confirmed booking whose price changes is
-              told « le contrat sera à régénérer en nouvelle version ». Until
-              a void contract reopens its steps by itself (#708, IT-20), the
-              new version is generated here, and sent from the list below.
+              A contract sent before contracts carried a fingerprint can
+              never be voided (#708, IT-20): nothing says what it stated, so
+              its steps never reopen and the dashboard never offers a new
+              version. Nor does it for a sent contract whose stored PDF is
+              gone. For those alone, the new version is still generated here,
+              and sent from the list below.
             #}
-            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent) is not empty %}
+            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent and not d.isSuperseded
+                and (d.fingerprint is null or d.id in (contracts_without_file|default([])))) is not empty %}
                 <form method="post" action="/mes-locations/document-generer" class="d-inline">
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
@@ -123,6 +125,12 @@
                             <tr>
                                 <td>
                                     {{ document.label }}
+                                    {% if document.isSuperseded %}
+                                        {# Kept on file, never valid again (#708, IT-20). #}
+                                        <span class="badge bg-warning-subtle text-warning-emphasis ms-1">
+                                            Remplacé — la réservation a changé le {{ document.supersededAt|date_fr }}
+                                        </span>
+                                    {% endif %}
                                     {% if document.isForRenter %}
                                         <span class="badge bg-body-tertiary border text-body-secondary ms-1"
                                               title="Sera joint à un email — jamais téléchargeable par le locataire">
@@ -159,7 +167,7 @@
                                            aria-label="Ouvrir « {{ document.label }} » dans un nouvel onglet">
                                             <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                                         </a>
-                                        {% if document.isForRenter %}
+                                        {% if document.isForRenter and not document.isSuperseded %}
                                             {#
                                               Asks on EVERY send, and the
                                               attribute is outside any {% if %}

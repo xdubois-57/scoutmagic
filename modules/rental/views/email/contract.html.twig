@@ -1,0 +1,31 @@
+{#
+  The contract on its way to the renter (#708, IT-16), unsigned, with what
+  to do with it: sign it and send a copy back from their own page before
+  the dates stop being held. The one document that comes back, so the one
+  e-mail that does not say « ne peut pas être téléchargé ».
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">{{ document_subject }}</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">
+        Vous trouverez en pièce jointe le contrat de votre location <strong>{{ reference }}</strong>
+        ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}.
+    </p>
+    <p style="margin:0 0 16px;">
+        Imprimez-le, signez-le, puis déposez votre copie signée sur votre page de suivi — un PDF, un scan
+        ou une photo lisible de chaque page suffit.{% if hold_until %} Vos dates restent bloquées
+        jusqu'au <strong>{{ hold_until }}</strong> : déposez-la avant cette date.{% endif %}
+    </p>
+    {% if tracking_url %}
+        <p style="margin:24px 0;text-align:center;">
+            <a href="{{ tracking_url }}"
+               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Déposer ma copie signée
+            </a>
+        </p>
+    {% endif %}
+    <p style="margin:0;font-size:13px;color:#6c757d;">
+        Nous contresignerons ensuite le contrat et vous le renverrons, signé par les deux parties.
+    </p>
+{% endblock %}

@@ -11907,6 +11907,16 @@ if ($isEnabled('rental')) {
         $rentalManagerRecipients,
         static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId)
     );
+    // A contract is void the moment its booking changes (#708, IT-20).
+    $rentalContractValidity = new \Modules\Rental\Service\RentalContractValidityService(
+        $rentalDocumentService,
+        $rentalDocumentRepository,
+        $rentalBookingRepository,
+        $rentalBookingAudit,
+        $rentalPaymentService,
+        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+        new \Modules\Rental\Repository\RentalReminderRepository($pdo)
+    );
 
     // The asset paperwork register (§6.33). A reminder list, never a
     // compliance check: nothing here knows a regulation.
@@ -12112,7 +12122,9 @@ if ($isEnabled('rental')) {
             // The countersignature and each manager's own signature (#708,
             // IT-16).
             $rentalSignedContractService,
-            $rentalSignatureRepository
+            $rentalSignatureRepository,
+            // A contract the booking has outgrown is marked void (#708, IT-20).
+            $rentalContractValidity
         )
     );
     $frontController->registerController(
@@ -12149,7 +12161,8 @@ if ($isEnabled('rental')) {
             // signed by both parties (#708, IT-16).
             $rentalSignedContractService,
             $rentalDocumentService,
-            $uploadHandler
+            $uploadHandler,
+            $rentalContractValidity
         )
     );
 

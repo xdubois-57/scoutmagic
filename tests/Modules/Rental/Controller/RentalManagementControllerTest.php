@@ -315,7 +315,17 @@ class RentalManagementControllerTest extends TestCase
                 new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
                 $journal
             ),
-            $this->signatureRepository
+            $this->signatureRepository,
+            // A contract the booking has outgrown is voided (#708, IT-20).
+            new \Modules\Rental\Service\RentalContractValidityService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->bookingRepository,
+                $bookingAudit,
+                $this->paymentService,
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
+                new \Modules\Rental\Repository\RentalReminderRepository($this->pdo)
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -2466,11 +2476,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Once the contract has gone, Documents generates a new version of it:
-     * the dashboard step no longer does, and a price changed on a
-     * confirmed booking says the contract is to be generated again.
+     * Accepting a change the contract states voids the contract (#708,
+     * IT-20) — whichever gesture changed the booking — and the manager is
+     * told, in the same breath as their own gesture's answer.
      */
-    public function testTheDocumentsPageGeneratesANewVersionOnceTheContractWasSent(): void
+    public function testAcceptingAChangeVoidsTheContractAndSaysSo(): void
     {
         $this->loginAsManager();
         $this->setContractTemplate();
@@ -2480,18 +2490,156 @@ class RentalManagementControllerTest extends TestCase
             'booking_id' => (string) $booking->id,
             'document_type' => 'contract',
         ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
         $this->post('/mes-locations/document-envoyer', 'sendDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $requestId = $this->operationsService->requestChange(
+            $this->bookingRepository->findById($booking->id) ?? $booking,
+            $this->asset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+        $this->post('/mes-locations/demande', 'decideChange', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
         ]);
 
-        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('un nouveau contrat doit partir', $flash['message'] ?? '');
+        $this->assertTrue($this->documentService->find($contract->id)?->isSuperseded());
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
 
-        $this->assertStringContainsString(
-            'Générer une nouvelle version du contrat',
-            (string) preg_replace('/\s+/', ' ', $body)
+        // Kept and marked on the Documents page; the steps start over.
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Remplacé — la réservation a changé le', $documents);
+        $dashboard = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($dashboard, 'contract_generated'));
+        // The new version is generated from the dashboard again — where the
+        // step reopened, and the only place a contract is generated.
+        $this->assertStringContainsString('Générer le contrat', self::panel($dashboard, 'next-step'));
+
+        // A void contract is never sent again: no « Renvoyer » on it, and
+        // the server refuses — the renter would sign the wrong terms, and
+        // the booking would go back to « Contrat envoyé ».
+        $this->assertStringNotContainsString(
+            'Renvoyer « ' . $contract->label() . ' »',
+            html_entity_decode($documents)
         );
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        $refusal = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $refusal['type'] ?? null);
+        $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * A contract sent before contracts carried a fingerprint is never
+     * voided, so its steps never reopen: the Documents page keeps offering
+     * its new version — and only for that contract.
+     */
+    public function testAContractSentBeforeFingerprintsCanStillBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents, 'a fingerprinted contract reopens by itself');
+
+        $this->pdo->prepare('UPDATE rental_documents SET fingerprint = NULL WHERE id = ?')->execute([$contract->id]);
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'documents',
+            'document_type' => 'contract',
+        ]);
+        $this->assertCount(2, $this->documentService->forBooking($booking->id), 'v2 beside v1');
+    }
+
+    /**
+     * A sent contract whose stored PDF is gone cannot be sent again — the
+     * error says « Régénérez-le » — so the Documents page offers its new
+     * version, as it does for a contract older than fingerprints.
+     */
+    public function testAContractWhoseFileIsGoneCanBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents);
+
+        unlink((string) $this->documentService->absolutePath($contract));
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+    }
+
+    /** What the contract does not state — an internal comment — voids nothing. */
+    public function testAnInternalCommentVoidsNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+
+        $this->post('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Le trésorier passe les clés.',
+        ]);
+
+        $this->assertFalse($this->documentService->find($contract->id)?->isSuperseded());
     }
 
     /**
@@ -2506,7 +2654,6 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringNotContainsString('Générer le contrat', $body);
-        $this->assertStringNotContainsString('nouvelle version du', $body, 'nothing sent yet');
         $this->assertStringNotContainsString('/document/contract"', $body);
         $this->assertStringContainsString('Générer la facture', $body);
     }

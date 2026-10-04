@@ -166,13 +166,16 @@ class RentalDocumentRepository implements AttachedFileRepository
      * prevent.
      *
      * Any version counts, not just the latest: v1 sent and v2 regenerated
-     * still means the renter has something.
+     * still means the renter has something. A contract the booking has
+     * outgrown does not (#708, IT-20): it binds nobody any more, and the
+     * text opens again for the one that replaces it.
      */
     public function hasSentDocumentOfType(int $bookingId, DocumentType $type): bool
     {
         $stmt = $this->pdo->prepare(
             'SELECT 1 FROM rental_documents
              WHERE booking_id = ? AND document_type = ? AND sent_at IS NOT NULL
+               AND superseded_at IS NULL
              LIMIT 1'
         );
         $stmt->execute([$bookingId, $type->value]);
@@ -245,6 +248,47 @@ class RentalDocumentRepository implements AttachedFileRepository
         $stmt->execute([$at->format('Y-m-d H:i:s'), $reason, $id]);
 
         return $stmt->rowCount() === 1;
+    }
+
+    /** What a contract says, hashed at generation (#708, IT-20). */
+    /**
+     * The values a generated document was rendered from (§6.25), or null
+     * for one that kept none.
+     *
+     * @return array<string, string|null>|null
+     */
+    public function findSnapshot(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT generated_snapshot FROM rental_documents WHERE id = ?');
+        $stmt->execute([$id]);
+        $json = $stmt->fetchColumn();
+        $values = is_string($json) && $json !== '' ? json_decode($json, true) : null;
+
+        return is_array($values) ? $values : null;
+    }
+
+    public function setFingerprint(int $id, string $fingerprint): void
+    {
+        $this->pdo->prepare('UPDATE rental_documents SET fingerprint = ? WHERE id = ?')->execute([$fingerprint, $id]);
+    }
+
+    /**
+     * Voids documents the booking has outgrown (#708, IT-20). Only those not
+     * void already, so the date kept is the first change that voided them.
+     *
+     * @param list<int> $ids
+     */
+    public function markSuperseded(array $ids, \DateTimeImmutable $at): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_documents SET superseded_at = ? WHERE superseded_at IS NULL AND id IN ('
+            . implode(', ', array_fill(0, count($ids), '?')) . ')'
+        );
+        $stmt->execute(array_merge([$at->format('Y-m-d H:i:s')], $ids));
     }
 
     public function delete(int $id): void
@@ -410,6 +454,7 @@ class RentalDocumentRepository implements AttachedFileRepository
                        WHERE d.booking_id = rental_booking_document_texts.booking_id
                          AND d.document_type = rental_booking_document_texts.document_type
                          AND d.sent_at IS NOT NULL
+                         AND d.superseded_at IS NULL
                    )'
             );
             $stmt->execute([$bodyHtml, $now, $bookingId, $type->value]);
@@ -463,6 +508,7 @@ class RentalDocumentRepository implements AttachedFileRepository
                     WHERE d.booking_id = t.booking_id
                       AND d.document_type = t.document_type
                       AND d.sent_at IS NOT NULL
+                      AND d.superseded_at IS NULL
                 )'
         );
         $stmt->execute([$bookingId, $type->value, $bodyHtml]);
@@ -498,7 +544,9 @@ class RentalDocumentRepository implements AttachedFileRepository
                 ? (string) $row['source']
                 : RentalDocument::SOURCE_MANUAL,
             refusedAt: DateInput::fromStorage(isset($row['refused_at']) ? (string) $row['refused_at'] : null),
-            refusalReason: isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null
+            refusalReason: isset($row['refusal_reason']) ? (string) $row['refusal_reason'] : null,
+            supersededAt: DateInput::fromStorage(isset($row['superseded_at']) ? (string) $row['superseded_at'] : null),
+            fingerprint: isset($row['fingerprint']) ? (string) $row['fingerprint'] : null
         );
     }
 }

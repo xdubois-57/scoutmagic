@@ -581,12 +581,70 @@ final class RentalBookingMailServiceTest extends TestCase
                 'contrat.pdf'
             ),
             'practical_info' => fn () => $this->service->sendPracticalInfo($this->booking(), $this->asset()),
+            // The contract's two signatures (#708, IT-16).
+            'contract' => fn () => $this->service->sendContract(
+                $this->booking(),
+                $this->asset(),
+                'Contrat v1',
+                '/tmp/contract.pdf',
+                'contrat.pdf',
+                false,
+                str_repeat('a', 64),
+                new \DateTimeImmutable('2027-05-28')
+            ),
+            'signed_copy_reminder' => fn () => $this->service->sendSignedCopyReminder(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+            'copy_refused' => fn () => $this->service->sendCopyRefused(
+                $this->booking(),
+                $this->asset(),
+                'La deuxième page n\'est pas signée.',
+                str_repeat('a', 64)
+            ),
+            'signed_contract' => fn () => $this->service->sendSignedContract(
+                $this->booking(),
+                $this->asset(),
+                '/tmp/contract.pdf',
+                'contrat-signe.pdf',
+                str_repeat('a', 64)
+            ),
             'tracking_link' => fn () => $this->service->sendTrackingLink(
                 $this->booking(),
                 $this->asset(),
                 str_repeat('a', 64)
             ),
         ];
+    }
+
+    /**
+     * The contract says what to do with it and by when (#708, IT-16) — and
+     * not that nothing can be downloaded, which the generic document
+     * e-mail says and the contract, the one document that comes back,
+     * contradicts.
+     */
+    public function testTheContractSaysToSignItAndSendItBackBeforeTheHoldEnds(): void
+    {
+        $this->sent = [];
+        ($this->everySender()['contract'])();
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('déposez votre copie signée sur votre page de suivi', $mail['text']);
+        $this->assertStringContainsString("jusqu'au 28/05/2027", $mail['text']);
+        $this->assertStringContainsString('/locations/suivi/', $mail['text']);
+        $this->assertStringNotContainsString('ne peut pas être téléchargé', $mail['text']);
+    }
+
+    /** The unit's reason reaches the renter as written, and only as text. */
+    public function testARefusedCopyCarriesTheReasonEscaped(): void
+    {
+        $this->sent = [];
+        $this->service->sendCopyRefused($this->booking(), $this->asset(), '<b>Page 2</b> non signée', null);
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('&lt;b&gt;Page 2&lt;/b&gt; non signée', $mail['html']);
+        $this->assertStringContainsString('<b>Page 2</b> non signée', $mail['text']);
     }
 
     // ── The shared HTML frame ───────────────────────────────────────────

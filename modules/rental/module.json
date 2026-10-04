@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.37.0",
+  "version": "1.38.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -1220,8 +1220,8 @@
       "key": "reminder_contract_missing_days",
       "default_value": "14",
       "type": "number",
-      "label": "Contrat non établi — délai (jours)",
-      "description": "Nombre de jours avant le séjour à partir desquels un séjour sans contrat est signalé. Le rappel est dit une seconde fois lorsqu'il ne reste plus que trois jours ; cette seconde fois se déduit du délai réglé ici, de sorte qu'un délai court ne fasse pas tomber les deux envois l'un sur l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+      "label": "Copie signée du contrat non reçue — délai (jours)",
+      "description": "Nombre de jours avant le séjour à partir desquels une réservation dont la copie signée du contrat n'est pas revenue est signalée. Le rappel est dit une seconde fois lorsqu'il ne reste plus que trois jours ; cette seconde fois se déduit du délai réglé ici, de sorte qu'un délai court ne fasse pas tomber les deux envois l'un sur l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
     },
     {
       "key": "reminder_arrival_inventory_days",
@@ -1264,6 +1264,13 @@
       "type": "number",
       "label": "Informations pratiques au locataire — délai (jours)",
       "description": "Nombre de jours avant le séjour pour envoyer au locataire les horaires, les clés et les contacts. C'est le seul rappel qui s'adresse au locataire, et il part par email : un locataire n'a pas de compte sur le site. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_signed_copy_due_days",
+      "default_value": "3",
+      "type": "number",
+      "label": "Copie signée attendue du locataire — délai (jours)",
+      "description": "Nombre de jours avant la fin du blocage des dates pour rappeler au locataire de déposer sa copie signée du contrat, s'il ne l'a pas encore fait. Il part par e-mail, une seule fois : sans lui, ses dates se libéreraient sans qu'il en soit prévenu. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
     }
   ],
   "cookies": [],
@@ -1361,8 +1368,8 @@
     },
     {
       "id": "rental.contract_missing",
-      "label": "Contrat non établi",
-      "description": "Le séjour approche et aucun contrat n'a encore été établi.",
+      "label": "Copie signée du contrat non reçue",
+      "description": "Le séjour approche et la copie signée du contrat n'est pas encore revenue.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {
@@ -1605,6 +1612,55 @@
       ]
     },
     {
+      "id": "rental.contract",
+      "label": "Envoi du contrat à signer",
+      "description": "Envoyé au demandeur avec le contrat en pièce jointe : il le signe et dépose sa copie sur sa page de suivi avant la fin du blocage des dates.",
+      "default_subject": "{{ document_subject }}",
+      "template": "@rental/email/contract.html.twig",
+      "variables": [
+        {
+          "name": "document_subject",
+          "label": "Sujet selon la version envoyée",
+          "example": "Contrat v1"
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
+        },
+        {
+          "name": "hold_until",
+          "label": "Fin du blocage des dates",
+          "example": "28/05/2027"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        }
+      ]
+    },
+    {
       "id": "rental.copy_refused",
       "label": "Copie signée du contrat refusée",
       "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif.",
@@ -1733,6 +1789,50 @@
           "name": "emergency_phone",
           "label": "Numéro d'urgence (vide si non renseigné)",
           "example": "0470 99 88 77"
+        }
+      ]
+    },
+    {
+      "id": "rental.signed_copy_reminder",
+      "label": "Rappel de la copie signée du contrat",
+      "description": "Envoyé une fois au demandeur, peu avant la fin du blocage des dates, quand sa copie signée du contrat n'est pas encore arrivée.",
+      "default_subject": "Votre contrat signé est attendu",
+      "template": "@rental/email/signed_copy_reminder.html.twig",
+      "variables": [
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
+        },
+        {
+          "name": "hold_until",
+          "label": "Fin du blocage des dates",
+          "example": "28/05/2027"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-2027-0042"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
         }
       ]
     },

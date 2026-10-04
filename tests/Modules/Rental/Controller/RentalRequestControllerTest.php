@@ -264,7 +264,14 @@ class RentalRequestControllerTest extends TestCase
             ),
             $this->signedContractService,
             $this->documentService,
-            new \Core\File\UploadHandler($fileRepository, $this->storagePath)
+            new \Core\File\UploadHandler($fileRepository, $this->storagePath),
+            // A contract the booking has outgrown is voided (#708, IT-20).
+            new \Modules\Rental\Service\RentalContractValidityService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->bookingRepository,
+                \Tests\Modules\Rental\RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -1665,6 +1672,40 @@ class RentalRequestControllerTest extends TestCase
     }
 
     /**
+     * The address is part of what the contract states (#708, IT-20).
+     * Filled in for the first time once the contract is out — the usual
+     * way, the request form does not ask for it — it voids nothing: the
+     * contract left it blank. Corrected after the contract printed it, it
+     * voids it now, and the renter is told.
+     */
+    public function testABillingAddressVoidsTheContractOnlyWhenItCorrectsOneItPrinted(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        \Core\Http\FlashMessage::get();
+        $billing = static fn(string $address): array => [
+            'billing_name' => 'Les Amis du Sart ASBL',
+            'billing_address' => $address,
+            'billing_country' => 'be',
+        ];
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, $billing('Rue du Moulin 3, 5000 Namur'));
+        $this->assertStringNotContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertFalse($this->documentService->forBooking($bookingId)[0]->isSuperseded(), 'a blank filled in');
+
+        // A new contract, printing the address — then corrected.
+        $this->sendTheContract($bookingId);
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, $billing('Place Saint-Aubain 1, 5000 Namur'));
+
+        $this->assertStringContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
+        $versions = $this->documentService->forBooking($bookingId);
+        usort($versions, static fn($a, $b): int => $a->id <=> $b->id);
+        $this->assertTrue($versions[1]->isSuperseded(), 'the version that printed the address');
+        $this->assertFalse($versions[0]->isSuperseded(), 'the first one left it blank, and says nothing wrong');
+    }
+
+    /**
      * **Nothing is invoiced for a letting that never happened.** The page
      * hides the block on a refused, cancelled or expired booking, and a
      * hidden form is not a rule: the token still reaches the route.
@@ -1805,6 +1846,41 @@ class RentalRequestControllerTest extends TestCase
         ]);
 
         $this->assertSame($this->arrival(90), $this->bookingRepository->findById($bookingId)?->arrivalDate);
+    }
+
+    /**
+     * New dates the renter accepts are not what the contract they hold says
+     * (#708, IT-20): it is void the moment they accept, and they read it.
+     */
+    public function testAcceptingAProposalVoidsTheContractAndSaysSo(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        \Core\Http\FlashMessage::get();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $requestId = $this->operationsService->requestChange(
+            $booking,
+            $this->trackedAsset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
+            \Modules\Rental\Booking\ChangeRequestKind::DATES,
+            $this->arrival(90),
+            $this->departure(93),
+            null,
+            null,
+            null,
+            'Ces dates nous arrangeraient mieux.',
+            1
+        );
+        $this->postToTracking('decideProposal', $bookingId, $token, [
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
+        ]);
+
+        $this->assertStringContainsString('ne vaut plus', \Core\Http\FlashMessage::get()['message'] ?? '');
+        $this->assertTrue($this->documentService->forBooking($bookingId)[0]->isSuperseded());
     }
 
     public function testRefusingAProposalAsksFirstAndAcceptingIsThePagesPrimary(): void

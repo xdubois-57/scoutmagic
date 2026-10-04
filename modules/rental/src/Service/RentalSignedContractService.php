@@ -79,7 +79,7 @@ class RentalSignedContractService
     {
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
-            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null
+            if ($document->type === DocumentType::CONTRACT && $document->sentAt !== null && !$document->isSuperseded()
                 && ($found === null || $document->version > $found->version)
             ) {
                 $found = $document;
@@ -356,6 +356,15 @@ class RentalSignedContractService
         if ($copy->isRefused() || $this->finalContract($booking->id) !== null) {
             throw new RentalException('Cette copie a déjà reçu une réponse.');
         }
+        // Signed from a contract the booking has outgrown (#708, IT-20) —
+        // a page opened before the change still posts its id. Countersigned,
+        // it would file a contract « signed by both parties » on terms that
+        // no longer hold, which nothing could void afterwards.
+        if ($copy->isSuperseded()) {
+            throw new RentalException(
+                'Cette copie a été remplacée : la réservation a changé depuis. Un nouveau contrat doit partir.'
+            );
+        }
 
         return $copy;
     }
@@ -502,7 +511,9 @@ class RentalSignedContractService
     {
         $found = null;
         foreach ($this->documentRepository->findForBooking($bookingId) as $document) {
-            if ($document->type === $type && $keep($document)
+            // A document the booking has outgrown is on file, and nothing
+            // else (#708, IT-20).
+            if ($document->type === $type && !$document->isSuperseded() && $keep($document)
                 && ($found === null || $document->id > $found->id)
             ) {
                 $found = $document;

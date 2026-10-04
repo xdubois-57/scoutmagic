@@ -202,20 +202,18 @@ class RentalReminderService
             $inventory['departure'] = $inventory['departure']
                 || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
 
+            [$contractSent, $hasSignedCopy] = $this->contractState($booking->id, $ticked);
             $due = $this->planner->forBooking(
                 $booking,
                 $asset,
                 self::withHandTicks($this->paymentStatus($booking, $asset), $marks),
                 $inventory,
-                in_array(BookingMilestones::CONTRACT_SENT, $ticked, true)
-                    || $this->documentService?->latest(
-                        $booking->id,
-                        \Modules\Rental\Document\DocumentType::CONTRACT
-                    ) !== null,
+                $hasSignedCopy,
                 in_array(BookingMilestones::FINAL_SETTLEMENT, $ticked, true)
                     || ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
                 $today,
-                $schedule = $this->scheduleFor($asset->id)
+                $schedule = $this->scheduleFor($asset->id),
+                $contractSent && !$hasSignedCopy
             );
 
             foreach ($due as $reminder) {
@@ -226,6 +224,38 @@ class RentalReminderService
         }
 
         return $sent;
+    }
+
+    /**
+     * Whether the contract went out, and whether the renter's signed copy
+     * came back (#708, IT-16) — a copy refused does not count, nor does
+     * anything a newer contract replaced; a step ticked by hand counts like
+     * the site's own answer (IT-14).
+     *
+     * @param list<string> $ticked
+     * @return array{0: bool, 1: bool}
+     */
+    private function contractState(int $bookingId, array $ticked): array
+    {
+        $sent = in_array(BookingMilestones::CONTRACT_SENT, $ticked, true);
+        $copy = in_array(BookingMilestones::SIGNED_COPY_RECEIVED, $ticked, true)
+            || in_array(BookingMilestones::CONTRACT_COUNTERSIGNED, $ticked, true);
+
+        foreach ($this->documentService?->forBooking($bookingId) ?? [] as $document) {
+            if ($document->isSuperseded()) {
+                continue;
+            }
+            if ($document->type === \Modules\Rental\Document\DocumentType::CONTRACT && $document->sentAt !== null) {
+                $sent = true;
+            }
+            if ($document->type === \Modules\Rental\Document\DocumentType::SIGNED_CONTRACT
+                || ($document->type === \Modules\Rental\Document\DocumentType::SIGNED_COPY && !$document->isRefused())
+            ) {
+                $copy = true;
+            }
+        }
+
+        return [$sent, $copy];
     }
 
     private function runForCompliance(\DateTimeImmutable $today): int
@@ -352,7 +382,14 @@ class RentalReminderService
             return false;
         }
 
-        return $this->mailService->sendPracticalInfo($booking, $asset);
+        return match ($reminder->kind) {
+            ReminderKind::SIGNED_COPY_DUE => $this->mailService->sendSignedCopyReminder(
+                $booking,
+                $asset,
+                $this->bookingRepository->trackingTokenOf($booking->id)
+            ),
+            default => $this->mailService->sendPracticalInfo($booking, $asset),
+        };
     }
 
     private function recipients(): ManagerRecipientResolver

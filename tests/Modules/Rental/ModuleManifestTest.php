@@ -121,10 +121,13 @@ class ModuleManifestTest extends TestCase
      * 1.37.0 brings the contract's two signatures (#708, IT-16): a refused
      * signed copy keeps its reason, and each manager's own signature is
      * kept encrypted.
+     *
+     * 1.38.0 voids a contract the booking has outgrown (#708, IT-20): its
+     * fingerprint at generation, and when it stopped holding.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.37.0', $this->manifest->version);
+        $this->assertSame('1.38.0', $this->manifest->version);
     }
 
     /**

@@ -209,6 +209,9 @@ class RentalHardeningAuditTest extends TestCase
                 'RentalBookingRepository.php',
                 'RentalBookingService.php',
                 'RentalManagementController.php',
+                // The renter's reminder to send their signed copy links back
+                // to their page (#708, IT-16) — an email addressed to them.
+                'RentalReminderService.php',
             ],
             $callers,
             'Reading a tracking token back is for building a renter email and nothing else.'
