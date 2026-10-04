@@ -19,6 +19,7 @@ use Core\Maintenance\Portable\SecretEnvelope;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
+use Tests\Support\PortableHints;
 
 /**
  * A portable archive, actually built, then opened and inspected.
@@ -96,7 +97,7 @@ final class PortableBackupArchiveTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', 'install-abc');
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), 'install-abc');
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -409,7 +410,7 @@ final class PortableBackupArchiveTest extends TestCase
         }
 
         $this->expectException(BackupException::class);
-        $service->createPortableBackup(self::PASSPHRASE, '2.4.1', null);
+        $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), null);
     }
 
     /**
@@ -427,7 +428,7 @@ final class PortableBackupArchiveTest extends TestCase
         $service = new BackupService($unconnected, $this->storagePath, $this->basePath);
 
         $this->expectException(BackupException::class);
-        $service->createPortableBackup('', '2.4.1', null);
+        $service->createPortableBackup('', PortableHints::sample(), null);
     }
 
     private function makeFile(string $relativePath, string $content): void

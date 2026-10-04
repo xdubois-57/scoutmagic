@@ -303,6 +303,121 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertFalse($this->campaign->alreadyDone(ReenrollmentCampaignService::MARKER_CLOSED, '2027-05-15'));
     }
 
+    // ── what a save would set off (issue #732) ───────────────────────
+
+    public function testTheEmailsAreOnUnlessSwitchedOff(): void
+    {
+        $this->assertTrue($this->campaign->emailsEnabled(), 'on by default');
+
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $this->assertFalse($this->campaign->emailsEnabled());
+    }
+
+    public function testAnOpeningDateOfTodayOpensTheCampaignOnSave(): void
+    {
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => true],
+            $this->campaign->openingOnSave('03-01', '05-15', false, new \DateTimeImmutable('2027-03-01 10:00'))
+        );
+    }
+
+    public function testAnOpeningDateInThePastOpensNothing(): void
+    {
+        $this->assertNull(
+            $this->campaign->openingOnSave('02-20', '05-15', false, new \DateTimeImmutable('2027-03-01')),
+            'a missed date is missed, on save as on the clock'
+        );
+    }
+
+    public function testAnOpeningAlreadyAppliedIsNotAppliedAgain(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
+
+        $this->assertNull(
+            $this->campaign->openingOnSave('03-01', '05-15', false, new \DateTimeImmutable('2027-03-01'))
+        );
+    }
+
+    public function testNothingOpensWhatIsAlreadyOpen(): void
+    {
+        $this->campaign->open();
+
+        $this->assertNull($this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-03-01')));
+    }
+
+    public function testTheSwitchOpensTheCampaignInProgress(): void
+    {
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-04-10'))
+        );
+    }
+
+    public function testTheSwitchShortlyBeforeTheOpeningDateOpensTheNextCampaignEarly(): void
+    {
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-02-20'))
+        );
+    }
+
+    public function testTheSwitchShortlyAfterTheCloseReopensAFinishedCampaignAndAnnouncesNothing(): void
+    {
+        $opening = $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'));
+
+        $this->assertSame(['key' => null, 'scheduled' => false], $opening);
+        $this->assertFalse(
+            $this->campaign->openingSendsEmail($opening, true),
+            'an opening e-mail for a campaign whose deadline has passed would announce a date behind everybody'
+        );
+    }
+
+    public function testAnOpeningWritesToFamiliesOnlyWithTheEmailsOnAndNotYetSent(): void
+    {
+        $opening = ['key' => '2027-05-15', 'scheduled' => false];
+
+        $this->assertTrue($this->campaign->openingSendsEmail($opening, true));
+        $this->assertFalse($this->campaign->openingSendsEmail($opening, false), 'e-mails off: nothing leaves');
+        $this->assertFalse($this->campaign->openingSendsEmail(null, true), 'nothing opens: nothing leaves');
+
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_OPENING), '2027-05-15');
+        $this->assertFalse($this->campaign->openingSendsEmail($opening, true), 'once per campaign');
+    }
+
+    // ── where the automatic reminders stand (issue #732) ─────────────
+
+    public function testBeforeAnyReminderTheNextOneIsTheFirst(): void
+    {
+        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'));
+
+        $this->assertFalse($reminders['last_sent']);
+        $this->assertNull($reminders['last_at']);
+        $this->assertSame('2027-05-01', $reminders['next']?->format('Y-m-d'));
+    }
+
+    public function testAfterTheFirstReminderTheLastIsItAndTheNextIsTheSecond(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            '2027-05-15',
+            new \DateTimeImmutable('2027-05-01 08:00')
+        );
+
+        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-05-05'));
+
+        $this->assertTrue($reminders['last_sent']);
+        $this->assertSame('2027-05-01', $reminders['last_at']?->format('Y-m-d'));
+        $this->assertSame('2027-05-13', $reminders['next']?->format('Y-m-d'));
+    }
+
+    public function testWithTheEmailsOffNoReminderIsAnnouncedAsComing(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $this->assertNull($this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'))['next']);
+    }
+
     // ── the reminders ─────────────────────────────────────────────────
 
     public function testAReminderIsDueItsConfiguredNumberOfDaysBeforeTheClose(): void

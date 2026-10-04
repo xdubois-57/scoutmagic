@@ -95,7 +95,8 @@ final class PortableArchive
     private function __construct(
         private readonly \ZipArchive $zip,
         private readonly PortableKeys $keys,
-        private readonly array $manifest
+        private readonly array $manifest,
+        private readonly PortableArchiveHints $hints
     ) {
     }
 
@@ -129,6 +130,7 @@ final class PortableArchive
             // stretched — which is why the "wrong file" and "wrong phrase"
             // answers below can stay distinct.
             $derivation = PortableKeys::parseComment($zip->getArchiveComment());
+            $hints = PortableKeys::parseHints($zip->getArchiveComment());
 
             $keys = PortableKeys::derive($passphrase, $derivation);
             $zip->setPassword($keys->archivePassword());
@@ -165,12 +167,24 @@ final class PortableArchive
                     . 'Mettez le site à jour, puis réessayez.'
                 );
             }
+
+            // The clear comment chose the release a bootstrap installed
+            // (#719); the encrypted manifest is what counts. A mismatch is
+            // a comment edited after the fact, or an archive assembled
+            // from two others — refused either way, by name.
+            if (($manifest['scoutmagic_version'] ?? null) !== $hints->version) {
+                throw new BackupException(
+                    'L\'en-tête de cette sauvegarde annonce la version ' . $hints->version
+                    . ', mais son contenu a été écrit par une autre version. Elle a été modifiée : '
+                    . 'restaurez une copie intacte.'
+                );
+            }
         } catch (\Throwable $e) {
             $zip->close();
             throw $e;
         }
 
-        return new self($zip, $keys, $manifest);
+        return new self($zip, $keys, $manifest, $hints);
     }
 
     /**
@@ -218,6 +232,15 @@ final class PortableArchive
     public function close(): void
     {
         $this->zip->close();
+    }
+
+    /**
+     * What the archive says about itself in clear (#719) — its version
+     * checked against the manifest by {@see open()}, the rest indications.
+     */
+    public function hints(): PortableArchiveHints
+    {
+        return $this->hints;
     }
 
     /** The ScoutMagic version that wrote the archive. */

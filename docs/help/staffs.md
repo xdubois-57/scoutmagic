@@ -5,7 +5,7 @@ summary: Les animateurs de chaque section, la photo de groupe et les badges.
 category: Espace animateurs
 role_min: intendant
 question: Qui anime quelle section cette année ?
-question: Comment ajouter la photo de groupe d'un staff ?
+question: Comment présenter le staff d'une section (photo de groupe, texte) ?
 question: Comment attribuer un badge à un animateur ?
 question: Comment indiquer le totem de section d'un animateur (Akela, Baloo...) ?
 paths: /chefs/staffs
@@ -35,6 +35,14 @@ puis « Changer ».
 > Cette photo n'est pas interne au staff : elle illustre aussi la page
 > publique Sections, la page Contact pour le Staff d'Unité et la page
 > de chaque animé. Choisissez-la en conséquence.
+
+## Le texte de la section
+
+Sous la photo, un texte présente le staff ou donne des informations
+utiles. Il appartient à la section et reste d'une année à l'autre tant
+qu'on ne le change pas. Les animateurs de la section et le Staff d'Unité
+le modifient avec le crayon, sans passer par le mode configuration.
+Sans texte, rien ne s'affiche pour les autres.
 
 ## Les badges
 

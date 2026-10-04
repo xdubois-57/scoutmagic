@@ -13,6 +13,7 @@ use Core\Maintenance\BackupException;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\PortableHints;
 
 /**
  * The derivation that decides what an attacker actually has to do.
@@ -284,13 +285,13 @@ final class PortableKeysTest extends TestCase
     {
         $params = PortableKeys::newDerivation();
 
-        $this->assertSame($params, PortableKeys::parseComment(PortableKeys::comment($params)));
+        $this->assertSame($params, PortableKeys::parseComment(PortableKeys::comment($params, PortableHints::sample())));
     }
 
     /** And it says, in French, what the file is — a human opens these too. */
     public function testTheCommentTellsAHumanWhatTheyAreLookingAt(): void
     {
-        $comment = PortableKeys::comment(PortableKeys::newDerivation());
+        $comment = PortableKeys::comment(PortableKeys::newDerivation(), PortableHints::sample());
 
         $this->assertStringContainsString(PortableManifest::FORMAT, $comment);
         $this->assertStringContainsString('Sauvegarde portable ScoutMagic', $comment);
@@ -317,7 +318,7 @@ final class PortableKeysTest extends TestCase
      */
     public function testAFutureFormatVersionIsRefused(): void
     {
-        $document = json_decode(PortableKeys::comment(PortableKeys::newDerivation()), true);
+        $document = json_decode(PortableKeys::comment(PortableKeys::newDerivation(), PortableHints::sample()), true);
         $this->assertIsArray($document);
         $document['format_version'] = PortableManifest::FORMAT_VERSION + 1;
 

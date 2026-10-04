@@ -86,9 +86,6 @@ class RetroBoardController extends AbstractController
             return false;
         }
         $email = AuthSession::getEmail();
-        if ($email === null) {
-            return false;
-        }
 
         // The effective year, never the date-computed one: see
         // Controller\RetroConfigController for what the latter does to the
@@ -97,7 +94,12 @@ class RetroBoardController extends AbstractController
         // in: this answer opens hidden comments and the moderation
         // controls, so it is an authorization question, and a preview is
         // chosen by the person it would authorise (ARCHITECTURE.md §4).
-        return $this->boardService->isUnitChief($email, $this->scoutYearService->getAuthorizationYear()->id);
+        // A superadmin passes without a member behind the account (#743).
+        return $this->boardService->hasUnitChiefAuthority(
+            $viewerRole,
+            $email,
+            $this->scoutYearService->getAuthorizationYear()->id
+        );
     }
 
     /**
