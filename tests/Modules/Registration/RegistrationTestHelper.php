@@ -181,6 +181,8 @@ class RegistrationTestHelper
             ai_source_hash TEXT,
             ai_suggestion_encrypted BLOB,
             ai_confirmed INTEGER NOT NULL DEFAULT 0,
+            ai_section_id INTEGER,
+            ai_friend_member_ids TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_by_user_account_id INTEGER
         )');

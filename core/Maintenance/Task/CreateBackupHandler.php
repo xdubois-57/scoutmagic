@@ -82,7 +82,12 @@ class CreateBackupHandler implements TaskHandlerInterface
             $result = $scope === Backup::PORTABLE_TYPE
                 ? $backupService->createPortableBackup(
                     $password ?? throw new \Core\Maintenance\BackupException('Un mot de passe est requis.'),
-                    \Core\Maintenance\VersionFile::read($basePath),
+                    \Core\Maintenance\Portable\PortableArchiveHints::now(
+                        \Core\Maintenance\VersionFile::read($basePath),
+                        (string) ($context->settings->get('base_url') ?? ''),
+                        \Core\Maintenance\Portable\PortableArchiveHints::KIND_MANUAL,
+                        null
+                    ),
                     $this->installationId($context)
                 )
                 : $backupService->createFullBackup($scope, $password);

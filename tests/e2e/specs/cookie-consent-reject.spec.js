@@ -32,12 +32,17 @@ test('rejecting all cookies from the banner sets no non-essential cookie', async
         }
     });
 
+    // A phone's width: where the space kept for the banner is largest
+    // (20rem), and an empty strip of it would be most visible (#742).
+    await page.setViewportSize({ width: 375, height: 740 });
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     // No consent recorded yet on this never-visited instance — the banner
     // must render unprompted, not be silently skipped.
     const banner = page.locator('#cookie-banner');
     await expect(banner).toBeVisible();
+    const bodyPadding = () => page.evaluate(() => getComputedStyle(document.body).paddingBottom);
+    expect(await bodyPadding(), 'the bottom of the page is kept clear of the banner').toBe('320px');
 
     await page.getByRole('button', { name: 'Tout refuser' }).click();
 
@@ -46,6 +51,10 @@ test('rejecting all cookies from the banner sets no non-essential cookie', async
     // therefore also waiting on that round trip actually completing,
     // never a fixed sleep.
     await expect(banner).toBeHidden();
+    // ...and the space kept for it goes in the same gesture: no empty
+    // white strip the height of the banner with nothing to close (#742).
+    expect(await bodyPadding(), 'the banner\'s space outlived the banner').not.toBe('320px');
+    await expect(page.locator('body')).not.toHaveClass(/cookie-banner-visible/);
 
     const cookies = await context.cookies();
     const cookieNames = cookies.map((cookie) => cookie.name);

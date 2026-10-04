@@ -283,8 +283,12 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/{slug}/reglages/conditions — the text a renter
+     * POST /mes-locations/{slug}/gabarits/conditions — the text a renter
      * ticks on the public request form (§22.5).
+     *
+     * Edited on its own page under Gabarits since #708 (IT-10), next to the
+     * contract and the invoice; saving goes back to that list, a refusal
+     * back to the page.
      *
      * **Here rather than in the configuration mode**, which is where it used
      * to be edited: that mode belongs to a superadmin, while the conditions
@@ -316,7 +320,17 @@ class RentalPricingController extends AbstractController
      */
     public function saveConditions(Request $request, array $params): Response
     {
-        return $this->guarded($request, $params, 'conditions', function (RentalAsset $asset) use ($request): string {
+        $page = '/mes-locations/' . rawurlencode((string) ($params['slug'] ?? '')) . '/gabarits/conditions';
+        if (($guard = $this->guardCsrf($request, $page)) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
             // **Sanitised before it is judged**, because the guard has to
             // rule on what will be STORED, not on what was sent. The
             // sanitiser drops an `<img>` whose `src` failed the scheme
@@ -346,9 +360,15 @@ class RentalPricingController extends AbstractController
             }
 
             $this->conditionsService->recordSave($asset->id, $body, AuthSession::getUserAccountId() ?? 0);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
 
-            return 'Les conditions de location ont été enregistrées.';
-        });
+            return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits/conditions');
+        }
+
+        FlashMessage::set('success', 'Les conditions de location ont été enregistrées.');
+
+        return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
     }
 
     /**

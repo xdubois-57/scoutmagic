@@ -87,7 +87,7 @@ final class JourneyPhase
     public function next(): ?BookingMilestone
     {
         foreach ($this->milestones as $milestone) {
-            if ($milestone->isApplicable && !$milestone->isDone) {
+            if ($milestone->isOutstanding()) {
                 return $milestone;
             }
         }
@@ -102,7 +102,8 @@ final class JourneyPhase
     {
         return array_values(array_filter(
             $this->milestones,
-            static fn(BookingMilestone $m): bool => $m->isApplicable
+            // A state (« Dates bloquées ») is not a step to count (#708, IT-01).
+            static fn(BookingMilestone $m): bool => $m->isApplicable && !$m->isState
         ));
     }
 }

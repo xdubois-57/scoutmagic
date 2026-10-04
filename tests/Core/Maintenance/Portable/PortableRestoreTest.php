@@ -20,6 +20,7 @@ use Core\Statistics\InstallationIdentityService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
+use Tests\Support\PortableHints;
 
 /**
  * One installation's archive, restored onto a different installation.
@@ -257,7 +258,7 @@ final class PortableRestoreTest extends TestCase
         $marker = 'unite-' . bin2hex(random_bytes(4));
         $this->seedSetting($connection->getPdo(), 'site_name', $marker);
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -312,7 +313,7 @@ final class PortableRestoreTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -353,7 +354,7 @@ final class PortableRestoreTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -423,7 +424,7 @@ final class PortableRestoreTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -507,7 +508,7 @@ final class PortableRestoreTest extends TestCase
         // replaced" is a fact about content rather than about a table.
         $this->seedSetting($connection->getPdo(), 'site_name', 'le site de l\'archive');
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 
@@ -706,7 +707,7 @@ final class PortableRestoreTest extends TestCase
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
         $this->zipPath = $result['zipPath'];
         $this->dbDumpPath = $result['dbDumpPath'];
 

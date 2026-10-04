@@ -40,8 +40,35 @@ class MemberProfile
         public readonly ?string $handicap = null,
         public readonly ?string $supplementaryInsurance = null,
         public readonly int $scoutYearOffset = 0,
-        public readonly array $badges = []
+        public readonly array $badges = [],
+        /**
+         * Section id => the totem this member carries in that section this
+         * year (« Akela », issue #722). Separate from the Desk totem, which
+         * stays `$totem`.
+         *
+         * @var array<int, string>
+         */
+        public readonly array $sectionTotems = []
     ) {
+    }
+
+    /**
+     * The section totem to show, by one rule for every caller (issue #722).
+     *
+     * A page that knows which section it is about asks for that section's
+     * totem. A page that does not shows one only when there is exactly one
+     * to show: of two (« Akela » in one section, « Baloo » in another),
+     * picking either would name the person wrongly for half the unit.
+     */
+    public function sectionTotemFor(?int $sectionId = null): ?string
+    {
+        if ($sectionId !== null) {
+            $totem = $this->sectionTotems[$sectionId] ?? null;
+        } else {
+            $totem = count($this->sectionTotems) === 1 ? array_values($this->sectionTotems)[0] : null;
+        }
+
+        return is_string($totem) && trim($totem) !== '' ? TextNormalizerService::normalizeTotem($totem) : null;
     }
 
     /**
@@ -62,19 +89,32 @@ class MemberProfile
      * the re-registration form — showed the bare totem instead and a
      * parent with two children in the same section could not tell which
      * card was whose. Here so both callers say the same thing.
+     *
+     * A section totem joins the totem when there is one to show
+     * (`$sectionId` the section the page is about, null when it does not
+     * know): « Guépard – Akela (Élie Wathelet) ».
      */
-    public function getDisplayNameFull(): string
+    public function getDisplayNameFull(?int $sectionId = null): string
     {
         $full = trim(
             TextNormalizerService::normalizeName($this->firstName)
             . ' ' . TextNormalizerService::normalizeName($this->lastName)
         );
 
-        if ($this->totem === null || $this->totem === '') {
-            return $full;
+        $totem = $this->totem !== null && $this->totem !== ''
+            ? TextNormalizerService::normalizeTotem($this->totem)
+            : null;
+
+        // « Guépard – Akela », or « Akela » alone (issue #722) — see
+        // sectionTotemFor() for which section totem, if any.
+        $sectionTotem = $this->sectionTotemFor($sectionId);
+        if ($sectionTotem !== null) {
+            $totem = $totem !== null ? $totem . ' – ' . $sectionTotem : $sectionTotem;
         }
 
-        $totem = TextNormalizerService::normalizeTotem($this->totem);
+        if ($totem === null) {
+            return $full;
+        }
 
         // A member with a totem and no civil name on file is not a reason
         // to render "Chacal ()".

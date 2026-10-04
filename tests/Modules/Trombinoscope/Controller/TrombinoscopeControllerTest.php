@@ -34,6 +34,9 @@ class TrombinoscopeControllerTest extends TestCase
     private AppConfig $config;
     private bool $showContacts = true;
 
+    /** @var array<int, string> the lead's section totems (#722) */
+    private array $leadSectionTotems = [];
+
     /** @var array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int}> */
     private array $sections = [];
 
@@ -205,7 +208,8 @@ class TrombinoscopeControllerTest extends TestCase
             unitMailConsent: false,
             addresses: [],
             functions: [],
-            scoutYearLabel: '2025-2026'
+            scoutYearLabel: '2025-2026',
+            sectionTotems: $this->leadSectionTotems
         );
     }
 
@@ -228,6 +232,23 @@ class TrombinoscopeControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Les animateurs', $response->getBody());
         $this->assertStringContainsString('Éclaireurs 1', $response->getBody());
+    }
+
+    /**
+     * Issue #722: the card's title carries the section totem, and the civil
+     * name always follows on its own line.
+     */
+    public function testTheCardShowsTheSectionTotemAndAlwaysTheCivilName(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []))->getBody();
+        $this->assertMatchesRegularExpression('/>\s*Chacal\s*<\/div>\s*<div[^>]*>\s*Antonin Grandjean\s*</', $body);
+
+        $this->leadSectionTotems = [1 => 'Akela'];
+        $body = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []))->getBody();
+        $this->assertMatchesRegularExpression('/>\s*Chacal \(Akela\)\s*<\/div>\s*<div[^>]*>\s*Antonin Grandjean\s*</', $body);
     }
 
     public function testBreadcrumbReflectsTheSelectedSection(): void

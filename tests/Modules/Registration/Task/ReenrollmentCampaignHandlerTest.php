@@ -249,6 +249,19 @@ class ReenrollmentCampaignHandlerTest extends TestCase
 
     // ── the chain itself ──────────────────────────────────────────────
 
+    public function testWithTheEmailsOffTheCampaignStillOpensAndClosesButWritesToNobody(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $this->poll(self::OPENING_DAY . ' 08:00');
+        $this->assertSame('1', (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_OPEN, 'registration'));
+        $this->poll(self::REMINDER_DAY . ' 08:00');
+        $this->poll(self::CLOSING_DAY . ' 08:00');
+        $this->assertSame('0', (string) $this->settingService->get(ReenrollmentCampaignService::SETTING_OPEN, 'registration'));
+
+        $this->assertSame([], $this->handedOverTypes(), 'issue #732: off means no opening, reminder or closing e-mail');
+    }
+
     public function testThePollAlwaysRearmsItselfEvenWhenItHasNothingToDo(): void
     {
         // Through handle(), not run(): the re-arm lives in its `finally`,

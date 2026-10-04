@@ -29,8 +29,8 @@ calendrier. Les choix qui comptent :
 - **Clôture automatique** : de deux heures à sept jours, ou manuelle.
 
 Le lien de participation et son code QR sont créés avec le tableau :
-projetez le code QR en fin d'activité, chacun participe depuis son
-téléphone.
+sur le tableau, « Copier le lien » et « QR code » les partagent. Projetez
+le code QR en fin d'activité, chacun participe depuis son téléphone.
 
 > Régénérer le lien rend l'ancien immédiatement inutilisable pour tout
 > le monde, y compris ceux qui l'ont déjà scanné. Les mots et votes

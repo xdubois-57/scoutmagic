@@ -404,8 +404,10 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     renter_comment_encrypted BLOB NULL,
 
     -- ── Lifecycle (§6.15) ────────────────────────────────────────────
-    -- 'received' | 'reviewing' | 'info_requested' | 'proposed' | 'confirmed'
-    -- | 'refused' | 'cancelled' | 'expired' | 'closed'.
+    -- 'received' | 'info_requested' | 'proposed' | 'confirmed'
+    -- | 'refused' | 'cancelled' | 'expired' | 'closed'. A row still carrying
+    -- the retired 'reviewing' reads back as 'received' (#708, IT-11), and
+    -- every repository filter on 'received' matches it too.
     -- "In progress" is deliberately NOT a stored status: it is derived from
     -- the dates, so it can never disagree with the calendar.
     status VARCHAR(30) NOT NULL DEFAULT 'received',
@@ -422,6 +424,11 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- unavailable identically to the public.
     hold_until DATETIME NULL,
     hold_origin VARCHAR(20) NULL,
+    -- The deadline of an AUTOMATIC hold that lapsed while the request was
+    -- still waiting (#708, IT-01): the expiry task clears `hold_until`, and
+    -- the booking page still has to say « les dates ne sont plus bloquées
+    -- depuis le … ». Cleared as soon as a new hold is placed.
+    hold_lapsed_at DATETIME NULL,
 
     -- ── Price snapshot (§6.11) ───────────────────────────────────────
     -- The ESTIMATED price at submission, as a self-contained
@@ -935,6 +942,10 @@ CREATE TABLE IF NOT EXISTS rental_inventory_items (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
     label VARCHAR(160) NOT NULL,
+    -- 'quantity' (counted, with `expected_count` ≥ 1) | 'yes_no' (observed,
+    -- the label written as what must be true, no count) — #708, IT-10.
+    kind VARCHAR(20) NOT NULL DEFAULT 'quantity',
+    expected_count SMALLINT UNSIGNED NULL DEFAULT 1,
     sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -963,6 +974,11 @@ CREATE TABLE IF NOT EXISTS rental_booking_inventory (
     booking_id INT UNSIGNED NOT NULL,
     -- The label AS IT WAS at confirmation, not a reference to the template.
     label VARCHAR(160) NOT NULL,
+    -- The sort and the expected count, copied with the label (#708,
+    -- IT-10). Rows frozen before they existed read as a quantity with no
+    -- count, and say nothing about what was expected.
+    kind VARCHAR(20) NOT NULL DEFAULT 'quantity',
+    expected_count SMALLINT UNSIGNED NULL,
     sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
     -- 'not_checked' | 'ok' | 'issue' | 'missing'. `not_checked` is the

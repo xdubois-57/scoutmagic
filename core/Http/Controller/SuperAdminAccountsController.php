@@ -51,11 +51,12 @@ class SuperAdminAccountsController extends AbstractController
         $accounts = $this->userAccountRepo->findSuperAdmins();
         $actorId = AuthSession::getUserAccountId();
 
-        // Whether each row may be offered a switch at all. Drawing one the
-        // server would refuse is dishonest, and a DISABLED one would be
-        // worse: a script can re-enable it, so a refusal has to be absent
-        // rather than merely greyed. The server re-checks on every POST
-        // regardless — this decides rendering, never permission.
+        // Whether each row's switch is live. One the server would refuse
+        // is drawn disabled and unbound (issue #744: the same switch on
+        // every row keeps the column narrow), so nothing is sent from it;
+        // a script re-enabling it would still meet the refusal, because
+        // the server re-checks on every POST — this decides rendering,
+        // never permission.
         $canToggle = [];
         $canRevoke = [];
         foreach ($accounts as $row) {

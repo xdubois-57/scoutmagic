@@ -21,8 +21,7 @@ namespace Modules\Rental\Booking;
  *
  * Deliberately NOT `BookingStatus`. Several statuses are nobody's decision
  * and must stay silent — a hold lapsing into `EXPIRED` by a scheduled
- * sweep, a booking moved to `REVIEWING` because a manager opened it, a
- * `CLOSED` at the end of a stay that already happened. And two of the
+ * sweep, a `CLOSED` at the end of a stay that already happened. And two of the
  * decisions here are not status changes at all: accepting or refusing a
  * change request leaves the status exactly where it was. What is enumerated
  * is what somebody decided, which is what is worth an email.
@@ -44,8 +43,7 @@ enum RenterDecision: string
      * `EXPIRED` is the important null: it is what the hold sweep writes,
      * unattended, and an email saying "your dates have been released" is
      * exactly right in substance and exactly wrong as a thing that arrives
-     * at 04:00 from nobody. `REVIEWING` is the other: it means a manager is
-     * looking, which is not news.
+     * at 04:00 from nobody.
      */
     public static function forStatus(BookingStatus $status): ?self
     {

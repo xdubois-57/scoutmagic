@@ -55,13 +55,14 @@
             </div>
         {% endif %}
 
-        <div class="d-flex align-items-center gap-2 bg-body border rounded px-3 py-2 mb-1 flex-wrap">
-            <span class="text-body-secondary small text-truncate flex-grow-1">{{ public_url }}</span>
+        {# Sharing without the bare URL (issue #736): a long address on a
+           phone was a line nobody reads. The two labelled buttons say it. #}
+        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap retro-share">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="retro-copy-link" data-url="{{ public_url }}">
+                <i class="bi bi-clipboard" aria-hidden="true"></i> Copier le lien
+            </button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="retro-qr-toggle">
                 <i class="bi bi-qr-code" aria-hidden="true"></i> QR code
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="retro-copy-link" data-url="{{ public_url }}">
-                <i class="bi bi-clipboard" aria-hidden="true"></i> Copier
             </button>
         </div>
         <div class="d-none mb-3" id="retro-qr-container">

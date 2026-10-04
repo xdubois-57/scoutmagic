@@ -126,7 +126,10 @@ interface Window {
                 itemSelector: string;
                 axis?: string;
                 draggingClass?: string;
-                onReorder?: () => void;
+                // Lists bound with the same group accept each other's
+                // items (opt-in, issue #752).
+                group?: string;
+                onReorder?: (move?: { item: HTMLElement; from: HTMLElement; to: HTMLElement }) => void;
             }
         ) => void;
     };

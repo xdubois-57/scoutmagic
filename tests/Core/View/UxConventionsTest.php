@@ -612,6 +612,8 @@ final class UxConventionsTest extends TestCase
         '/covoiturage/organiser/lieux',
         // JSON: the point of the address being typed (#642).
         '/covoiturage/organiser/adresse',
+        // JSON: the suggested departure times from the meeting point typed (#703).
+        '/covoiturage/{id}/trajet',
         // Redirects: leaving for Meta's consent screen, and Meta's return,
         // which always lands back on « Réseaux sociaux ».
         '/config/reseaux-sociaux/{platform}/connecter',

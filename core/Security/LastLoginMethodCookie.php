@@ -48,12 +48,12 @@ class LastLoginMethodCookie
         }
 
         try {
-            $isHttps = RequestScheme::isHttps($_SERVER);
+            $isHttps = RequestScheme::enforcesHttps($_SERVER);
 
-            // secure must match the actual connection — CookieHelper::set()
+            // secure follows the HTTPS policy — CookieHelper::set()
             // defaults to true, and a Secure cookie is silently dropped by
             // the browser over plain HTTP, which was why this never
-            // actually persisted.
+            // actually persisted on an installation that tolerates HTTP.
             CookieHelper::set(
                 self::NAME,
                 $method,

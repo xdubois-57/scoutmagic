@@ -162,6 +162,6 @@ class DeviceCredentialController extends AbstractController
             return '';
         }
 
-        return ($request->isHttps() ? 'https://' : 'http://') . $host;
+        return ($request->enforcesHttps() ? 'https://' : 'http://') . $host;
     }
 }

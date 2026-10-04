@@ -240,9 +240,17 @@
     // request itself, which is not a "calculation in progress" state but
     // the ordinary guard against a double click.
 
-    /** @param {string[]|undefined} warnings */
-    function reportWarnings(box, placed, warnings) {
+    /**
+     * @param {Element|null} box
+     * @param {number} placed
+     * @param {string[]|undefined} warnings
+     * @param {number} [reviewed] comments the AI read first
+     */
+    function reportWarnings(box, placed, warnings, reviewed) {
         var sentence = placed + (placed > 1 ? ' personnes réparties.' : ' personne répartie.');
+        if (reviewed) {
+            sentence = reviewed + (reviewed > 1 ? ' commentaires relus, ' : ' commentaire relu, ') + sentence;
+        }
         if (Array.isArray(warnings) && warnings.length) {
             sentence += ' ' + warnings.join(' ');
         }
@@ -257,6 +265,8 @@
                 document.querySelector('input[name="passage-optimize-method"]:checked')
             );
 
+            // The AI re-reading, when there is one, runs inside the same
+            // request (issue #733) — which can take a few seconds.
             inlineFeedback(box, 'Répartition en cours…', false);
 
             api.withDisabled(optimizeButton, function () {
@@ -268,7 +278,7 @@
                         // across the reload, and sessionStorage is the
                         // wrong tool for one sentence — so they are shown
                         // first and the reload waits a beat for them.
-                        reportWarnings(box, res.data.placed, res.data.warnings);
+                        reportWarnings(box, res.data.placed, res.data.warnings, res.data.reviewed);
                         refreshStatistics(res.data.statistics_html);
                         window.setTimeout(function () { window.location.reload(); }, 1200);
                         return;
@@ -317,39 +327,11 @@
         });
     }
 
-    // ── The optional AI re-reading ───────────────────────────────────
+    // ── The AI suggestions ───────────────────────────────────────────
     //
-    // One button for the page, because the call is per COMMENT and the
-    // server decides which ones are still unread; and one checkbox per
-    // suggestion, because a chief validates one child at a time. Neither
-    // is present when the llm_connector module is absent — the server does
-    // not render the block at all.
-
-    var reviewButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('passage-ai-review'));
-    if (reviewButton) {
-        reviewButton.addEventListener('click', function () {
-            var box = document.getElementById('passage-ai-review-feedback');
-            inlineFeedback(box, 'Relecture en cours…', false);
-
-            api.withDisabled(reviewButton, function () {
-                return api.postJson(reviewButton.dataset.endpoint || '', {}).then(function (res) {
-                    if (res.data?.success) {
-                        // The suggestions are server-rendered, so the page
-                        // is reloaded rather than patched: a second
-                        // renderer for « à vérifier » in the browser would
-                        // be a second place for that wording to live.
-                        window.location.reload();
-                        return;
-                    }
-                    inlineFeedback(
-                        box,
-                        res.status === 0 ? 'Erreur réseau.' : res.data?.error || 'La relecture a échoué.',
-                        true
-                    );
-                });
-            });
-        });
-    }
+    // The re-reading itself has no button any more: « Répartir » runs it
+    // first (issue #733). What stays is one checkbox per suggestion, for
+    // a chief to mark that they read it and agree.
 
     document.querySelectorAll('.passage-ai-confirm').forEach(function (input) {
         var checkbox = /** @type {HTMLInputElement} */ (input);
