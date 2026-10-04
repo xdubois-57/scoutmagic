@@ -69,6 +69,6 @@ en échec avec la raison donnée par Meta, ou indisponible avec la raison.
 > site : pour retirer une publication, il faut passer par Facebook ou
 > Instagram eux-mêmes.
 
-Dès qu'une destination a été tentée, l'image, le titre et le texte ne
-changent plus : une destination publiée plus tard reçoit exactement la
-même chose.
+Dès qu'une destination a été tentée, le texte ne change plus : celle
+publiée plus tard reçoit le même. Le titre et l'image aussi, sauf pour un
+album ou une actualité partagés : ils restent lus à la source.

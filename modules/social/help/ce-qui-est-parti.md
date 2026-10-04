@@ -36,10 +36,11 @@ reste donc lisible même si l'album ou l'actualité a été supprimé depuis.
 
 ## Réessayer
 
-Réessayer demande **une confirmation**, qui dit ce qui repart : la même
-image et le même texte, vers cette destination seulement. Une destination
-déjà publiée n'est pas touchée, et la raison de l'échec précédent est
-rappelée.
+Réessayer demande **une confirmation**, qui dit ce qui repart : le même
+texte, vers cette destination seulement — et, pour un album ou une
+actualité partagés, le titre et l'image relus à la source, donc à jour.
+Une destination déjà publiée n'est pas touchée, et la raison de l'échec
+précédent est rappelée.
 
 Seule une destination en échec peut être relancée. Une publication encore
 en cours — le site attend la réponse de Meta — n'est pas relançable tout
