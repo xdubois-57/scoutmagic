@@ -262,6 +262,22 @@ function scoutmagicBootstrapScheduler(
         )
     );
 
+    // Simulated telephony (ARCHITECTURE.md §8.63): the scheduled redirect
+    // must talk to the same line the page shows, or the two disagree. The
+    // profile and the arm switch are decided here; registering under
+    // test_tools leaves its enablement to TaskCapabilities' live check.
+    $installationProfile = \Core\Module\InstallationProfile::resolve(
+        (string) ($settingService->get('base_url') ?? ''),
+        (string) ($settingService->get('statistics_destination') ?? '')
+    );
+    if (\Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)) {
+        $capabilities->register(
+            \Modules\SosStaff\Api\PhoneProviderInterface::class,
+            'test_tools',
+            static fn (): object => new \Modules\TestTools\Telephony\SimulatedPhoneProvider($settingService)
+        );
+    }
+
     // ── Context and core handlers ───────────────────────────────────────
     $context = new \Core\Scheduler\TaskContext(
         $connection,

@@ -12,7 +12,7 @@ namespace Core\Pdf;
  * Best-effort, server-side-only PDF compression — no external API, ever.
  * Detects an available system binary at runtime (Ghostscript first, then
  * qpdf, then pdftocairo — in the spirit of a pluggable-backend interface
- * like Modules\SosStaff\Provider\PhoneProviderInterface, though this
+ * like Modules\SosStaff\Api\PhoneProviderInterface, though this
  * stays a single class since there's nothing to configure per backend).
  * Every process runs with a hard timeout and is killed if it overruns;
  * paths are always shell-escaped; temp files live under a random name in

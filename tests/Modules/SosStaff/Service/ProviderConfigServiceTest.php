@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Tests\Modules\SosStaff\Service;
 
 use Core\Security\EncryptionService;
-use Modules\SosStaff\Provider\PhoneProviderInterface;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\PhoneProviderInterface;
+use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\ProviderCredentialRepository;
+use Modules\SosStaff\Api\ForwardingState;
+use Modules\SosStaff\Api\PhoneLine;
 use Modules\SosStaff\Service\ProviderConfigService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -45,6 +47,37 @@ class ProviderConfigServiceTest extends TestCase
         $twilio = array_values(array_filter($options, fn($o) => $o['id'] === 'twilio'))[0];
         $this->assertTrue($ovh['is_available']);
         $this->assertFalse($twilio['is_available']);
+    }
+
+    public function testASimulatedLineStandsInForTheConfiguredProviderAndItsNumber(): void
+    {
+        $line = new class implements PhoneProviderInterface {
+            public function readForwardingState(): ForwardingState
+            {
+                return new ForwardingState(false, null);
+            }
+
+            public function setForwarding(string $number): void
+            {
+            }
+
+            public function testConnection(): bool
+            {
+                return true;
+            }
+
+            public function listLines(): array
+            {
+                return [new PhoneLine('simulation', '+3220000000', '+3220000000')];
+            }
+        };
+
+        // Nothing configured at all: without the simulated line, nothing.
+        $this->assertNull((new ProviderConfigService($this->repository))->getActiveProvider());
+
+        $service = new ProviderConfigService($this->repository, null, $line);
+        $this->assertSame($line, $service->getActiveProvider());
+        $this->assertSame('+3220000000', $service->getSosNumber());
     }
 
     public function testSaveOvhCredentialsRejectsEmptyValues(): void
