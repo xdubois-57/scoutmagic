@@ -70,10 +70,6 @@ npm run e2e:install  # only needed once, before your first `npm run e2e`
 Development requires PHP >= 8.4. The JavaScript tooling requires Node.js >= 22 and npm; neither
 Node nor npm is required on the hosting server.
 
-The built-in development server ignores `public/.user.ini`; `composer serve` supplies the raised
-upload limits itself. When another IDE starts `php -S` directly, use
-`-d upload_max_filesize=100M -d post_max_size=110M`, otherwise uploads over 8 MiB can return 413.
-
 ### Database-backed PHP tests
 
 `vendor/bin/phpunit` runs the whole configured suite. Most tests labelled `database` use the
@@ -91,11 +87,14 @@ Chromium, and removes the temporary installation afterwards. It never reads or m
 ScoutMagic installation. Mail scenarios use the application's real mail stack; only the last
 transport hop is redirected to `scripts/e2e-maildrop.php`.
 
-The harness first uses `E2E_DB_*`, then `TEST_DB_*`, then the usual local MySQL defaults. If no
-server is reachable and Docker is available, it starts a disposable MySQL 8 container. An
-environment that already provides a compatible Chromium but cannot use Playwright's managed
-download can set `E2E_CHROMIUM_EXECUTABLE=/path/to/chromium`. On failure, Playwright diagnostics
-live under `tests/e2e/test-results/` and `tests/e2e/playwright-report/`.
+For the server host, port, user and password, the harness first uses `E2E_DB_*`, then
+`TEST_DB_*`, then the usual local MySQL defaults. The database name is always `E2E_DB_NAME`,
+defaulting to `scoutmagic_e2e` — never `TEST_DB_NAME` — because the harness empties it at the
+start of every run and drops it at teardown. If no server is reachable and Docker is available,
+it starts a disposable MySQL 8 container. An environment that already provides a compatible
+Chromium but cannot use Playwright's managed download can set
+`E2E_CHROMIUM_EXECUTABLE=/path/to/chromium`. On failure, Playwright diagnostics live under
+`tests/e2e/test-results/` and `tests/e2e/playwright-report/`.
 
 For the dynamic scan, pull the ZAP image once and then run the profile you need:
 
