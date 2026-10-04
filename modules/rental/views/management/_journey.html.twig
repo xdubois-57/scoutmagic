@@ -22,7 +22,8 @@
   `next-step` (the heading) and `milestones` (the stretches).
 
   Requires `journey`, `asset`, `booking`, `booking_url` and
-  `renter_decisions`.
+  `renter_decisions`; `contract_step` for the contract's steps (#708,
+  IT-16).
 #}
 <div class="card mb-4" id="parcours">
     <div data-booking-panel="next-step">
@@ -41,6 +42,7 @@
                         {% include '@rental/management/_milestone_action.html.twig' with {
                             action: primary, primary: true,
                             asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                            contract_step: contract_step|default(null),
                         } only %}
                     {% endif %}
                     {% if others is not empty %}
@@ -58,6 +60,7 @@
                                 {% include '@rental/management/_milestone_action.html.twig' with {
                                     action: action, small: true,
                                     asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                                    contract_step: contract_step|default(null),
                                 } only %}
                             {% endfor %}
                         </div>
@@ -102,6 +105,7 @@
                         {% include '@rental/management/_journey_steps.html.twig' with {
                             phase: phase, next_key: journey.next ? journey.next.key : null,
                             asset: asset, booking: booking, booking_url: booking_url, renter_decisions: renter_decisions,
+                            contract_step: contract_step|default(null),
                         } only %}
 
                         {% if phase.key == 'request' %}
@@ -154,7 +158,7 @@
             </section>
         {% endfor %}
         <p class="text-body-secondary small mt-3 mb-0">
-            Une étape réglée ailleurs — un contrat accepté par e-mail, un acompte payé en liquide — se
+            Une étape réglée ailleurs — un contrat signé sur papier, un acompte payé en liquide — se
             marque comme faite en touchant son <strong>rond numéroté</strong> ; elle se rouvre de la même
             façon. Ce n'est pas la bonne pratique : le site ne la vérifiera plus.
         </p>

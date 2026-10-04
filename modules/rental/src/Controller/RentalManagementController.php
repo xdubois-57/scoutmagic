@@ -913,7 +913,8 @@ class RentalManagementController extends AbstractController
         RentalAsset $asset,
         ?array $documents,
         array $payment,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
         // Null, not [], when the stay module is unavailable: the checklist
         // reads the difference between "no inventory on this asset" and
@@ -945,7 +946,8 @@ class RentalManagementController extends AbstractController
             // could walk, so its walk-throughs are ticked by hand.
             $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
             $marks,
-            $now
+            $now,
+            $acceptedConditions
         );
 
         return BookingMilestones::for(
@@ -1070,32 +1072,34 @@ class RentalManagementController extends AbstractController
                         break 2;
                     }
 
-                    $this->milestoneMarkService->set(
-                        $booking,
-                        $key,
-                        $milestone->label,
-                        $done,
-                        $this->actorMemberId(),
-                        $now
-                    );
+                    // One transaction: a reopened « Contrat envoyé » whose
+                    // status could not go back must not lose its mark.
+                    $marks = $this->milestoneMarkService;
+                    $this->operationsService->atomicallyOnAsset(
+                        $asset->id,
+                        function () use ($marks, $booking, $key, $milestone, $done, $now): void {
+                            $marks->set($booking, $key, $milestone->label, $done, $this->actorMemberId(), $now);
 
-                    if ($key === BookingMilestones::CONTRACT_SENT) {
-                        if ($done) {
-                            $this->operationsService->contractSent(
-                                $booking,
-                                $this->actorMemberId(),
-                                $now,
-                                $this->contractHoldMinDays()
-                            );
-                        } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
-                            $this->operationsService->changeStatus(
-                                $booking,
-                                BookingStatus::RECEIVED,
-                                $this->actorMemberId(),
-                                $now
-                            );
+                            if ($key !== BookingMilestones::CONTRACT_SENT) {
+                                return;
+                            }
+                            if ($done) {
+                                $this->operationsService->contractSent(
+                                    $booking,
+                                    $this->actorMemberId(),
+                                    $now,
+                                    $this->contractHoldMinDays()
+                                );
+                            } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
+                                $this->operationsService->changeStatus(
+                                    $booking,
+                                    BookingStatus::RECEIVED,
+                                    $this->actorMemberId(),
+                                    $now
+                                );
+                            }
                         }
-                    }
+                    );
 
                     FlashMessage::set(
                         'success',
@@ -1473,6 +1477,7 @@ class RentalManagementController extends AbstractController
     private function dashboardContext(RentalBooking $booking, RentalAsset $asset, \DateTimeImmutable $now): array
     {
         $payment = $this->paymentStatus($booking, $asset);
+        $documents = $this->documentService?->forBooking($booking->id);
         // The checklist is derived from what the booking's own records say
         // — the contract that was sent, the deposit that arrived, the
         // inventory that was finished — never from a stored flag, so
@@ -1480,9 +1485,10 @@ class RentalManagementController extends AbstractController
         $milestones = $this->milestonesOf(
             $booking,
             $asset,
-            $this->documentService?->forBooking($booking->id),
+            $documents,
             $payment,
-            $now
+            $now,
+            $this->documentService?->acceptedConditions($booking)
         );
         $transitions = BookingTransition::allowedFrom($booking->status);
 
@@ -1512,6 +1518,48 @@ class RentalManagementController extends AbstractController
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+            'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
+        ];
+    }
+
+    /**
+     * What the contract's two steps on the dashboard need (#708, IT-16):
+     * the version a send would mail, whether it already went, the address
+     * it goes to and how long the dates stay held once it has — said in
+     * the confirmation before anything leaves — and the landlord whose
+     * missing address would print « — » on it.
+     *
+     * @param \Modules\Rental\Document\RentalDocument[]|null $documents
+     * @return array<string, mixed>|null null when documents are unavailable
+     */
+    private function contractStep(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        ?array $documents,
+        \DateTimeImmutable $now
+    ): ?array {
+        if ($this->documentService === null || $documents === null) {
+            return null;
+        }
+
+        $latest = null;
+        foreach ($documents as $document) {
+            if ($document->type !== DocumentType::CONTRACT) {
+                continue;
+            }
+            if ($latest === null || $document->version > $latest->version) {
+                $latest = $document;
+            }
+        }
+
+        return [
+            'latest' => $latest,
+            'is_locked' => $this->documentService->textIsLocked($booking, DocumentType::CONTRACT),
+            'renter_email' => $booking->renterEmail,
+            // What the send will make of the hold, from the rule the send
+            // itself applies.
+            'hold_until' => $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
+            'landlord' => $this->documentService->landlordFor($asset),
         ];
     }
 

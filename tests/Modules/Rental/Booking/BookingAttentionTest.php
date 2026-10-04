@@ -349,7 +349,9 @@ class BookingAttentionTest extends TestCase
     {
         $booking = $this->booking(BookingStatus::CONFIRMED);
         $extras = array_fill_keys([
-            BookingMilestones::CONTRACT_SENT, BookingMilestones::CONTRACT_ACCEPTED, BookingMilestones::DEPOSIT_RECEIVED,
+            BookingMilestones::CONTRACT_GENERATED, BookingMilestones::CONTRACT_SENT,
+            BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED,
+            BookingMilestones::DEPOSIT_RECEIVED,
             BookingMilestones::BALANCE_RECEIVED, BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
             BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS, BookingMilestones::DEPARTURE_INVENTORY,
             BookingMilestones::FINAL_SETTLEMENT, BookingMilestones::SECURITY_DEPOSIT_RETURNED,
@@ -359,23 +361,26 @@ class BookingAttentionTest extends TestCase
             $this->assertArrayHasKey($milestone->key, BookingMilestones::ACTORS, $milestone->key);
             $this->assertSame(BookingMilestones::ACTORS[$milestone->key], $milestone->actor, $milestone->key);
         }
-        $this->assertSame(StepActor::RENTER, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_ACCEPTED]);
+        $this->assertSame(StepActor::UNIT, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_GENERATED]);
         $this->assertSame(StepActor::UNIT, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame(StepActor::RENTER, BookingMilestones::ACTORS[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertSame(StepActor::UNIT, BookingMilestones::ACTORS[BookingMilestones::CONTRACT_COUNTERSIGNED]);
     }
 
     /**
-     * « Contrat envoyé » waits on the renter (#708, IT-13): the booking is
-     * on the list only once the contract is late, by the contract
-     * reminder's own delay.
+     * Once the contract is out, the signed copy waits on the renter (#708,
+     * IT-13, IT-16): the booking is on the list only once it is late, by
+     * the contract reminder's own delay.
      */
     public function testAContractSentIsOnTheListOnlyOnceTheRenterIsLate(): void
     {
         $booking = $this->booking(BookingStatus::CONTRACT_SENT);
         $next = $this->nextOf($booking, [
+            BookingMilestones::CONTRACT_GENERATED => true,
             BookingMilestones::CONTRACT_SENT => true,
-            BookingMilestones::CONTRACT_ACCEPTED => false,
+            BookingMilestones::SIGNED_COPY_RECEIVED => false,
         ]);
-        $this->assertSame(BookingMilestones::CONTRACT_ACCEPTED, $next?->key);
+        $this->assertSame(BookingMilestones::SIGNED_COPY_RECEIVED, $next?->key);
         $deadline = ReminderPlanner::renterDeadline($next->key, $booking, [], ReminderSchedule::shipped());
 
         // Stay on 17 July; the contract is chased 14 days before.

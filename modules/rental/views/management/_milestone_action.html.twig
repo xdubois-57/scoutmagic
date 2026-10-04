@@ -1,6 +1,7 @@
 {#
   One action of the journey (Booking\MilestoneAction): a status transition,
-  pressed right here, or the way to the box where the thing is done.
+  pressed right here; the way to the box where the thing is done; or one of
+  the contract's commands (`_contract_command.html.twig`, #708 IT-16).
 
   A transition the renter hears about asks first, and the dialog carries
   the free-text box the manager's word goes in (base.html.twig's
@@ -12,8 +13,9 @@
   bookkeeping, and a dialog in front of bookkeeping is one nobody reads.
 
   Requires `action`, `asset`, `booking`, `booking_url` and
-  `renter_decisions`; `primary` (default false) makes it the one button put
-  forward (D7), `small` (default false) a compact one.
+  `renter_decisions`; `contract_step` for a command; `primary` (default
+  false) makes it the one button put forward (D7), `small` (default false)
+  a compact one.
 #}
 {% set button_class = 'btn ' ~ (primary|default(false) ? 'btn-primary' : 'btn-outline-secondary') ~ (small|default(false) ? ' btn-sm' : '') %}
 {% if action.transition %}
@@ -33,6 +35,11 @@
         <input type="hidden" name="status" value="{{ action.transition.value }}">
         <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
     </form>
+{% elseif action.command %}
+    {% include '@rental/management/_contract_command.html.twig' with {
+        action: action, contract_step: contract_step|default(null), asset: asset, booking: booking,
+        primary: primary|default(false), small: small|default(false),
+    } only %}
 {% elseif action.box %}
     <a class="{{ button_class }}" href="{{ action.box.href(booking_url) }}">{{ action.label }}</a>
 {% endif %}

@@ -398,7 +398,7 @@ class ReminderPlanner
         array $payment,
         ReminderSchedule $schedule
     ): ?RenterDeadline {
-        if ($stepKey === BookingMilestones::CONTRACT_ACCEPTED) {
+        if ($stepKey === BookingMilestones::SIGNED_COPY_RECEIVED) {
             $lateFrom = self::contractLateFrom(
                 DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date'),
                 $schedule

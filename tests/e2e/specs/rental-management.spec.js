@@ -265,11 +265,11 @@ test.describe('Rentals — running an asset', () => {
         await waitForConfirmReady(page);
 
         // The unit answers with its contract, and confirms at the end of
-        // the agreement (#708, IT-13). Here the contract went by e-mail and
-        // came back signed, so both steps are ticked by hand from their
-        // disc (#708, IT-14) — each asks first, saying it is not the
-        // practice the site prefers.
-        for (const step of ['Contrat envoyé', 'Conditions et contrat acceptés']) {
+        // the agreement (#708, IT-13). Here the contract was written and
+        // sent outside the site and signed on paper by both parties, so its
+        // four steps (IT-16) are ticked by hand from their disc (IT-14) —
+        // each asks first, saying it is not the practice the site prefers.
+        for (const step of ['Contrat généré', 'Contrat envoyé', 'Contrat signé reçu', 'Contrat contresigné']) {
             await page.getByRole('button', { name: `Marquer « ${step} » comme fait` }).click();
             const warning = await answerConfirmation(page);
             expect(warning).toContain('sans que le site ait pu le vérifier');
