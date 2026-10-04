@@ -81,7 +81,8 @@ fourni avec chaque release.
 4. L'installeur vérifie que ce dossier répond bien en HTTPS. Si vous restaurez
    une sauvegarde portable, choisissez-la à cette étape : ScoutMagic installe
    d'abord la version qui l'a créée ; sans sauvegarde, il prend la dernière
-   release.
+   release. Si vous avez restauré une sauvegarde, mettez ensuite le site à jour
+   par Configuration › Maintenance.
 5. Lancez l'installation puis suivez l'assistant de configuration jusqu'à la
    fin. Les contrôles de sécurité bloquent proprement l'installation si
    l'hébergement ne convient pas.
@@ -188,17 +189,13 @@ Voir [Dynamic scan / OWASP ZAP](docs/quality-pipeline.md#dynamic-scan--owasp-zap
 La carte détaillée des checks se trouve dans le
 [pipeline de qualité](docs/quality-pipeline.md#continuous-integration).
 
-La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles.
-Elle rejoue **toutes** les routes que l'application déclare et compare chaque
-réponse au rôle minimal annoncé.
-
 Les jobs bloquants sont :
 
 - **`test`** : PHPStan et PHPUnit sur MySQL 8.
 - **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
 - **`javascript-tests`** : analyse statique et tests JavaScript.
 - **`e2e-tests`** : scénarios navigateur Playwright.
-- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
+- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison ; ce job rejoue **toutes** les routes que l'application déclare et compare chaque réponse au rôle minimal annoncé.
 - **`dast-passive`** : analyse dynamique passive avec OWASP ZAP.
 - **`security`** : audit des dépendances Composer.
 - **`sonarqube`** : analyse SonarQube Cloud et Quality Gate.
