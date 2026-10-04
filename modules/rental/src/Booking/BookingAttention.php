@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 use Modules\Rental\Reminder\RenterDeadline;
+
 /**
  * One booking on « À traiter », and what put it there (§22.5).
  *
