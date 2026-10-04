@@ -560,11 +560,48 @@ class MilestoneEvidenceTest extends TestCase
 
         $this->assertTrue($evidence->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
         $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_COUNTERSIGNED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED], 'the earlier steps follow');
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT], 'the earlier steps follow');
         $this->assertSame(
             [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED],
             $evidence->manual
         );
         $this->assertArrayNotHasKey('contract_accepted', $evidence->done);
+    }
+
+    /**
+     * The contract's steps follow one another: a contract signed on paper
+     * and filed by hand was drawn up and sent, even with no trace of either
+     * on the site — the journey never asks to generate a signed contract.
+     * An earlier step done says nothing of the later ones.
+     */
+    public function testALaterContractStepDoneSaysTheEarlierOnesWere(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [$this->document(DocumentType::SIGNED_CONTRACT)],
+            $this->payment(),
+            null,
+            null,
+            null
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_GENERATED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertSame([], $evidence->manual, 'implied, never ticked: nothing to reopen');
+
+        $generatedOnly = MilestoneEvidence::collect(
+            $this->booking(),
+            [$this->document(DocumentType::CONTRACT)],
+            $this->payment(),
+            null,
+            null,
+            null
+        );
+
+        $this->assertTrue($generatedOnly->done[BookingMilestones::CONTRACT_GENERATED]);
+        $this->assertFalse($generatedOnly->done[BookingMilestones::CONTRACT_SENT]);
+        $this->assertFalse($generatedOnly->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
     }
 
     /** A step that does not apply here cannot be ticked into being. */
