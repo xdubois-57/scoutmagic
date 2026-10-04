@@ -853,8 +853,10 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertStringContainsString('id="screen-https-required"', $html);
         $this->assertStringContainsString('href="https://unite.example.org/bootstrap.php"', $html);
         $this->assertStringNotContainsString('id="token-form"', $html);
-        $this->assertNotSame('', \bootstrapReadTokenValue($this->tempDir), 'token.php is still written first');
+        // Not even token.php: its exposure check runs on the HTTPS screen only.
+        $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
 
+        \bootstrapEnsureTokenFile($this->tempDir);
         $token = \bootstrapReadTokenValue($this->tempDir);
         $json = json_decode($this->main(['action' => 'verify-token'], 'POST', (string) json_encode(['token' => $token]), [], false), true);
         $this->assertFalse($json['ok'] ?? true);

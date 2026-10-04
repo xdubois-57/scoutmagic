@@ -2158,11 +2158,9 @@ function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, cal
     if (!is_int($size) || $size < 1 || $size > BOOTSTRAP_ARCHIVE_MAX_BYTES) {
         return $refuse("La taille de l'archive choisie n'est pas valable (2 Go au plus).");
     }
-    $id = hash('sha256', (string) json_encode([
-        is_string($file['name'] ?? null) ? $file['name'] : '',
-        $size,
-        is_int($file['modified'] ?? null) ? $file['modified'] : 0,
-    ]));
+    $name = is_string($file['name'] ?? null) ? $file['name'] : '';
+    $modified = is_int($file['modified'] ?? null) ? $file['modified'] : 0;
+    $id = hash('sha256', (string) json_encode([$name, $size, $modified]));
 
     $incoming = $state['install_target'] . '/' . BOOTSTRAP_INCOMING_DIR;
     if (!is_dir($incoming) && !@mkdir($incoming, 0700, true) && !is_dir($incoming)) {
@@ -3732,7 +3730,8 @@ function bootstrapMain(?string $docRoot = null): void
             ]);
             return;
         }
-        bootstrapEnsureTokenFile($docRoot);
+        // No token.php yet: the check that it is not served as text runs
+        // on the token screen, which only HTTPS reaches.
         bootstrapRenderHttpsRequired($_SERVER);
         return;
     }
