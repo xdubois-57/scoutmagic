@@ -69,7 +69,14 @@
      {# The pointer only where a click actually opens something: a zone
         whose controls are its own <label>s is not itself clickable. #}
      {% if input_id is defined and input_id %}style="cursor:pointer;"{% endif %}
-     {% for key, value in data|default({}) %}data-{{ key }}="{{ value }}"{% endfor %}>
+     {# `{%-` and the leading space, exactly as month_grid, month_day_grid,
+        ai_button and the public calendar write the same loop: without a
+        separator, two keys render as
+        `data-drop-zone-for="x"data-drop-zone-preview="y"`, which is
+        invalid markup. Browsers recover, so nothing complains — caught
+        in review on the pull request for issue #756, the change that
+        first passed this partial a two-key hash. #}
+     {%- for key, value in data|default({}) %} data-{{ key }}="{{ value }}"{% endfor %}>
     <i class="bi {{ icon|default('bi-cloud-arrow-up') }} {{ size|default('md') == 'lg' ? 'display-4' : 'fs-2' }} d-block mb-2"
        aria-hidden="true"></i>
     {% block message %}<span>{{ message|default('') }}</span>{% endblock %}

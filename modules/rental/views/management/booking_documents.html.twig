@@ -13,5 +13,9 @@
     {# Names the file that was picked: the zone's input is visually hidden,
        so a zone that says nothing looks the same before and after a drop. #}
     <script src="{{ asset('/assets/js/upload-drop-zone.js') }}" defer></script>
-    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
+    {# No `form-submit-lock.js`: the one form these panels show is sent by
+       `rental-booking.js` with `fetch`, so it deliberately does not carry
+       `data-submit-lock` (the reason is written above that form in
+       `_documents.html.twig`) and the script would find nothing to bind
+       on every view of this page. #}
 {% endblock %}

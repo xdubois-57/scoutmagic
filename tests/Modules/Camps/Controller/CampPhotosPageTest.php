@@ -103,6 +103,45 @@ final class CampPhotosPageTest extends TestCase
      * off the template file: a `data` hash that stopped reaching the
      * partial would still look right in the source.
      */
+    /**
+     * Two `data-` attributes from one hash come out as two attributes.
+     *
+     * `drop_zone.html.twig` builds them in a loop, and without a
+     * separator the pair renders
+     * `data-drop-zone-for="photo-file"data-drop-zone-preview="image"` —
+     * invalid markup that every browser silently recovers from, so
+     * nothing on the page or in any other test would ever say so. This
+     * page is the first call site to pass the partial a two-key hash
+     * (issue #756), which is how it surfaced, in review.
+     *
+     * Asserted on the RENDERED html rather than on the partial's source,
+     * because what matters is the output and Twig's whitespace control is
+     * exactly what is easy to get wrong here.
+     */
+    public function testTwoDataAttributesAreSeparated(): void
+    {
+        $html = $this->twig->render('@camps/photos.html.twig', [
+            'gallery_enabled' => true,
+            'album_available' => true,
+            'media_unreadable' => false,
+            'camp' => (object) ['id' => 12],
+            'camp_label' => 'Juillet 2028',
+            'place' => null,
+            'media' => [],
+        ]);
+
+        self::assertDoesNotMatchRegularExpression(
+            '/data-drop-zone-for="[^"]*"data-/',
+            $html,
+            'two data- attributes rendered with nothing between them: invalid markup, and'
+            . ' browsers recover from it, so only this test will ever notice.'
+        );
+        self::assertStringContainsString(
+            'data-drop-zone-for="photo-file" data-drop-zone-preview="image"',
+            $html
+        );
+    }
+
     public function testThePageAsksForThePreviewAndTheSubmitLock(): void
     {
         $html = $this->twig->render('@camps/photos.html.twig', [
