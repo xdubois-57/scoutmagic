@@ -73,13 +73,6 @@ Lors de la toute première installation, le bouton « Installer » reste
 bloqué tant qu'il n'est pas passé au vert. Sur un site déjà
 configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 
-## Les mises à jour automatiques
-
-Les mises à jour se règlent ensuite dans « Configuration › Maintenance ».
-Sur le canal stable, ScoutMagic vérifie chaque jour si une nouvelle version
-est disponible. Le canal de développement affiche, lorsqu'il est choisi, les
-instructions supplémentaires nécessaires à sa détection automatique.
-
 ## Le compte administrateur, pendant l'installation seulement
 
 L'assistant crée le premier compte, pour se connecter sans attendre un
