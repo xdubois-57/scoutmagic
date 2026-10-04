@@ -5794,6 +5794,9 @@ $router->addRoute(
     ['label' => 'Staffs et badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+// A section's own text (#725): the controller narrows to the sections the
+// account animates; chief is only the floor.
+$router->addRoute('POST', '/chefs/staffs/text', StaffsController::class, 'saveSectionText', 'chief');
 $router->addRoute(
     'GET',
     '/chefs/membres',
@@ -6780,7 +6783,8 @@ $frontController->registerController(
         $unitStaffSectionService,
         $sectionDocumentService,
         $settingService,
-        $sectionStaffAuthorizationService
+        $sectionStaffAuthorizationService,
+        $editableContentService
     )
 );
 $frontController->registerController(
