@@ -50,9 +50,11 @@ questions avant de vous lancer ? Contactez-nous à **info@scoutmagic.be**.
 
 ## Prérequis
 
-Les prérequis techniques de référence sont documentés dans
-[ARCHITECTURE.md](ARCHITECTURE.md). L'installation standard vérifie elle-même
-que l'hébergement satisfait les conditions nécessaires avant de continuer.
+Les prérequis techniques de référence sont conservés dans
+[README-reference.md](README-reference.md#prérequis), et les prérequis de
+développement sont repris dans [CONTRIBUTING.md](CONTRIBUTING.md). L'installation
+standard vérifie elle-même que l'hébergement satisfait les conditions
+nécessaires avant de continuer.
 
 ### La tâche cron
 
@@ -169,13 +171,41 @@ la description détaillée et l'ancien inventaire des scénarios restent dans
 
 La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ;
 les explications détaillées auparavant publiées ici restent dans
-[la référence de l'ancien README](README-reference.md#analyse-de-securite-dynamique-dast-owasp-zap).
+[la référence de l'ancien README](README-reference.md#analyse-de-sécurité-dynamique-dast-owasp-zap).
+
+La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles.
+Elle rejoue **toutes** les routes que l'application déclare et compare chaque
+réponse au rôle minimal annoncé.
 
 ## Intégration continue
 
-Le fonctionnement des jobs, des checks requis, de SonarQube et des gates de
-release est documenté dans le
-[pipeline de qualité](docs/quality-pipeline.md#continuous-integration).
+La carte détaillée des checks reste dans le
+[pipeline de qualité](docs/quality-pipeline.md#continuous-integration). Cette
+liste courte reste ici parce que les tests d'architecture vérifient que chaque
+job bloquant est visible depuis le README :
+
+- **`test`** : PHPStan et PHPUnit sur MySQL 8.
+- **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
+- **`javascript-tests`** : analyse statique et tests JavaScript.
+- **`e2e-tests`** : scénarios navigateur Playwright.
+- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
+- **`dast-passive`** : analyse dynamique passive avec OWASP ZAP.
+- **`security`** : audit des dépendances Composer.
+- **`sonarqube`** : analyse SonarQube Cloud et Quality Gate.
+
+### Créer une release
+
+Le détail opérationnel est conservé dans [README-reference.md](README-reference.md#créer-une-release-mainteneneurs).
+Avant de créer un commit, un tag ou une release, le script exécute sept verrous,
+dans cet ordre :
+
+1. **Déploiement** : la release précédente doit être déployée.
+2. **Intégration continue** : les checks requis doivent être verts.
+3. **Sécurité** : les dépendances et alertes de sécurité sont contrôlées.
+4. **Fraîcheur des dépendances** : les dépendances directes sont vérifiées.
+5. **API navigateur dépréciée** : les API critiques sont contrôlées.
+6. **SonarQube Cloud** : l'analyse du commit et son Quality Gate sont vérifiés.
+7. **Sources externes** : les sources dont dépend le site sont vérifiées.
 
 ## Données, sécurité et responsabilité
 
