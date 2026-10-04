@@ -23,7 +23,7 @@ set -euo pipefail
 #      coverage-on-new-code failure is a real, actionable finding, not an
 #      unachievable condition.
 #
-# This is deliberately FAIL CLOSED (see README.md / AGENTS.md § Releases):
+# This is deliberately FAIL CLOSED (see docs/developpement.md / AGENTS.md § Releases):
 # anything that prevents a definitive PASS answer — no token, an
 # unreachable host, a non-200/401/403 response, invalid JSON, or no
 # SonarQube analysis confirmed to correspond to the exact commit being

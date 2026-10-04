@@ -343,8 +343,8 @@ check_deployment_gate() {
 check_security_gate() {
     command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required for the security gate — install it and run gh auth login." >&2; exit 1; }
     command -v composer &> /dev/null || { echo "ERROR: composer is required for the security gate (composer audit)." >&2; exit 1; }
-    command -v npm &> /dev/null || { echo "ERROR: npm is required for the security gate (npm audit) — see package.json/README.md § Développement." >&2; exit 1; }
-    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement) before the security gate can run npm audit." >&2; exit 1; }
+    command -v npm &> /dev/null || { echo "ERROR: npm is required for the security gate (npm audit) — see package.json/docs/developpement.md § Développement." >&2; exit 1; }
+    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see docs/developpement.md § Développement) before the security gate can run npm audit." >&2; exit 1; }
 
     local err codeql_lines dependabot_lines codeql_count dependabot_count
     local codeql_status dependabot_status permission_gap=""

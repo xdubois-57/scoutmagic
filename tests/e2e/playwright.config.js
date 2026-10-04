@@ -13,7 +13,7 @@
 //     about "does ScoutMagic boot and render".
 //   - Headless, always. There is no graphical session in CI, and a
 //     remote/constrained Claude Code environment does not have one either
-//     (README.md § Tests end-to-end).
+//     (docs/developpement.md § Tests de bout en bout).
 //   - One worker. A single PHP built-in server serves the whole run; it
 //     handles one request at a time, so parallel workers would contend
 //     for it rather than finish sooner.

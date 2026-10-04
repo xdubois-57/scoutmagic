@@ -50,7 +50,7 @@ final class HostHealth
     /** Required by composer.json; below it the code does not even load. */
     public const PHP_MINIMUM = '8.4.0';
 
-    /** The two engines CI runs the whole suite on (README.md § Tests). */
+    /** The two engines CI runs the whole suite on (docs/developpement.md § Développement). */
     public const MYSQL_TESTED = '8.0.0';
     public const MARIADB_TESTED = '10.11.0';
 

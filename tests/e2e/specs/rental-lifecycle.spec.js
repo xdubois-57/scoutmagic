@@ -73,7 +73,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own. The milestone lines carry neither a role nor
 // an id, so they are addressed through the panel wrapper

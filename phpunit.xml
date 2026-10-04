@@ -76,7 +76,7 @@
         read as near-zero coverage on new code. Most of that group needs no
         MySQL at all (Tests\DatabaseTestHelper builds an in-memory SQLite
         database); only the six files reading TEST_DB_* env vars do, and CI
-        provisions a MySQL service container for them. See README.md
+        provisions a MySQL service container for them. See docs/developpement.md
         § Intégration continue: both the `test` job (MySQL 8) and
         `database-mariadb` (MariaDB 10.11) run this whole file.
     -->

@@ -35,7 +35,7 @@ use Modules\Registration\Api\ScoutYearPreparationProvider;
  * reminder, as does the test itself.
  *
  * The test is blocking: it fails the "Checks / End-to-end (browser)" job,
- * on every pull request and again on every release tag. See README.md
+ * on every pull request and again on every release tag. See docs/developpement.md
  * § Tests de bout en bout.
  * ============================================================================
  *

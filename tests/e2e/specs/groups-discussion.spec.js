@@ -54,7 +54,7 @@
 // "scout-year-", which is what keeps that true.
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), which is every control the member actually
 // operates. Three things on a card cannot be reached that way and use the
 // module's own JavaScript hooks instead — the same ids and classes
