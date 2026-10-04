@@ -32,10 +32,9 @@ Parmi les nombreuses possibilités de ScoutMagic :
   campagnes de paiement, locations, année scoute, mises à jour automatiques,
   etc.
 
-Cette liste est loin d'être exhaustive. L'[inventaire détaillé des
-fonctionnalités](docs/features.md) présente plus précisément ce que ScoutMagic
-propose, et les [spécifications fonctionnelles](specifications.md) décrivent le
-comportement attendu de chaque fonction et module.
+Cette liste est loin d'être exhaustive. Les
+[spécifications fonctionnelles](specifications.md) décrivent en détail les
+fonctions et modules de ScoutMagic.
 
 ## Utiliser ScoutMagic pour votre unité
 
@@ -50,11 +49,10 @@ questions avant de vous lancer ? Contactez-nous à **info@scoutmagic.be**.
 
 ## Prérequis
 
-Les prérequis techniques de référence sont conservés dans
-[README-reference.md](README-reference.md#prérequis), et les prérequis de
-développement sont repris dans [CONTRIBUTING.md](CONTRIBUTING.md). L'installation
-standard vérifie elle-même que l'hébergement satisfait les conditions
-nécessaires avant de continuer.
+Les prérequis techniques sont décrits dans [ARCHITECTURE.md](ARCHITECTURE.md)
+et les prérequis de développement dans [CONTRIBUTING.md](CONTRIBUTING.md).
+L'installation standard vérifie elle-même que l'hébergement satisfait les
+conditions nécessaires avant de continuer.
 
 ### La tâche cron
 
@@ -88,9 +86,8 @@ de contrôle :
   dépendances de l'hébergement et explique ce qui ne fonctionnerait pas en cas
   de problème.
 
-La configuration du serveur, de la base de données, du cron et des mises à
-jour automatiques est détaillée dans le guide
-[Installation & serveur](docs/help/installation-serveur.md).
+La configuration du serveur, de la base de données et du cron est détaillée
+dans [Installation & serveur](docs/help/installation-serveur.md).
 
 ## Contribuer
 
@@ -125,8 +122,6 @@ Pour contribuer au code, consultez [CONTRIBUTING.md](CONTRIBUTING.md).
 
 La documentation détaillée est volontairement séparée de ce README :
 
-- [Fonctionnalités détaillées](docs/features.md) — inventaire fonctionnel
-  destiné aux personnes qui découvrent le projet.
 - [Spécifications fonctionnelles](specifications.md) — comportement attendu de
   ScoutMagic et de ses modules.
 - [Architecture](ARCHITECTURE.md) — architecture technique et décisions
@@ -135,8 +130,6 @@ La documentation détaillée est volontairement séparée de ce README :
   vulnérabilités.
 - [Pipeline de qualité](docs/quality-pipeline.md) — tests, analyse statique,
   intégration continue, contrôles de qualité et processus de release.
-- [Référence détaillée de l'ancien README](README-reference.md) — contenu
-  technique et opérationnel conservé intégralement lors de la simplification.
 - [Développement de modules](docs/module-development.md) — création et
   intégration d'un module ScoutMagic.
 - [Installation & serveur](docs/help/installation-serveur.md) — base de
@@ -157,21 +150,15 @@ Les commandes et prérequis de développement sont documentés dans
 
 ### Analyse statique JavaScript
 
-La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis) ;
-la version détaillée auparavant publiée ici reste dans
-[la référence de l'ancien README](README-reference.md#analyse-statique-javascript).
+Voir [Analyse statique](docs/quality-pipeline.md#static-analysis).
 
 ### Tests de bout en bout
 
-La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#end-to-end--playwright) ;
-la description détaillée et l'ancien inventaire des scénarios restent dans
-[la référence de l'ancien README](README-reference.md#tests-de-bout-en-bout-e2e).
+Voir [End-to-end / Playwright](docs/quality-pipeline.md#end-to-end--playwright).
 
 ### Analyse de sécurité dynamique
 
-La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ;
-les explications détaillées auparavant publiées ici restent dans
-[la référence de l'ancien README](README-reference.md#analyse-de-sécurité-dynamique-dast-owasp-zap).
+Voir [Dynamic scan / OWASP ZAP](docs/quality-pipeline.md#dynamic-scan--owasp-zap).
 
 La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles.
 Elle rejoue **toutes** les routes que l'application déclare et compare chaque
@@ -179,33 +166,23 @@ réponse au rôle minimal annoncé.
 
 ## Intégration continue
 
-La carte détaillée des checks reste dans le
-[pipeline de qualité](docs/quality-pipeline.md#continuous-integration). Cette
-liste courte reste ici parce que les tests d'architecture vérifient que chaque
-job bloquant est visible depuis le README :
+La carte détaillée des checks se trouve dans le
+[pipeline de qualité](docs/quality-pipeline.md#continuous-integration). Les
+jobs bloquants sont :
 
 - **`test`** : PHPStan et PHPUnit sur MySQL 8.
 - **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
 - **`javascript-tests`** : analyse statique et tests JavaScript.
 - **`e2e-tests`** : scénarios navigateur Playwright.
-- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
+- **`authorization-matrix`** : toutes les routes rejouées sous les six rôles.
 - **`dast-passive`** : analyse dynamique passive avec OWASP ZAP.
 - **`security`** : audit des dépendances Composer.
 - **`sonarqube`** : analyse SonarQube Cloud et Quality Gate.
 
 ### Créer une release
 
-Le détail opérationnel est conservé dans [README-reference.md](README-reference.md#créer-une-release-mainteneneurs).
-Avant de créer un commit, un tag ou une release, le script exécute sept verrous,
-dans cet ordre :
-
-1. **Déploiement** : la release précédente doit être déployée.
-2. **Intégration continue** : les checks requis doivent être verts.
-3. **Sécurité** : les dépendances et alertes de sécurité sont contrôlées.
-4. **Fraîcheur des dépendances** : les dépendances directes sont vérifiées.
-5. **API navigateur dépréciée** : les API critiques sont contrôlées.
-6. **SonarQube Cloud** : l'analyse du commit et son Quality Gate sont vérifiés.
-7. **Sources externes** : les sources dont dépend le site sont vérifiées.
+Le processus et les verrous de release sont documentés dans
+[docs/quality-pipeline.md](docs/quality-pipeline.md).
 
 ## Données, sécurité et responsabilité
 
