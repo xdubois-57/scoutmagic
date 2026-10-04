@@ -73,7 +73,13 @@ class BootstrapRequestHandlersTest extends TestCase
      */
     private function withRequestBody(array $body, callable $handler): void
     {
-        BootstrapFakeInput::$body = (string) json_encode($body);
+        $this->withRawRequestBody((string) json_encode($body), $handler);
+    }
+
+    /** The same, with a body that is not JSON — an archive chunk. */
+    private function withRawRequestBody(string $raw, callable $handler): void
+    {
+        BootstrapFakeInput::$body = $raw;
         $outer = ob_get_level();
         ob_start();
         $level = ob_get_level();
@@ -699,6 +705,314 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertDirectoryDoesNotExist($this->tempDir . '/storage');
         $this->assertFileDoesNotExist($stateFile);
         $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_LOCK_FILE);
+    }
+
+    // -------------------------------------------------------------------
+    // What runs before the install (#719, B)
+    // -------------------------------------------------------------------
+
+    #[RunInSeparateProcess]
+    public function testATypedTokenIsCheckedAndAWrongOneIsCounted(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $token = \bootstrapReadTokenValue($this->tempDir);
+
+        $this->withRequestBody(['token' => 'faux'], fn () => \bootstrapHandleVerifyToken($this->tempDir, time()));
+        $this->assertSame(1, \bootstrapReadAccess($this->tempDir)['token_attempts'] ?? null);
+
+        $this->withRequestBody(['token' => $token], fn () => \bootstrapHandleVerifyToken($this->tempDir, time()));
+        $this->assertArrayNotHasKey('token_attempts', \bootstrapReadAccess($this->tempDir));
+    }
+
+    #[RunInSeparateProcess]
+    public function testChoosingAnArchiveRecordsItsReleaseAndADevelopmentBuildIsRefused(): void
+    {
+        $this->withRequestBody(['version' => '1.4.2'], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null);
+
+        $this->withRequestBody(['version' => 'dev-12b6042'], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null, 'unchanged');
+
+        $this->withRequestBody(['version' => null], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertArrayNotHasKey('release_version', \bootstrapReadAccess($this->tempDir));
+
+        // A choice that cannot be recorded is refused, never reported as made.
+        unlink($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        mkdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $json = json_decode($this->outputOf(
+            (string) json_encode(['version' => '1.4.2']),
+            fn () => \bootstrapHandleChooseArchive($this->tempDir)
+        ), true);
+        rmdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('écriture', (string) ($json['error'] ?? ''));
+    }
+
+    #[RunInSeparateProcess]
+    public function testTheStepOneRequestCarriesTheAccessDecisionsIntoTheState(): void
+    {
+        \bootstrapWriteAccess($this->tempDir, ['release_version' => '1.4.2']);
+        $stateFile = $this->tempDir . '/' . \BOOTSTRAP_STATE_FILE;
+
+        // No HTTPS verification on record: step 1 refuses, and says why.
+        $this->withRequestBody(['step' => 1], fn () => \bootstrapHandleStepRequest($this->tempDir, $stateFile));
+
+        $written = \bootstrapReadState($stateFile);
+        $this->assertSame('1.4.2', $written['release_version'] ?? null);
+        $this->assertFalse($written['site_https_verified'] ?? true);
+        $this->assertSame(1, $written['failed_step'] ?? null);
+        $this->assertStringContainsString('HTTPS', (string) ($written['error'] ?? ''));
+    }
+
+    #[RunInSeparateProcess]
+    public function testAChunkRequestAppendsItsBodyAtTheOffsetItNames(): void
+    {
+        $target = $this->tempDir . '/site';
+        mkdir($target . '/storage', 0755, true);
+        $stateFile = $this->seedState(['gate_passed' => true, 'install_target' => $target, 'layout' => 'A', 'version' => '1.4.2']);
+        $this->withRequestBody(
+            ['size' => 100, 'name' => 'unite.zip', 'modified' => 1_800_000_000],
+            fn () => \bootstrapHandleArchiveBegin($this->tempDir, $stateFile, static fn (): array => [])
+        );
+        $this->assertSame(100, \bootstrapReadState($stateFile)['archive_upload']['size'] ?? null, 'the verdict is persisted');
+
+        $_GET = ['offset' => '0', 'last' => '0'];
+        $this->withRawRequestBody('premier-fragment', fn () => \bootstrapHandleArchiveChunk($stateFile));
+        $_GET = ['offset' => '0', 'last' => '0'];
+        $this->withRawRequestBody('rejoue', fn () => \bootstrapHandleArchiveChunk($stateFile));
+
+        $this->assertSame(
+            'premier-fragment',
+            file_get_contents($target . '/' . \BOOTSTRAP_INCOMING_DIR . '/' . \BOOTSTRAP_INCOMING_PART),
+            'a replayed offset appends nothing'
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // The entry point and the handlers around the token (#719, B)
+    // -------------------------------------------------------------------
+
+    /**
+     * Runs $handler with `php://input` answering $raw and returns what it
+     * printed. The handlers unwind to the buffer level they found — ours.
+     */
+    private function outputOf(string $raw, callable $handler): string
+    {
+        BootstrapFakeInput::$body = $raw;
+        stream_wrapper_unregister('php');
+        stream_wrapper_register('php', BootstrapFakeInput::class);
+        ob_start();
+        try {
+            $handler();
+        } finally {
+            stream_wrapper_restore('php');
+        }
+
+        return (string) ob_get_clean();
+    }
+
+    /** @param array<string, mixed> $get */
+    private function main(
+        array $get,
+        string $method = 'GET',
+        string $raw = '',
+        array $cookies = [],
+        bool $https = true
+    ): string {
+        $_GET = $get;
+        $_POST = [];
+        $_COOKIE = $cookies;
+        $_SERVER['REQUEST_METHOD'] = $method;
+        $_SERVER['HTTP_HOST'] = 'unite.example.org';
+        $_SERVER['SCRIPT_NAME'] = '/bootstrap.php';
+        $_SERVER['HTTPS'] = $https ? 'on' : '';
+
+        return $this->outputOf($raw, fn () => \bootstrapMain($this->tempDir));
+    }
+
+    /** @return array<string, string> */
+    private function proof(): array
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+
+        return [\BOOTSTRAP_PROOF_COOKIE => \bootstrapProofValue(
+            \bootstrapReadTokenValue($this->tempDir),
+            time() + 600
+        )];
+    }
+
+    #[RunInSeparateProcess]
+    public function testAFirstVisitWritesTheTokenAndAsksForItBeforeAnythingElse(): void
+    {
+        $html = $this->main([]);
+
+        $this->assertNotSame('', \bootstrapReadTokenValue($this->tempDir));
+        $this->assertStringContainsString('id="screen-token"', $html);
+        $this->assertStringContainsString('id="token-form"', $html);
+        $this->assertStringNotContainsString(\bootstrapReadTokenValue($this->tempDir), $html, 'never echoed');
+        $this->assertStringNotContainsString('id="install-btn"', $html);
+    }
+
+    /**
+     * HTTPS before the token: over http:// it would be typed in clear, and
+     * its proof cookie set without the Secure flag.
+     */
+    #[RunInSeparateProcess]
+    public function testOverPlainHttpTheTokenIsNeverAskedNorAccepted(): void
+    {
+        $html = $this->main([], 'GET', '', [], false);
+        $this->assertStringContainsString('id="screen-https-required"', $html);
+        $this->assertStringContainsString('href="https://unite.example.org/bootstrap.php"', $html);
+        $this->assertStringNotContainsString('id="token-form"', $html);
+        // Not even token.php: its exposure check runs on the HTTPS screen only.
+        $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $token = \bootstrapReadTokenValue($this->tempDir);
+        $json = json_decode($this->main(['action' => 'verify-token'], 'POST', (string) json_encode(['token' => $token]), [], false), true);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('HTTPS', (string) ($json['error'] ?? ''));
+        $this->assertArrayNotHasKey('token_attempts', \bootstrapReadAccess($this->tempDir), 'nothing was compared');
+    }
+
+    #[RunInSeparateProcess]
+    public function testEveryOtherActionIsRefusedWithoutTheProof(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+
+        foreach (['step', 'gate-report', 'abort', 'https-check', 'choose-archive', 'archive-begin', 'archive-chunk'] as $action) {
+            $json = json_decode($this->main(['action' => $action], 'POST', '{}'), true);
+            $this->assertStringContainsString('Jeton', (string) ($json['error'] ?? ''), $action);
+            $this->assertTrue($json['auth_required'] ?? false, $action);
+        }
+        $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_LOCK_FILE, 'no step ran');
+    }
+
+    #[RunInSeparateProcess]
+    public function testTypingTheTokenThroughTheEntryPointUnlocksTheInstaller(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $token = \bootstrapReadTokenValue($this->tempDir);
+
+        $json = json_decode($this->main(['action' => 'verify-token'], 'POST', (string) json_encode(['token' => $token])), true);
+        $this->assertTrue($json['ok'] ?? false);
+
+        $wrong = json_decode($this->main(['action' => 'verify-token'], 'POST', '{"token":"faux"}'), true);
+        $this->assertFalse($wrong['ok'] ?? true);
+        $this->assertSame('Jeton invalide.', $wrong['error'] ?? null);
+    }
+
+    #[RunInSeparateProcess]
+    public function testWithTheProofTheEntryPointServesTheInstallerAndItsActions(): void
+    {
+        $cookies = $this->proof();
+
+        $html = $this->main([], 'GET', '', $cookies);
+        $this->assertStringContainsString('id="screen-https"', $html);
+        $this->assertStringContainsString('id="archive-file"', $html);
+
+        $this->main(['action' => 'choose-archive'], 'POST', '{"version":"1.4.2"}', $cookies);
+        $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null);
+
+        $begin = json_decode($this->main(['action' => 'archive-begin'], 'POST', '{"size":10}', $cookies), true);
+        $this->assertFalse($begin['ok'] ?? true, 'nothing installed yet');
+        $this->assertSame(\BOOTSTRAP_CHUNK_BYTES, $begin['chunk_bytes'] ?? null);
+
+        $chunk = json_decode($this->main(['action' => 'archive-chunk', 'offset' => '0'], 'POST', 'x', $cookies), true);
+        $this->assertSame(409, $chunk['status'] ?? null);
+    }
+
+    #[RunInSeparateProcess]
+    public function testTheTokenScreenSaysSoWhileLockedAndWhenTheFileCouldNotBeWritten(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        \bootstrapWriteAccess($this->tempDir, ['token_locked_until' => time() + 300]);
+        $locked = $this->outputOf('', fn () => \bootstrapRenderTokenScreen($this->tempDir));
+        $this->assertStringContainsString('Trop de tentatives', $locked);
+
+        unlink($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+        $missing = $this->outputOf('', fn () => \bootstrapRenderTokenScreen($this->tempDir));
+        $this->assertStringContainsString("n'a pas pu être créé", $missing);
+        $this->assertStringNotContainsString('id="token-form"', $missing);
+    }
+
+    /**
+     * Open without the proof, so it must neither delete on a stranger's
+     * word nor make the server fetch anything (no Host-steered request):
+     * only the token actually read from the exposed file deletes it.
+     */
+    #[RunInSeparateProcess]
+    public function testAnExposedTokenIsDeletedOnlyByWhoeverReadItFromTheFile(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $token = \bootstrapReadTokenValue($this->tempDir);
+
+        foreach (['{}', '{"token":"faux"}', (string) json_encode(['token' => str_repeat('0', 64)])] as $body) {
+            $kept = json_decode($this->outputOf($body, fn () => \bootstrapHandleTokenExposed($this->tempDir)), true);
+            $this->assertFalse($kept['exposed'], $body);
+            $this->assertFileExists($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+        }
+
+        $gone = json_decode($this->outputOf(
+            (string) json_encode(['token' => $token]),
+            fn () => \bootstrapHandleTokenExposed($this->tempDir)
+        ), true);
+        $this->assertTrue($gone['exposed']);
+        $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_TOKEN_FILE);
+    }
+
+    #[RunInSeparateProcess]
+    public function testTheHttpsCheckRecordsItsVerdictForStepOne(): void
+    {
+        $_SERVER['HTTP_HOST'] = 'unite.example.org';
+        $serve = function (string $url): array {
+            $file = basename((string) parse_url($url, PHP_URL_PATH));
+
+            return ['status' => 200, 'body' => (string) @file_get_contents($this->tempDir . '/' . $file)];
+        };
+
+        $this->outputOf('', fn () => \bootstrapHandleHttpsCheck($this->tempDir, $serve, 1_800_000_000));
+        $this->assertSame(1_800_000_000, \bootstrapReadAccess($this->tempDir)['https_verified_at'] ?? null);
+
+        $this->outputOf('', fn () => \bootstrapHandleHttpsCheck(
+            $this->tempDir,
+            static fn (): array => ['status' => 0, 'body' => ''],
+            1_800_000_100
+        ));
+        $this->assertArrayNotHasKey('https_verified_at', \bootstrapReadAccess($this->tempDir), 'a failed check is forgotten');
+
+        // A passed check that cannot be recorded is reported as failed, not as passed.
+        unlink($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        mkdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $json = json_decode($this->outputOf(
+            '',
+            fn () => \bootstrapHandleHttpsCheck($this->tempDir, $serve, 1_800_000_200)
+        ), true);
+        rmdir($this->tempDir . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('écriture', (string) ($json['detail'] ?? ''));
+    }
+
+    #[RunInSeparateProcess]
+    public function testAChunkLargerThanAnnouncedIsRefusedUnread(): void
+    {
+        $target = $this->tempDir . '/site';
+        mkdir($target . '/storage', 0755, true);
+        $stateFile = $this->seedState(['gate_passed' => true, 'install_target' => $target, 'layout' => 'A', 'version' => '1.4.2']);
+        $this->withRequestBody(
+            ['size' => 100, 'name' => 'unite.zip', 'modified' => 1_800_000_000],
+            fn () => \bootstrapHandleArchiveBegin($this->tempDir, $stateFile, static fn (): array => [])
+        );
+        $this->assertSame(100, \bootstrapReadState($stateFile)['archive_upload']['size'] ?? null, 'the verdict is persisted');
+        $_GET = ['offset' => '0', 'last' => '0'];
+
+        $json = json_decode($this->outputOf(
+            str_repeat('x', \BOOTSTRAP_CHUNK_BYTES + 1),
+            fn () => \bootstrapHandleArchiveChunk($stateFile)
+        ), true);
+
+        $this->assertSame('Fragment trop grand.', $json['error'] ?? null);
+        $this->assertFileDoesNotExist($target . '/' . \BOOTSTRAP_INCOMING_DIR . '/' . \BOOTSTRAP_INCOMING_PART);
     }
 }
 

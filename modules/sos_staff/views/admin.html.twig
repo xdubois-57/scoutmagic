@@ -220,8 +220,10 @@
                                     {{ day.day_name }} {{ day.day_number }}
                                 </th>
                                 <td>
-                                    <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none w-100 d-flex align-items-center gap-2"
-                                            aria-label="Modifier les gardes du {{ day.date_label }}">
+                                    {# No aria-label: it would replace the visible recipient,
+                                       which sos-admin.js keeps up to date. The row header
+                                       already gives the date. #}
+                                    <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none w-100 d-flex align-items-center gap-2">
                                         <i class="bi bi-circle-fill small {{ dot }}" data-day-dot aria-hidden="true"></i>
                                         <span class="flex-grow-1{{ day.target_label ? '' : ' text-body-secondary' }}" data-day-target>{{ day.target_label ?: default_target }}</span>
                                         <i class="bi bi-people{{ day.oncall_count > 1 ? '' : ' d-none' }}"
@@ -229,6 +231,7 @@
                                            title="Plusieurs personnes sont de garde ce jour — seule la première de la liste reçoit les appels."
                                            aria-hidden="true"></i>
                                         <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
+                                        <span class="visually-hidden">— modifier les gardes</span>
                                     </button>
                                 </td>
                             </tr>

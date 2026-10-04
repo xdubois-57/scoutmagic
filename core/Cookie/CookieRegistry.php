@@ -67,6 +67,17 @@ class CookieRegistry
                 'duration' => 'Durée de la session',
             ],
             [
+                // Set by bootstrap/bootstrap.php once the installation token
+                // has been typed, read by the setup wizard in its place
+                // (#719, Core\Security\BootstrapHandoff). Only ever exists
+                // before the site is configured; never the token itself.
+                'name' => 'scoutmagic_setup_proof',
+                'category' => 'necessary',
+                'purpose' => 'Preuve, pendant l\'installation du site, que le jeton d\'installation a été saisi, pour '
+                    . 'que l\'assistant de configuration ne le redemande pas. Ne contient pas le jeton.',
+                'duration' => '2 heures',
+            ],
+            [
                 'name' => 'cookie_consent',
                 'category' => 'necessary',
                 'purpose' => 'Mémorisation de vos choix concernant les cookies.',

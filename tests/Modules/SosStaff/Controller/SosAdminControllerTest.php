@@ -934,6 +934,21 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('>Rien</button>', $body);
     }
 
+    /**
+     * The day button is named by what it shows — who receives the calls —
+     * never by an aria-label that would hide it from a screen reader; the
+     * row header already says which day it is.
+     */
+    public function testADayButtonIsNamedByItsRecipientNotByADateLabel(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, preg_match('/<tr class="sos-day-row[^"]*".*?<button[^>]*>(.*?)<\/button>/s', $body, $m));
+        $this->assertStringNotContainsString('Modifier les gardes du', $body);
+        $this->assertStringContainsString('data-day-target', $m[1]);
+        $this->assertStringContainsString('<span class="visually-hidden">— modifier les gardes</span>', $m[1]);
+    }
+
     public function testIndexOffersTheTwoPhoneTabs(): void
     {
         $body = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), [])->getBody();
