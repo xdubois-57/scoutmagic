@@ -305,6 +305,26 @@ class RentalSignedContractServiceTest extends TestCase
         $this->service->refuseCopy($booking, $this->asset(), $copy->id, 'Encore.', null, new \DateTimeImmutable());
     }
 
+    /**
+     * A copy refused, a second one countersigned: the refusal is no longer
+     * news. Neither side is told « send another » once both have signed.
+     */
+    public function testARefusalIsNoLongerSaidOnceTheContractIsSigned(): void
+    {
+        $booking = $this->booking();
+        $first = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $this->service->refuseCopy($booking, $this->asset(), $first->id, 'Illisible.', null, new \DateTimeImmutable());
+        $this->assertSame($first->id, $this->service->lastRefusedCopy($booking->id)?->id);
+
+        $second = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+        $account = $this->account();
+        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $now = new \DateTimeImmutable();
+        $this->service->countersign($booking, $this->asset(), $second->id, $account, null, 'Xavier Dubois', $now);
+
+        $this->assertNull($this->service->lastRefusedCopy($booking->id));
+    }
+
     public function testCountersigningNeedsTheManagersOwnSignature(): void
     {
         $booking = $this->booking();
