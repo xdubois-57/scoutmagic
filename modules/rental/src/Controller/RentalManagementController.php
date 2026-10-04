@@ -3008,7 +3008,9 @@ class RentalManagementController extends AbstractController
      */
     private function arrivalTickedByHand(RentalBooking $booking): bool
     {
-        return isset(($this->milestoneMarkService?->marksFor($booking->id) ?? [])[BookingMilestones::ARRIVAL_INVENTORY]);
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
+        return isset($marks[BookingMilestones::ARRIVAL_INVENTORY]);
     }
 
     /**
@@ -3047,16 +3049,20 @@ class RentalManagementController extends AbstractController
      */
     public function validateInventory(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
             if ($phase === null || $this->inventoryValidation === null) {
                 throw new RentalException("Cet état des lieux n'existe pas.");
             }
 
             $memberId = $this->actorMemberId();
-            $name = $memberId !== null
-                ? ($this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())[$memberId] ?? null)
-                : null;
+            $names = $memberId !== null
+                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
+                : [];
+            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
 
             $result = $this->inventoryValidation->validate(
                 $booking,
@@ -3086,7 +3092,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordReading(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
             if ($phase === null) {
                 throw new RentalException("Cette phase n'existe pas.");

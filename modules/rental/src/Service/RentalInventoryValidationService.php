@@ -89,7 +89,8 @@ class RentalInventoryValidationService
         $missing = $this->missingReadings($booking, $asset->id, $phase);
         if ($missing !== []) {
             throw new RentalException(
-                'Il manque le relevé de : ' . implode(', ', $missing) . '. Un état des lieux validé ne se complète plus.'
+                'Il manque le relevé de : ' . implode(', ', $missing)
+                    . '. Un état des lieux validé ne se complète plus.'
             );
         }
 
@@ -151,7 +152,11 @@ class RentalInventoryValidationService
             $this->stay->forgetInventoryValidation($booking, $phase);
             throw $e instanceof RentalException
                 ? $e
-                : new RentalException("Le PDF de l'état des lieux n'a pas pu être produit. Rien n'a été validé.", 0, $e);
+                : new RentalException(
+                    "Le PDF de l'état des lieux n'a pas pu être produit. Rien n'a été validé.",
+                    0,
+                    $e
+                );
         }
 
         $this->bookingAudit->record(
@@ -169,7 +174,13 @@ class RentalInventoryValidationService
         $path = $this->documents->absolutePath($document);
         if ($path !== null) {
             try {
-                $this->mail->sendDocument($booking, $asset, $label, $path, $document->originalName ?? 'etat-des-lieux.pdf');
+                $this->mail->sendDocument(
+                    $booking,
+                    $asset,
+                    $label,
+                    $path,
+                    $document->originalName ?? 'etat-des-lieux.pdf'
+                );
                 $this->documents->markSent($document->id, $now);
                 $sent = true;
             } catch (\Throwable) {

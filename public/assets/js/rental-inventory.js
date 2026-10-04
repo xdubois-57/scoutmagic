@@ -78,15 +78,28 @@ const inFlight = new WeakMap();
  * @param {HTMLFormElement} form
  * @returns {Promise<{ ok: boolean, message: string }>}
  */
-function post(form) {
-    return fetch(form.action, {
-        method: 'POST',
-        body: new FormData(form),
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then((response) => response.json().catch(() => null)).then((data) => {
-        const ok = data !== null && data.success === true;
-        return { ok, message: ok ? 'Enregistré' : ((data && (data.message || data.error)) || 'Non enregistré') };
-    }).catch(() => ({ ok: false, message: 'Erreur réseau : rien n\'a été enregistré.' }));
+async function post(form) {
+    let response;
+    try {
+        response = await fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+    } catch {
+        return { ok: false, message: 'Erreur réseau : rien n\'a été enregistré.' };
+    }
+
+    /** @type {{ success?: boolean, message?: string, error?: string } | null} */
+    let data = null;
+    try {
+        data = await response.json();
+    } catch {
+        data = null;
+    }
+    const ok = data !== null && data.success === true;
+
+    return { ok, message: ok ? 'Enregistré' : ((data && (data.message || data.error)) || 'Non enregistré') };
 }
 
 /**
@@ -165,7 +178,7 @@ export function wire(doc) {
     doc.addEventListener('change', (event) => {
         const form = /** @type {HTMLElement} */ (event.target).closest?.('form[data-inventory-line]');
         if (form) {
-            saveLine(/** @type {HTMLFormElement} */ (form));
+            void saveLine(/** @type {HTMLFormElement} */ (form));
         }
     });
 
@@ -182,14 +195,14 @@ export function wire(doc) {
             return;
         }
         field.value = /** @type {HTMLElement} */ (button).dataset.inventoryCopy || '';
-        saveLine(form);
+        void saveLine(form);
     });
 
     doc.addEventListener('submit', (event) => {
         const form = /** @type {HTMLElement} */ (event.target).closest?.('form[data-inventory-line]');
         if (form) {
             event.preventDefault();
-            saveLine(/** @type {HTMLFormElement} */ (form));
+            void saveLine(/** @type {HTMLFormElement} */ (form));
         }
     });
 }

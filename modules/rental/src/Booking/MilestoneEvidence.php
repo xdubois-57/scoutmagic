@@ -239,7 +239,11 @@ final class MilestoneEvidence
                 $record($key, false);
             }
         } else {
-            foreach (['arrival' => BookingMilestones::ARRIVAL_INVENTORY, 'departure' => BookingMilestones::DEPARTURE_INVENTORY] as $phase => $key) {
+            $phases = [
+                'arrival' => BookingMilestones::ARRIVAL_INVENTORY,
+                'departure' => BookingMilestones::DEPARTURE_INVENTORY,
+            ];
+            foreach ($phases as $phase => $key) {
                 $validated = $inventoryValidations[$phase] ?? null;
                 $record(
                     $key,

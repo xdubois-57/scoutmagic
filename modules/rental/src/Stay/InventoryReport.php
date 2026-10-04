@@ -154,7 +154,8 @@ final class InventoryReport
 
         if ($lines !== []) {
             $html .= '<h2>Éléments</h2><table class="items"><thead><tr><th>Élément</th><th>'
-                . ($isArrival ? 'Attendu' : "À l'entrée") . '</th><th>Constaté</th><th>Commentaire</th></tr></thead><tbody>';
+                . ($isArrival ? 'Attendu' : "À l'entrée")
+                . '</th><th>Constaté</th><th>Commentaire</th></tr></thead><tbody>';
             foreach ($lines as $line) {
                 $value = self::value($line, $phase);
                 $html .= '<tr><td>' . $e($line['label']) . '</td><td>'
@@ -166,9 +167,7 @@ final class InventoryReport
 
             $findings = $isArrival ? self::arrivalGaps($lines) : self::departureDifferences($lines);
             $html .= '<h2>' . ($isArrival ? 'Écarts avec le modèle' : "Différences avec l'entrée") . '</h2>';
-            $html .= $findings === []
-                ? '<p>Aucun.</p>'
-                : '<ul>' . implode('', array_map(static fn(string $f): string => '<li>' . $e($f) . '</li>', $findings)) . '</ul>';
+            $html .= self::bulletList($findings, $e);
 
             if (!$isArrival) {
                 $commented = array_values(array_filter(
@@ -189,7 +188,8 @@ final class InventoryReport
             $html .= '<h2>Compteurs</h2><table class="items"><thead><tr><th>Compteur</th><th>Entrée</th>'
                 . ($isArrival ? '' : '<th>Sortie</th><th>Consommation</th>') . '</tr></thead><tbody>';
             foreach ($meters as $meter) {
-                $html .= '<tr><td>' . $e($meter->meter->label) . '</td><td>' . $e($meter->arrival?->formatted() ?? '—') . '</td>'
+                $html .= '<tr><td>' . $e($meter->meter->label) . '</td>'
+                    . '<td>' . $e($meter->arrival?->formatted() ?? '—') . '</td>'
                     . ($isArrival ? '' : '<td>' . $e($meter->departure?->formatted() ?? '—') . '</td><td>'
                         . $e($meter->formattedConsumption()) . '</td>')
                     . '</tr>';
@@ -199,15 +199,31 @@ final class InventoryReport
 
         if (!$isArrival) {
             $html .= '<h2>Incidents et dégâts</h2>';
-            $html .= $incidents === []
-                ? '<p>Aucun.</p>'
-                : '<ul>' . implode('', array_map(
-                    static fn(Incident $incident): string => '<li>' . $e($incident->description) . '</li>',
-                    $incidents
-                )) . '</ul>';
+            $html .= self::bulletList(
+                array_map(static fn(Incident $incident): string => $incident->description, $incidents),
+                $e
+            );
         }
 
         return $html . '<p class="validated">Validé par ' . $e($validatedBy) . ' le '
             . $e($validatedAt->format('d/m/Y à H:i')) . '.</p>';
+    }
+
+    /**
+     * @param list<string> $texts unescaped
+     * @param \Closure(string): string $e
+     */
+    private static function bulletList(array $texts, \Closure $e): string
+    {
+        if ($texts === []) {
+            return '<p>Aucun.</p>';
+        }
+
+        $html = '<ul>';
+        foreach ($texts as $text) {
+            $html .= '<li>' . $e($text) . '</li>';
+        }
+
+        return $html . '</ul>';
     }
 }
