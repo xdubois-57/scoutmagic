@@ -30,6 +30,7 @@ use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
@@ -360,8 +361,8 @@ class RentalStayServiceTest extends TestCase
 
     public function testTheChecklistIsCopiedIntoTheBookingAtConfirmation(): void
     {
-        $this->service->addInventoryItem($this->assetId, 'Clés', 0);
-        $this->service->addInventoryItem($this->assetId, 'Tables', 1);
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $this->service->addInventoryItem($this->assetId, 'Tables');
         $booking = $this->createBooking();
         $asset = $this->assetRepository->findById($this->assetId);
         $this->assertNotNull($asset);
@@ -378,23 +379,72 @@ class RentalStayServiceTest extends TestCase
     {
         // An item renamed in June must not rewrite what was checked in
         // March, and one deleted must not erase a finding.
-        $itemId = $this->service->addInventoryItem($this->assetId, 'Chaises', 0);
+        $itemId = $this->service->addInventoryItem($this->assetId, 'Chaises');
         $booking = $this->createBooking();
         $this->service->snapshotInventory($booking, $this->assetId);
 
-        $this->service->removeInventoryItem($itemId);
-        $this->service->addInventoryItem($this->assetId, 'Chaises (x40)', 0);
+        $this->service->removeInventoryItem($this->assetId, $itemId);
+        $this->service->addInventoryItem($this->assetId, 'Chaises (x40)');
 
         $inventory = $this->service->inventoryFor($booking->id);
         $this->assertCount(1, $inventory);
         $this->assertSame('Chaises', $inventory[0]['label']);
     }
 
+    /**
+     * The sort, the count and the dragged order are what a booking
+     * confirmed afterwards copies (#708, IT-10).
+     */
+    public function testTheSortTheCountAndTheOrderAreCopiedAtConfirmation(): void
+    {
+        $keys = $this->service->addInventoryItem($this->assetId, 'Clés', InventoryKind::QUANTITY, 3);
+        $kitchen = $this->service->addInventoryItem($this->assetId, 'Cuisine propre', InventoryKind::YES_NO);
+        $this->service->reorderInventory($this->assetId, [$kitchen, $keys]);
+        $this->service->updateInventoryItem($this->assetId, $keys, InventoryKind::QUANTITY, 4);
+        $booking = $this->createBooking();
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        $this->operationsService->confirm($booking, $asset, 1, $this->now());
+
+        $inventory = $this->service->inventoryFor($booking->id);
+        $this->assertSame(['Cuisine propre', 'Clés'], array_column($inventory, 'label'));
+        $this->assertSame(InventoryKind::YES_NO, $inventory[0]['kind']);
+        $this->assertNull($inventory[0]['expected_count']);
+        $this->assertSame(InventoryKind::QUANTITY, $inventory[1]['kind']);
+        $this->assertSame(4, $inventory[1]['expected_count']);
+    }
+
+    public function testAQuantityItemDefaultsToOneAndRefusesLess(): void
+    {
+        $itemId = $this->service->addInventoryItem($this->assetId, 'Extincteur');
+        $this->assertSame(1, $this->service->inventoryItem($this->assetId, $itemId)['expected_count'] ?? null);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage("au moins 1");
+
+        $this->service->updateInventoryItem($this->assetId, $itemId, InventoryKind::QUANTITY, 0);
+    }
+
+    public function testAnotherAssetsTemplateItemCannotBeTouched(): void
+    {
+        $itemId = $this->service->addInventoryItem($this->assetId, 'Clés');
+
+        try {
+            $this->service->removeInventoryItem($this->assetId + 1000, $itemId);
+            $this->fail('another asset removed this item');
+        } catch (RentalException) {
+        }
+
+        $this->expectException(RentalException::class);
+        $this->service->updateInventoryItem($this->assetId + 1000, $itemId, InventoryKind::YES_NO, null);
+    }
+
     public function testTheSnapshotIsTakenExactlyOnce(): void
     {
         // Confirmation can be reached more than once; re-snapshotting would
         // overwrite a completed inventory with blanks.
-        $this->service->addInventoryItem($this->assetId, 'Clés', 0);
+        $this->service->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
         $this->assertTrue($this->service->snapshotInventory($booking, $this->assetId));
@@ -414,7 +464,7 @@ class RentalStayServiceTest extends TestCase
 
     public function testAnInventoryLineIsRecordedPerPhase(): void
     {
-        $this->service->addInventoryItem($this->assetId, 'Clés', 0);
+        $this->service->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
         $this->service->snapshotInventory($booking, $this->assetId);
         $line = $this->service->inventoryFor($booking->id)[0];
@@ -432,7 +482,7 @@ class RentalStayServiceTest extends TestCase
 
     public function testAnInventoryLineOfAnotherBookingCannotBeWritten(): void
     {
-        $this->service->addInventoryItem($this->assetId, 'Clés', 0);
+        $this->service->addInventoryItem($this->assetId, 'Clés');
         $mine = $this->createBooking('LOC-2027-0001');
         $other = $this->createBooking('LOC-2027-0002');
         $this->service->snapshotInventory($other, $this->assetId);

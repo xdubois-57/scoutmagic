@@ -117,6 +117,21 @@ class RentalOperationsService
     // ── Lifecycle (§6.15) ───────────────────────────────────────────────
 
     /**
+     * Runs `$work` as one transaction holding `$assetId`'s bookings — for a
+     * caller whose gesture writes through more than this service, such as
+     * « Contrat envoyé » ticked or reopened by hand (#708, IT-14): the mark
+     * and the status it carries land together or not at all.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function atomicallyOnAsset(int $assetId, callable $work): mixed
+    {
+        return $this->bookingRepository->withAssetLocked($assetId, $work);
+    }
+
+    /**
      * Moves a booking to $target.
      *
      * Confirmation is special and goes through `confirm()` instead, because
@@ -222,20 +237,47 @@ class RentalOperationsService
             $this->recordStatusChange($current, BookingStatus::CONTRACT_SENT, $actorMemberId);
         }
 
-        $this->holdAtLeast($current, $now->modify('+' . max(0, $minHoldDays) . ' days'), $now, $actorMemberId);
+        $this->holdUntil($current, $this->contractHoldUntil($current, $now, $minHoldDays), $now, $actorMemberId);
     }
 
     /**
-     * Lengthens the hold to `$until` at least, capped at the start of the
-     * stay. Never shortens one, never changes the origin of one that runs.
+     * Until when the dates stay held once the contract goes out now — the
+     * rule `contractSent()` applies, also read by the confirmation that
+     * announces it before anything leaves: `$minHoldDays` from now at
+     * least, capped at the start of the stay, a longer running hold kept
+     * as it is. Null when sending holds nothing: a final booking, one that
+     * firmly occupies the asset, or a stay starting too soon with no hold
+     * running.
      */
-    private function holdAtLeast(
+    public function contractHoldUntil(
         RentalBooking $booking,
-        \DateTimeImmutable $until,
+        \DateTimeImmutable $now,
+        int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
+    ): ?\DateTimeImmutable {
+        if ($booking->status->isFinal() || $booking->status->firmlyOccupiesTheAsset()) {
+            return null;
+        }
+
+        $floor = RentalBookingService::capAtArrival(
+            $now->modify('+' . max(0, $minHoldDays) . ' days'),
+            $now,
+            $booking->arrivalDate
+        );
+        $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
+
+        return $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
+    }
+
+    /**
+     * Sets the hold to `$until` when it lengthens it. Never shortens one,
+     * never changes the origin of one that runs.
+     */
+    private function holdUntil(
+        RentalBooking $booking,
+        ?\DateTimeImmutable $until,
         \DateTimeImmutable $now,
         ?int $actorMemberId
     ): void {
-        $until = RentalBookingService::capAtArrival($until, $now, $booking->arrivalDate);
         if ($until === null) {
             return;
         }
@@ -249,7 +291,7 @@ class RentalOperationsService
         $this->bookingRepository->setHold($booking->id, $until, $origin);
         $this->bookingAudit->record(
             $booking->id,
-            BookingAudit::HOLD_PLACED,
+            BookingAudit::HOLD_EXTENDED,
             $running ? $booking->holdUntil?->format('d/m/Y H:i') : null,
             $until->format('d/m/Y H:i'),
             'Blocage prolongé à l\'envoi du contrat',
@@ -295,7 +337,9 @@ class RentalOperationsService
             throw new RentalException(BookingTransition::refusalReason($booking->status, BookingStatus::CONFIRMED));
         }
 
-        $missing = $milestones !== null ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones) : [];
+        $missing = $milestones !== null
+            ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones)
+            : [];
         if ($missing !== []) {
             throw new RentalException(
                 'La réservation ne peut être confirmée qu\'au bout de l\'accord. Il manque : '

@@ -318,4 +318,99 @@ class TextPageServiceTest extends TestCase
         $this->assertSame(1, $this->repository->findById($a->id)?->sortOrder);
         $this->assertSame(2, $this->repository->findById($b->id)?->sortOrder);
     }
+
+    // ── a drop into another section (issue #752) ──────────────────────
+
+    public function testADropIntoAnotherSectionMovesThePageToThatExactRankAndClosesTheGap(): void
+    {
+        $a = $this->service->create('A', 'A', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $b = $this->service->create('B', 'B', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $c = $this->service->create('C', 'C', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $x = $this->service->create('X', 'X', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $y = $this->service->create('Y', 'Y', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        // B dropped between X and Y.
+        $moves = $this->service->placeInMenu(MenuBuilder::MENU_NOTRE_UNITE, [$x->id, $b->id, $y->id]);
+
+        $this->assertSame([$b->id => MenuBuilder::MENU_ESPACE_ANIMES], $moves);
+        $moved = $this->repository->findById($b->id);
+        $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $moved?->menuId);
+        $this->assertNull($moved?->menuGroup, '« Notre unité » has no columns');
+        $this->assertSame(
+            [$x->id => 0, $b->id => 1, $y->id => 2],
+            $this->ranks(MenuBuilder::MENU_NOTRE_UNITE)
+        );
+        $this->assertSame(
+            [$a->id => 0, $c->id => 1],
+            $this->ranks(MenuBuilder::MENU_ESPACE_ANIMES),
+            'the section it left is renumbered without a hole'
+        );
+    }
+
+    public function testAPageMovedIntoAMenuWithColumnsTakesItsDefaultColumn(): void
+    {
+        $page = $this->service->create('P', 'P', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        $this->service->placeInMenu(MenuBuilder::MENU_ESPACE_ANIMES, [$page->id]);
+
+        $moved = $this->repository->findById($page->id);
+        $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $moved?->menuId);
+        $this->assertSame($this->service->defaultGroupFor(MenuBuilder::MENU_ESPACE_ANIMES), $moved?->menuGroup);
+        $this->assertNotNull($moved?->menuGroup);
+    }
+
+    public function testAMoveChangesWhoMayReadThePageAndNothingElse(): void
+    {
+        $page = $this->service->create('Charte', 'La charte', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $this->service->setActive($page->id, false);
+        $before = $this->repository->findById($page->id);
+
+        $this->service->placeInMenu(MenuBuilder::MENU_NOTRE_UNITE, [$page->id]);
+
+        $after = $this->repository->findById($page->id);
+        $this->assertSame(MenuBuilder::roleMinFor(MenuBuilder::MENU_NOTRE_UNITE), $after?->roleMin());
+        $this->assertNotSame($before?->roleMin(), $after?->roleMin());
+        $this->assertSame($before?->title, $after?->title);
+        $this->assertSame($before?->menuLabel, $after?->menuLabel);
+        $this->assertSame($before?->slug, $after?->slug);
+        $this->assertFalse($after?->isActive, 'an inactive page stays inactive');
+    }
+
+    public function testADropIntoAnUnknownSectionIsRefusedAndMovesNothing(): void
+    {
+        $page = $this->service->create('P', 'P', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        try {
+            $this->service->placeInMenu('nulle_part', [$page->id]);
+            $this->fail('an undeclared section was accepted');
+        } catch (TextPageException) {
+        }
+
+        $this->assertSame(MenuBuilder::MENU_NOTRE_UNITE, $this->repository->findById($page->id)?->menuId);
+    }
+
+    public function testAReorderWithinTheSameSectionMovesNothing(): void
+    {
+        $a = $this->service->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $b = $this->service->create('B', 'B', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        $this->assertSame([], $this->service->placeInMenu(MenuBuilder::MENU_NOTRE_UNITE, [$b->id, $a->id]));
+        $this->assertSame([$b->id => 0, $a->id => 1], $this->ranks(MenuBuilder::MENU_NOTRE_UNITE));
+    }
+
+    /**
+     * @return array<int, int> page id => rank, in rank order
+     */
+    private function ranks(string $menuId): array
+    {
+        $ranks = [];
+        foreach ($this->repository->findAll() as $page) {
+            if ($page->menuId === $menuId) {
+                $ranks[$page->id] = $page->sortOrder;
+            }
+        }
+        asort($ranks);
+
+        return $ranks;
+    }
 }

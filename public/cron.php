@@ -194,6 +194,10 @@ $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
 // interval needs two timestamps (Core\Scheduler\CronRunHistory).
 \Core\Scheduler\CronRunHistory::register($settingService);
 \Core\Scheduler\CronRunHistory::record($cronSettingRepository, time());
+
+// What THIS PHP can execute (#700) is measured after the scheduled work
+// below: see CronExecutionFacts::recordIfDue() further down.
+\Core\System\CronExecutionFacts::register($settingService);
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 
@@ -489,6 +493,14 @@ if (!$migrationResult->complete) {
 
 // Process overdue tasks
 $processed = $runner->processOverdue();
+
+// What THIS PHP can execute (#700): the web PHP of a shared host is often
+// sandboxed without a shell while the CLI running this crontab is not, and
+// video transcoding runs here. Measured here, read by the web — the
+// gallery's video switch and Santé de l'hébergement. AFTER the scheduled
+// work, deliberately: the probe spawns processes, and a diagnostic that
+// stalls must never be what keeps a pass from doing its job.
+\Core\System\CronExecutionFacts::recordIfDue($cronSettingRepository, time());
 
 // Cleanup old journal entries
 $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');

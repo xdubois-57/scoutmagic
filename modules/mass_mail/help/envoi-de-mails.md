@@ -40,7 +40,8 @@ pour finir le message.
 « Passer en mode test » fige le contenu et propose « Envoyer le test »
 vers l'adresse de votre choix : vérifiez le rendu dans une vraie boîte
 avant d'appuyer sur le grand bouton. « Repasser en brouillon » rouvre
-la modification.
+la modification. Jusqu'au lancement, la corbeille de la liste supprime
+l'e-mail, après confirmation.
 
 > « Lancer l'envoi » est définitif : l'e-mail part par lots, en
 > arrière-plan, vers toute la liste. Relisez le test — il n'y a pas de

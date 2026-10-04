@@ -197,7 +197,8 @@ class RentalReminderService
             $marks = $this->markRepository?->findForBooking($booking->id) ?? [];
             $ticked = array_keys($marks);
             $inventory = $this->inventoryState($booking);
-            $inventory['arrival'] = $inventory['arrival'] || in_array(BookingMilestones::ARRIVAL_INVENTORY, $ticked, true);
+            $inventory['arrival'] = $inventory['arrival']
+                || in_array(BookingMilestones::ARRIVAL_INVENTORY, $ticked, true);
             $inventory['departure'] = $inventory['departure']
                 || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
 
@@ -472,7 +473,10 @@ class RentalReminderService
 
         $security = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
         if (in_array(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $ticked, true)) {
-            $security['received_cents'] = max((int) ($security['received_cents'] ?? 0), (int) ($security['amount_cents'] ?? 0));
+            $security['received_cents'] = max(
+                (int) ($security['received_cents'] ?? 0),
+                (int) ($security['amount_cents'] ?? 0)
+            );
         }
         $returned = $marks[BookingMilestones::SECURITY_DEPOSIT_RETURNED] ?? null;
         if ($returned !== null) {

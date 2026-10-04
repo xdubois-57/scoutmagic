@@ -88,12 +88,29 @@
             <div class="form-text" id="document-file-help">
                 {% if document %}
                     Laissez vide pour conserver le fichier actuel : {{ document.kindLabel() }},
-                    {{ document.sizeBytes|filesize }}, du {{ document.updatedAt|date_fr }}.
+                    {{ document.sizeBytes|filesize }}, du {{ document.fileUpdatedAt|date_fr }}.
                 {% else %}
                     PDF, document bureautique, tableur, texte ou image, {{ max_mb }} Mo au plus.
                 {% endif %}
             </div>
         </div>
+
+        {# The validity (#731): two years proposed on creation; moving the
+           date is how a document is confirmed still valid. Replacing the
+           file starts a new two-year period unless the date was changed in
+           the same save. #}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'document-expires-on',
+            field_name: 'expires_on',
+            label: 'Valable jusqu\'au',
+            type: 'date',
+            value: values.expires_on|default(''),
+            required: true,
+            control_class_extra: 'w-auto',
+            help: 'Passé cette date, le document reste en ligne mais est signalé « Expiré » et compté dans les '
+                ~ 'points d\'attention. Repoussez-la pour confirmer qu\'il est toujours valable'
+                ~ (document ? ' ; remplacer le fichier repart sur deux ans.' : '.'),
+        } only %}
 
         {% if document %}
             <output class="alert alert-warning small d-none d-block" id="document-replace-warning">

@@ -28,4 +28,19 @@ final class ConditionsVersion
         public readonly \DateTimeImmutable $createdAt
     ) {
     }
+
+    /**
+     * The date this version can be named by for a renter who accepted it
+     * at `$acceptedAt`, or null when it has none to give.
+     *
+     * `$createdAt` is when the archive first held the text, not when the
+     * text went live: a wording older than the archive is archived on the
+     * first read after the upgrade, and carries that read's date. A version
+     * archived after the renter accepted it would therefore be dated after
+     * the acceptance — callers then say when it was accepted instead.
+     */
+    public function dateKnownAt(?\DateTimeImmutable $acceptedAt): ?\DateTimeImmutable
+    {
+        return $acceptedAt !== null && $this->createdAt > $acceptedAt ? null : $this->createdAt;
+    }
 }

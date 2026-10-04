@@ -257,6 +257,24 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame(HoldOrigin::AUTOMATIC, $this->reload($none)->holdOrigin);
     }
 
+    /**
+     * The history names the extension for what it is: « Blocage prolongé »,
+     * never « Option posée », which carries an expiry an automatic hold
+     * does not have.
+     */
+    public function testTheContractHoldIsRecordedAsAnExtensionNotAnOption(): void
+    {
+        $booking = $this->createBooking('LOC-2027-0304', '2027-09-01', '2027-09-04');
+        $this->service->contractSent($booking, 1, $this->now());
+
+        $keys = array_map(
+            static fn($entry) => $entry->fieldKey,
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id)
+        );
+        $this->assertContains(BookingAudit::HOLD_EXTENDED, $keys);
+        $this->assertNotContains(BookingAudit::HOLD_PLACED, $keys);
+    }
+
     public function testTheContractHoldNeverRunsPastTheStartOfTheStay(): void
     {
         $soon = $this->createBooking('LOC-2027-0401', '2027-02-08', '2027-02-10');
@@ -264,6 +282,38 @@ class RentalOperationsServiceTest extends TestCase
         $this->service->contractSent($soon, 1, $this->now());
 
         $this->assertSame('2027-02-08 00:00:00', $this->reload($soon)->holdUntil?->format('Y-m-d H:i:s'));
+    }
+
+    /**
+     * The date the send's confirmation announces is the one the send then
+     * writes — one rule, read before and applied after — and nothing is
+     * announced for a booking the send would not hold.
+     */
+    public function testTheAnnouncedHoldIsTheOneTheSendApplies(): void
+    {
+        $cases = [
+            'longer' => ['LOC-2027-0501', '2027-07-01', '2027-03-15 10:00:00'],
+            'shorter' => ['LOC-2027-0502', '2027-08-01', '2027-02-05 10:00:00'],
+            'none' => ['LOC-2027-0503', '2027-09-01', null],
+            'soon' => ['LOC-2027-0504', '2027-02-08', null],
+        ];
+        foreach ($cases as $label => [$reference, $arrival, $hold]) {
+            $departure = (new \DateTimeImmutable($arrival))->modify('+3 days')->format('Y-m-d');
+            $booking = $this->createBooking($reference, $arrival, $departure);
+            if ($hold !== null) {
+                $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable($hold), HoldOrigin::MANAGER);
+            }
+
+            $announced = $this->service->contractHoldUntil($this->reload($booking), $this->now());
+            $this->service->contractSent($this->reload($booking), 1, $this->now());
+
+            $this->assertNotNull($announced, $label);
+            $this->assertEquals($announced, $this->reload($booking)->holdUntil, $label);
+        }
+
+        $confirmed = $this->createBooking('LOC-2027-0505', '2027-10-01', '2027-10-04');
+        $this->bookingRepository->setStatus($confirmed->id, BookingStatus::CONFIRMED, $this->now());
+        $this->assertNull($this->service->contractHoldUntil($this->reload($confirmed), $this->now()));
     }
 
     /** Confirmation refused while a step of the agreement is missing, accepted once done. */
@@ -519,7 +569,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testAManualBlockOnTheSamePeriodStopsAConfirmation(): void
     {
-        $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 1, 'Chantier toiture', 1);
+        $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 'Chantier toiture', 1);
 
         $this->expectException(RentalException::class);
 
@@ -1813,7 +1863,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $this->service->confirm($booking, $this->asset(), 1, $this->now());
 
-        $blockId = $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 1, 'Chantier', 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-07-01', '2027-07-04', 'Chantier', 1);
 
         $this->assertNotNull($this->blockRepository->findById($blockId));
         $this->assertSame(BookingStatus::CONFIRMED, $this->reload($booking)->status);
@@ -1822,7 +1872,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testABlockMakesTheDaysUnavailable(): void
     {
-        $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $occupancies = $this->blockRepository->findOccupancies(
             $this->assetId,
@@ -1839,7 +1889,7 @@ class RentalOperationsServiceTest extends TestCase
     {
         // A block and a booking must be indistinguishable to the public,
         // which they are because Occupancy has no discriminator.
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, 'Chantier toiture', 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 'Chantier toiture', 1);
         $block = $this->blockRepository->findById($blockId);
         $this->assertNotNull($block);
 
@@ -1851,14 +1901,14 @@ class RentalOperationsServiceTest extends TestCase
     {
         $this->expectException(RentalException::class);
 
-        $this->blockService->create($this->assetId, '2027-09-05', '2027-09-01', 1, null, 1);
+        $this->blockService->create($this->assetId, '2027-09-05', '2027-09-01', null, 1);
     }
 
     public function testAMalformedBlockDateIsRefused(): void
     {
         $this->expectException(RentalException::class);
 
-        $this->blockService->create($this->assetId, '05/09/2027', '2027-09-10', 1, null, 1);
+        $this->blockService->create($this->assetId, '05/09/2027', '2027-09-10', null, 1);
     }
 
     public function testABlockCannotBeDeletedThroughAnotherAsset(): void
@@ -1866,7 +1916,7 @@ class RentalOperationsServiceTest extends TestCase
         // The asset check is the real guard: a block id alone must not let a
         // manager of one asset delete another asset's block.
         $otherAssetId = $this->stockAsset(4);
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $this->expectException(RentalException::class);
 
@@ -1875,7 +1925,7 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testDeletingABlockRemovesIt(): void
     {
-        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', 1, null, 1);
+        $blockId = $this->blockService->create($this->assetId, '2027-09-01', '2027-09-05', null, 1);
 
         $this->blockService->delete($this->assetId, $blockId);
 

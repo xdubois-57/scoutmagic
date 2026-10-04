@@ -49,6 +49,13 @@ const BADGE_PICKER = `
 
 const PAGE = DOCUMENT_ROW + FILE_INPUT + BADGE_PICKER;
 
+/** Changes the first document's title and leaves the field — a real edit. */
+function editTitle() {
+    const title = document.querySelector('.section-document-title-input');
+    title.value = title.value + ' (modifiée)';
+    title.dispatchEvent(new Event('blur'));
+}
+
 /** The site-wide envelope for a JSON answer the server really sent. */
 function jsonResponse(body, status = 200) {
     return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
@@ -122,7 +129,7 @@ describe('staffs.js', () => {
         it('wires the documents even when the chief has no badge picker', async () => {
             document.body.innerHTML = DOCUMENT_ROW;
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            editTitle();
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().url).toBe('/chefs/staffs/documents/12');
         });
@@ -147,6 +154,24 @@ describe('staffs.js', () => {
             expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
         });
 
+        it('sends nothing and says nothing when neither field changed (tabbing through)', async () => {
+            await boot();
+            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            document.querySelector('.section-document-description-input').dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('does not save the same text twice', async () => {
+            await boot();
+            editTitle();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1));
+            document.querySelector('.section-document-description-input').dispatchEvent(new Event('blur'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
+
         it('saves from the description field too, carrying the current title along', async () => {
             await boot();
             const description = document.querySelector('.section-document-description-input');
@@ -161,17 +186,29 @@ describe('staffs.js', () => {
             });
         });
 
-        it('says nothing when the save succeeds', async () => {
+        it('confirms a successful save with a toast', async () => {
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            editTitle();
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+        });
+
+        it('keeps a refused title on screen, so nothing the chief wrote is lost', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Titre requis.' }));
+            await boot();
+            const title = document.querySelector('.section-document-title-input');
+            title.value = 'Nouveau titre';
+            title.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Titre requis.', { variant: 'error' }));
+            expect(title.value).toBe('Nouveau titre');
         });
 
         it('surfaces a business failure as an error toast', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Document introuvable.' }));
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            editTitle();
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Document introuvable.', { variant: 'error' }));
@@ -180,7 +217,7 @@ describe('staffs.js', () => {
         it('reads an HTTP 500 error page as a failure, never as a save (ok is not success)', async () => {
             global.fetch = vi.fn(() => htmlErrorResponse());
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            editTitle();
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur.', { variant: 'error' }));
@@ -189,7 +226,7 @@ describe('staffs.js', () => {
         it('toasts a network failure instead of failing silently', async () => {
             global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            editTitle();
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur.', { variant: 'error' }));
@@ -355,6 +392,60 @@ describe('staffs.js', () => {
         });
     });
 
+    describe('section totem (issue #722)', () => {
+        const TOTEM_INPUT = '<input type="text" class="section-totem-input" value="Akela"'
+            + ' data-member-year-id="77" data-section-id="4">';
+
+        async function bootTotem() {
+            document.body.innerHTML = TOTEM_INPUT;
+            await boot();
+            return document.querySelector('.section-totem-input');
+        }
+
+        it('saves a changed totem on blur and confirms it with a toast', async () => {
+            const input = await bootTotem();
+            input.value = '  Baloo ';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            const { url, body } = lastRequest();
+            expect(url).toBe('/chefs/staffs/totem-de-section');
+            expect(body).toEqual({ member_year_id: 77, section_id: 4, totem: 'Baloo', _csrf_token: 'tok-123' });
+        });
+
+        it('sends nothing when the field was left as it was', async () => {
+            const input = await bootTotem();
+            input.dispatchEvent(new Event('blur'));
+            await Promise.resolve();
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('says « retiré » when the field is emptied', async () => {
+            const input = await bootTotem();
+            input.value = '';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Totem de section retiré.', { variant: 'success' }));
+            expect(lastRequest().body.totem).toBe('');
+        });
+
+        it('toasts a refusal, keeps what was typed, and retries on the next blur', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Ce totem de section est trop long.' }, 422));
+            const input = await bootTotem();
+            input.value = 'Baloo';
+            input.dispatchEvent(new Event('blur'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Ce totem de section est trop long.', { variant: 'error' }));
+            expect(input.value).toBe('Baloo');
+
+            input.dispatchEvent(new Event('blur'));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        });
+    });
+
     describe('server text never becomes markup', () => {
         it('renders a script-carrying error message as text in the real toast', async () => {
             // The one place server-controlled text reaches the DOM here.
@@ -364,7 +455,7 @@ describe('staffs.js', () => {
             await import('../../public/assets/js/toast.js');
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: '<img src=x onerror=alert(1)>' }));
             await boot();
-            document.querySelector('.section-document-title-input').dispatchEvent(new Event('blur'));
+            editTitle();
 
             await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
             expect(document.querySelector('.toast-body img')).toBeNull();

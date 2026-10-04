@@ -63,6 +63,9 @@ class AvailabilityCalculator
 
         foreach ($occupancies as $occupancy) {
             if ($this->occupancyCoversDay($occupancy, $date, $billingUnit, $bufferNights)) {
+                if ($occupancy->wholeAsset) {
+                    return 0;
+                }
                 $taken += max(1, $occupancy->units);
             }
         }
@@ -361,21 +364,23 @@ class AvailabilityCalculator
      *
      * 1. **Selected** — what the visitor is currently choosing, always shown.
      * 2. **Outside the bookable window** (past, notice period, horizon) —
-     *    greyed out, and deliberately ranked ABOVE occupied so a free day the
+     *    greyed out, and deliberately ranked ABOVE occupancy so a free day the
      *    visitor simply cannot ask for is never mislabelled as taken. It also
      *    means occupancy is not disclosed for days nobody can book anyway.
-     * 3. **Occupied / partially available** — from real occupancy, no reason.
-     * 4. **Departing** — held in the morning, free from midday.
-     * 5. **Free**.
+     * 3. **Occupancy** — occupied, partially available, or a half-day (the
+     *    morning of a departure, the afternoon of an arrival), with no reason.
+     * 4. **Free**.
      *
      * `$discloseOccupancy` swaps 2 and 3 — and only for the managed space.
      * The bookable window is a rule about what a *visitor may ask for*, not
      * about what is happening in the hall: applied to a manager's calendar it
      * greyed out every past month and every day inside the notice period,
-     * hiding the very bookings that calendar exists to show. A manager has
-     * already passed the per-asset authority check, so there is nothing left
-     * to withhold from them; nothing else about the occupancy is disclosed
-     * either way.
+     * hiding the very bookings that calendar exists to show. **Every**
+     * occupancy state is swapped, not only a fully occupied day: a half-day
+     * or a partly let asset in the past is still something the manager has
+     * to see (#708, IT-08). A manager has already passed the per-asset
+     * authority check, so there is nothing left to withhold from them;
+     * nothing else about the occupancy is disclosed either way.
      *
      * @param Occupancy[] $occupancies
      * @param array{0: string, 1: string|null}|null $selection [arrival, departure|null] as `Y-m-d`.
@@ -439,13 +444,14 @@ class AvailabilityCalculator
             return new DayState(DayState::STATE_SELECTED, 'Sélectionné', null, true);
         }
 
-        $remaining = $this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights);
+        $occupancy = $this->occupancyState($day, $totalUnits, $occupancies, $billingUnit, $constraints->bufferNights);
 
-        if ($discloseOccupancy && $remaining <= 0) {
-            // A manager's grid: a booked day reads "Occupé" even in a past
-            // month, where the public rule below would have greyed it out
-            // and shown nothing at all.
-            return new DayState(DayState::STATE_OCCUPIED, 'Occupé', null, false);
+        if ($discloseOccupancy && $occupancy !== null) {
+            // A manager's grid: what is happening in the hall reads as it is
+            // even in a past month or inside the notice period, where the
+            // public rule below would have greyed it out and shown nothing.
+            // Never selectable here — the managed calendar picks no range.
+            return new DayState($occupancy->state, $occupancy->accessibleLabel, null, false, $occupancy->data);
         }
 
         if ($constraints->isOutsideBookableWindow($day, $today)) {
@@ -460,7 +466,54 @@ class AvailabilityCalculator
             return new DayState(DayState::STATE_UNSELECTABLE, $label, null, false);
         }
 
+        return $occupancy ?? new DayState(DayState::STATE_FREE, 'Libre', null, true);
+    }
+
+    /**
+     * What occupancy alone says about a day, or null when it is plainly free.
+     *
+     * **Half-days are read in nights**, the same rule both ways round (#708,
+     * IT-08): a day whose previous night is taken and whose own night is
+     * free is a *departure* — taken in the morning, free from midday; a day
+     * whose previous night is free and whose own night is taken is an
+     * *arrival* — free in the morning, taken from the afternoon. Both nights
+     * taken — one stay leaves in the morning, another arrives in the
+     * afternoon — is simply occupied. Partial occupancy of a multi-unit
+     * asset keeps its priority over both, as before.
+     *
+     * Half-days exist only for a night-billed asset, and not at all when a
+     * buffer night is configured: the buffer already holds the day, so a
+     * half-free cell would be a lie.
+     *
+     * @param Occupancy[] $occupancies
+     */
+    private function occupancyState(
+        \DateTimeImmutable $day,
+        int $totalUnits,
+        array $occupancies,
+        BillingUnit $billingUnit,
+        int $bufferNights
+    ): ?DayState {
+        $remaining = $this->remainingUnitsOn($day, $totalUnits, $occupancies, $billingUnit, $bufferNights);
+
         if ($remaining <= 0) {
+            if (
+                $billingUnit->isNightBased()
+                && $this->isArrivalDay($day, $totalUnits, $occupancies, $billingUnit, $bufferNights)
+            ) {
+                // Selectable, but only to END a stay on it — leaving the
+                // morning others arrive. The server re-validates the range in
+                // nights either way; this is a hint for the picker, never a
+                // rule (`data-departure-only`, public/assets/js/rental-calendar.js).
+                return new DayState(
+                    DayState::STATE_ARRIVING,
+                    'Libre le matin, arrivée ensuite',
+                    null,
+                    true,
+                    ['departure-only' => '1']
+                );
+            }
+
             return new DayState(DayState::STATE_OCCUPIED, 'Occupé', null, false);
         }
 
@@ -477,7 +530,7 @@ class AvailabilityCalculator
         // Free, but somebody leaves this morning: worth showing distinctly,
         // because it is pickable as an arrival while still being the tail of
         // another stay.
-        if ($billingUnit->isNightBased() && $this->isDepartureDay($day, $occupancies, $constraints->bufferNights)) {
+        if ($billingUnit->isNightBased() && $this->isDepartureDay($day, $occupancies, $bufferNights)) {
             return new DayState(
                 DayState::STATE_DEPARTING,
                 'Départ le matin, libre ensuite',
@@ -486,7 +539,41 @@ class AvailabilityCalculator
             );
         }
 
-        return new DayState(DayState::STATE_FREE, 'Libre', null, true);
+        return null;
+    }
+
+    /**
+     * Whether $day is taken tonight only because something ARRIVES on it:
+     * the previous night is entirely free, and nothing holding the day is a
+     * manual block. A block is a closed interval of whole days, not a stay —
+     * its first day is closed from the morning, so it must never read as
+     * half free (Occupancy::$endDateIsHeld).
+     *
+     * @param Occupancy[] $occupancies
+     */
+    private function isArrivalDay(
+        \DateTimeImmutable $day,
+        int $totalUnits,
+        array $occupancies,
+        BillingUnit $billingUnit,
+        int $bufferNights
+    ): bool {
+        if ($bufferNights > 0) {
+            return false;
+        }
+
+        $previous = $day->modify('-1 day');
+        if ($this->remainingUnitsOn($previous, $totalUnits, $occupancies, $billingUnit, $bufferNights) < $totalUnits) {
+            return false;
+        }
+
+        foreach ($occupancies as $occupancy) {
+            if ($occupancy->endDateIsHeld && $this->occupancyCoversDay($occupancy, $day, $billingUnit, $bufferNights)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -502,7 +589,7 @@ class AvailabilityCalculator
 
         $key = $day->format('Y-m-d');
         foreach ($occupancies as $occupancy) {
-            if ($occupancy->departureDate === $key && $occupancy->arrivalDate < $key) {
+            if ($occupancy->departureDate === $key && $occupancy->arrivalDate < $key && !$occupancy->endDateIsHeld) {
                 return true;
             }
         }

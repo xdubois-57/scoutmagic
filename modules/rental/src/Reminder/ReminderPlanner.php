@@ -460,8 +460,10 @@ class ReminderPlanner
     }
 
     /** The contract is chased that many days before the stay. */
-    private static function contractLateFrom(\DateTimeImmutable $arrival, ReminderSchedule $schedule): \DateTimeImmutable
-    {
+    private static function contractLateFrom(
+        \DateTimeImmutable $arrival,
+        ReminderSchedule $schedule
+    ): \DateTimeImmutable {
         return $arrival->setTime(0, 0)->modify('-' . $schedule->daysFor(ReminderKind::CONTRACT_MISSING) . ' days');
     }
 

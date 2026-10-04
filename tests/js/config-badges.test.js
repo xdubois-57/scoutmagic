@@ -160,6 +160,8 @@ describe('config-badges.js', () => {
             const { url, body } = lastRequest();
             expect(url).toBe('/admin/badges/toggle-active');
             expect(body).toEqual({ badge_id: 4, active: false, _csrf_token: 'tok-123' });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
         });
 
         it('reverts the switch AND its aria-checked when the server refuses', async () => {
@@ -177,7 +179,7 @@ describe('config-badges.js', () => {
             expect(window.ScoutMagicNav.syncSwitchAriaChecked).toHaveBeenCalledWith(input);
         });
 
-        it('leaves the switch alone on success', async () => {
+        it('leaves the switch alone on success, and confirms it with a toast', async () => {
             await boot();
             const input = customRow().querySelector('.badge-active-input');
             input.checked = false;
@@ -186,7 +188,8 @@ describe('config-badges.js', () => {
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             await vi.waitFor(() => expect(input.disabled).toBe(false));
             expect(input.checked).toBe(false);
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith(expect.anything(), { variant: 'error' });
         });
 
         it('disables the switch for the round trip', async () => {

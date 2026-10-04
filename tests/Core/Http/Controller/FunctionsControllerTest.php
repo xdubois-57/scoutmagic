@@ -162,6 +162,29 @@ class FunctionsControllerTest extends TestCase
         $this->assertStringContainsString('Animé', $body);
     }
 
+    /**
+     * Issue #741: a function is assigned by being dropped into a role, so
+     * every role has its zone — empty ones included — and there is no
+     * role select left on the page.
+     */
+    public function testEveryRoleHasADropZoneAndNoRoleSelectRemains(): void
+    {
+        $this->functionRepo->create('Scout', 'Scout', 'identified', false);
+        $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
+
+        $body = $this->controller->index(new Request('GET', '/config/functions', [], [], [], []), [])->getBody();
+
+        foreach (['public', 'identified', 'intendant', 'chief', 'admin'] as $role) {
+            $this->assertStringContainsString('data-role="' . $role . '"', $body, "{$role} has its zone");
+        }
+        $this->assertMatchesRegularExpression('/function-zone-items"[^>]*data-role=""[^>]*data-receives="0"/', $body);
+        $this->assertStringContainsString('À configurer', $body);
+        $this->assertStringContainsString('Aucune fonction — glissez-en une ici.', $body);
+        $this->assertStringNotContainsString('role-select', $body);
+        $this->assertMatchesRegularExpression('/class="[^"]*function-row"[^>]*draggable="true"/', $body);
+        $this->assertStringContainsString('/assets/js/sortable.js', $body);
+    }
+
     public function testUpdateChangesRoleAndSetsConfirmed(): void
     {
         if (session_status() === PHP_SESSION_NONE) {

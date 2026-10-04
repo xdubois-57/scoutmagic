@@ -104,21 +104,30 @@ class ModuleManifestTest extends TestCase
      * 1.32.2 loads components.css on the two pages whose select bar and
      * rich-text surface used its classes without it (issue #602).
      *
+     * 1.34.0 gives each inventory item a sort and an expected count, in the
+     * asset's template and in the booking's copy (`kind`,
+     * `expected_count`), and moves the Gabarits page to lists edited in
+     * place (#708, IT-10).
+     *
      * 1.35.0 retires the `reviewing` status (#708, IT-11) — a row still
      * carrying it reads back as `received` — and goes on through the rest
      * of #708's fourth lot: the automatic hold in days, the « Contrat
      * envoyé » status, and steps completed by hand.
      *
-     * 1.36.0 brings the contract's two signatures (#708, IT-16): a refused
+     * 1.36.0 drops `rental_blocks.units` — a period the unit blocks takes
+     * the whole asset — and blocks dates by a gesture on the calendar,
+     * with its own route and a route for a period's reason (#708, IT-07).
+     *
+     * 1.37.0 brings the contract's two signatures (#708, IT-16): a refused
      * signed copy keeps its reason, and each manager's own signature is
      * kept encrypted.
      *
-     * 1.37.0 voids a contract the booking has outgrown (#708, IT-20): its
+     * 1.38.0 voids a contract the booking has outgrown (#708, IT-20): its
      * fingerprint at generation, and when it stopped holding.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.37.0', $this->manifest->version);
+        $this->assertSame('1.38.0', $this->manifest->version);
     }
 
     /**
@@ -135,7 +144,8 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/ligne',
             '/mes-locations/proposition',
             '/mes-locations/demande',
-            '/mes-locations/blocage',
+            '/mes-locations/blocage-motif',
+            '/mes-locations/{slug}/calendrier/jours',
             '/mes-locations/blocage-supprimer',
             '/mes-locations/caution',
             '/mes-locations/gabarit',
@@ -145,8 +155,12 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/document-ajouter',
             '/mes-locations/document-supprimer',
             '/mes-locations/facturation',
-            '/mes-locations/compteur',
-            '/mes-locations/inventaire-modele',
+            '/mes-locations/{slug}/gabarits/compteurs',
+            '/mes-locations/{slug}/gabarits/compteurs/retirer',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/modifier',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/ordre',
+            '/mes-locations/{slug}/gabarits/etat-des-lieux/retirer',
             '/mes-locations/releve',
             '/mes-locations/inventaire',
             '/mes-locations/incident',
@@ -166,7 +180,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/reglages/frais',
             '/mes-locations/{slug}/reglages/frais-supprimer',
             '/mes-locations/{slug}/reglages/paiements',
-            '/mes-locations/{slug}/reglages/conditions',
+            '/mes-locations/{slug}/gabarits/conditions',
             '/admin/locations/compte',
             '/admin/locations/create',
             '/admin/locations/general',

@@ -756,6 +756,26 @@ class RentalBookingServiceTest extends TestCase
     }
 
     /**
+     * Once the contract has gone out the unit has answered: an option that
+     * lapses frees the dates and the booking stays « Contrat envoyé »
+     * (#708, IT-13) — it is not expired behind the renter's back.
+     */
+    public function testALapsedOptionOnAContractSentReleasesTheDatesOnly(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->repository->setHold($booking->id, $this->now('2027-06-02 18:00:00'), HoldOrigin::MANAGER);
+        $this->repository->setStatus($booking->id, BookingStatus::CONTRACT_SENT, $this->now('2027-06-01 10:00:00'));
+
+        $result = $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $reloaded = $this->repository->findById($booking->id);
+        $this->assertSame(['released' => 1, 'expired' => 0], $result);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $reloaded?->status);
+        $this->assertNull($reloaded?->holdUntil);
+        $this->assertNotNull($reloaded?->holdLapsedSince($this->now('2027-06-04 10:00:00')), 'The page warns the dates are free.');
+    }
+
+    /**
      * A booking the sweep expires has nothing left to decide, so its
      * pending change requests are refused with it — the rule
      * RentalOperationsService already applies when a MANAGER closes a
@@ -1145,6 +1165,54 @@ class RentalBookingServiceTest extends TestCase
         $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
 
         $this->assertSame(BookingStatus::RECEIVED, $this->repository->findById($booking->id)?->status);
+    }
+
+    /**
+     * Read back as RECEIVED, such a row must also be decided as one: the
+     * guarded write expecting RECEIVED would otherwise report a race that
+     * never happened, and the manager could not answer the request.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusCanBeDecided(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $this->assertTrue($this->repository->compareAndSetStatus(
+            $booking->id,
+            BookingStatus::RECEIVED,
+            BookingStatus::CONFIRMED,
+            $this->now()
+        ));
+        $this->assertSame(BookingStatus::CONFIRMED, $this->repository->findById($booking->id)?->status);
+        $this->assertFalse(
+            $this->repository->compareAndSetStatus($booking->id, BookingStatus::RECEIVED, BookingStatus::REFUSED, $this->now()),
+            'Once decided, the row no longer matches a RECEIVED expectation.'
+        );
+    }
+
+    /**
+     * Read as RECEIVED, such a row must also hold its dates and come back
+     * from a RECEIVED filter: an SQL `status IN (...)` built from the enum
+     * alone would drop it before hydrate() ever saw it.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusStillHoldsItsDates(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $occupying = $this->repository->findOccupyingBetween(
+            $booking->assetId,
+            $booking->arrivalDate,
+            $booking->departureDate
+        );
+        $this->assertSame([$booking->id], array_map(static fn($b) => $b->id, $occupying));
+        $this->assertSame(
+            [$booking->id],
+            array_map(
+                static fn($b) => $b->id,
+                $this->repository->findAllForAssets([$booking->assetId], BookingStatus::RECEIVED)
+            )
+        );
     }
 
     public function testStatusHelpersAgreeWithTheSpecsLifecycle(): void

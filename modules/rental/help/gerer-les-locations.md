@@ -7,8 +7,8 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
-related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+related: locations, locations-calendrier, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
 ---
 
 « Gérer mes locations » est l'espace des gestionnaires : les personnes
@@ -68,4 +68,6 @@ sur la caution, ou ne pas facturer. Cette page ne fonctionne qu'en
 ligne : sur place sans réseau, photographiez, saisissez au retour.
 
 Les réglages du bien vivent dans ses propres onglets, et ne changent
-jamais une réservation déjà existante.
+jamais une réservation déjà existante. Le contrat, la facture, les
+conditions, les compteurs et l'état des lieux se préparent sur la page
+« Gabarits », décrite dans « Les gabarits d'un bien ».

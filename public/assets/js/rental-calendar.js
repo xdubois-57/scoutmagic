@@ -40,13 +40,23 @@
  * That is how a visitor changes their mind, not a mistake to refuse — and
  * refusing it strands them with no way back except reloading the page.
  *
+ * A day another stay arrives on (`departureOnly`) can END a stay — the
+ * visitor leaves that morning — and never start one: a tap that would make
+ * it an arrival leaves the selection as it was. A hint for the picker only;
+ * the server re-validates the range in nights either way (#708, IT-08).
+ *
  * @param {string} date The tapped day, `YYYY-MM-DD`.
  * @param {string} arrival Currently selected arrival, or '' when none.
  * @param {string} departure Currently selected departure, or '' when none.
+ * @param {boolean} [departureOnly] Whether the tapped day may only be a departure.
  * @returns {{arrival: string, departure: string}} The selection after the tap.
  */
-export function nextSelection(date, arrival, departure) {
+export function nextSelection(date, arrival, departure, departureOnly = false) {
     if (!date) {
+        return { arrival: arrival, departure: departure };
+    }
+
+    if (departureOnly && (!arrival || departure || date <= arrival)) {
         return { arrival: arrival, departure: departure };
     }
 
@@ -234,11 +244,12 @@ export function wireCalendar(container) {
             return;
         }
 
-        const next = nextSelection(
-            date,
-            container.dataset.arrival || '',
-            container.dataset.departure || ''
-        );
+        const arrival = container.dataset.arrival || '';
+        const departure = container.dataset.departure || '';
+        const next = nextSelection(date, arrival, departure, cell.dataset.departureOnly === '1');
+        if (next.arrival === arrival && next.departure === departure) {
+            return;
+        }
 
         refresh(selectionUrl(window.location.href, next));
     });

@@ -397,8 +397,11 @@ class RentalBookingService implements OccupancyProvider
      *
      * Pure: also what the contract's minimum hold is capped by (IT-13).
      */
-    public static function automaticHoldUntil(\DateTimeImmutable $now, string $arrivalDate, int $days): ?\DateTimeImmutable
-    {
+    public static function automaticHoldUntil(
+        \DateTimeImmutable $now,
+        string $arrivalDate,
+        int $days
+    ): ?\DateTimeImmutable {
         if ($days <= 0) {
             return null;
         }
@@ -439,7 +442,9 @@ class RentalBookingService implements OccupancyProvider
      * - `automatic` — nobody promised anything, so the request just goes
      *   back to waiting and the dates are released. Its status is untouched.
      * - `manager` — an option was promised with a deadline and not taken up,
-     *   so the booking becomes **expired** and releases the dates.
+     *   so the booking becomes **expired** and releases the dates. Not once
+     *   the contract has gone out: then it is released like an automatic
+     *   hold (`RentalBooking::lapseEndsTheBooking()`, #708, IT-13).
      *
      * A booking already confirmed keeps its dates whatever its hold said: it
      * is held by its status now, and clearing the hold is just tidying up.
@@ -458,7 +463,7 @@ class RentalBookingService implements OccupancyProvider
                 continue;
             }
 
-            if ($booking->holdOrigin?->expiryEndsTheBooking() === true) {
+            if ($booking->lapseEndsTheBooking()) {
                 $this->bookingRepository->setStatus($booking->id, BookingStatus::EXPIRED, $now);
                 $this->bookingRepository->clearHold($booking->id);
                 $this->refusePendingChangeRequests($booking->id);

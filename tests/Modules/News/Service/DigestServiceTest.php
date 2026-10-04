@@ -8,7 +8,6 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
-use Core\Security\UserAccountRepository;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
@@ -66,14 +65,13 @@ class DigestServiceTest extends TestCase
 
         return new DigestService(
             $this->formRepository, $this->responseRepository, $this->articleRepository,
-            new UserAccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
             $mailService ?? $this->mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news'), 'Test Unit', 'https://example.com'
         );
     }
 
     public function testSendsNoEmailWhenNoNewResponses(): void
     {
-        $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
+        $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', 'resume@unite.test', null);
 
         $this->mailService->expects($this->never())->method('send');
 
@@ -82,26 +80,33 @@ class DigestServiceTest extends TestCase
 
     public function testSendsEmailWhenThereAreNewResponses(): void
     {
-        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
+        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', 'resume@unite.test', null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [], null, null);
 
-        $this->mailService->expects($this->once())->method('send')->with('author@test.com');
+        // The form's own address, never the article author's. That is the
+        // whole of issue #738: the author here is author@test.com, and a
+        // digest arriving there would mean the address is still being
+        // derived from `created_by`.
+        $this->mailService->expects($this->once())->method('send')->with('resume@unite.test');
 
         $this->service()->sendPendingDigests();
     }
 
     public function testMarksDigestSentEvenWhenNoResponses(): void
     {
-        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
+        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', 'resume@unite.test', null);
 
         $this->service()->sendPendingDigests();
 
         $this->assertNotNull($this->formRepository->findById($formId)->lastDigestSentAt);
     }
 
-    public function testIgnoresFormsWithDigestDisabled(): void
+    /**
+     * No address is the off switch, and the only one there is now.
+     */
+    public function testIgnoresFormsWithNoDigestAddress(): void
     {
-        $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $this->mailService->expects($this->never())->method('send');
 
@@ -110,14 +115,14 @@ class DigestServiceTest extends TestCase
 
     public function testSecondRunOnlyCountsResponsesSinceLastDigest(): void
     {
-        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
+        $formId = $this->formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', 'resume@unite.test', null);
         $this->responseRepository->create($formId, null, null, 'first@test.com', [], null, null);
 
-        // To the article's author, as the test above already says of the
-        // first run (issue #439): a second run that mailed the digest to
-        // somebody else would satisfy a bare count.
+        // To the form's address, as the test above already says of the
+        // first run (issues #439 and #738): a second run that mailed the
+        // digest to somebody else would satisfy a bare count.
         $this->mailService->expects($this->once())->method('send')
-            ->with($this->identicalTo('author@test.com'));
+            ->with($this->identicalTo('resume@unite.test'));
         $this->service()->sendPendingDigests();
 
         // Second run, no new responses since — no further email.

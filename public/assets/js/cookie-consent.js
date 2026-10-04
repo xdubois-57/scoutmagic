@@ -66,6 +66,10 @@
                     choiceNotRecorded();
                     return;
                 }
+                // The banner and the space kept for it go together, and
+                // only now that the choice is stored (#742): a refusal
+                // leaves both, so the visitor can try again.
+                document.body.classList.remove('cookie-banner-visible');
                 banner.remove();
                 if (onRecorded) {
                     onRecorded();

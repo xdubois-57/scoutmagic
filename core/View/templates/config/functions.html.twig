@@ -101,76 +101,58 @@
         Les changements de rôle prennent effet à la prochaine connexion des membres concernés.
     </p>
 
-    {# Unconfirmed functions #}
-    {% if unconfirmed|length > 0 %}
+    {#
+      Issue #741: functions are ASSIGNED by moving them between roles, not
+      by a select per row. One zone per role — every role, empty ones
+      included, since a role nobody has yet is still somewhere to drop a
+      function — plus « À configurer » for what the last import brought in
+      and nobody has placed. Dropping into a role saves at once through
+      /config/functions/update, which also confirms an unconfirmed
+      function. « À configurer » lends its rows and takes none back: a
+      placed function cannot be un-placed.
 
-        <div class="border rounded-3 overflow-hidden mb-4">
-            {% for func in unconfirmed %}
-                <div class="d-flex align-items-center justify-content-between p-3 border-bottom function-row"
-                     data-id="{{ func.id }}">
-                    <div>
-                        <span class="fw-semibold">{{ func.desk_code }}</span>
-                        <span class="ms-2">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Non confirmée' } only %}</span>
-                    </div>
-                    <label class="visually-hidden" for="unconfirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
-                    <select class="form-select form-select-sm w-auto role-select" id="unconfirmed-role-{{ func.id }}" data-id="{{ func.id }}">
-                        {% for role in roles %}
-                            <option value="{{ role.value }}"
-                                    {{ func.role == role.value ? 'selected' : '' }}>
-                                {{ role.label }}
-                            </option>
-                        {% endfor %}
-                    </select>
+      The order inside a role means nothing and is not saved. The arrows
+      on each row move it to the zone above or below — the same move for a
+      finger or a keyboard, which a drag is not (design.md §7.2).
+    #}
+    {% if has_functions %}
+    {% import _self as board %}
+    <div id="function-board">
+        {% if unconfirmed|length > 0 %}
+            <section class="mb-4 function-zone" aria-labelledby="function-zone-unconfirmed-title">
+                <h3 class="h6 d-flex align-items-center gap-2 mb-2" id="function-zone-unconfirmed-title">
+                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'À configurer' } only %}
+                    <span class="text-body-secondary small"><span data-zone-count>{{ unconfirmed|length }}</span> fonction(s) —
+                        glissez-les vers un rôle pour les confirmer</span>
+                </h3>
+                <div class="border rounded-3 overflow-hidden function-zone-items" data-role="" data-receives="0">
+                    {% for func in unconfirmed %}
+                        {{ board.functionRow(func, '', function_flags) }}
+                    {% endfor %}
+                    <p class="text-body-secondary fst-italic small p-3 mb-0 function-zone-empty d-none">Toutes les fonctions sont configurées.</p>
                 </div>
-            {% endfor %}
-        </div>
-    {% endif %}
+            </section>
+        {% endif %}
 
-    {# Confirmed functions grouped by role #}
-    {% for role_value, role_group in confirmed_by_role %}
-        <div class="mb-4">
-            <h2 class="h6 d-flex align-items-center gap-2 mb-2">
-                <span class="badge {{ role_group.badge_class }}">{{ role_group.label }}</span>
-                <span class="text-body-secondary small">{{ role_group.functions|length }} fonction(s)</span>
-            </h2>
-            <div class="border rounded-3 overflow-hidden">
-                {% for func in role_group.functions %}
-                    <div class="d-flex align-items-center justify-content-between p-3 border-bottom function-row"
-                         data-id="{{ func.id }}">
-                        <div>
-                            <span class="fw-semibold">{{ func.desk_code }}</span>
-                            {% if func.label != func.desk_code %}
-                                <span class="text-body-secondary small ms-1">({{ func.label }})</span>
-                            {% endif %}
-                        </div>
-                        <div class="d-flex align-items-center gap-3">
-                            {% if function_flags is not null and role_value in ['chief', 'admin'] %}
-                                {% set is_lead = function_flags.flags[func.id]|default(false) %}
-                                <div class="d-flex align-items-center gap-2 small text-body-secondary flags-group" data-id="{{ func.id }}">
-                                    <label class="d-flex align-items-center gap-1 mb-0">
-                                        <input type="checkbox" class="form-check-input flag-lead" {{ is_lead ? 'checked' : '' }}>
-                                        {{ function_flags.lead_label }}
-                                    </label>
-                                </div>
-                            {% endif %}
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'confirmed-role-' ~ func.id,
-                                label: 'Rôle pour ' ~ func.desk_code,
-                                label_visually_hidden: true,
-                                type: 'select', size: 'sm', wrapper_class: '',
-                                control_class_extra: 'w-auto role-select',
-                                data: { id: func.id },
-                                options: roles|default([])|map(role => {
-                                    value: role.value, label: role.label,
-                                    selected: func.role == role.value,
-                                }),
-                            } only %}
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-    {% endfor %}
+        {% for role_value, role_group in confirmed_by_role %}
+            <section class="mb-4 function-zone" aria-labelledby="function-zone-{{ role_value }}-title">
+                <h3 class="h6 d-flex align-items-center gap-2 mb-2" id="function-zone-{{ role_value }}-title">
+                    <span class="badge {{ role_group.badge_class }}">{{ role_group.label }}</span>
+                    <span class="text-body-secondary small"><span data-zone-count>{{ role_group.functions|length }}</span> fonction(s)</span>
+                </h3>
+                <div class="border rounded-3 overflow-hidden function-zone-items" data-role="{{ role_value }}"
+                     data-role-label="{{ role_group.label }}">
+                    {% for func in role_group.functions %}
+                        {{ board.functionRow(func, role_value, function_flags) }}
+                    {% endfor %}
+                    <p class="text-body-secondary fst-italic small p-3 mb-0 function-zone-empty{{ role_group.functions is empty ? '' : ' d-none' }}">
+                        Aucune fonction — glissez-en une ici.
+                    </p>
+                </div>
+            </section>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     {% if function_flags is not null %}
         <p class="text-body-secondary small">
@@ -179,7 +161,7 @@
         </p>
     {% endif %}
 
-    {% if unconfirmed is empty and confirmed_by_role is empty %}
+    {% if not has_functions %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.',
             compact: true,
@@ -316,5 +298,51 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
 <script src="{{ asset('/assets/js/config-functions.js') }}" defer></script>
 {% endblock %}
+
+{#
+  One Desk function, as a draggable row. `role` is '' for an unconfirmed
+  one. The module's per-function flag is rendered for every row and shown
+  only under Chef and Chef d'Unité — a row that moves there must find its
+  control, and one that leaves must not keep showing it.
+#}
+{% macro functionRow(func, role, function_flags) %}
+    <div class="d-flex align-items-center justify-content-between gap-2 p-3 border-bottom function-row"
+         draggable="true" data-id="{{ func.id }}" data-role="{{ role }}">
+        <span class="text-body-secondary d-none d-lg-inline function-drag-handle" title="Glisser vers un autre rôle" aria-hidden="true">
+            <i class="bi bi-grip-vertical"></i>
+        </span>
+        <div class="flex-grow-1">
+            <span class="fw-semibold">{{ func.desk_code }}</span>
+            {% if func.label is defined and func.label != func.desk_code %}
+                <span class="text-body-secondary small ms-1">({{ func.label }})</span>
+            {% endif %}
+            {% if role == '' %}
+                <span class="ms-2 function-pending-badge">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Non confirmée' } only %}</span>
+            {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            {% if function_flags is not null %}
+                {% set is_lead = function_flags.flags[func.id]|default(false) %}
+                <div class="d-flex align-items-center gap-2 small text-body-secondary flags-group{{ role in ['chief', 'admin'] ? '' : ' d-none' }}" data-id="{{ func.id }}">
+                    <label class="d-flex align-items-center gap-1 mb-0">
+                        <input type="checkbox" class="form-check-input flag-lead" {{ is_lead ? 'checked' : '' }}>
+                        {{ function_flags.lead_label }}
+                    </label>
+                </div>
+            {% endif %}
+            <span class="d-inline-flex gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary function-move-up"
+                        aria-label="Passer {{ func.desk_code }} au rôle du dessus" title="Rôle du dessus">
+                    <i class="bi bi-chevron-up" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary function-move-down"
+                        aria-label="Passer {{ func.desk_code }} au rôle du dessous" title="Rôle du dessous">
+                    <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                </button>
+            </span>
+        </div>
+    </div>
+{% endmacro %}
