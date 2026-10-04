@@ -11390,7 +11390,8 @@ if ($isEnabled('registration')) {
                     $registrationPassageRosterRepo,
                     $registrationReenrollmentRepository,
                     $registrationPassageService
-                )
+                ),
+                $schedulerService
             )
         )
     );

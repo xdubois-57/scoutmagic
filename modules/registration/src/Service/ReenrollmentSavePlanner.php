@@ -40,11 +40,15 @@ class ReenrollmentSavePlanner
      * @param \Closure(bool $silentOnly): int $familyCounter how many families an
      *        e-mail of the campaign reaches — all of them for the opening, the
      *        silent ones for the rest
+     * @param \Closure(string $type, string $campaignKey): bool|null $inFlight whether
+     *        that e-mail of that campaign is queued and has not finished: a
+     *        marker is only written once the batch has gone out
      */
     public function __construct(
         private ReenrollmentCampaignService $campaign,
         private SettingService $settingService,
-        private \Closure $familyCounter
+        private \Closure $familyCounter,
+        private ?\Closure $inFlight = null
     ) {
     }
 
@@ -55,7 +59,8 @@ class ReenrollmentSavePlanner
     public static function countingWith(
         ReenrollmentCampaignService $campaign,
         SettingService $settingService,
-        ReenrollmentRecipientService $recipients
+        ReenrollmentRecipientService $recipients,
+        ?\Core\Scheduler\SchedulerService $scheduler = null
     ): self {
         return new self(
             $campaign,
@@ -68,7 +73,14 @@ class ReenrollmentSavePlanner
                     $years['target_year_id'],
                     $silentOnly
                 ));
-            }
+            },
+            // The guard Task\ReenrollmentCampaignHandler::handOver() itself
+            // applies, read the same way.
+            $scheduler === null ? null : static fn (string $type, string $key): bool => $scheduler->hasLiveStartingWith(
+                'registration',
+                'send_reenrollment_emails',
+                $type . ':' . $key
+            )
         );
     }
 
@@ -120,7 +132,13 @@ class ReenrollmentSavePlanner
         // ── a closing by the switch ───────────────────────────────────
         $closing = null;
         if ($before['is_open'] && !$after['is_open']) {
-            $key = $this->campaign->campaignKeyToClose($now, $after['open_at'], $after['close_at']);
+            $key = $this->campaign->campaignKeyToClose(
+                $now,
+                $after['open_at'],
+                $after['close_at'],
+                fn (string $campaignKey): bool => $this->inFlight !== null
+                    && ($this->inFlight)(ReenrollmentCampaignService::EMAIL_OPENING, $campaignKey)
+            );
             $closing = ['campaign' => $key];
             $reasons[] = $this->queue(
                 $emails,

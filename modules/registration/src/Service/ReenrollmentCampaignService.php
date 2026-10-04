@@ -217,9 +217,18 @@ class ReenrollmentCampaignService
      * when it really did, as its markers show. A switch left on past its
      * window is not an early opening: nobody was told the next campaign had
      * begun, so nobody is told it has closed.
+     *
+     * An opening e-mail still queued has not written its marker yet, so
+     * `$openingInFlight` says whether it is on its way for a campaign key.
+     *
+     * @param \Closure(string $campaignKey): bool|null $openingInFlight
      */
-    public function campaignKeyToClose(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
-    {
+    public function campaignKeyToClose(
+        \DateTimeImmutable $now,
+        ?string $openAt,
+        ?string $closeAt,
+        ?\Closure $openingInFlight = null
+    ): ?string {
         $openAt = self::validMonthDay($openAt);
         $closeAt = self::validMonthDay($closeAt);
         if ($openAt === null || $closeAt === null) {
@@ -234,7 +243,9 @@ class ReenrollmentCampaignService
 
         $next = self::keyForManualOpening($today, $openAt, $closeAt);
 
-        return $next !== null && $this->openedBefore($next) ? $next : $current;
+        $opened = $next !== null && ($this->openedBefore($next) || ($openingInFlight !== null && $openingInFlight($next)));
+
+        return $opened ? $next : $current;
     }
 
     /** Whether the campaign `$key` was opened, by the clock or by hand: a marker says so. */

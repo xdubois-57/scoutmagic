@@ -45,6 +45,8 @@ class ReenrollmentSavePlannerTest extends TestCase
     private SettingService $settingService;
     private ReenrollmentCampaignService $campaign;
     private ReenrollmentSavePlanner $planner;
+    /** @var list<string> the e-mails queued and not finished, as « type:campaign » */
+    private array $inFlight = [];
 
     protected function setUp(): void
     {
@@ -87,7 +89,8 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->planner = new ReenrollmentSavePlanner(
             $this->campaign,
             $this->settingService,
-            static fn (bool $silentOnly): int => $silentOnly ? 27 : 41
+            static fn (bool $silentOnly): int => $silentOnly ? 27 : 41,
+            fn (string $type, string $key): bool => in_array($type . ':' . $key, $this->inFlight, true)
         );
     }
 
@@ -252,6 +255,21 @@ class ReenrollmentSavePlannerTest extends TestCase
         // the coming close, 2027-05-15 — and so is its closing.
         $this->campaign->open();
         $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
+
+        $plan = $this->plan(['is_open' => false], '2027-02-05 10:00');
+
+        $this->assertSame(
+            [['type' => 'closing', 'campaign' => '2027-05-15', 'families' => 27, 'deferred' => false]],
+            $plan->emails
+        );
+    }
+
+    public function testClosingBeforeTheOpeningEmailHasFinishedStillWritesToItsFamilies(): void
+    {
+        // The switch just opened the campaign early: its opening e-mail is
+        // queued and has not written its marker yet.
+        $this->campaign->open();
+        $this->inFlight = ['opening:2027-05-15'];
 
         $plan = $this->plan(['is_open' => false], '2027-02-05 10:00');
 
