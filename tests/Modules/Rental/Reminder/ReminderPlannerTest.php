@@ -137,7 +137,8 @@ class ReminderPlannerTest extends TestCase
         bool $departureInventory = true,
         bool $hasContract = true,
         bool $hasSettlement = true,
-        ?ReminderSchedule $schedule = null
+        ?ReminderSchedule $schedule = null,
+        bool $awaitsSignedCopy = false
     ): array {
         return $this->planner->forBooking(
             $booking,
@@ -147,7 +148,8 @@ class ReminderPlannerTest extends TestCase
             $hasContract,
             $hasSettlement,
             new \DateTimeImmutable($today),
-            $schedule
+            $schedule,
+            $awaitsSignedCopy
         );
     }
 
@@ -485,6 +487,29 @@ class ReminderPlannerTest extends TestCase
         $due = $this->plan($this->booking(), '2027-06-25', hasContract: false);
 
         $this->assertContains(ReminderKind::CONTRACT_MISSING->value, self::kinds($due));
+    }
+
+    /**
+     * The same reminder, said as it is: a copy the renter has not sent back,
+     * or a contract the unit never sent.
+     */
+    public function testTheReminderSaysWhetherTheContractOrOnlyItsCopyIsMissing(): void
+    {
+        $bodyOf = static function (array $due): string {
+            foreach ($due as $reminder) {
+                if ($reminder->kind === ReminderKind::CONTRACT_MISSING) {
+                    return $reminder->body;
+                }
+            }
+            self::fail('no contract reminder');
+        };
+
+        $unsent = $bodyOf($this->plan($this->booking(), '2027-06-25', hasContract: false));
+        $this->assertStringContainsString("n'est pas encore parti", $unsent);
+        $this->assertStringNotContainsString('copie signée', $unsent);
+
+        $awaited = $bodyOf($this->plan($this->booking(), '2027-06-25', hasContract: false, awaitsSignedCopy: true));
+        $this->assertStringContainsString("copie signée du contrat", $awaited);
     }
 
     public function testAMissingContractIsNotChasedMonthsAhead(): void

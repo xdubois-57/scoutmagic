@@ -444,6 +444,80 @@ class RentalReminderServiceTest extends TestCase
         );
     }
 
+    /**
+     * The renter's own reminder before the hold ends (#708, IT-16) goes out
+     * while their copy is awaited — and no longer once the manager ticked
+     * « Contrat signé reçu » by hand: a copy handed over in person.
+     */
+    public function testTheSignedCopyReminderStopsOnceTheCopyIsTickedByHand(): void
+    {
+        $sentFor = function (bool $tickedByHand): array {
+            $booking = $this->createBooking(
+                reference: $tickedByHand ? 'LOC-2027-0043' : 'LOC-2027-0044',
+                arrival: '2027-07-10',
+                departure: '2027-07-13',
+                status: BookingStatus::CONTRACT_SENT
+            );
+            $this->bookingRepository->setHold(
+                $booking->id,
+                new \DateTimeImmutable('2027-06-03 12:00:00'),
+                \Modules\Rental\Booking\HoldOrigin::AUTOMATIC
+            );
+            $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+            if ($tickedByHand) {
+                $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::SIGNED_COPY_RECEIVED, null, new \DateTimeImmutable('2027-05-30'));
+            }
+
+            $contract = new \Modules\Rental\Document\RentalDocument(
+                1,
+                $booking->id,
+                1,
+                \Modules\Rental\Document\DocumentType::CONTRACT,
+                1,
+                true,
+                'contrat.pdf',
+                100,
+                new \DateTimeImmutable('2027-05-20'),
+                null,
+                new \DateTimeImmutable('2027-05-20')
+            );
+            $documents = $this->createStub(\Modules\Rental\Service\RentalDocumentService::class);
+            $documents->method('forBooking')->willReturn([$contract]);
+
+            $reminded = [];
+            $mail = $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class);
+            $mail->method('sendSignedCopyReminder')->willReturnCallback(
+                function (RentalBooking $b) use (&$reminded): bool {
+                    $reminded[] = $b->reference;
+
+                    return true;
+                }
+            );
+
+            $service = new RentalReminderService(
+                $this->bookingRepository,
+                $this->assetRepository,
+                $this->managerRepository,
+                $this->complianceService,
+                $this->reminderRepository,
+                new ReminderPlanner(),
+                new MemberYearRepository($this->pdo),
+                new UserAccountRepository($this->pdo, $this->encryption),
+                new JournalService(new JournalRepository($this->pdo)),
+                $this->notificationService(),
+                documentService: $documents,
+                mailService: $mail,
+                markRepository: $marks
+            );
+            $service->run(new \DateTimeImmutable('2027-06-01'));
+
+            return array_values(array_filter($reminded, static fn(string $r): bool => $r === $booking->reference));
+        };
+
+        $this->assertSame(['LOC-2027-0044'], $sentFor(false), 'the path is reached while the copy is awaited');
+        $this->assertSame([], $sentFor(true));
+    }
+
     public function testWithoutANotificationServiceNothingInternalIsClaimedAsSent(): void
     {
         // Nothing went out, so nothing has been said: the claim is released

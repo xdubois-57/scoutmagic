@@ -146,12 +146,16 @@ class ReminderPlanner
             && self::contractLateFrom($arrival, $schedule) <= $midnight
             && $arrival >= $midnight
         ) {
+            // Said as it is: a copy the renter has not sent back is theirs
+            // to send, a contract that never went out is the unit's.
             $due[] = $this->booking(
                 $booking,
                 $asset,
                 ReminderKind::CONTRACT_MISSING,
                 sprintf(
-                    "La copie signée du contrat de %s n'est pas encore reçue, et le séjour approche.",
+                    $awaitsSignedCopy
+                        ? "La copie signée du contrat de %s n'est pas encore reçue, et le séjour approche."
+                        : "Le contrat de %s n'est pas encore parti, et le séjour approche.",
                     $booking->reference
                 )
             );
