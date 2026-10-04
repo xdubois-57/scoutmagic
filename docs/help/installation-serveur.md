@@ -59,8 +59,8 @@ configuré, l'indicateur avertit mais n'empêche jamais d'enregistrer.
 ## Les mises à jour automatiques
 
 Dans « Configuration › Maintenance », activez les mises à jour et générez le
-secret. Côté GitHub, créez un webhook vers
-`https://votre-domaine.be/api/webhook/github`, en `application/json`, avec ce
+secret. Côté GitHub, créez un webhook vers le chemin
+`/api/webhook/github` de votre propre site, en `application/json`, avec ce
 secret et l'événement **Releases** uniquement. Le canal stable vérifie aussi
 les releases chaque jour si le webhook manque une livraison. Le mécanisme est
 détaillé dans `ARCHITECTURE.md` §8.17.
