@@ -281,7 +281,7 @@ final class CommunicationController extends AbstractController
     public function picker(Request $request, array $params): Response
     {
         $communication = $this->mine($params);
-        if ($communication === null || $this->photos === null || $this->isFrozen($communication)) {
+        if ($communication === null || $this->photos === null || !$this->mayChangeImage($communication)) {
             return new Response('Not Found', 404);
         }
 
@@ -298,7 +298,7 @@ final class CommunicationController extends AbstractController
         if (($guard = $this->guardCsrf($request, self::path($communication))) !== null) {
             return $guard;
         }
-        if ($communication === null || $this->photos === null || $this->isFrozen($communication)) {
+        if ($communication === null || $this->photos === null || !$this->mayChangeImage($communication)) {
             return new Response('Not Found', 404);
         }
 
@@ -401,6 +401,14 @@ final class CommunicationController extends AbstractController
      * Whether the image is this communication's to change: not once it has
      * left, and never when it comes from a source — an album's cover is
      * the album's, and « Partager » hides both buttons for that reason.
+     *
+     * **The gallery picker's own two routes ask this too**, not just the
+     * buttons that lead to them. Hiding a button hides nothing from a
+     * typed address, and a pick accepted for a source-backed
+     * communication would write `gallery_media_id` where nothing ever
+     * reads it: {@see ShareSourceResolver::communication()} branches on
+     * `hasSource()` first and never looks at that column. The visitor
+     * would choose a photo, see no change, and get no error.
      */
     private function mayChangeImage(Communication $communication): bool
     {

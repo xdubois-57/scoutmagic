@@ -380,6 +380,43 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * Hiding the two image buttons is not the same as refusing the routes
+     * behind them. A source-backed communication takes its image from the
+     * album or the article, so the gallery picker has nothing to offer
+     * here — and a pick accepted anyway would write `gallery_media_id`
+     * where nothing ever reads it ({@see ShareSourceResolver::communication()}
+     * branches on `hasSource()` first), leaving the visitor with a photo
+     * chosen, no change, and no error.
+     */
+    public function testTheGalleryPickerRefusesASourceBackedCommunication(): void
+    {
+        $this->loginAuthor();
+        $id = $this->sourceBackedCommunication();
+        $params = ['id' => (string) $id];
+
+        $this->assertSame(404, $this->controller()->picker($this->get(), $params)->getStatusCode());
+        $this->assertSame(
+            404,
+            $this->controller()->pick($this->post(['media_id' => (string) self::PHOTO]), $params)->getStatusCode()
+        );
+        // And the column stayed empty, so nothing was recorded that the
+        // resolver would never read back.
+        $this->assertNull($this->communications->find($id)?->galleryMediaId);
+    }
+
+    /**
+     * The picker is still there for a communication of its own — the
+     * refusal above is about the source, not about the route.
+     */
+    public function testTheGalleryPickerStaysOpenForACommunicationOfItsOwn(): void
+    {
+        $this->loginAuthor();
+        $params = ['id' => (string) $this->communication('Week-end', 'Texte', null)];
+
+        $this->assertSame(200, $this->controller()->picker($this->get(), $params)->getStatusCode());
+    }
+
+    /**
      * What just left is on the history, so that is where publishing goes
      * — the composer has nothing more to say.
      */
@@ -703,6 +740,19 @@ final class CommunicationControllerTest extends TestCase
         }
 
         return $id;
+    }
+
+    /** A communication whose image belongs to an album, not to itself. */
+    private function sourceBackedCommunication(): int
+    {
+        return $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            self::ALBUM_ID
+        );
     }
 
     private function failedInstagram(int $id): void

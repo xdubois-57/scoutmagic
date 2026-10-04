@@ -3398,6 +3398,11 @@ du composeur, à l'enregistrement, à chaque aperçu et à chaque publication.
 **Le titre et l'image venus d'une source sont verrouillés** — ils se
 changent sur l'album ou l'actualité — et « Téléverser » comme
 « Galerie » disparaissent : la couverture d'un album appartient à l'album.
+**Les adresses derrière ces deux boutons refusent aussi**, et pas
+seulement les boutons : cacher un bouton ne cache rien à une adresse
+tapée, et un choix de photo accepté là n'aurait aucun effet visible —
+la carte continuerait de lire l'image de la source — pour qui vient de
+choisir une photo.
 Le texte reste libre. Rien de la source n'est recopié dans la
 communication, qui la nomme seulement : il n'y a donc jamais deux réponses
 possibles à « qu'y a-t-il sur cette carte ». Si la source disparaît, la
