@@ -246,7 +246,7 @@ final class BookingMilestones
                 $m,
                 $booking->status,
                 $offsite,
-                $booking->holdOrigin,
+                $booking->lapseEndsTheBooking(),
                 in_array($m->key, $manual, true)
             ),
             $milestones
@@ -293,7 +293,7 @@ final class BookingMilestones
         BookingMilestone $m,
         BookingStatus $status,
         array $offsite,
-        ?HoldOrigin $holdOrigin = null,
+        bool $lapseEndsTheBooking = false,
         bool $isManual = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
@@ -303,8 +303,9 @@ final class BookingMilestones
         switch ($m->key) {
             case 'hold':
                 $kind = MilestoneKind::DERIVED;
-                // What happens at the deadline depends on who set it.
-                $explanation = $holdOrigin === HoldOrigin::MANAGER
+                // What happens at the deadline depends on who set it — and,
+                // for an option, on whether the contract has gone out.
+                $explanation = $lapseEndsTheBooking
                     ? "Une option bloque les dates jusqu'à son échéance ; passée sans confirmation, la "
                         . 'réservation expire et les dates se libèrent.'
                     : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '
