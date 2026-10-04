@@ -36,6 +36,21 @@ La section demandée par la famille d'abord, puis les frères et sœurs
 ensemble, puis les souhaits d'amitié. Seuls les souhaits rattachés à une
 seule personne — ou que vous avez tranchés vous-même — sont utilisés.
 
+La section souhaitée se lit dans cet ordre : celle que **vous** avez
+retenue, puis celle que la famille a choisie dans le formulaire, puis
+celle que l'IA a relevée dans son commentaire libre.
+
+## La relecture par IA
+
+Avec le module Intelligence artificielle, « Répartir » commence par
+relire les commentaires libres **des seules personnes à répartir** — le
+dialogue le dit avant le clic. Un commentaire n'est envoyé qu'une fois,
+et de nouveau seulement si la famille l'a modifié. L'IA y relève une
+section ou des amis ; ils ne comptent que s'ils désignent sans doute
+possible une section de la branche ou un enfant précis, et les amis
+s'ajoutent à ceux de la famille. Si l'IA ne répond pas, la répartition
+se fait avec ce qui est déjà connu.
+
 Deux limites sont réglables dans la configuration de la réinscription :
 l'écart maximal entre sections, et le fait de garder ou non une fratrie
 ensemble. Quand les deux ne peuvent pas tenir en même temps, ce sont les

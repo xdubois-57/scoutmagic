@@ -82,6 +82,7 @@ class ObligationsService
                     totem: $row->totem,
                     fullName: $row->fullName(),
                     email: $row->email,
+                    phone: $row->phone,
                     sectionName: $row->sectionName,
                     detail: $row->functionLabel,
                     note: $days === 0
@@ -160,6 +161,7 @@ class ObligationsService
                 totem: $row->totem,
                 fullName: $row->fullName(),
                 email: $row->email,
+                phone: $row->phone,
                 sectionName: $row->sectionName,
                 detail: $age === null
                     ? $row->functionLabel . ' — âge inconnu'

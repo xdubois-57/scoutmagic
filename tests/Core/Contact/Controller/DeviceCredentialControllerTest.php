@@ -143,6 +143,37 @@ class DeviceCredentialControllerTest extends TestCase
         );
     }
 
+    /**
+     * #751: while HTTPS is required, the address a phone is told to use is
+     * `https://` even when PHP sees plain HTTP behind a TLS terminator;
+     * under the development exception, the detected scheme decides.
+     */
+    public function testTheServerAddressFollowsTheHttpsPolicy(): void
+    {
+        $controller = new DeviceCredentialController(
+            new Environment(new ArrayLoader([
+                'account/devices.html.twig' => '{{ site_url }}',
+                'errors/404.html.twig' => 'Introuvable',
+            ])),
+            $this->service
+        );
+        $behindTerminator = new Request('GET', '/account/devices', [], [], [], [
+            'HTTP_HOST' => 'unite.example',
+            'SERVER_PORT' => '80',
+        ]);
+
+        try {
+            \Core\Http\RequestScheme::setHttpsRequired(true);
+            $this->assertSame('https://unite.example', $controller->index($behindTerminator, [])->getBody());
+
+            \Core\Http\RequestScheme::setHttpsRequired(false);
+            $this->assertSame('http://unite.example', $controller->index($behindTerminator, [])->getBody());
+        } finally {
+            // tests/bootstrap.php runs the suite with the development exception.
+            \Core\Http\RequestScheme::setHttpsRequired(false);
+        }
+    }
+
     public function testCreatingReturnsTheSecretExactlyOnceAndInThisResponseOnly(): void
     {
         $response = $this->controller->create(

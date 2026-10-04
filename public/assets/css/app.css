@@ -47,6 +47,26 @@
 .step-circle--done {
     background-color: var(--bs-success);
 }
+/* A disc that is a button — completing a step by hand, or running a
+   status (#708, IT-14). A 44 px target around the 36 px disc, pulled back
+   by the difference so the column does not move. */
+.step-disc-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin: -0.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+}
+.step-disc-button:hover .step-circle,
+.step-disc-button:focus-visible .step-circle {
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
+}
 /* Vertical connector linking each step's circle to the next. */
 .step-item__marker {
     position: relative;
@@ -161,6 +181,20 @@
         align-items: center;
         justify-content: center;
     }
+
+    /* An action another module contributes as an icon alone —
+       « Partager » on an album form and in the news editor
+       (ARCHITECTURE.md §7.6). Bootstrap's own button padding leaves a
+       target of about 32 pixels, which design.md §7.2 does not accept
+       for something a finger has to hit. HERE and not at file scope: a
+       comfort goal for a finger is never a universal minimum
+       (AGENTS.md § Touch targets), and on a mouse 32 pixels is fine —
+       WCAG 2.2 AA asks 24×24, and the `pointer: fine` restore below
+       cannot undo a rule written outside the block. */
+    .contributed-action-icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
 }
 
 /* Restore compact sizes where a real mouse/trackpad is the primary
@@ -235,30 +269,31 @@ td code,
    and overlays the page; without compensation the end of every page
    (footer, last form buttons) sits underneath it and can be unreachable,
    especially on mobile where the banner is ~300px tall.
-   Chosen approach: pure CSS via body:has(), rather than a body class set
-   by the template or a JS height measurement, because
-   - the padding appears with the banner and disappears the instant
-     cookie-consent.js removes it from the DOM — no stale body class to
-     clean up and no change needed in cookie-consent.js;
-   - :has() is supported by every browser we target (all evergreen
-     browsers since 2023); where it is not, the fallback is exactly
-     today's behavior (no padding), never something worse.
+   Chosen approach: an explicit class on <body>, `cookie-banner-visible`,
+   set by base.html.twig under the same condition as the banner itself and
+   removed by cookie-consent.js in the same gesture that removes the
+   banner — and only once the server has stored the choice (#742). It used
+   to be `body:has(> #cookie-banner)`, which relied on the browser
+   re-evaluating :has() after the node was removed; a visitor was once left
+   with an empty white strip the height of the banner and nothing to close.
+   The banner and its space are now one state ScoutMagic drives, not two
+   effects that happen to coincide.
    The paddings bracket the banner's real rendered height at the banner's
    own breakpoints (checked at 360, 768 and 1280px wide), slightly
    oversized so the bottom of the page always clears it.
    ============================================================ */
-body:has(> #cookie-banner) {
+body.cookie-banner-visible {
     /* <576px: text block + three stacked full-width actions (~280px) */
     padding-bottom: 20rem;
 }
 @media (min-width: 576px) {
-    body:has(> #cookie-banner) {
+    body.cookie-banner-visible {
         /* 576-991px: text block above a single row of actions (~150px) */
         padding-bottom: 12rem;
     }
 }
 @media (min-width: 992px) {
-    body:has(> #cookie-banner) {
+    body.cookie-banner-visible {
         /* >=992px: text and actions side by side (~100px) */
         padding-bottom: 8rem;
     }
@@ -535,6 +570,15 @@ body:has(> #cookie-banner) {
 }
 .list-editor-item--dragging {
     opacity: 0.4;
+}
+/* Connected lists (issue #752): while an item is dragged, every list of
+   its group says it can take it — an empty one included, which keeps a
+   height worth aiming at. */
+.list-editor-items.sortable-drop-zone {
+    outline: 2px dashed var(--bs-primary-border-subtle);
+    outline-offset: 0.25rem;
+    border-radius: var(--bs-border-radius);
+    min-height: 3rem;
 }
 .list-editor-drag-handle:active {
     cursor: grabbing;
@@ -951,3 +995,4 @@ body:has(> #cookie-banner) {
 .min-w-0 {
     min-width: 0;
 }
+

@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
+use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Reminder\DueReminder;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Reminder\ReminderKind;
@@ -79,7 +80,18 @@ class RentalReminderService
          * The unit-wide defaults, one setting per reminder. Null falls back
          * to the values shipped in `ReminderKind::defaultDays()`.
          */
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /**
+         * Who hears about an asset — the rule a new request uses too
+         * (#708, IT-05). Null builds one with no Staff d'U fallback.
+         */
+        private ?ManagerRecipientResolver $recipientResolver = null,
+        /**
+         * The steps ticked by hand (#708, IT-14): a deposit paid in cash
+         * must not go on being chased as « acompte non reçu ». Null reads
+         * as no tick at all.
+         */
+        private ?\Modules\Rental\Repository\RentalMilestoneMarkRepository $markRepository = null
     ) {
     }
 
@@ -180,13 +192,28 @@ class RentalReminderService
                 continue;
             }
 
+            // A step ticked by hand counts exactly like the site's own
+            // answer (#708, IT-14): the reminder that chases it stops.
+            $marks = $this->markRepository?->findForBooking($booking->id) ?? [];
+            $ticked = array_keys($marks);
+            $inventory = $this->inventoryState($booking);
+            $inventory['arrival'] = $inventory['arrival']
+                || in_array(BookingMilestones::ARRIVAL_INVENTORY, $ticked, true);
+            $inventory['departure'] = $inventory['departure']
+                || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
+
             $due = $this->planner->forBooking(
                 $booking,
                 $asset,
-                $this->paymentStatus($booking, $asset),
-                $this->inventoryState($booking),
-                $this->documentService?->latest($booking->id, \Modules\Rental\Document\DocumentType::CONTRACT) !== null,
-                ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
+                self::withHandTicks($this->paymentStatus($booking, $asset), $marks),
+                $inventory,
+                in_array(BookingMilestones::CONTRACT_SENT, $ticked, true)
+                    || $this->documentService?->latest(
+                        $booking->id,
+                        \Modules\Rental\Document\DocumentType::CONTRACT
+                    ) !== null,
+                in_array(BookingMilestones::FINAL_SETTLEMENT, $ticked, true)
+                    || ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
                 $today,
                 $schedule = $this->scheduleFor($asset->id)
             );
@@ -290,11 +317,10 @@ class RentalReminderService
             return false;
         }
 
-        $recipients = $this->managersOf($reminder->assetId);
+        $recipients = $this->recipients()->recipientsFor($reminder->assetId, $reminder->kind->value);
         if ($recipients === []) {
-            // An asset with no manager who has ever logged in. Not an
-            // error — a unit may run entirely on email — but there is
-            // nobody to notify.
+            // Nobody on the asset nor on the Staff d'U with an account —
+            // journaled by the resolver; there is nobody to notify.
             return false;
         }
 
@@ -329,35 +355,14 @@ class RentalReminderService
         return $this->mailService->sendPracticalInfo($booking, $asset);
     }
 
-    /**
-     * The user accounts of the people who manage this asset.
-     *
-     * A manager with no account is skipped rather than guessed at: there is
-     * no notification to deliver to somebody who has never logged in, and
-     * inventing an email channel for them here would duplicate what the
-     * unit's own mail already does.
-     *
-     * @return array<int, array{userAccountId: int, memberId: ?int}>
-     */
-    private function managersOf(int $assetId): array
+    private function recipients(): ManagerRecipientResolver
     {
-        $recipients = [];
-
-        foreach ($this->managerRepository->findAllByAsset($assetId, true) as $manager) {
-            $blindIndex = $this->memberYearRepository->findMostRecentEmailBlindIndexForMember($manager->memberId);
-            if ($blindIndex === null || $blindIndex === '') {
-                continue;
-            }
-
-            $account = $this->userAccountRepository->findByBlindIndex($blindIndex);
-            if ($account === null) {
-                continue;
-            }
-
-            $recipients[$account->id] ??= ['userAccountId' => $account->id, 'memberId' => $manager->memberId];
-        }
-
-        return array_values($recipients);
+        return $this->recipientResolver ??= new ManagerRecipientResolver(
+            $this->managerRepository,
+            $this->memberYearRepository,
+            $this->userAccountRepository,
+            $this->journal
+        );
     }
 
     /**
@@ -409,6 +414,40 @@ class RentalReminderService
         }
 
         return ['arrival' => $arrival, 'departure' => $departure];
+    }
+
+    /**
+     * The payment status as the reminders read it, with the money steps a
+     * manager ticked by hand counted as settled (#708, IT-14).
+     *
+     * @param array<string, mixed> $payment
+     * @param array<string, array{marked_at: \DateTimeImmutable, marked_by_member_id: ?int}> $marks
+     * @return array<string, mixed>
+     */
+    private static function withHandTicks(array $payment, array $marks): array
+    {
+        $ticked = array_keys($marks);
+        if (in_array(BookingMilestones::DEPOSIT_RECEIVED, $ticked, true)) {
+            $payment['deposit_received'] = true;
+        }
+        if (in_array(BookingMilestones::BALANCE_RECEIVED, $ticked, true)) {
+            $payment['fully_paid'] = true;
+        }
+
+        $security = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
+        if (in_array(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $ticked, true)) {
+            $security['received_cents'] = max(
+                (int) ($security['received_cents'] ?? 0),
+                (int) ($security['amount_cents'] ?? 0)
+            );
+        }
+        $returned = $marks[BookingMilestones::SECURITY_DEPOSIT_RETURNED] ?? null;
+        if ($returned !== null) {
+            $security['returned_at'] ??= $returned['marked_at']->format('Y-m-d');
+        }
+        $payment['security_deposit'] = $security;
+
+        return $payment;
     }
 
     /**

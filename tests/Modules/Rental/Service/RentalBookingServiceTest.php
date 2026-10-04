@@ -122,7 +122,10 @@ class RentalBookingServiceTest extends TestCase
                 'privacy_text' => 'La politique de confidentialité.',
             ], $overrides['acceptances'] ?? []),
             $this->now($overrides['now'] ?? self::NOW),
-            $overrides['hold_hours'] ?? RentalBookingService::DEFAULT_AUTOMATIC_HOLD_HOURS
+            // Two days unless a test says otherwise: the expiry tests below
+            // run their clock a few days on, and read better against a short
+            // hold than against the 30-day default, which has its own test.
+            $overrides['hold_days'] ?? 2
         );
     }
 
@@ -654,23 +657,73 @@ class RentalBookingServiceTest extends TestCase
 
     public function testSubmissionPlacesAnAutomaticHold(): void
     {
-        $booking = $this->submit()['booking'];
+        $booking = $this->submit(['hold_days' => RentalBookingService::DEFAULT_AUTOMATIC_HOLD_DAYS])['booking'];
 
         $this->assertSame(HoldOrigin::AUTOMATIC, $booking->holdOrigin);
         $this->assertNotNull($booking->holdUntil);
-        $this->assertSame('2027-06-03 10:00:00', $booking->holdUntil->format('Y-m-d H:i:s'), '48 hours by default.');
+        $this->assertSame('2027-07-01 10:00:00', $booking->holdUntil->format('Y-m-d H:i:s'), '30 days by default.');
         $this->assertTrue($booking->holdIsActive($this->now()));
         $this->assertSame(BookingStatus::RECEIVED, $booking->status);
     }
 
     public function testTheHoldDurationIsConfigurableAndCanBeDisabled(): void
     {
-        $short = $this->submit(['hold_hours' => 6])['booking'];
-        $this->assertSame('2027-06-01 16:00:00', $short->holdUntil?->format('Y-m-d H:i:s'));
+        $short = $this->submit(['hold_days' => 6])['booking'];
+        $this->assertSame('2027-06-07 10:00:00', $short->holdUntil?->format('Y-m-d H:i:s'));
 
-        $none = $this->submit(['hold_hours' => 0])['booking'];
+        $none = $this->submit(['hold_days' => 0])['booking'];
         $this->assertNull($none->holdUntil);
         $this->assertNull($none->holdOrigin);
+    }
+
+    /**
+     * Never past the start of the stay (#708, IT-01): a request received on
+     * 1 June for a stay on the 10th is not told « jusqu'au 1er juillet ».
+     */
+    public function testTheHoldNeverRunsPastTheStartOfTheStay(): void
+    {
+        $booking = $this->submit([
+            'arrival' => '2027-06-10',
+            'departure' => '2027-06-12',
+            'hold_days' => 30,
+        ])['booking'];
+
+        $this->assertSame('2027-06-10 00:00:00', $booking->holdUntil?->format('Y-m-d H:i:s'));
+        $this->assertTrue($booking->holdIsActive($this->now('2027-06-09 23:00:00')));
+        $this->assertFalse($booking->holdIsActive($this->now('2027-06-10 00:00:00')));
+    }
+
+    public function testAStayAlreadyStartedGetsNoHold(): void
+    {
+        $this->assertNull(RentalBookingService::automaticHoldUntil(
+            $this->now('2027-06-10 08:00:00'),
+            '2027-06-10',
+            30
+        ));
+    }
+
+    /**
+     * The expiry task clears the deadline, but the booking still knows
+     * since when its dates are free, for the page's warning.
+     */
+    public function testALapsedAutomaticHoldIsRememberedForTheWarning(): void
+    {
+        $booking = $this->submit()['booking'];
+        $before = $this->repository->findById($booking->id);
+        $this->assertNotNull($before);
+        // Before the task runs, the deadline itself says it.
+        $this->assertSame('2027-06-03', $before->holdLapsedSince($this->now('2027-06-04 10:00:00'))?->format('Y-m-d'));
+
+        $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $after = $this->repository->findById($booking->id);
+        $this->assertNull($after?->holdUntil);
+        $this->assertSame('2027-06-03 10:00:00', $after?->holdLapsedAt?->format('Y-m-d H:i:s'));
+        $this->assertSame('2027-06-03', $after?->holdLapsedSince($this->now('2027-06-04 10:00:00'))?->format('Y-m-d'));
+
+        // A new hold — an option — makes the lapse old news.
+        $this->repository->setHold($booking->id, $this->now('2027-06-20 10:00:00'), HoldOrigin::MANAGER);
+        $this->assertNull($this->repository->findById($booking->id)?->holdLapsedAt);
     }
 
     public function testALapsedAutomaticHoldReleasesTheDatesWithoutEndingTheBooking(): void
@@ -700,6 +753,26 @@ class RentalBookingServiceTest extends TestCase
         $this->assertSame(BookingStatus::EXPIRED, $reloaded?->status);
         $this->assertNull($reloaded?->holdUntil);
         $this->assertNotNull($reloaded?->finalAt, 'Expiry is final, and starts the retention clock.');
+    }
+
+    /**
+     * Once the contract has gone out the unit has answered: an option that
+     * lapses frees the dates and the booking stays « Contrat envoyé »
+     * (#708, IT-13) — it is not expired behind the renter's back.
+     */
+    public function testALapsedOptionOnAContractSentReleasesTheDatesOnly(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->repository->setHold($booking->id, $this->now('2027-06-02 18:00:00'), HoldOrigin::MANAGER);
+        $this->repository->setStatus($booking->id, BookingStatus::CONTRACT_SENT, $this->now('2027-06-01 10:00:00'));
+
+        $result = $this->service->expireLapsedHolds($this->now('2027-06-04 10:00:00'));
+
+        $reloaded = $this->repository->findById($booking->id);
+        $this->assertSame(['released' => 1, 'expired' => 0], $result);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $reloaded?->status);
+        $this->assertNull($reloaded?->holdUntil);
+        $this->assertNotNull($reloaded?->holdLapsedSince($this->now('2027-06-04 10:00:00')), 'The page warns the dates are free.');
     }
 
     /**
@@ -918,9 +991,9 @@ class RentalBookingServiceTest extends TestCase
 
     public function testWithTheAutomaticHoldDisabledARequestNeverBlocksAnyone(): void
     {
-        // What `automatic_hold_hours = 0` says in as many words: "les dates
+        // What `automatic_hold_days = 0` says in as many words: "les dates
         // restent alors proposées à tout le monde jusqu'à la confirmation".
-        $this->submit(['hold_hours' => 0]);
+        $this->submit(['hold_days' => 0]);
 
         $this->assertCount(0, $this->service->findOccupancies(
             $this->assetId,
@@ -1074,17 +1147,78 @@ class RentalBookingServiceTest extends TestCase
         $booking = $this->submit()['booking'];
         $this->assertNull($booking->finalAt);
 
-        $this->repository->setStatus($booking->id, BookingStatus::REVIEWING, $this->now());
+        $this->repository->setStatus($booking->id, BookingStatus::INFO_REQUESTED, $this->now());
         $this->assertNull($this->repository->findById($booking->id)?->finalAt);
 
         $this->repository->setStatus($booking->id, BookingStatus::CLOSED, $this->now());
         $this->assertNotNull($this->repository->findById($booking->id)?->finalAt);
     }
 
+    /**
+     * « En cours d'examen » is gone (#708, IT-11). A row still carrying it
+     * must read back — as « Demande reçue », the state it really was: the
+     * request waits on the unit's decision.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusReadsAsReceived(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->repository->findById($booking->id)?->status);
+    }
+
+    /**
+     * Read back as RECEIVED, such a row must also be decided as one: the
+     * guarded write expecting RECEIVED would otherwise report a race that
+     * never happened, and the manager could not answer the request.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusCanBeDecided(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $this->assertTrue($this->repository->compareAndSetStatus(
+            $booking->id,
+            BookingStatus::RECEIVED,
+            BookingStatus::CONFIRMED,
+            $this->now()
+        ));
+        $this->assertSame(BookingStatus::CONFIRMED, $this->repository->findById($booking->id)?->status);
+        $this->assertFalse(
+            $this->repository->compareAndSetStatus($booking->id, BookingStatus::RECEIVED, BookingStatus::REFUSED, $this->now()),
+            'Once decided, the row no longer matches a RECEIVED expectation.'
+        );
+    }
+
+    /**
+     * Read as RECEIVED, such a row must also hold its dates and come back
+     * from a RECEIVED filter: an SQL `status IN (...)` built from the enum
+     * alone would drop it before hydrate() ever saw it.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusStillHoldsItsDates(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $occupying = $this->repository->findOccupyingBetween(
+            $booking->assetId,
+            $booking->arrivalDate,
+            $booking->departureDate
+        );
+        $this->assertSame([$booking->id], array_map(static fn($b) => $b->id, $occupying));
+        $this->assertSame(
+            [$booking->id],
+            array_map(
+                static fn($b) => $b->id,
+                $this->repository->findAllForAssets([$booking->assetId], BookingStatus::RECEIVED)
+            )
+        );
+    }
+
     public function testStatusHelpersAgreeWithTheSpecsLifecycle(): void
     {
         $this->assertTrue(BookingStatus::RECEIVED->needsAttention());
-        $this->assertTrue(BookingStatus::REVIEWING->needsAttention());
+        $this->assertTrue(BookingStatus::INFO_REQUESTED->needsAttention());
         $this->assertFalse(BookingStatus::CONFIRMED->needsAttention());
 
         $this->assertTrue(BookingStatus::CONFIRMED->occupiesTheAsset());

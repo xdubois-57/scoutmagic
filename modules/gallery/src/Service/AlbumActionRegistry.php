@@ -10,6 +10,7 @@ namespace Modules\Gallery\Service;
 
 use Modules\Gallery\Api\AlbumAction;
 use Modules\Gallery\Api\AlbumActionProviderInterface;
+use Modules\Gallery\Api\AlbumNote;
 
 /**
  * The actions other modules contribute to an album's management page
@@ -46,5 +47,29 @@ final class AlbumActionRegistry
         }
 
         return $actions;
+    }
+
+    /**
+     * The lines the providers want said when they are offering nothing —
+     * a button that vanishes without a word is not acceptable. Same
+     * forgiveness as above: a provider that throws is skipped.
+     *
+     * @return list<AlbumNote>
+     */
+    public function notes(int $albumId): array
+    {
+        $notes = [];
+        foreach ($this->providers as $provider) {
+            try {
+                $note = $provider->noteFor($albumId);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($note !== null) {
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
     }
 }

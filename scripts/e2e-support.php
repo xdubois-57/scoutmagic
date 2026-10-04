@@ -449,6 +449,11 @@ function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
         // is for. Without it the scan would see a site emitting neither
         // Secure cookies nor HSTS and would be right to say so.
         . "    'trust_forwarded_proto' => " . (e2eTrustForwardedProto() ? 'true' : 'false') . ",\n"
+        // HTTPS is required only behind scripts/dast-tls-proxy.php. `npm
+        // run e2e` is served over plain http:// on purpose, so it carries
+        // the explicit development exception (#751) rather than relying
+        // on a missing key, which production reads as "required".
+        . "    'https_required' => " . (e2eTrustForwardedProto() ? 'true' : 'false') . ",\n"
         . "];\n"
     );
 

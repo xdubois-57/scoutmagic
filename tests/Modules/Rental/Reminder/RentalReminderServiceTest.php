@@ -365,6 +365,82 @@ class RentalReminderServiceTest extends TestCase
         $this->assertSame([], $this->dispatched);
     }
 
+    /**
+     * The reminders follow the same rule as a new request (#708, IT-05):
+     * with nobody on the asset to tell, the Staff d'U is told.
+     */
+    public function testWithNoReachableManagerAReminderGoesToTheStaff(): void
+    {
+        $this->addManagerWithoutAccount('jamais.connecte@unite.be');
+        $staffMember = RentalTestHelper::insertMember($this->pdo, 'D-STAFFDU');
+        RentalTestHelper::insertMemberYear($this->pdo, $this->encryption, $staffMember, $this->scoutYearId, 'staffdu@unite.be');
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute([
+            $this->encryption->encrypt('staffdu@unite.be', 'user_accounts.email'),
+            $this->encryption->blindIndex('staffdu@unite.be', 'email'),
+        ]);
+        $staffAccount = (int) $this->pdo->lastInsertId();
+        $this->createBooking(arrival: '2027-07-10', departure: '2027-07-13');
+
+        $service = new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->notificationService(),
+            recipientResolver: new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new MemberYearRepository($this->pdo),
+                new UserAccountRepository($this->pdo, $this->encryption),
+                new JournalService(new JournalRepository($this->pdo)),
+                static fn(): array => [$staffMember]
+            )
+        );
+        $service->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertNotSame([], $this->dispatched);
+        foreach ($this->dispatched as $dispatch) {
+            $this->assertSame([$staffAccount], array_column($dispatch['recipients'], 'userAccountId'));
+        }
+    }
+
+    /**
+     * A step ticked by hand stops its reminder (#708, IT-14): the contract
+     * sent by e-mail is not chased as « Contrat non établi ».
+     */
+    public function testAStepTickedByHandIsNotChased(): void
+    {
+        $this->addManagerWithAccount('chef@unite.be');
+        $booking = $this->createBooking(arrival: '2027-07-10', departure: '2027-07-13');
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $marks->mark($booking->id, \Modules\Rental\Booking\BookingMilestones::CONTRACT_SENT, null, new \DateTimeImmutable('2027-06-20'));
+
+        $service = new RentalReminderService(
+            $this->bookingRepository,
+            $this->assetRepository,
+            $this->managerRepository,
+            $this->complianceService,
+            $this->reminderRepository,
+            new ReminderPlanner(),
+            new MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->notificationService(),
+            documentService: $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            markRepository: $marks
+        );
+        $service->run(new \DateTimeImmutable('2027-07-01'));
+
+        $this->assertNotContains(
+            ReminderKind::CONTRACT_MISSING->notificationTypeId(),
+            array_column($this->dispatched, 'typeId')
+        );
+    }
+
     public function testWithoutANotificationServiceNothingInternalIsClaimedAsSent(): void
     {
         // Nothing went out, so nothing has been said: the claim is released

@@ -18,6 +18,13 @@ final class ArticleAction
         public readonly string $label,
         public readonly string $url,
         public readonly string $icon,
+        /**
+         * Draw the icon alone, with the label as its accessible name and
+         * its tooltip, at a 44 × 44 touch target (design.md). For an
+         * action whose icon says it — « Partager » — beside controls that
+         * matter more on the page.
+         */
+        public readonly bool $iconOnly = false,
     ) {
     }
 }

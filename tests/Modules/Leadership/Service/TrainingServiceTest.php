@@ -540,6 +540,20 @@ class TrainingServiceTest extends TestCase
         $this->assertSame(0, $rows[1]['holders']);
     }
 
+    public function testDecidedLevelsSaysWhatTheSiteReadsWithoutTheDecision(): void
+    {
+        $rows = $this->service()->decidedLevels(
+            [
+                ['raw_value' => 'Brevet BACV', 'step' => 'woodbadge'],
+                ['raw_value' => 'Zorglub', 'step' => 't1'],
+            ],
+            self::SCOUT_YEAR_ID
+        );
+
+        $this->assertSame(FormationStep::BACV->label(), $rows[0]['fallback_label']);
+        $this->assertSame('', $rows[1]['fallback_label']);
+    }
+
     public function testDecidedLevelsSkipsAnUnparseableStoredStep(): void
     {
         $service = $this->service();

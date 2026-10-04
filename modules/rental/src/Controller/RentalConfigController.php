@@ -93,7 +93,12 @@ class RentalConfigController extends AbstractController
          * controller stays constructible in tests that do not care about
          * it — the module always wires one.
          */
-        private ?RentalPricingService $pricingService = null
+        private ?RentalPricingService $pricingService = null,
+        /**
+         * Who among the managers can be told about a request (#708, IT-05):
+         * each one who cannot is flagged, with the reason.
+         */
+        private ?\Modules\Rental\Service\ManagerRecipientResolver $recipientResolver = null
     ) {
         parent::__construct($twig);
     }
@@ -137,6 +142,13 @@ class RentalConfigController extends AbstractController
                 ? $this->managerService->listCandidates($scoutYearId)
                 : [],
             'manager_minimum_age' => $this->managerService->minimumAge(),
+            // Where a unit corrects it, rather than the day a request lands
+            // nowhere (#708, IT-05): who cannot be told, and why.
+            'unreachable_managers' => $selected !== null && $this->recipientResolver !== null
+                ? $this->recipientResolver->unreachableManagers($selected->id)
+                : [],
+            'managers_unreachable' => $selected !== null && $this->recipientResolver !== null
+                && !$this->recipientResolver->hasReachableManager($selected->id),
             'type_suggestions' => $this->typeSuggestions(),
             // Ids of the public, live assets that have no rate configured at
             // all — the one setup gap this page could not show and a visitor

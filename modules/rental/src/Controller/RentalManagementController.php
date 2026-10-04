@@ -28,6 +28,7 @@ use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Availability\ManagedCalendarDays;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
@@ -69,12 +70,14 @@ use Modules\Rental\Service\RentalComplianceService;
 use Modules\Rental\Service\RentalDocumentService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalMilestoneMarkService;
+use Modules\Rental\Service\RentalConditionsService;
 use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalPaymentService;
 use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStatisticsService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
+use Modules\Rental\Stay\InventoryKind;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Support;
@@ -114,6 +117,16 @@ class RentalManagementController extends AbstractController
      * years has hundreds, and the page used to render every one of them.
      */
     private const BOOKINGS_PER_PAGE = 25;
+
+    /**
+     * The address of each template's own page under Gabarits (#708, IT-10),
+     * in French like every other path of the module. The conditions have
+     * one too — `conditions` — but are no DocumentType.
+     */
+    private const TEMPLATE_DOCUMENT_SLUGS = [
+        'contract' => 'contrat',
+        'invoice' => 'facture',
+    ];
 
     /**
      * What a manager may attach to a booking (§6.24).
@@ -226,8 +239,18 @@ class RentalManagementController extends AbstractController
          */
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
         private ?SettingService $settingService = null,
-        /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
-        private ?RentalMilestoneMarkService $milestoneMarkService = null
+        /** A step completed by hand, from its disc (issue #462, #708 IT-14). */
+        private ?RentalMilestoneMarkService $milestoneMarkService = null,
+        /**
+         * Whether anybody on the asset can be told about a request (#708,
+         * IT-05) — the overview warns when nobody can. Null says nothing.
+         */
+        private ?\Modules\Rental\Service\ManagerRecipientResolver $recipientResolver = null,
+        /**
+         * The version of the conditions in force, which the Gabarits list
+         * dates (#708, IT-10). Without it the line simply has no date.
+         */
+        private ?RentalConditionsService $conditionsService = null
     ) {
         parent::__construct($twig);
     }
@@ -294,14 +317,6 @@ class RentalManagementController extends AbstractController
                 $this->scoutYearId()
             ),
             'deposit_modes' => DepositMode::all(),
-            // The conditions a renter ticks (§22.5). Never empty: the
-            // shipped standard Belgian body is the default, and the card
-            // says which of the two regimes is in force.
-            'conditions_html' => AssetConditions::textFor($this->editableContentService, $asset->id),
-            'conditions_are_standard' => AssetConditions::isStandard(
-                AssetConditions::textFor($this->editableContentService, $asset->id)
-            ),
-            'standard_conditions' => StandardTemplates::conditions(),
             // The « Rappels » section (§6.29): one line per reminder with
             // the value in force, and the unit's default written under an
             // empty field so the number a manager reads is the number that
@@ -378,98 +393,155 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/conformite-ajouter
+     * GET /mes-locations/{slug}/conformite/nouvelle and
+     * GET /mes-locations/{slug}/conformite/{id}/modifier — one register
+     * entry on its own page (#708, IT-09), like a shared document.
      *
      * @param array<string, string> $params
      */
-    public function addComplianceItem(Request $request, array $params): Response
+    public function complianceForm(Request $request, array $params): Response
     {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $fileId = $this->uploadComplianceFile($request, $asset);
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->complianceService === null) {
+            return $this->notFound();
+        }
 
-            $this->complianceService?->add(
-                $asset->id,
-                (string) $request->getBody('label', ''),
-                Support::optionalString($request->getBody('expires_on')),
-                Support::optionalString($request->getBody('remark')),
-                $fileId,
-                $this->actorMemberId()
-            );
-
-            FlashMessage::set('success', 'Entrée ajoutée au registre.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/conformite-modifier
-     *
-     * @param array<string, string> $params
-     */
-    public function updateComplianceItem(Request $request, array $params): Response
-    {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $itemId = (int) $request->getBody('item_id', 0);
-
-            $this->complianceService?->update(
-                $asset->id,
-                $itemId,
-                (string) $request->getBody('label', ''),
-                Support::optionalString($request->getBody('expires_on')),
-                Support::optionalString($request->getBody('remark')),
-                $this->actorMemberId()
-            );
-
-            $fileId = $this->uploadComplianceFile($request, $asset);
-            if ($fileId !== null) {
-                $this->complianceService?->attachFile($asset->id, $itemId, $fileId, $this->actorMemberId());
+        $entry = null;
+        if (isset($params['id'])) {
+            $entry = $this->complianceService->find($asset->id, (int) $params['id']);
+            if ($entry === null) {
+                return $this->notFound();
             }
+        }
 
-            FlashMessage::set('success', 'Entrée mise à jour.');
-        });
+        return $this->renderComplianceForm($asset, $entry, [
+            'label' => $entry->label ?? '',
+            'expires_on' => $entry->expiresOn ?? '',
+            'remark' => $entry->remark ?? '',
+        ], null);
     }
 
     /**
-     * POST /mes-locations/conformite-supprimer
+     * POST /mes-locations/{slug}/conformite/nouvelle and
+     * POST /mes-locations/{slug}/conformite/{id}/modifier — back to the
+     * list once saved; on a refusal, the same page with what was typed.
      *
      * @param array<string, string> $params
      */
-    public function deleteComplianceItem(Request $request, array $params): Response
-    {
-        return $this->complianceAction($request, function (RentalAsset $asset) use ($request): void {
-            $this->complianceService?->delete(
-                $asset->id,
-                (int) $request->getBody('item_id', 0),
-                $this->actorMemberId()
-            );
-
-            FlashMessage::set('success', 'Entrée supprimée.');
-        });
-    }
-
-    /**
-     * The register's own action shape: same guards as `bookingAction()`,
-     * but back to the compliance page and without a booking.
-     *
-     * @param callable(RentalAsset): void $work
-     */
-    private function complianceAction(Request $request, callable $work): Response
+    public function complianceSave(Request $request, array $params): Response
     {
         if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
             return $guard;
         }
 
-        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        $asset = $this->manageableAsset($params);
         if ($asset === null || $this->complianceService === null) {
             return $this->notFound();
         }
 
+        $entry = null;
+        if (isset($params['id'])) {
+            $entry = $this->complianceService->find($asset->id, (int) $params['id']);
+            if ($entry === null) {
+                return $this->notFound();
+            }
+        }
+
+        $values = [
+            'label' => (string) $request->getBody('label', ''),
+            'expires_on' => (string) $request->getBody('expires_on', ''),
+            'remark' => (string) $request->getBody('remark', ''),
+        ];
+
         try {
-            $work($asset);
+            $fileId = $this->uploadComplianceFile($request, $asset);
+            if ($entry === null) {
+                $this->complianceService->add(
+                    $asset->id,
+                    $values['label'],
+                    Support::optionalString($values['expires_on']),
+                    Support::optionalString($values['remark']),
+                    $fileId,
+                    $this->actorMemberId()
+                );
+                FlashMessage::set('success', 'Entrée ajoutée au registre.');
+            } else {
+                $this->complianceService->update(
+                    $asset->id,
+                    $entry->id,
+                    $values['label'],
+                    Support::optionalString($values['expires_on']),
+                    Support::optionalString($values['remark']),
+                    $this->actorMemberId()
+                );
+                if ($fileId !== null) {
+                    $this->complianceService->attachFile($asset->id, $entry->id, $fileId, $this->actorMemberId());
+                }
+                FlashMessage::set('success', 'Entrée mise à jour.');
+            }
         } catch (RentalException | UploadException $e) {
-            FlashMessage::set('error', $e->getMessage());
+            return $this->renderComplianceForm($asset, $entry, $values, $e->getMessage())->setStatusCode(422);
         }
 
         return $this->redirect('/mes-locations/' . $asset->slug . '/conformite');
+    }
+
+    /**
+     * POST /mes-locations/{slug}/conformite/supprimer — the list editor's
+     * bin (#708, IT-09): JSON in, `{success}` out, the page reloads.
+     *
+     * @param array<string, string> $params
+     */
+    public function complianceDelete(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null || $this->complianceService === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+
+        try {
+            $this->complianceService->delete($asset->id, (int) ($data['id'] ?? 0), $this->actorMemberId());
+        } catch (RentalException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        FlashMessage::set('success', 'Entrée supprimée.');
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * @param array{label: string, expires_on: string, remark: string} $values
+     */
+    private function renderComplianceForm(
+        RentalAsset $asset,
+        ?\Modules\Rental\Compliance\ComplianceItem $entry,
+        array $values,
+        ?string $error
+    ): Response {
+        return $this->render('@rental/management/compliance_form.html.twig', [
+            'asset' => $asset,
+            'entry' => $entry,
+            'values' => $values,
+            'error' => $error,
+            'label_suggestions' => $this->complianceService?->labelSuggestions() ?? [],
+            'breadcrumb_current' => $entry !== null ? $entry->label : 'Ajouter une entrée',
+            'breadcrumb_trail' => array_merge(
+                $this->assetSubPageTrail($asset),
+                [['label' => 'Conformité', 'url' => '/mes-locations/' . $asset->slug . '/conformite']]
+            ),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'compliance',
+        ]);
     }
 
     /**
@@ -578,12 +650,15 @@ class RentalManagementController extends AbstractController
         // per booking: this page legitimately shows every asset a manager
         // runs, and « À traiter » now asks a question about each of them
         // (§22.5).
+        $now = new \DateTimeImmutable();
         $attention = BookingAttention::from(
             $bookings,
             $this->changeRequestRepository->findPendingForBookings(array_map(
                 static fn(RentalBooking $booking) => $booking->id,
                 $bookings
-            ))
+            )),
+            $this->nextSteps($bookings, $assets, $now),
+            $now
         );
 
         $countsByAsset = [];
@@ -621,6 +696,15 @@ class RentalManagementController extends AbstractController
             $bookings
         ));
 
+        // The step each booking's page puts forward (#708, IT-12): « À
+        // traiter » and its figure read it, so the list and the page agree.
+        $attention = BookingAttention::from(
+            $bookings,
+            $pendingChangeRequests,
+            $this->nextSteps($bookings, [$asset], $now),
+            $now
+        );
+
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             // A public asset with no rate at all answers every visitor
@@ -637,7 +721,7 @@ class RentalManagementController extends AbstractController
             // carrying a change request nobody has answered is exactly a
             // thing to deal with, and used to appear on no list at all
             // (Booking\BookingAttention).
-            'needs_attention' => BookingAttention::from($bookings, $pendingChangeRequests),
+            'needs_attention' => $attention,
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
@@ -646,7 +730,11 @@ class RentalManagementController extends AbstractController
             // The three figures of §6.34, read from the live bookings AND
             // the anonymous aggregates a purge left behind — otherwise the
             // year's revenue drops to zero the morning the purge runs.
-            'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
+            'statistics' => $this->statisticsService?->forAsset($asset->id, $now, count($attention)),
+            // Requests and reminders go to the Staff d'U when nobody on the
+            // asset can be told (#708, IT-05): said where it can be fixed.
+            'managers_unreachable' => $this->recipientResolver !== null
+                && !$this->recipientResolver->hasReachableManager($asset->id),
             'nav_page' => 'overview',
         ]);
     }
@@ -683,20 +771,29 @@ class RentalManagementController extends AbstractController
         // means the same thing here as on the overview, which is the whole
         // reason Booking\BookingAttention exists rather than four copies of
         // one condition.
-        $pendingChangeRequests = $filter === 'a_traiter'
-            ? $this->changeRequestRepository->findPendingForBookings(array_map(
-                static fn(RentalBooking $b) => $b->id,
-                $all
-            ))
-            : [];
+        $toDeal = [];
+        if ($filter === 'a_traiter') {
+            $now = new \DateTimeImmutable();
+            foreach (BookingAttention::from(
+                $all,
+                $this->changeRequestRepository->findPendingForBookings(array_map(
+                    static fn(RentalBooking $b) => $b->id,
+                    $all
+                )),
+                $this->nextSteps($all, [$asset], $now),
+                $now
+            ) as $one) {
+                $toDeal[$one->booking->id] = true;
+            }
+        }
         $matching = array_values(array_filter($all, static function (RentalBooking $b) use (
             $filter,
             $status,
             $year,
             $search,
-            $pendingChangeRequests
+            $toDeal
         ): bool {
-            if ($filter === 'a_traiter' && BookingAttention::of($b, $pendingChangeRequests[$b->id] ?? []) === null) {
+            if ($filter === 'a_traiter' && !isset($toDeal[$b->id])) {
                 return false;
             }
             if ($status !== null && $b->status !== $status) {
@@ -851,17 +948,97 @@ class RentalManagementController extends AbstractController
             $now
         );
 
-        return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+        return BookingMilestones::for(
+            $booking,
+            $now,
+            $evidence->done,
+            $evidence->details,
+            $evidence->offsite,
+            $evidence->manual
+        );
     }
 
     /**
-     * POST /mes-locations/etape — « Marquer comme fait » on a step the site
-     * cannot derive (issue #462, D5), or « Remettre à faire ».
+     * The step each live booking's page puts forward, and — when it is the
+     * renter's — the deadline its reminder runs on (#708, IT-12): what « À
+     * traiter » reads, from the very derivation the booking's page shows.
+     * Final bookings are skipped: they are never on the list.
      *
-     * The journey decides whether the step may be ticked here, not the
-     * form: the step must be ticked by hand ON THIS BOOKING — an inventory
-     * the stay page records is never ticked beside it — and in a stretch the
-     * booking has reached. A hand-made POST for anything else is refused.
+     * @param RentalBooking[] $bookings
+     * @param RentalAsset[] $assets the assets they belong to
+     * @return array<int, array{
+     *     next: ?\Modules\Rental\Booking\BookingMilestone,
+     *     deadline: ?\Modules\Rental\Reminder\RenterDeadline
+     * }>
+     */
+    private function nextSteps(array $bookings, array $assets, \DateTimeImmutable $now): array
+    {
+        $assetsById = [];
+        foreach ($assets as $asset) {
+            $assetsById[$asset->id] = $asset;
+        }
+
+        $schedules = [];
+        $steps = [];
+        foreach ($bookings as $booking) {
+            $asset = $assetsById[$booking->assetId] ?? null;
+            if ($asset === null || $booking->status->isFinal()) {
+                continue;
+            }
+
+            $payment = $this->paymentStatus($booking, $asset);
+            $next = BookingJourney::of(
+                $this->milestonesOf(
+                    $booking,
+                    $asset,
+                    $this->documentService?->forBooking($booking->id),
+                    $payment,
+                    $now
+                ),
+                $booking->status
+            )->next();
+
+            $deadline = null;
+            if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+                $schedules[$asset->id] ??= ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                );
+                $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                    $next->key,
+                    $booking,
+                    $payment,
+                    $schedules[$asset->id]
+                );
+            }
+
+            $steps[$booking->id] = ['next' => $next, 'deadline' => $deadline];
+        }
+
+        return $steps;
+    }
+
+    /**
+     * POST /mes-locations/etape — complete a step by hand, or reopen one
+     * completed by hand (#708, IT-14).
+     *
+     * Not good practice, and the page's confirmation says so: things happen
+     * away from the site — a contract accepted by e-mail, a deposit paid in
+     * cash — and the manager has to be able to say so. The tick counts
+     * exactly like the site's own answer: next action, « À traiter », and
+     * the reminders, which stop chasing it.
+     *
+     * The journey decides, not the form: the step must be one this booking
+     * shows, in a stretch it has reached, still to do (to tick) or ticked
+     * by hand (to reopen) — a step the site completed itself never reopens,
+     * and a status step (« Réservation confirmée », « Location clôturée »)
+     * is never ticked: its disc runs the transition. A hand-made POST for
+     * anything else is refused.
+     *
+     * « Contrat envoyé » ticked by hand has the effects of a real send:
+     * the status, and the dates held while the renter signs. Reopened, it
+     * puts the booking back to « Demande reçue » if it still is « Contrat
+     * envoyé »; the hold is not shortened.
      *
      * @param array<string, string> $params
      */
@@ -869,10 +1046,11 @@ class RentalManagementController extends AbstractController
     {
         $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->milestoneMarkService === null) {
-                throw new RentalException("Cette étape ne peut pas être marquée ici.");
+                throw new RentalException('Cette étape ne peut pas être marquée ici.');
             }
 
             $key = (string) $request->getBody('milestone_key', '');
+            $done = (string) $request->getBody('done', '') === '1';
             $now = new \DateTimeImmutable();
             $milestones = $this->milestonesOf(
                 $booking,
@@ -887,11 +1065,11 @@ class RentalManagementController extends AbstractController
                     if ($milestone->key !== $key) {
                         continue;
                     }
-                    if (!$milestone->kind->isMarkable() || !$milestone->isApplicable || $phase->isFuture) {
+                    $allowed = $done ? $milestone->canBeCompletedByHand() : $milestone->canBeReopened();
+                    if (!$allowed || $phase->isFuture) {
                         break 2;
                     }
 
-                    $done = (string) $request->getBody('done', '') === '1';
                     $this->milestoneMarkService->set(
                         $booking,
                         $key,
@@ -900,18 +1078,39 @@ class RentalManagementController extends AbstractController
                         $this->actorMemberId(),
                         $now
                     );
+
+                    if ($key === BookingMilestones::CONTRACT_SENT) {
+                        if ($done) {
+                            $this->operationsService->contractSent(
+                                $booking,
+                                $this->actorMemberId(),
+                                $now,
+                                $this->contractHoldMinDays()
+                            );
+                        } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
+                            $this->operationsService->changeStatus(
+                                $booking,
+                                BookingStatus::RECEIVED,
+                                $this->actorMemberId(),
+                                $now
+                            );
+                        }
+                    }
+
                     FlashMessage::set(
                         'success',
                         $done
                             ? '« ' . $milestone->label . ' » est marqué comme fait.'
-                            : '« ' . $milestone->label . ' » est remis à faire.'
+                            : '« ' . $milestone->label . ' » est rouvert : l\'étape est de nouveau à faire.'
                     );
 
                     return;
                 }
             }
 
-            throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
+            throw new RentalException($done
+                ? 'Cette étape ne peut pas être cochée à la main sur cette réservation.'
+                : 'Seule une étape cochée à la main peut être rouverte.');
         };
 
         return $this->bookingAction($request, $work);
@@ -1547,7 +1746,19 @@ class RentalManagementController extends AbstractController
                 $document->originalName ?? 'document.pdf',
                 $document->hasBeenSent()
             );
-            $this->documentService->markSent($document->id, new \DateTimeImmutable());
+            $now = new \DateTimeImmutable();
+            $this->documentService->markSent($document->id, $now);
+
+            // The contract is the unit's answer (#708, IT-13): « Contrat
+            // envoyé », and the dates held while the renter signs.
+            if ($document->type === DocumentType::CONTRACT) {
+                $this->operationsService->contractSent(
+                    $booking,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->contractHoldMinDays()
+                );
+            }
 
             FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');
         });
@@ -1749,11 +1960,22 @@ class RentalManagementController extends AbstractController
             // "Date passée" — hiding the very bookings the calendar exists
             // to show. Same for a day inside the notice period, which is not
             // in the past at all.
-            discloseOccupancy: true
+            discloseOccupancy: true,
+            // The unit's own blocks are laid over the bookings rather than
+            // merged into them, so a day shows both and a gesture can tell
+            // which days the unit holds (#708, IT-07).
+            withoutUnitBlocks: true
         );
 
         $from = $window->firstDay()->modify('-7 days');
         $to = $window->lastDay()->modify('+7 days');
+        $states = (new ManagedCalendarDays())->decorate(
+            $states,
+            $this->blockService->between($asset->id, $from, $to),
+            $window->year,
+            $window->month,
+            $today
+        );
 
         return $this->render('@rental/management/calendar.html.twig', [
             'asset' => $asset,
@@ -1770,6 +1992,8 @@ class RentalManagementController extends AbstractController
                 $today
             ),
             'calendar_label' => $window->label(),
+            'calendar_month' => sprintf('%04d-%02d', $window->year, $window->month),
+            'today' => $today->format('Y-m-d'),
             'previous_month' => $window->previous(),
             'next_month' => $window->next(),
             // The three are listed separately rather than merged into one
@@ -1805,51 +2029,48 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
-        $templates = [];
+        // The editable documents as a LIST (#708, IT-10): their state, a
+        // signal when a keyword is not recognised, and a pencil to their own
+        // page — never the three editors stacked on one screen.
+        $documents = [];
         foreach ([DocumentType::CONTRACT, DocumentType::INVOICE] as $type) {
-            // The editor shows the text generation would actually use: the
-            // asset's own wording, or the shipped standard while nobody has
-            // written any — never an empty surface asking a volunteer to
-            // write a rental contract from nothing.
             $body = $this->documentService->templateOrStandard($asset, $type);
-            $templates[] = [
-                'type' => $type,
-                'body' => $body,
-                // Drives the note vs. the "réinitialiser" button. Compared
-                // ignoring whitespace: the sanitizer may reflow what a reset
-                // stored, and a no-op reset button on a standard template is
-                // the harmless direction to fail in.
-                'is_standard' => self::isStandardBody($body, StandardTemplates::forType($type)),
-                'unknown_keywords' => DocumentKeywords::unknownIn($body),
+            $documents[] = [
+                'id' => self::TEMPLATE_DOCUMENT_SLUGS[$type->value],
+                'label' => $type->label(),
+                'state' => self::isStandardBody($body, StandardTemplates::forType($type))
+                    ? 'Modèle standard'
+                    : 'Personnalisé',
+                'since' => null,
+                'has_unknown_keywords' => DocumentKeywords::unknownIn($body) !== [],
             ];
         }
+
+        $conditionsHtml = AssetConditions::textFor($this->editableContentService, $asset->id);
+        $documents[] = [
+            'id' => 'conditions',
+            'label' => 'Conditions de location',
+            'state' => AssetConditions::isStandard($conditionsHtml) ? 'Conditions standard' : 'Personnalisées',
+            // The conditions are versioned, not copied: the date of the
+            // version in force is what tells a manager which text a renter
+            // is accepting today.
+            'since' => $this->conditionsService?->current($asset->id)->createdAt,
+            'has_unknown_keywords' => false,
+        ];
 
         return $this->render('@rental/management/templates.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Gabarits',
             'breadcrumb_trail' => $this->assetSubPageTrail($asset),
-            'templates' => $templates,
-            // The ready-to-use Belgian bodies, offered on the page rather
-            // than applied behind anybody's back: an empty editor asks a
-            // volunteer to write a rental contract from nothing, which in
-            // practice means either no contract or one copied from whatever
-            // the previous chief had on a USB stick.
-            'standard_templates' => [
-                DocumentType::CONTRACT->value => StandardTemplates::forType(DocumentType::CONTRACT),
-                DocumentType::INVOICE->value => StandardTemplates::forType(DocumentType::INVOICE),
-            ],
-            'keywords' => DocumentKeywords::catalogue(),
-            'vat_note' => $asset->vatExemptionNote,
+            'documents' => $documents,
             // Meters and the inventory checklist share this page because
             // all three are "what this asset needs before a stay can be
             // settled" (§6.22, §6.23).
             'meters' => $this->stayService?->metersFor($asset->id) ?? [],
             'meter_kinds' => \Modules\Rental\Stay\MeterKind::all(),
-            'meter_fees' => array_values(array_filter(
-                $this->pricingService->loadSettings($asset->id)->fees,
-                static fn($fee) => $fee->nature === \Modules\Rental\Pricing\RentalFee::NATURE_METER
-            )),
+            'meter_fees' => $this->meterFees($asset->id),
             'inventory_template' => $this->stayService?->inventoryTemplateFor($asset->id) ?? [],
+            'inventory_kinds' => InventoryKind::cases(),
             // Calendar publication (§6.30). With the module off there is
             // nothing to publish onto, and the section says so.
             'calendar_available' => $this->calendarDirectory !== null,
@@ -1862,6 +2083,93 @@ class RentalManagementController extends AbstractController
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
         ]);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/gabarits/{document} — one editable document
+     * on its own page (#708, IT-10), on the model of a booking's document
+     * page: the editor, and the keywords that document can use shown open.
+     *
+     * `contrat` and `facture` are templates a booking copies; `conditions`
+     * are published and versioned, take no keywords, and are saved by
+     * Controller\RentalPricingController::saveConditions().
+     *
+     * @param array<string, string> $params
+     */
+    public function templateDocument(Request $request, array $params): Response
+    {
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return $this->notFound();
+        }
+
+        $slug = (string) ($params['document'] ?? '');
+        $trail = array_merge($this->assetSubPageTrail($asset), [
+            ['label' => 'Gabarits', 'url' => '/mes-locations/' . $asset->slug . '/gabarits'],
+        ]);
+
+        if ($slug === 'conditions') {
+            $conditionsHtml = AssetConditions::textFor($this->editableContentService, $asset->id);
+
+            return $this->render('@rental/management/template_conditions.html.twig', [
+                'asset' => $asset,
+                'breadcrumb_current' => 'Conditions de location',
+                'breadcrumb_trail' => $trail,
+                // Never empty: the shipped standard Belgian body is the
+                // default, and the page says which of the two is in force.
+                'conditions_html' => $conditionsHtml,
+                'conditions_are_standard' => AssetConditions::isStandard($conditionsHtml),
+                'standard_conditions' => StandardTemplates::conditions(),
+                'current_version' => $this->conditionsService?->current($asset->id),
+                'csrf_token' => CsrfGuard::generateToken(),
+                'nav_page' => 'templates',
+            ]);
+        }
+
+        $typeValue = array_search($slug, self::TEMPLATE_DOCUMENT_SLUGS, true);
+        $type = is_string($typeValue) ? DocumentType::tryFrom($typeValue) : null;
+        if ($type === null || $this->documentService === null) {
+            return $this->notFound();
+        }
+
+        // The editor shows the text generation would actually use: the
+        // asset's own wording, or the shipped standard while nobody has
+        // written any — never an empty surface asking a volunteer to write
+        // a rental contract from nothing.
+        $body = $this->documentService->templateOrStandard($asset, $type);
+
+        return $this->render('@rental/management/template_document.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_current' => $type->label(),
+            'breadcrumb_trail' => $trail,
+            'document_type' => $type,
+            'body' => $body,
+            // Drives the note vs. the "réinitialiser" button. Compared
+            // ignoring whitespace: the sanitizer may reflow what a reset
+            // stored, and a no-op reset button on a standard template is the
+            // harmless direction to fail in.
+            'is_standard' => self::isStandardBody($body, StandardTemplates::forType($type)),
+            'standard' => StandardTemplates::forType($type),
+            'unknown_keywords' => DocumentKeywords::unknownIn($body),
+            'keywords' => DocumentKeywords::catalogue(),
+            'vat_note' => $asset->vatExemptionNote,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'nav_page' => 'templates',
+        ]);
+    }
+
+    /**
+     * The fees a meter may be priced by: those of nature « relevé de
+     * compteur ».
+     *
+     * @return \Modules\Rental\Pricing\RentalFee[]
+     */
+    private function meterFees(int $assetId): array
+    {
+        return array_values(array_filter(
+            $this->pricingService->loadSettings($assetId)->fees,
+            static fn($fee) => $fee->nature === \Modules\Rental\Pricing\RentalFee::NATURE_METER
+        ));
     }
 
     /**
@@ -1884,7 +2192,9 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/compteur — add or retire a meter (§6.22).
+     * POST /mes-locations/{slug}/gabarits/compteurs — adds a meter,
+     * without reloading the page (#708, IT-10): JSON in, the new row's HTML
+     * out, which the list inserts in place.
      *
      * In the managed space, like the contract templates: what is metered on
      * a hall is its managers' business, and they are not necessarily chiefs
@@ -1892,86 +2202,203 @@ class RentalManagementController extends AbstractController
      *
      * @param array<string, string> $params
      */
-    public function saveMeter(Request $request, array $params): Response
+    public function addMeter(Request $request, array $params): Response
     {
-        return $this->assetSetupAction($request, function (RentalAsset $asset) use ($request): void {
-            if ((string) $request->getBody('meter_action', '') === 'retire') {
-                $this->stayService?->retireMeter($asset->id, (int) $request->getBody('meter_id', 0));
-                FlashMessage::set(
-                    'success',
-                    'Compteur retiré. Les relevés déjà pris restent, ils servent de preuve.'
-                );
-
-                return;
-            }
-
-            $feeId = (int) $request->getBody('fee_id', 0);
-            $this->stayService?->addMeter(
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $feeId = (int) ($data['fee_id'] ?? 0);
+            $meterId = $this->requireStayService()->addMeter(
                 $asset->id,
-                (string) $request->getBody('label', ''),
-                \Modules\Rental\Stay\MeterKind::tryFrom((string) $request->getBody('kind', ''))
+                (string) ($data['label'] ?? ''),
+                \Modules\Rental\Stay\MeterKind::tryFrom((string) ($data['kind'] ?? ''))
                     ?? \Modules\Rental\Stay\MeterKind::OTHER,
-                (string) $request->getBody('unit', ''),
-                $feeId > 0 ? $feeId : null,
-                (int) $request->getBody('sort_order', 0)
+                (string) ($data['unit'] ?? ''),
+                $feeId > 0 ? $feeId : null
             );
 
-            FlashMessage::set('success', 'Compteur ajouté.');
+            $meters = array_values(array_filter(
+                $this->requireStayService()->metersFor($asset->id),
+                static fn($meter) => $meter->id === $meterId
+            ));
+
+            return $this->json([
+                'success' => true,
+                'message' => 'Compteur ajouté.',
+                'html' => $this->renderToString('@rental/management/_meter_list.html.twig', [
+                    'asset' => $asset,
+                    'meters' => $meters,
+                    'meter_kinds' => \Modules\Rental\Stay\MeterKind::all(),
+                    'meter_fees' => $this->meterFees($asset->id),
+                ]),
+            ]);
         });
     }
 
     /**
-     * POST /mes-locations/inventaire-modele — the asset's checklist (§6.23).
+     * POST /mes-locations/{slug}/gabarits/compteurs/retirer — retires a
+     * meter rather than deleting it: readings already taken are evidence.
      *
      * @param array<string, string> $params
      */
-    public function saveInventoryTemplate(Request $request, array $params): Response
+    public function retireMeter(Request $request, array $params): Response
     {
-        return $this->assetSetupAction($request, function (RentalAsset $asset) use ($request): void {
-            if ((string) $request->getBody('item_action', '') === 'remove') {
-                $this->stayService?->removeInventoryItem((int) $request->getBody('item_id', 0));
-                FlashMessage::set(
-                    'success',
-                    'Élément retiré du modèle. Les états des lieux déjà figés ne changent pas.'
-                );
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $this->requireStayService()->retireMeter($asset->id, (int) ($data['id'] ?? 0));
 
-                return;
-            }
-
-            $this->stayService?->addInventoryItem(
-                $asset->id,
-                (string) $request->getBody('label', ''),
-                (int) $request->getBody('sort_order', 0)
-            );
-
-            FlashMessage::set('success', 'Élément ajouté au modèle.');
+            return $this->json([
+                'success' => true,
+                'message' => 'Compteur retiré. Les relevés déjà pris restent, ils servent de preuve.',
+            ]);
         });
     }
 
     /**
-     * The shared shape of an asset-level setup write: CSRF, authorisation,
-     * the work, back to the templates page.
+     * POST /mes-locations/{slug}/gabarits/etat-des-lieux — adds an item at
+     * the end of the asset's checklist (#708, IT-10).
      *
-     * @param callable(RentalAsset): void $work
+     * @param array<string, string> $params
      */
-    private function assetSetupAction(Request $request, callable $work): Response
+    public function addInventoryItem(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $kind = InventoryKind::tryFrom((string) ($data['kind'] ?? '')) ?? InventoryKind::QUANTITY;
+            $itemId = $this->requireStayService()->addInventoryItem(
+                $asset->id,
+                (string) ($data['label'] ?? ''),
+                $kind,
+                self::countFrom($data['expected_count'] ?? null)
+            );
+            $item = $this->requireStayService()->inventoryItem($asset->id, $itemId);
+
+            return $this->json([
+                'success' => true,
+                'message' => 'Élément ajouté au modèle.',
+                'html' => $this->renderToString('@rental/management/_inventory_list.html.twig', [
+                    'asset' => $asset,
+                    'inventory_template' => $item !== null ? [$item] : [],
+                    'inventory_kinds' => InventoryKind::cases(),
+                ]),
+            ]);
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/gabarits/etat-des-lieux/modifier — an
+     * item's sort or expected count, edited in place in its row.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateInventoryItem(Request $request, array $params): Response
+    {
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $kind = InventoryKind::tryFrom((string) ($data['kind'] ?? ''));
+            if ($kind === null) {
+                throw new RentalException('Choisissez « Quantité » ou « Oui / Non ».');
+            }
+
+            $this->requireStayService()->updateInventoryItem(
+                $asset->id,
+                (int) ($data['id'] ?? 0),
+                $kind,
+                self::countFrom($data['expected_count'] ?? null)
+            );
+
+            return $this->json(['success' => true]);
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/gabarits/etat-des-lieux/ordre — the order
+     * the manager dragged the checklist into, saved in the background.
+     *
+     * @param array<string, string> $params
+     */
+    public function reorderInventory(Request $request, array $params): Response
+    {
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $ids = IntegerInput::idList(is_array($data['ids'] ?? null) ? $data['ids'] : []);
+            if ($ids === null) {
+                throw new RentalException('Ordre invalide.');
+            }
+
+            $this->requireStayService()->reorderInventory($asset->id, $ids);
+
+            return $this->json(['success' => true]);
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/gabarits/etat-des-lieux/retirer
+     *
+     * @param array<string, string> $params
+     */
+    public function removeInventoryItem(Request $request, array $params): Response
+    {
+        return $this->assetSetupJson($request, $params, function (RentalAsset $asset, array $data): Response {
+            $this->requireStayService()->removeInventoryItem($asset->id, (int) ($data['id'] ?? 0));
+
+            return $this->json([
+                'success' => true,
+                'message' => 'Élément retiré du modèle. Les états des lieux déjà figés ne changent pas.',
+            ]);
+        });
+    }
+
+    /**
+     * The shared shape of an asset-level setup write on the Gabarits page:
+     * JSON body, CSRF, authorisation, the work — a refusal in French as a
+     * 422 the list shows in a toast.
+     *
+     * @param array<string, string> $params
+     * @param callable(RentalAsset, array<mixed>): Response $work
+     */
+    private function assetSetupJson(Request $request, array $params, callable $work): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
             return $guard;
         }
 
-        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
+        $asset = $this->manageableAsset($params);
         if ($asset === null || $this->stayService === null) {
-            return $this->notFound();
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
         }
 
         try {
-            $work($asset);
+            return $work($asset, $data);
         } catch (RentalException $e) {
-            FlashMessage::set('error', $e->getMessage());
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+    }
+
+    private function requireStayService(): RentalStayService
+    {
+        // assetSetupJson() answers 404 before any work runs without it.
+        return $this->stayService ?? throw new \LogicException('The stay service is not wired.');
+    }
+
+    /**
+     * An expected count as typed: null when the field was left empty, so
+     * the sort's default applies; otherwise the integer, which the service
+     * checks. A non-number is refused rather than read as zero.
+     *
+     * @throws RentalException
+     */
+    private static function countFrom(mixed $value): ?int
+    {
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return null;
         }
 
-        return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
+        $count = filter_var(is_string($value) ? trim($value) : $value, FILTER_VALIDATE_INT);
+        if ($count === false) {
+            throw new RentalException('Le nombre attendu doit être un nombre entier d\'au moins 1.');
+        }
+
+        return $count;
     }
 
     /**
@@ -2320,7 +2747,21 @@ class RentalManagementController extends AbstractController
             $word = Support::optionalString($request->getBody('message'));
 
             if ($target === BookingStatus::CONFIRMED) {
-                $this->operationsService->confirm($booking, $asset, $this->actorMemberId(), $now);
+                // The journey the page shows: confirming waits for the
+                // agreement to be complete (#708, IT-13).
+                $this->operationsService->confirm(
+                    $booking,
+                    $asset,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->milestonesOf(
+                        $booking,
+                        $asset,
+                        $this->documentService?->forBooking($booking->id),
+                        $this->paymentStatus($booking, $asset),
+                        $now
+                    )
+                );
                 FlashMessage::set(
                     'success',
                     'Réservation confirmée.'
@@ -2581,11 +3022,89 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/blocage — a manual block (§6.18).
+     * POST /mes-locations/{slug}/calendrier/jours — block or release days
+     * straight on the calendar (#708, IT-07), as JSON.
+     *
+     * One request per gesture, at release: the days and the mode. The
+     * service turns them back into periods and answers with what actually
+     * changed — each day with its reason, which is what « Annuler » sends
+     * back — and the list under the grid is re-rendered from the same
+     * partial the page uses.
      *
      * @param array<string, string> $params
      */
-    public function createBlock(Request $request, array $params): Response
+    public function calendarDays(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+
+        $days = array_values(array_filter(
+            is_array($data['days'] ?? null) ? $data['days'] : [],
+            'is_string'
+        ));
+        $reasons = [];
+        if (is_array($data['reasons'] ?? null)) {
+            foreach ($data['reasons'] as $day => $reason) {
+                if (is_string($day) && (is_string($reason) || $reason === null)) {
+                    $reasons[$day] = $reason;
+                }
+            }
+        }
+
+        $today = new \DateTimeImmutable('today');
+        try {
+            $changed = $this->blockService->applyDays(
+                $asset->id,
+                $days,
+                (string) ($data['mode'] ?? ''),
+                $reasons,
+                $today,
+                $this->actorMemberId()
+            );
+        } catch (RentalException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            // An object, even when empty: the page reads its keys.
+            'changed' => (object) $changed,
+            // The month the page shows, so the list keeps the window the
+            // page rendered it with (calendar()).
+            'list' => $this->renderToString('@rental/management/_block_list.html.twig', [
+                'asset' => $asset,
+                'blocks' => $this->blockService->upcomingFor(
+                    $asset->id,
+                    MonthWindow::resolve(
+                        is_string($data['month'] ?? null) ? $data['month'] : '',
+                        $today,
+                        self::MONTHS_BACK,
+                        self::MONTHS_AHEAD
+                    )->firstDay()->modify('-7 days')
+                ),
+            ]),
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/blocage-motif — give or change a period's reason,
+     * from the list under the calendar: a period blocked by a gesture is
+     * created without one.
+     *
+     * @param array<string, string> $params
+     */
+    public function blockReason(Request $request, array $params): Response
     {
         if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
             return $guard;
@@ -2597,32 +3116,12 @@ class RentalManagementController extends AbstractController
         }
 
         try {
-            $this->blockService->create(
+            $this->blockService->setReason(
                 $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', ''),
-                max(1, (int) $request->getBody('units', 1)),
-                Support::optionalString($request->getBody('reason')),
-                $this->actorMemberId()
+                (int) $request->getBody('block_id', 0),
+                Support::optionalString($request->getBody('reason'))
             );
-
-            // Accepted, never refused, even over a booked period (§6.18) —
-            // but said out loud, so an accidental overlap is visible rather
-            // than silent.
-            $overlapping = $this->bookingRepository->findOccupyingBetween(
-                $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', '')
-            );
-
-            FlashMessage::set(
-                $overlapping === [] ? 'success' : 'warning',
-                $overlapping === []
-                    ? 'Blocage enregistré.'
-                    : 'Blocage enregistré. Attention : ' . count($overlapping)
-                        . ' réservation(s) occupent déjà tout ou partie de cette période. '
-                        . 'Les deux coexistent — traitez chaque réservation individuellement.'
-            );
+            FlashMessage::set('success', 'Motif enregistré.');
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
@@ -2691,9 +3190,9 @@ class RentalManagementController extends AbstractController
      * guessing, and guessing here ends with a second phone call.
      *
      * A null decision means nothing was decided that the renter should
-     * hear about (a booking moved to « en cours d'examen », a hold that
-     * lapsed) — see RenterDecision::forStatus(). Nothing is sent and
-     * nothing is added to the flash.
+     * hear about (a booking put back on hold, a hold that lapsed) — see
+     * RenterDecision::forStatus(). Nothing is sent and nothing is added to
+     * the flash.
      *
      * Never throws. A decision is already recorded by the time this runs,
      * and an SMTP timeout must not turn a confirmed booking into a red
@@ -2896,6 +3395,19 @@ class RentalManagementController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /**
+     * How long, at least, the dates stay held once the contract is out
+     * (#708, IT-13): the `contract_hold_min_days` setting, 15 by default.
+     */
+    private function contractHoldMinDays(): int
+    {
+        $stored = $this->settingService?->get('contract_hold_min_days', 'rental');
+
+        return is_string($stored) && is_numeric(trim($stored))
+            ? max(0, (int) trim($stored))
+            : RentalOperationsService::DEFAULT_CONTRACT_HOLD_MIN_DAYS;
     }
 
     /**

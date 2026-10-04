@@ -124,14 +124,23 @@ le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
 nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
 immédiatement.
 
-Les dates sont **bloquées** pendant un délai réglable, le temps que vous
+Les dates sont **bloquées** pendant un délai réglable — 30 jours par
+défaut, jamais au-delà du début du séjour —, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
-attente, les dates redeviennent simplement libres pour les autres. Vous
-recevez un rappel juste avant.
+attente, les dates redeviennent simplement libres pour les autres, et la
+page de la réservation vous en avertit. Vous recevez un rappel juste
+avant. Une **option**, elle, fait expirer la réservation si elle passe
+sans confirmation.
 
-Vous recevez aussi une notification à chaque nouvelle demande. **Elle ne
-contient aucune donnée du locataire** — juste la référence et un lien vers
-la fiche protégée.
+Vous recevez aussi une notification à chaque nouvelle demande — dans
+l'application, en push et par email, chaque canal se réglant dans vos
+préférences. **Elle ne contient aucune donnée du locataire** — le bien,
+les dates, la référence et un lien vers la fiche protégée.
+
+Elle va aux **gestionnaires déclarés sur le bien qui ont un compte** sur
+le site, comme les rappels. Le Staff d'U n'est prévenu que si aucun
+d'eux ne peut l'être : la page du bien le signale, et la liste des
+gestionnaires dit qui ne peut pas être prévenu, et pourquoi.
 
 ## 6. Suivre une réservation
 
@@ -142,13 +151,25 @@ son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
 propose l'étape qui la fait avancer ; dessous, le parcours, étape par
 étape, dit pour chacune si le site la coche tout seul, si elle se fait
 sur l'une des pages, si elle attend le locataire ou si elle se passe hors
-du site — celles-là seules se cochent à la main (« Marquer comme fait »), et la coche
-est tracée dans l'historique.
+du site. **Toute étape à faire peut être cochée à la main** en touchant
+son rond numéroté — un contrat accepté par e-mail, un acompte payé en
+liquide — après une confirmation : ce n'est pas la bonne pratique, mais
+la coche compte comme celle du site (étape suivante, « À traiter »,
+rappels). La ligne dit qui l'a cochée et quand, l'historique la garde, et
+elle se rouvre du même rond. Une étape que le site a vérifiée lui-même ne
+se rouvre pas.
 
 On y trouve aussi :
 
-- **États** : reçue, en cours d'examen, information demandée, proposée,
-  confirmée, refusée, annulée, expirée, clôturée.
+- **États** : reçue, information demandée, proposée, contrat envoyé,
+  confirmée, refusée, annulée, expirée, clôturée. « Contrat envoyé » se
+  pose tout seul quand le contrat part : c'est votre réponse à la
+  demande, et les dates restent bloquées au moins 15 jours pendant la
+  signature. On ne confirme qu'au bout de l'accord — contrat, conditions
+  acceptées, acompte —, chaque étape faite par le site ou cochée à la
+  main. Il n'y a pas d'état « en examen » : une
+  demande attend votre décision (« reçue ») ou la réponse du locataire, et
+  « Remettre en attente » la ramène à « reçue ».
 - **Option** : vous posez une option avec une échéance, pour laisser au
   locataire le temps de décider sans que les dates partent ailleurs.
 - **Commentaires internes** : chiffrés, visibles des seuls gestionnaires,
@@ -216,7 +237,10 @@ le renvoyez.
   recule vous est signalé plutôt que deviné — c'est un compteur remplacé,
   un chiffre transposé, ou un relevé pris au mauvais endroit.
 - **État des lieux** : la liste est figée dans la réservation à la
-  confirmation, intitulés compris. « Personne n'a regardé » et « quelqu'un
+  confirmation, intitulés, ordre, sorte et nombre attendu compris. Un
+  élément est une **quantité** (« 40 chaises ») ou un **oui / non** écrit
+  comme ce qui doit être vrai (« cuisine propre ») ; le modèle se prépare
+  sur la page « Gabarits » du bien, où l'on réordonne en faisant glisser. « Personne n'a regardé » et « quelqu'un
   a regardé, c'était bon » sont deux états distincts.
 - **Dégâts** : constatés, décrits, photographiés. **Rien n'est facturé
   automatiquement** : vous choisissez explicitement de facturer, de retenir
@@ -271,9 +295,9 @@ de précision. Un refus et une annulation n'en portent pas : il n'y a plus
 rien à y faire, et un lien qui circule est un lien qui se retrouve
 transféré.
 
-Les changements qui ne sont *pas* des décisions n'envoient rien : passer une
-demande « en cours d'examen » parce que vous l'ouvrez, ou une option qui
-expire toute seule à quatre heures du matin.
+Les changements qui ne sont *pas* des décisions n'envoient rien : remettre
+une demande en attente, ou une option qui expire toute seule à quatre
+heures du matin.
 
 ## 11. Les emails du locataire
 
@@ -330,7 +354,9 @@ un acompte ou un solde non reçu, une caution non reçue, un contrat non
 restituer, un document de conformité qui expire.
 
 Ils arrivent dans votre centre de notifications, jamais par email, et
-**aucun ne contient de donnée du locataire**.
+**aucun ne contient de donnée du locataire**. Ils suivent la même règle
+que la nouvelle demande : les gestionnaires du bien qui ont un compte,
+et le Staff d'U quand aucun ne peut être prévenu.
 
 Un seul rappel part vers le locataire : les informations pratiques, une
 semaine avant son séjour.

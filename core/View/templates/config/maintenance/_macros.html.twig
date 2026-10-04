@@ -97,39 +97,17 @@
     </ul>
 {% endmacro %}
 
-{# The header of one box on this page: a button that folds its body.
+{# The title of one box on a Maintenance sub-page (issue #744).
 
-   The page carries eight boxes, three of which are used once a year and
-   one nobody wants to open at all. Flat, it is read with the scroll
-   wheel; folded, it is its own table of contents — the move Réglages and
-   Support already made, with exactly their button
-   (`btn w-100 … border rounded-3 p-3 text-start` and the chevron
-   `app.css` rotates on `:not(.collapsed)`). Two ways of folding a
-   section on one site would be one too many.
-
-   `open` is true for the first two only: the site's state and the update
-   are what brings anybody here, and everything else is looked up.
-
-   **The button is INSIDE the <h2>, not in its place.** Every box holds
-   <h3> sections; a heading replaced by a <span> would leave them without
-   a parent in the document outline, and this page read through a screen
-   reader would become a list of orphaned subheadings. It is also the
-   pattern WAI-ARIA describes for an accordion.
-
-   `heading_class` goes on the BUTTON rather than the <h2>, and the
-   title's size on the <span> rather than the <h2> either: `.btn` fixes
-   its own colour AND its own font-size, so an `h5 text-danger` put on
-   the heading would deliver neither. That is exactly how Réglages and
-   Support compose it. #}
-{% macro section_header(target_id, title, open, icon, heading_class) %}
-    <h2 class="mb-0">
-        <button type="button"
-                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start{{ heading_class ? ' ' ~ heading_class }}{{ open ? '' : ' collapsed' }}"
-                data-bs-toggle="collapse" data-bs-target="#{{ target_id }}"
-                aria-expanded="{{ open ? 'true' : 'false' }}" aria-controls="{{ target_id }}">
-            {% if icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% endif %}
-            <span class="h5 mb-0 flex-grow-1">{{ title }}</span>
-            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
-        </button>
+   It used to be a button folding the box's body — the move that made
+   sense when one page carried eight boxes. Since #619 each sub-page holds
+   one or two, and a box is the reason the visitor opened its page: a
+   fold there was a control that could only hide what was asked for. So
+   it is a plain heading now, still an <h2>, so the <h3> sections each
+   box holds keep a parent in the document outline. #}
+{% macro section_header(title, icon, heading_class) %}
+    <h2 class="h5 mb-0 d-flex align-items-center gap-2{{ heading_class ? ' ' ~ heading_class }}">
+        {% if icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% endif %}
+        <span>{{ title }}</span>
     </h2>
 {% endmacro %}

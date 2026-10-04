@@ -51,6 +51,9 @@ class PassageControllerTest extends TestCase
     private \Modules\Registration\Service\ProjectedPopulationService $projection;
     private \Modules\Registration\Repository\ReenrollmentRepository $reenrollmentRepository;
     private \Modules\Registration\Repository\PassageNoteRepository $passageNoteRepository;
+    private \Modules\Registration\Service\ReenrollmentService $reenrollmentService;
+    /** @var array<int, mixed> PassageController's constructor arguments, in order */
+    private array $controllerArgs;
     private int $currentYearId;
     private int $targetYearId;
     private int $louveteauxSectionId;
@@ -143,7 +146,8 @@ class PassageControllerTest extends TestCase
             $settingService
         );
 
-        $this->controller = new PassageController(
+        $this->reenrollmentService = $reenrollmentService;
+        $this->controllerArgs = [
             $twig, $passageService, $this->requestRepository, $this->transferRepository, $sectionService,
             $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService,
             new \Modules\Registration\Service\PassageStatisticsService($sectionService, $this->projection),
@@ -162,8 +166,9 @@ class PassageControllerTest extends TestCase
                 $this->pdo,
                 $encryption,
                 $settingService
-            )
-        );
+            ),
+        ];
+        $this->controller = new PassageController(...$this->controllerArgs);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -185,6 +190,61 @@ class PassageControllerTest extends TestCase
     /**
      * @return array{member_id: int, member_year_id: int}
      */
+    private function controllerWithReview(\Modules\LlmConnector\Api\LlmConnectorInterface $connector): PassageController
+    {
+        $args = $this->controllerArgs;
+        $args[13] = new \Modules\Registration\Service\PassageCommentReviewService(
+            $this->reenrollmentRepository,
+            $this->passageNoteRepository,
+            $this->reenrollmentService,
+            $connector
+        );
+
+        return new PassageController(...$args);
+    }
+
+    /**
+     * A provider that remembers every comment it was sent and finds no
+     * wish in any — or that is down.
+     */
+    private function fakeConnector(bool $failing = false): \Modules\LlmConnector\Api\LlmConnectorInterface
+    {
+        return new class ($failing) implements \Modules\LlmConnector\Api\LlmConnectorInterface {
+            /** @var array<int, string> */
+            public array $prompts = [];
+
+            public function __construct(private bool $failing)
+            {
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            public function isTierAvailable(\Modules\LlmConnector\Api\LlmTier $tier): bool
+            {
+                return true;
+            }
+
+            public function complete(\Modules\LlmConnector\Api\LlmRequest $request): \Modules\LlmConnector\Api\LlmResponse
+            {
+                if ($this->failing) {
+                    throw new \Modules\LlmConnector\Api\LlmException('Indisponible.');
+                }
+                $this->prompts[] = $request->prompt;
+                $parsed = ['has_wish' => false, 'summary' => null, 'section' => null, 'friends' => []];
+
+                return new \Modules\LlmConnector\Api\LlmResponse(
+                    content: (string) json_encode($parsed),
+                    parsed: $parsed,
+                    inputTokens: 1,
+                    outputTokens: 1
+                );
+            }
+        };
+    }
+
     private function createLouveteauLastRank(): array
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -571,26 +631,84 @@ class PassageControllerTest extends TestCase
         $this->assertNull($repository->findWish($wishId)?->matchedMemberId);
     }
 
-    public function testWithoutTheAiConnectorThePageOffersNoReReading(): void
+    public function testThePageOffersNoManualReReadingAnyMore(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $this->createLouveteauLastRank();
+
+        $body = $this->controllerWithReview($this->fakeConnector())
+            ->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        // Issue #733: « Répartir » reads the comments itself. What is left
+        // is the sentence in its dialog saying that it will.
+        $this->assertStringNotContainsString('passage-ai-review', $body);
+        $this->assertStringNotContainsString('Relire', $body);
+        $this->assertStringContainsString("envoyés au fournisseur d'IA configuré", $body);
+    }
+
+    public function testWithoutTheAiConnectorTheDialogSaysNothingAboutIt(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $this->createLouveteauLastRank();
+
+        $body = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('fournisseur d', $body);
+    }
+
+    public function testThePageUsesTheFullContainerWidth(): void
     {
         \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
 
         $body = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
 
-        $this->assertStringNotContainsString('passage-ai-review', $body);
-        $this->assertStringNotContainsString('Relire', $body);
+        $this->assertStringNotContainsString('page-wide', $body);
     }
 
-    public function testTheReReadingEndpointRefusesWhenThereIsNoConnector(): void
+    public function testOptimisingFirstReadsTheCommentsOfThePeopleItPlacesAndNobodyElses(): void
     {
         \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $arriving = $this->createLouveteauLastRank();
+        $this->reenrollmentRepository->saveAnswer(
+            $arriving['member_id'], $this->targetYearId, 'reenrolled', null, 'Avec les copains.', null, []
+        );
+        // A member the run is not placing: their family's words stay home.
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_STAYING')");
+        $staying = (int) $this->pdo->lastInsertId();
+        $this->reenrollmentRepository->saveAnswer(
+            $staying, $this->targetYearId, 'reenrolled', null, 'Un autre commentaire.', null, []
+        );
 
-        $response = $this->controller->reviewComments(
-            $this->jsonBodyRequest('POST', '/passage/relire-commentaires', []),
+        $connector = $this->fakeConnector();
+        $response = $this->controllerWithReview($connector)->optimize(
+            $this->jsonBodyRequest('POST', '/passage/optimiser', ['method' => 'balanced']),
             []
         );
 
-        $this->assertSame(422, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['success']);
+        $this->assertSame(1, $body['reviewed']);
+        $this->assertSame(['Avec les copains.'], $connector->prompts);
+        $this->assertNotNull($this->passageNoteRepository->find($arriving['member_id'], $this->targetYearId));
+    }
+
+    public function testAnUnavailableModelDoesNotStopTheDistribution(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+        $arriving = $this->createLouveteauLastRank();
+        $this->reenrollmentRepository->saveAnswer(
+            $arriving['member_id'], $this->targetYearId, 'reenrolled', null, 'Avec les copains.', null, []
+        );
+
+        $response = $this->controllerWithReview($this->fakeConnector(failing: true))->optimize(
+            $this->jsonBodyRequest('POST', '/passage/optimiser', ['method' => 'balanced']),
+            []
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['success']);
+        $this->assertSame(0, $body['reviewed']);
+        $this->assertSame(1, $body['placed']);
     }
 
     // ── IT-18: optimise and reset ─────────────────────────────────────
@@ -706,6 +824,22 @@ class PassageControllerTest extends TestCase
             preg_match('/\son[a-z]+\s*=\s*["\']/i', $html),
             'the branch passages page must hold no inline event handler (blocked by the CSP)'
         );
-        $this->assertStringContainsString('passage-save', $html);
+        $this->assertStringContainsString('passage-select', $html);
+    }
+
+    public function testSectionPickerSavesItselfWithoutAButton(): void
+    {
+        // Issue #739: the picker is an independent control (design.md
+        // §7.13) — it saves on change and answers with a toast, so neither
+        // the « Enregistrer » button nor an inline result line remains.
+        $this->createLouveteauLastRank();
+
+        $html = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        // Matched as whole class tokens, so a neighbour such as
+        // `passage-friend-save` neither satisfies nor trips them.
+        $this->assertMatchesRegularExpression('/class="[^"]*\bpassage-select\b/', $html);
+        $this->assertDoesNotMatchRegularExpression('/class="[^"]*(?<![\w-])passage-save(?![\w-])/', $html);
+        $this->assertDoesNotMatchRegularExpression('/class="[^"]*(?<![\w-])passage-feedback(?![\w-])/', $html);
     }
 }

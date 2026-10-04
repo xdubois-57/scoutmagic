@@ -38,7 +38,8 @@ class SectionRosterServiceTest extends TestCase
         $this->service = new SectionRosterService(
             new SectionRosterRepository($this->pdo, $this->encryption),
             $memberEmailRepository,
-            $movementClassifier
+            $movementClassifier,
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -62,6 +63,25 @@ class SectionRosterServiceTest extends TestCase
         $this->assertSame('Bob', $roster[$this->sectionId]['intendants'][0]->firstName);
         $this->assertCount(1, $roster[$this->sectionId]['animes']);
         $this->assertSame('Chloé', $roster[$this->sectionId]['animes'][0]->firstName);
+    }
+
+    /**
+     * Issue #722: each row carries the totem of ITS section, normalized,
+     * and nothing from another section.
+     */
+    public function testARowCarriesTheSectionTotemOfItsOwnSection(): void
+    {
+        $akela = $this->createMember('Alice', 'chief');
+        $bob = $this->createMember('Bob', 'chief');
+        $totems = new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption);
+        $totems->set($akela, $this->sectionId, 'akela');
+        $otherSection = $this->createSection('LOU02', (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn());
+        $totems->set($bob, $otherSection, 'Hathi');
+
+        $roster = $this->service->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame('Akela', $this->findRow($roster, $akela)->sectionTotem);
+        $this->assertNull($this->findRow($roster, $bob)->sectionTotem);
     }
 
     public function testEmptyBucketsAreReturnedAsEmptyArraysNotMissing(): void

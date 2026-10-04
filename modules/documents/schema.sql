@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS documents (
     visibility ENUM('public', 'identified', 'chief', 'admin', 'direct_link') NOT NULL DEFAULT 'public',
     file_id INT UNSIGNED NOT NULL,
     sort_order INT NOT NULL DEFAULT 0,
+    -- The day after which the document is shown « Expiré » and counted on
+    -- the attention page (#731). It stays online either way. Two years
+    -- after creation by default; NULL on a row written before the column
+    -- existed, which DocumentRepository reads as two years after created_at.
+    expires_on DATE NULL,
 
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

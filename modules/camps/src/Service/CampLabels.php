@@ -85,6 +85,43 @@ class CampLabels
     }
 
     /**
+     * How a stay is named to somebody who is NOT looking at the camps
+     * module — today, the administrator reading gallery's list of albums
+     * taking space on a storage location (issue #749).
+     *
+     * "Grand camp — Ferme de la Hulotte — 12–19 juillet 2028", with
+     * whatever is missing simply left out: a stay with no place yet reads
+     * "Grand camp — 2028", and one with neither place nor date reads
+     * "Grand camp". The stay type is the one part always present, which
+     * is what keeps the label from ever collapsing to nothing and sending
+     * the caller back to a technical identifier.
+     *
+     * Deliberately NOT the album's stored `title`. That one was written
+     * once, when the album was created; this one is computed from the
+     * stay as it stands now, so renaming a place or correcting a date
+     * moves the label without touching gallery's row — which is the whole
+     * of what issue #749 asked for.
+     */
+    public static function albumOwnerLabel(
+        string $stayType,
+        ?string $placeName,
+        ?string $startDate,
+        ?string $endDate,
+        ?int $yearOnly
+    ): string {
+        $parts = [self::stayType($stayType)];
+        if ($placeName !== null && trim($placeName) !== '') {
+            $parts[] = trim($placeName);
+        }
+        $dates = self::dateRange($startDate, $endDate, $yearOnly);
+        if ($dates !== '') {
+            $parts[] = $dates;
+        }
+
+        return implode(' — ', $parts);
+    }
+
+    /**
      * "12–19 juillet 2028", "1er mai 2026", "2029".
      *
      * An en dash, and the month written once when both ends share it —

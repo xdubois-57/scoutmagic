@@ -56,10 +56,10 @@
     <script src="{{ asset('/assets/js/maintenance.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/notes-clamp.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/collapse-label.js') }}" defer nonce="{{ csp_nonce }}"></script>
-    {# Opens a folded box its address names: every box arrives open since
-       the split, but `#remote-backup` — where
+    {# No collapse-anchor.js any more (issue #744): no box folds, so a
+       fragment such as `#remote-backup` — where
        Http\Controller\RemoteBackupController redirects after every round
-       trip — must still land on it, whatever a later change does to the
-       folding. #}
-    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer nonce="{{ csp_nonce }}"></script>
+       trip — is a target the browser scrolls to on its own.
+       collapse-label.js stays for the « Voir plus » lists, which still
+       fold. #}
 {% endblock %}

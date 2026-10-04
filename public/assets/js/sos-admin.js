@@ -79,6 +79,14 @@
     /** The duty states of the displayed month, mutated as states are set. */
     /** @type {Object.<string, Object.<string, string>>} */
     var cellStates = data.states || {};
+    /** The month as the server last recorded it — what a refused save restores. */
+    var savedStates = copyStates(cellStates);
+    /** Which save is the latest: an older answer must not undo a newer tap. */
+    var saveSequence = 0;
+    /** The newest save the server has confirmed — the one savedStates holds. */
+    var savedSequence = 0;
+    /** The newest save whose own answer has come back, accepted or not. */
+    var settledSequence = 0;
     var currentYear = data.year;
     var currentMonth = data.month;
     var monthParam = data.monthParam || '';
@@ -234,6 +242,47 @@
         return cellStates[date]?.[memberId] || null;
     }
 
+    /**
+     * @param {Object.<string, Object.<string, string>>} states
+     * @returns {Object.<string, Object.<string, string>>} a copy nothing else holds
+     */
+    function copyStates(states) {
+        /** @type {Object.<string, Object.<string, string>>} */
+        var copy = {};
+        Object.keys(states).forEach(function (date) {
+            copy[date] = { ...states[date] };
+        });
+        return copy;
+    }
+
+    /**
+     * Puts the month back as the server still has it, repainting every
+     * pair that moved since — the screen must never show a duty that was
+     * not recorded.
+     */
+    function restoreSavedStates() {
+        /** @type {Object.<string, boolean>} */
+        var dates = {};
+        Object.keys(cellStates).concat(Object.keys(savedStates)).forEach(function (date) {
+            dates[date] = true;
+        });
+        var current = cellStates;
+        cellStates = copyStates(savedStates);
+        Object.keys(dates).forEach(function (date) {
+            /** @type {Object.<string, boolean>} */
+            var members = {};
+            Object.keys(current[date] || {}).concat(Object.keys(cellStates[date] || {})).forEach(function (memberId) {
+                members[memberId] = true;
+            });
+            Object.keys(members).forEach(function (memberId) {
+                if ((current[date]?.[memberId] || null) !== stateOf(date, memberId)) {
+                    repaintCells(date, memberId, stateOf(date, memberId));
+                }
+            });
+            refreshDayRow(date);
+        });
+    }
+
     /** @param {string} text */
     function showSaveStatus(text) {
         [saveStatus, document.getElementById('sos-day-sheet-status')].forEach(function (node) {
@@ -243,7 +292,12 @@
         });
     }
 
-    /** Saves the whole displayed month — the endpoint replaces it wholesale. */
+    /**
+     * Saves the whole displayed month — the endpoint replaces it wholesale.
+     * The line under the grid only says a save is under way; its outcome
+     * is a toast, like every other save of the site (design.md §7.13,
+     * issue #739).
+     */
     async function saveOnCall() {
         /** @type {Array<{member_id: number, date: string, state: string}>} */
         var cells = [];
@@ -258,16 +312,41 @@
         });
 
         showSaveStatus('Enregistrement…');
+        var sent = copyStates(cellStates);
+        var sequence = ++saveSequence;
 
         var res = await api.postJson('/admin/sos/oncall', {
             year: currentYear,
             month: currentMonth,
             cells: cells
         });
-        showSaveStatus(succeeded(res) ? 'Enregistré.' : ('Erreur : ' + failureMessage(res)));
-        if (!succeeded(res)) {
-            toastFailure(res);
+        if (succeeded(res) && sequence > savedSequence) {
+            // Even an answer overtaken by a newer tap is what the server
+            // held at that point: the newer save, if refused, goes back here.
+            // But never behind a NEWER confirmed save that answered first —
+            // that would put back a month older than the server's.
+            savedStates = sent;
+            savedSequence = sequence;
+            // The newest save already answered with a refusal and put the
+            // grid back — on what was confirmed THEN. This older answer is
+            // confirmed now: show it, or the screen lags the server.
+            if (sequence !== saveSequence && settledSequence === saveSequence) {
+                restoreSavedStates();
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+            }
         }
+        if (sequence !== saveSequence) {
+            return;
+        }
+        settledSequence = sequence;
+
+        showSaveStatus('');
+        if (succeeded(res)) {
+            window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+            return;
+        }
+        restoreSavedStates();
+        toastFailure(res);
     }
 
     /**

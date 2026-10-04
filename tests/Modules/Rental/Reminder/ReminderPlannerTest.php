@@ -287,7 +287,33 @@ class ReminderPlannerTest extends TestCase
     {
         // The chase is about silence, not about age: a request that reached
         // any other status has been looked at.
-        $booking = $this->booking(BookingStatus::REVIEWING, receivedAt: '2027-01-01 10:00:00');
+        $booking = $this->booking(BookingStatus::INFO_REQUESTED, receivedAt: '2027-01-01 10:00:00');
+
+        $this->assertNotContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-02-01'))
+        );
+    }
+
+    /**
+     * « Remettre en attente » brings a request back to « Demande reçue »,
+     * and the chase applies again (#708, IT-11) — where « En cours
+     * d'examen » used to silence it for good.
+     */
+    public function testARequestPutBackOnHoldIsChasedAgain(): void
+    {
+        $booking = $this->booking(BookingStatus::RECEIVED, receivedAt: '2027-01-01 10:00:00');
+
+        $this->assertContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-02-01'))
+        );
+    }
+
+    /** The unit has answered with its contract: no « sans réponse » chase (#708, IT-13). */
+    public function testAContractSentIsNotChasedAsUnanswered(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, receivedAt: '2027-01-01 10:00:00');
 
         $this->assertNotContains(
             ReminderKind::UNANSWERED_REQUEST->value,

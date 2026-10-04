@@ -40,7 +40,45 @@ final class BookingMilestone
          * nor a cancellation. Null when there is nothing to press: the
          * line derives itself, waits on the renter, or is ticked by hand.
          */
-        public readonly ?MilestoneAction $action = null
+        public readonly ?MilestoneAction $action = null,
+        /**
+         * A STATE rather than a task (#708, IT-01): « Dates bloquées » says
+         * how things stand and is never « L'action suivante », nor a step
+         * left to do — confirming blocks the dates for good, there is
+         * nothing to block first.
+         */
+        public readonly bool $isState = false,
+        /** What the state warns about, when it does: dates free again. */
+        public readonly ?string $warning = null,
+        /** Who has to act for it to be done (#708, IT-12). */
+        public readonly ?StepActor $actor = null,
+        /**
+         * Done because a manager ticked it by hand, not because the site
+         * saw it (#708, IT-14) — the one kind of done step that reopens.
+         */
+        public readonly bool $isManual = false
     ) {
+    }
+
+    /**
+     * Whether a manager may mark this step done by hand (#708, IT-14):
+     * any step still to do, but the ones whose disc is a status or a fact
+     * the site always has.
+     */
+    public function canBeCompletedByHand(): bool
+    {
+        return $this->isOutstanding() && !in_array($this->key, BookingMilestones::NEVER_BY_HAND, true);
+    }
+
+    /** Only a hand tick reopens; a step the site completed does not. */
+    public function canBeReopened(): bool
+    {
+        return $this->isDone && $this->isManual;
+    }
+
+    /** Whether this line is work still waiting — a task, applicable, not done. */
+    public function isOutstanding(): bool
+    {
+        return !$this->isState && $this->isApplicable && !$this->isDone;
     }
 }

@@ -78,6 +78,28 @@ final class CalendarEventSearchTest extends TestCase
         $this->assertNotNull($summary->sectionId);
     }
 
+    /**
+     * #703: the hours cross the contract, and a whole-day event says it has
+     * none rather than midnight.
+     */
+    public function testTheSummaryCarriesTheHoursAndAWholeDayEventHasNone(): void
+    {
+        $calendarId = $this->sectionCalendarId('E', 'Éclaireurs');
+        $timed = $this->events->create(
+            $calendarId, 'Réunion', $this->inDays(3), null, '14:00:00', '17:30:00', null, null, null
+        );
+        $allDay = $this->events->create($calendarId, 'Hike', $this->inDays(4), null, null, null, null, null, null);
+
+        $summary = $this->calendars->findEventById($timed, Role::PUBLIC);
+        $this->assertSame('14:00', $summary?->startTime);
+        $this->assertSame('17:30', $summary?->endTime);
+
+        $whole = $this->calendars->findEventById($allDay, Role::PUBLIC);
+        $this->assertNotNull($whole);
+        $this->assertNull($whole->startTime);
+        $this->assertNull($whole->endTime);
+    }
+
     public function testAnEventWithNoPlaceSaysNothingRatherThanAnEmptyString(): void
     {
         $calendar = $this->calendars->addCalendar('Animateurs bis', 'public');

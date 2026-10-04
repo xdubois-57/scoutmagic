@@ -107,6 +107,11 @@
                         {% if phase.key == 'request' %}
                             {# The option lives with the request it holds the dates for. #}
                             <div data-booking-panel="hold">
+                            {# The running deadline only: a lapsed one is not a deadline in
+                               force (#708, IT-01). Read off the « Dates bloquées » line,
+                               which already knows whether the hold still runs. #}
+                            {% set hold_line = phase.milestones|filter(m => m.key == 'hold')|first %}
+                            {% set hold_active = hold_line and hold_line.isDone %}
                             {% if not booking.status.isFinal %}
                                 <form method="post" action="/mes-locations/option" class="row g-2 align-items-end mt-3">
                                     {{ csrf_field()|raw }}
@@ -116,7 +121,7 @@
                                         {% include 'partials/form_field.html.twig' with {
                                             field_id: 'option-until', field_name: 'until', type: 'datetime-local',
                                             label: 'Option jusqu\'au',
-                                            value: booking.holdUntil|iso_datetime_local,
+                                            value: hold_active ? booking.holdUntil|iso_datetime_local : '',
                                         } only %}
                                     </div>
                                     <div class="col-12 col-sm-5">
@@ -125,9 +130,19 @@
                                     {# Under the row, not under the field — see
                                        design.md §7.6: `align-items-end` aligns the
                                        bottoms of the columns, not their controls. #}
-                                    <p class="form-text col-12 mb-0">
-                                        Une option engage l'unité jusqu'à l'échéance : si elle passe sans
-                                        confirmation, la réservation devient expirée et les dates se libèrent.
+                                    {# Says which of the two holds runs: they do not end the same
+                                       way, and saving this form as it is turns the automatic one
+                                       into an option (#708, IT-01). #}
+                                    <p class="form-text col-12 mb-0" data-hold-help>
+                                        {% if hold_active and booking.holdOrigin and booking.holdOrigin.value == 'automatic' %}
+                                            Cette date est celle du <strong>blocage automatique</strong> : s'il passe,
+                                            les dates se libèrent et la demande reste en attente. Enregistrer une date
+                                            ici pose une <strong>option</strong>, qui elle fait expirer la réservation si
+                                            elle passe sans confirmation.
+                                        {% else %}
+                                            Une option engage l'unité jusqu'à l'échéance : si elle passe sans
+                                            confirmation, la réservation devient expirée et les dates se libèrent.
+                                        {% endif %}
                                         Laisser vide et enregistrer lève le blocage.
                                     </p>
                                 </form>
@@ -139,8 +154,9 @@
             </section>
         {% endfor %}
         <p class="text-body-secondary small mt-3 mb-0">
-            Une case à cocher n'apparaît que sur les étapes <strong>hors du site</strong> : les autres se
-            dérivent de ce qui s'est passé ici, et une coche manuelle à côté créerait une seconde vérité.
+            Une étape réglée ailleurs — un contrat accepté par e-mail, un acompte payé en liquide — se
+            marque comme faite en touchant son <strong>rond numéroté</strong> ; elle se rouvre de la même
+            façon. Ce n'est pas la bonne pratique : le site ne la vérifiera plus.
         </p>
     </div>
 </div>

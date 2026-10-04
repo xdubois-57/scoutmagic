@@ -47,9 +47,16 @@ use Modules\Registration\Repository\SectionTransferRepository;
  * wishes outvote a family's explicit request, which is not what "par ordre
  * lexicographique décroissant" says.
  *
+ * **Where a wish comes from, in order** (issue #733): the staff's own
+ * choice, then the family's dedicated fields, then what the AI read in the
+ * family's free comment — already resolved to a section of the branch and
+ * to member ids by PassageCommentReviewService, which runs just before
+ * this in the same « Répartir ». Friends read by the AI complete the
+ * family's own, without duplicates.
+ *
  * **What is deliberately NOT in the score:** the girls/boys mix (it stays
- * displayed and unoptimised, spec §14), a friend wish that is only text, a
- * wish the AI suggested and nobody confirmed, and a negative wish
+ * displayed and unoptimised, spec §14), a friend wish that is only text
+ * (an unresolved or ambiguous name, typed or read), and a negative wish
  * (« surtout pas avec X »), which stays free text for a human whatever
  * channel it arrived through.
  *
@@ -296,14 +303,20 @@ class PassageOptimizationService
                     'sections' => array_map(static fn(array $s): int => (int) $s['id'], $member['destination_options']),
                     // The staff's own reading wins over the family's when
                     // there is one (IT-17): it is the later, better
-                    // informed statement of the same wish.
+                    // informed statement of the same wish. The AI's reading
+                    // of the comment comes last (issue #733).
                     'desired_section_id' =>
-                        $staffNotes[$memberId]['preferred_section_id'] ?? $answer?->preferredSectionId,
+                        $staffNotes[$memberId]['preferred_section_id']
+                        ?? $answer->preferredSectionId
+                        ?? $staffNotes[$memberId]['ai_section_id'] ?? null,
                     // Somebody changing branch always arrives at its first
                     // rank; that is what "changing branch" means here.
                     'first_year' => true,
                     'group_key' => null,
-                    'friends' => $answer === null ? [] : $this->usableFriendMemberIds($answer),
+                    'friends' => array_values(array_unique(array_merge(
+                        $answer === null ? [] : $this->usableFriendMemberIds($answer),
+                        $staffNotes[$memberId]['ai_friend_member_ids'] ?? []
+                    ))),
                 ];
             }
         }
@@ -316,9 +329,9 @@ class PassageOptimizationService
     }
 
     /**
-     * Only the wishes the optimiser is allowed to act on: matched to
+     * Only the typed wishes the optimiser is allowed to act on: matched to
      * exactly one member, or disambiguated by a chief (IT-17). Never a raw
-     * name, never an AI reading nobody confirmed.
+     * name.
      *
      * @return array<int, int> member ids
      */

@@ -2,12 +2,12 @@
   Booking status → the site's shared status vocabulary
   (core/View/templates/partials/status_badge.html.twig).
 
-  The four pre-decision states (received, reviewing, info_requested,
-  proposed) all mean "needs a manager", hence 'pending'; every other
+  The four states before a confirmation (received, info_requested,
+  proposed, contract_sent) all mean "needs a manager", hence 'pending'; every other
   BookingStatus value (confirmed, refused, cancelled, expired, closed) is
   already a shared key. Fed a Booking\BookingStatus enum as `status`.
 #}
-{% set _pending_keys = {'received': 'pending', 'reviewing': 'pending', 'info_requested': 'pending', 'proposed': 'pending'} %}
+{% set _pending_keys = {'received': 'pending', 'info_requested': 'pending', 'proposed': 'pending', 'contract_sent': 'pending'} %}
 {% include 'partials/status_badge.html.twig' with {
     status: _pending_keys[status.value]|default(status.value),
     label: status.label,

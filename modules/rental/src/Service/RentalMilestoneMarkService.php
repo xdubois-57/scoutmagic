@@ -14,14 +14,15 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Repository\RentalMilestoneMarkRepository;
 
 /**
- * « Marquer comme fait » on a step the site cannot derive (issue #462, D5).
+ * A step completed by hand (issue #462; any step since #708, IT-14).
  *
  * A tick writes a real fact — who and when — and the booking's history
  * carries it like any other action, so a tick is as accountable as a
  * payment recorded or a document sent. Whether the step may be ticked on
- * THIS booking (it must be one the site cannot derive, and in a stretch
- * the booking has reached) is the caller's to establish from the journey;
- * this service refuses anything that could never be ticked by hand.
+ * THIS booking (still to do, or ticked by hand to reopen it, and in a
+ * stretch the booking has reached) is the caller's to establish from the
+ * journey; this service refuses anything that could never be ticked by
+ * hand — a status, « Demande reçue », a state.
  */
 class RentalMilestoneMarkService
 {
@@ -53,8 +54,13 @@ class RentalMilestoneMarkService
         ?int $actorMemberId,
         \DateTimeImmutable $at
     ): bool {
-        if (!in_array($milestoneKey, BookingMilestones::MARKABLE, true)) {
-            throw new RentalException('Cette étape se coche toute seule : elle ne se marque pas à la main.');
+        // Which step may be ticked is the journey's call, made by the
+        // caller on the booking as its page shows it (#708, IT-14); what
+        // is refused here is a key no journey ever produces.
+        if (!array_key_exists($milestoneKey, BookingMilestones::ACTORS)
+            || in_array($milestoneKey, BookingMilestones::NEVER_BY_HAND, true)
+        ) {
+            throw new RentalException('Cette étape ne se coche pas à la main.');
         }
 
         $changed = $done

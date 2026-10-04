@@ -5,8 +5,7 @@
 //
 // The file is an IIFE that binds a delegated listener at import time, so
 // each test builds its DOM first and then imports the module via
-// vi.resetModules() + await import() (the tests/js/leadership-copy-emails
-// .test.js pattern).
+// vi.resetModules() + await import().
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function buildPage(texts) {

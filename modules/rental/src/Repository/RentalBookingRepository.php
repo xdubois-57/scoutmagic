@@ -48,6 +48,9 @@ class RentalBookingRepository
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
     private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
 
+    /** The retired « En cours d'examen » status — see storedValuesOf(). */
+    private const RETIRED_REVIEWING = 'reviewing';
+
     /**
      * Whether adoptLegacyCountryColumn() has already run in this process.
      * Static for the same reason as its counterpart in
@@ -318,7 +321,8 @@ class RentalBookingRepository
             BookingStatus::cases(),
             static fn(BookingStatus $status) => $status->occupiesTheAsset()
         ));
-        $placeholders = implode(',', array_fill(0, count($occupying), '?'));
+        $stored = self::storedValuesOf(...$occupying);
+        $placeholders = implode(',', array_fill(0, count($stored), '?'));
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM rental_bookings
@@ -330,7 +334,7 @@ class RentalBookingRepository
         );
         $stmt->execute(array_merge(
             [$assetId],
-            array_map(static fn(BookingStatus $s) => $s->value, $occupying),
+            $stored,
             [$to, $from]
         ));
 
@@ -389,8 +393,9 @@ class RentalBookingRepository
         $params = $assetIds;
 
         if ($status !== null) {
-            $sql .= ' AND status = ?';
-            $params[] = $status->value;
+            $stored = self::storedValuesOf($status);
+            $sql .= ' AND status IN (' . implode(',', array_fill(0, count($stored), '?')) . ')';
+            $params = [...$params, ...$stored];
         }
 
         $sql .= ' ORDER BY arrival_date DESC';
@@ -427,7 +432,8 @@ class RentalBookingRepository
     public function clearHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, updated_at = ? WHERE id = ?'
+            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL, updated_at = ?
+             WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
     }
@@ -444,10 +450,27 @@ class RentalBookingRepository
         $stmt->execute([$status->value, $status->isFinal() ? $timestamp : null, $timestamp, $id]);
     }
 
-    public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
+    /**
+     * An automatic hold ran out while the request still waits (#708,
+     * IT-01): the dates are released like with `clearHold()`, and its
+     * deadline is kept so the booking page can say since when.
+     */
+    public function releaseLapsedHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, updated_at = ? WHERE id = ?'
+            'UPDATE rental_bookings
+             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL, updated_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+    }
+
+    public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
+    {
+        // A new hold, or none: either way the old lapse is no longer news.
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL, updated_at = ?
+             WHERE id = ?'
         );
         $stmt->execute([
             $until?->format('Y-m-d H:i:s'),
@@ -477,16 +500,18 @@ class RentalBookingRepository
         \DateTimeImmutable $now
     ): bool {
         $timestamp = $now->format('Y-m-d H:i:s');
+        $stored = self::storedValuesOf($expected);
+        $placeholders = implode(',', array_fill(0, count($stored), '?'));
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
-             WHERE id = ? AND status = ?'
+            "UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
+             WHERE id = ? AND status IN ({$placeholders})"
         );
         $stmt->execute([
             $status->value,
             $status->isFinal() ? $timestamp : null,
             $timestamp,
             $id,
-            $expected->value,
+            ...$stored,
         ]);
 
         return $stmt->rowCount() > 0;
@@ -1170,6 +1195,31 @@ class RentalBookingRepository
     }
 
     /**
+     * The values a column may hold for $statuses — what every SQL filter on
+     * `status` binds, never `->value` alone.
+     *
+     * `reviewing` is retired (#708, IT-11) and `hydrate()` reads a row still
+     * carrying it as RECEIVED. The schema is declarative, so nothing rewrites
+     * such a row: a filter on RECEIVED has to match it too, or the request
+     * would stop holding its dates and every decision on it would be refused
+     * as a race.
+     *
+     * @return list<string>
+     */
+    private static function storedValuesOf(BookingStatus ...$statuses): array
+    {
+        $values = [];
+        foreach ($statuses as $status) {
+            $values[] = $status->value;
+            if ($status === BookingStatus::RECEIVED) {
+                $values[] = self::RETIRED_REVIEWING;
+            }
+        }
+
+        return $values;
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): RentalBooking
@@ -1213,6 +1263,9 @@ class RentalBookingRepository
             privacyHash: $row['privacy_hash'] !== null ? (string) $row['privacy_hash'] : null,
             privacyAcknowledgedAt: DateInput::fromStorage(
                 $row['privacy_acknowledged_at'] === null ? null : (string) $row['privacy_acknowledged_at']
+            ),
+            holdLapsedAt: DateInput::fromStorage(
+                ($row['hold_lapsed_at'] ?? null) === null ? null : (string) $row['hold_lapsed_at']
             )
         );
     }

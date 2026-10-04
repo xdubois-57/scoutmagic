@@ -439,6 +439,108 @@ class MassMailPageTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Deleting an email before it starts (issue #755)
+    // -----------------------------------------------------------------
+
+    public function testTheListOffersATrashOnlyBeforeTheSendingStarts(): void
+    {
+        $statuses = [
+            'Brouillon à jeter' => Email::STATUS_DRAFT,
+            'Test à jeter' => Email::STATUS_TEST,
+            'En cours' => Email::STATUS_SENDING,
+            'Parti' => Email::STATUS_SENT,
+        ];
+        $ids = [];
+        foreach ($statuses as $subject => $status) {
+            $ids[$subject] = $this->createDraft($subject)->id;
+            $this->pdo->prepare('UPDATE mass_mail_emails SET status = ? WHERE id = ?')->execute([$status, $ids[$subject]]);
+        }
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->index($this->get('/mass-mail'), [])->getBody());
+
+        foreach ($statuses as $subject => $status) {
+            $offered = str_contains($body, 'action="/mass-mail/' . $ids[$subject] . '/delete"');
+            $this->assertSame(in_array($status, [Email::STATUS_DRAFT, Email::STATUS_TEST], true), $offered, $subject);
+        }
+        // The shared confirmation, a concrete question, and a named button.
+        $this->assertStringContainsString(
+            'data-confirm="Supprimer cet e-mail ? Le brouillon « Brouillon à jeter » et ses données associées seront supprimés définitivement." data-confirm-label="Supprimer"',
+            $body
+        );
+        $this->assertStringContainsString('aria-label="Supprimer l\'e-mail « Test à jeter »"', $body);
+    }
+
+    public function testDeletingADraftReturnsToTheListWithoutIt(): void
+    {
+        $email = $this->createDraft('À supprimer');
+
+        $response = $this->controller->delete(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mass-mail', $response->getHeaders()['Location'] ?? null);
+        $this->assertNull($this->massMailService->findById($email->id));
+    }
+
+    public function testDeletingWithoutAValidCsrfTokenDeletesNothing(): void
+    {
+        $email = $this->createDraft('Intact');
+
+        $this->controller->delete($this->post(['_csrf_token' => 'nope']), ['id' => (string) $email->id]);
+
+        $this->assertNotNull($this->massMailService->findById($email->id));
+    }
+
+    /**
+     * A forged POST on an email whose sending started — or that started
+     * while the confirmation was open — is refused, and the list says why.
+     */
+    public function testAForgedDeletionOfAStartedEmailIsRefused(): void
+    {
+        $email = $this->createDraft('Déjà parti');
+        $this->pdo->prepare('UPDATE mass_mail_emails SET status = ? WHERE id = ?')->execute([Email::STATUS_SENDING, $email->id]);
+
+        $response = $this->controller->delete(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+
+        $this->assertSame('/mass-mail', $response->getHeaders()['Location'] ?? null);
+        $this->assertNotNull($this->massMailService->findById($email->id));
+        $this->assertSame(
+            "Cet e-mail est déjà en cours d'envoi ou a été envoyé et ne peut plus être supprimé.",
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+    }
+
+    /** Through the router: an intendant may not, a chief may (below). */
+    public function testAnIntendantIsRefusedTheDeleteRoute(): void
+    {
+        $email = $this->createDraft('RBAC');
+        $path = '/mass-mail/' . $email->id . '/delete';
+
+        AuthSession::login($this->accountId, 'intendant@test.com', 'intendant');
+        $refused = $this->frontController('/mass-mail/{id}/delete', 'delete', 'POST')
+            ->handle(new Request('POST', $path, [], ['_csrf_token' => CsrfGuard::generateToken()], [], []));
+        $this->assertSame(403, $refused->getStatusCode());
+        $this->assertNotNull($this->massMailService->findById($email->id));
+    }
+
+    public function testAChiefMayUseTheDeleteRoute(): void
+    {
+        $email = $this->createDraft('RBAC');
+        $path = '/mass-mail/' . $email->id . '/delete';
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+        $allowed = $this->frontController('/mass-mail/{id}/delete', 'delete', 'POST')
+            ->handle(new Request('POST', $path, [], ['_csrf_token' => CsrfGuard::generateToken()], [], []));
+        $this->assertSame(302, $allowed->getStatusCode());
+        $this->assertNull($this->massMailService->findById($email->id));
+    }
+
+    // -----------------------------------------------------------------
     // The « Destinataires » view
     // -----------------------------------------------------------------
 
@@ -680,6 +782,13 @@ class MassMailPageTest extends TestCase
         $this->assertSame(404, $saved->getStatusCode());
         $this->assertSame('Brouillon de la Meute B', $this->massMailService->findById($email->id)?->subject);
 
+        $deleted = $this->controller->delete(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $email->id]
+        );
+        $this->assertSame(404, $deleted->getStatusCode());
+        $this->assertNotNull($this->massMailService->findById($email->id), 'deleted by id despite being invisible');
+
         // And the list does not even name it.
         $this->assertStringNotContainsString(
             'Brouillon de la Meute B',
@@ -691,10 +800,10 @@ class MassMailPageTest extends TestCase
     // Helpers
     // -----------------------------------------------------------------
 
-    private function frontController(string $path, string $action): FrontController
+    private function frontController(string $path, string $action, string $method = 'GET'): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', $path, MassMailController::class, $action, 'chief');
+        $router->addRoute($method, $path, MassMailController::class, $action, 'chief');
 
         $configFile = sys_get_temp_dir() . '/test_mass_mail_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

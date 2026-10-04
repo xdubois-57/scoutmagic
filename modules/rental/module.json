@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.32.2",
+  "version": "1.36.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -261,10 +261,19 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/blocage",
+      "path": "/mes-locations/{slug}/calendrier/jours",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "createBlock",
+      "action": "calendarDays",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/blocage-motif",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "blockReason",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -360,24 +369,6 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/compteur",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "saveMeter",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/inventaire-modele",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "saveInventoryTemplate",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
       "path": "/mes-locations/releve",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -450,28 +441,10 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/conformite-ajouter",
+      "path": "/mes-locations/{slug}/conformite/supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "addComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-modifier",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "updateComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-supprimer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "deleteComplianceItem",
+      "action": "complianceDelete",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -813,7 +786,7 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/{slug}/reglages/conditions",
+      "path": "/mes-locations/{slug}/gabarits/conditions",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveConditions",
@@ -934,6 +907,123 @@
           "Espace membres"
         ]
       }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouvelle entrée",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier une entrée",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/{document}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "templateDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Gabarit",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/compteurs",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addMeter",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/compteurs/retirer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "retireMeter",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "updateInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/ordre",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "reorderInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/retirer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "removeInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
   "settings": [
@@ -967,11 +1057,18 @@
       "validation_regex": "^(BE)?\\s?[01][0-9]{3}[.\\s]?[0-9]{3}[.\\s]?[0-9]{3}$"
     },
     {
-      "key": "automatic_hold_hours",
-      "default_value": "48",
+      "key": "automatic_hold_days",
+      "default_value": "30",
       "type": "number",
-      "label": "Blocage automatique des dates (heures)",
-      "description": "Durée pendant laquelle les dates d'une demande reçue sont retenues, en heures, le temps que les gestionnaires y répondent. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs ; passé ce délai elles se libèrent seules et la demande reste en attente — rien n'est refusé automatiquement. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
+      "label": "Blocage automatique des dates (jours)",
+      "description": "Nombre de jours pendant lesquels les dates d'une demande reçue sont retenues, le temps que les gestionnaires y répondent — jamais au-delà du début du séjour. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs. À l'échéance, elles se libèrent seules et la demande reste en attente : rien n'est refusé automatiquement, et la page de la réservation avertit que les dates ne sont plus bloquées. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
+    },
+    {
+      "key": "contract_hold_min_days",
+      "default_value": "15",
+      "type": "number",
+      "label": "Blocage des dates après l'envoi du contrat (jours)",
+      "description": "À chaque envoi du contrat, les dates restent bloquées au moins ce nombre de jours, le temps que le locataire le signe — jamais au-delà du début du séjour. Un blocage qui court déjà plus longtemps n'est pas raccourci. 0 ne prolonge rien."
     },
     {
       "key": "compliance_label_suggestions",
@@ -1100,6 +1197,18 @@
     }
   },
   "notifications": [
+    {
+      "id": "rental.new_request",
+      "label": "Nouvelle demande de location",
+      "description": "Une demande de location vient d'arriver sur un bien que vous gérez. Elle mène directement à la réservation.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_on"
+      }
+    },
     {
       "id": "rental.unanswered_request",
       "label": "Demande de location sans réponse",
@@ -1346,40 +1455,6 @@
           "name": "tracking_url",
           "label": "Lien de suivi",
           "example": "https://exemple.be/locations/suivi/42/abc"
-        }
-      ]
-    },
-    {
-      "id": "rental.manager_notification",
-      "label": "Avis aux gestionnaires d'une nouvelle demande",
-      "description": "Envoyé aux gestionnaires du bien quand une nouvelle demande de location arrive. Il ne reprend jamais l'identité du demandeur : elle est sur la page de la demande, derrière un vrai contrôle d'accès.",
-      "default_subject": "Nouvelle demande de location",
-      "template": "@rental/email/manager_notification.html.twig",
-      "variables": [
-        {
-          "name": "reference",
-          "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
-        },
-        {
-          "name": "asset_name",
-          "label": "Nom du bien",
-          "example": "Ferme de La Hulpe"
-        },
-        {
-          "name": "arrival_date",
-          "label": "Date d'arrivée",
-          "example": "14/08/2027"
-        },
-        {
-          "name": "departure_date",
-          "label": "Date de départ",
-          "example": "17/08/2027"
-        },
-        {
-          "name": "manage_url",
-          "label": "Lien vers la réservation",
-          "example": "https://exemple.be/mes-locations/ferme/reservations/42"
         }
       ]
     },

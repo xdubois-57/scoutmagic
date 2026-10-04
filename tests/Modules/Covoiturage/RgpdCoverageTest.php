@@ -24,7 +24,10 @@ final class RgpdCoverageTest extends TestCase
 
         $this->assertStringContainsString('<h4>Module Covoiturage</h4>', $page);
         $this->assertStringContainsString('chiffrés en base', $page);
-        $this->assertStringContainsString('<strong>acceptée</strong>', $page);
+        // #703: the family's phone reaches the driver from the request on,
+        // the driver's reaches the family once it is accepted.
+        $this->assertStringContainsString('celui de la famille au conducteur <strong>dès la demande</strong>', $page);
+        $this->assertStringContainsString('<strong>une fois la demande acceptée</strong>', $page);
         $this->assertStringContainsString('<li><strong>Covoiturages</strong> : Un covoiturage est <strong>effacé automatiquement</strong>', $page);
         $this->assertStringContainsString('modules camps et covoiturage', $page);
     }

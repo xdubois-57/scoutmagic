@@ -23,9 +23,13 @@ page publique.
 tableur, texte ou image. Un PDF est compressé automatiquement quand
 l'hébergement le permet.
 
-Le document reçoit une **adresse** qui ne change plus :
-`/documents/` suivi d'un mot tiré de son titre. C'est cette adresse qu'il
-faut envoyer par e-mail ou imprimer.
+Le document reçoit une **adresse** qui ne change plus ; le bouton en
+forme de lien la copie, pour l'envoyer ou l'imprimer.
+
+Il est **valable deux ans** par défaut. Passé cette date, il reste en
+ligne, mais la liste le marque « Expiré » et un point d'attention le
+signale : repoussez la date, ou remplacez le fichier, qui repart sur deux
+ans.
 
 ## Choisir qui le voit
 
@@ -40,8 +44,6 @@ Les mêmes choix que pour les actualités :
   personne, mais quiconque a son adresse peut le télécharger, même sans
   compte.
 
-Un intendant voit ce qui est destiné aux membres connectés, jamais ce
-qui est réservé aux animateurs.
 
 > « Lien direct » n'est pas une protection : c'est une adresse qu'on ne
 > trouve pas par hasard. Un document créé ainsi reçoit une adresse

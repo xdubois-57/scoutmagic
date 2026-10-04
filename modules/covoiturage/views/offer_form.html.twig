@@ -25,7 +25,12 @@
         </div>
     {% endif %}
 
-    <form method="post" action="{{ offer is null ? '/covoiturage/' ~ carpool.id ~ '/proposer' : '/covoiturage/voitures/' ~ offer.id ~ '/modifier' }}">
+    {# On a new offer, the departure is suggested from the linked events
+       (#703): the server writes the first suggestion, and
+       covoiturage-offer.js asks /trajet again when the meeting point
+       changes value — never per keystroke. #}
+    <form method="post" action="{{ offer is null ? '/covoiturage/' ~ carpool.id ~ '/proposer' : '/covoiturage/voitures/' ~ offer.id ~ '/modifier' }}"
+          {% if departure %}id="offer-form" data-travel-url="/covoiturage/{{ carpool.id }}/trajet" data-direction="{{ _direction }}"{% endif %}>
         {{ csrf_field()|raw }}
         <input type="hidden" name="direction" value="{{ _direction }}">
 
@@ -48,6 +53,13 @@
             required: true,
             control_class_extra: 'w-auto',
         } only %}
+        {% set _suggested = departure ? (_outbound ? departure.outbound : departure.return) : null %}
+        {% if departure %}
+            {# Says the suggestion and how it was obtained, and keeps saying
+               it after the driver changes the hour by hand. #}
+            <p class="form-text mt-n2 mb-3" id="offer-time-suggestion" aria-live="polite"
+               {% if not _suggested %}hidden{% endif %}>{{ _suggested ? _suggested.line : '' }}</p>
+        {% endif %}
 
         {% include 'partials/form_field.html.twig' with {
             field_id: 'offer-endpoint',
@@ -116,6 +128,7 @@
         } only %}
 
         {% if offer is null and _outbound and carpool.return_day %}
+            {% set _also_return = values.also_return|default('') == '1' %}
             <div class="form-check mb-2">
                 <input class="form-check-input" type="checkbox" name="also_return" value="1" id="offer-also-return"
                        {{ values.also_return|default('') == '1' ? 'checked' : '' }}>
@@ -124,15 +137,22 @@
                     <span class="d-block small text-body-secondary">Deux voitures séparées, chacune avec ses places et ses demandes.</span>
                 </label>
             </div>
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'offer-return-time',
-                field_name: 'return_departure_time',
-                label: 'Heure de départ du retour (' ~ carpool.return_day ~ ')',
-                type: 'time',
-                value: values.return_departure_time|default(''),
-                control_class_extra: 'w-auto',
-                help: 'Seulement si vous cochez la case ci-dessus.',
-            } only %}
+            {# Shown only while the box is ticked (#703): it means nothing
+               otherwise. #}
+            <div id="offer-return-block" {% if not _also_return %}hidden{% endif %}>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'offer-return-time',
+                    field_name: 'return_departure_time',
+                    label: 'Heure de départ du retour (' ~ carpool.return_day ~ ')',
+                    type: 'time',
+                    value: values.return_departure_time|default(''),
+                    control_class_extra: 'w-auto',
+                } only %}
+                {% if departure %}
+                    <p class="form-text mt-n2 mb-3" id="offer-return-suggestion" aria-live="polite"
+                       {% if not departure.return %}hidden{% endif %}>{{ departure.return ? departure.return.line : '' }}</p>
+                {% endif %}
+            </div>
         {% endif %}
 
         {% if offer is not null and taken > 0 %}
@@ -158,4 +178,8 @@
         </form>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/covoiturage-offer.js') }}" defer></script>
 {% endblock %}
