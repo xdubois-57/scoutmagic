@@ -207,6 +207,10 @@ class SectionRosterPdfService
     private function toMemberView(MemberRosterRow $row): RosterMemberView
     {
         $totem = $row->totem !== null ? TextNormalizerService::normalizeTotem($row->totem) : null;
+        // « Guépard – Akela », as the screen writes it (issue #722).
+        if ($row->sectionTotem !== null) {
+            $totem = $totem !== null && $totem !== '' ? $totem . ' – ' . $row->sectionTotem : $row->sectionTotem;
+        }
 
         return new RosterMemberView(
             lastName: TextNormalizerService::normalizeName($row->lastName),

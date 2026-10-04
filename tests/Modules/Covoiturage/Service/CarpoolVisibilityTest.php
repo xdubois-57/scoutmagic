@@ -185,17 +185,22 @@ final class CarpoolVisibilityTest extends TestCase
         $this->assertSame("Fête d'unité", $carpool->title());
     }
 
-    public function testAPhoneGoesToTheOtherPartyOfAnAcceptedRequestAndToNobodyElse(): void
+    /**
+     * #703 changed one direction only: the driver sees a requester's phone
+     * from the moment the request is made, so they can call before
+     * answering; the driver's own phone still waits for the acceptance.
+     */
+    public function testAPhoneGoesToTheOtherPartyOfARequestAndToNobodyElse(): void
     {
         // The rider whose request was accepted sees the driver's phone.
         $this->assertSame('0478 12 34 56', $this->offerSeenBy(H::viewer(self::RIDER))['my_request']['driver_phone']);
         // The one still pending does not.
         $this->assertNull($this->offerSeenBy(H::viewer(self::OTHER_FAMILY))['my_request']['driver_phone']);
 
-        // The driver sees the accepted family's phone, not the pending one's.
+        // The driver sees the phone of both families: accepted AND pending.
         $driverView = $this->offerSeenBy(H::viewer(self::DRIVER));
         $this->assertSame('0495 88 77 66', $driverView['requests'][0]['phone']);
-        $this->assertNull($driverView['requests'][1]['phone']);
+        $this->assertSame('0495 88 77 66', $driverView['requests'][1]['phone']);
 
         // The staff sees who rides, never a number — value by value
         // through the shared reader rather than in a `json_encode()` of

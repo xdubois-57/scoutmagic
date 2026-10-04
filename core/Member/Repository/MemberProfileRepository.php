@@ -42,7 +42,8 @@ use Core\Security\EncryptionService;
  * | addresses                | loaded, 7 columns   | none                 |
  * | handicap, insurance      | loaded              | absent               |
  * | badges                   | absent              | loaded               |
- * | queries                  | 3 per member        | 4 for the whole set  |
+ * | section totems (#722)    | loaded              | loaded               |
+ * | queries                  | 4 per member        | 5 for the whole set  |
  *
  * The difference is kept, because it is the right difference and two
  * modules already document their dependence on it: a trombinoscope
@@ -54,6 +55,7 @@ use Core\Security\EncryptionService;
 final class MemberProfileRepository
 {
     private MemberBadgeRepository $badges;
+    private MemberSectionTotemRepository $sectionTotems;
 
     /**
      * `$badges` is optional and trailing: it is a repository over this very
@@ -69,6 +71,7 @@ final class MemberProfileRepository
         ?MemberBadgeRepository $badges = null
     ) {
         $this->badges = $badges ?? new MemberBadgeRepository($connection->getPdo());
+        $this->sectionTotems = new MemberSectionTotemRepository($connection->getPdo(), $encryption);
     }
 
     /**
@@ -123,6 +126,7 @@ final class MemberProfileRepository
             addresses: $addresses,
             functions: $functions,
             scoutYearLabel: $scoutYearLabel,
+            sectionTotems: $this->sectionTotems->forMemberYears([$memberYearId])[$memberYearId] ?? [],
         );
     }
 
@@ -172,6 +176,7 @@ final class MemberProfileRepository
         }
 
         $badgesByMemberYear = $this->badges->getActiveBadgesForMemberYears($memberYearIds);
+        $sectionTotemsByMemberYear = $this->sectionTotems->forMemberYears($memberYearIds);
 
         $profiles = [];
         foreach ($rows as $row) {
@@ -181,7 +186,8 @@ final class MemberProfileRepository
                 addresses: [],
                 functions: $functionsByMemberYear[$memberYearId] ?? [],
                 scoutYearLabel: $labelsByYear[(int) $row['scout_year_id']] ?? '',
-                badges: $badgesByMemberYear[$memberYearId] ?? []
+                badges: $badgesByMemberYear[$memberYearId] ?? [],
+                sectionTotems: $sectionTotemsByMemberYear[$memberYearId] ?? []
             );
         }
 

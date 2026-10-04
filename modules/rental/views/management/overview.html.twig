@@ -21,6 +21,16 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
+        {% if managers_unreachable|default(false) %}
+            {# Nobody on this asset can be told about a request (#708, IT-05):
+               the shared rule falls back on the Staff d'U. #}
+            <output class="alert alert-warning d-block" data-managers-unreachable>
+                <strong>Aucun gestionnaire de ce bien ne peut être prévenu</strong> : les demandes et les
+                rappels de ce bien sont envoyés au Staff d'U. Pour y remédier, désignez comme gestionnaire
+                quelqu'un qui a un compte sur le site, dans « Espace chefs d'U &gt; Locations ».
+            </output>
+        {% endif %}
+
         {% if tariff_missing %}
             {#
               The one configuration gap a manager cannot see from here and a

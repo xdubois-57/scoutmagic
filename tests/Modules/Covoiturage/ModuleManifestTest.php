@@ -47,9 +47,10 @@ final class ModuleManifestTest extends TestCase
             $action = $route['action'];
             // locateAddress (#642) writes only its own cache and quota rows,
             // never anything a person sees: a read, like the event search.
+            // travel (#703) is the same lookup followed by a route.
             $reads = in_array($action, [
                 'index', 'show', 'offerForm', 'editOffer', 'create', 'edit', 'searchEvents', 'eventLocations',
-                'locateAddress',
+                'locateAddress', 'travel',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $action);
         }

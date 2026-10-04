@@ -96,7 +96,7 @@ final class DelegatedAlbumManagerFactory
             ),
             $storage->backends,
             $storage->galleryLocations,
-            new FfmpegAvailability(),
+            new FfmpegAvailability($context->settings),
             new StoredFileCleaner($fileRepository, $context->storagePath)
         );
 

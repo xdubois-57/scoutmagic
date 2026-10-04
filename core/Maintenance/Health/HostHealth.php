@@ -14,7 +14,8 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Scheduler\CronHealth;
 use Core\Scheduler\CronStatus;
-use Core\System\ExecutableLocator;
+use Core\Pdf\PdfCompressor;
+use Core\System\CronExecutionFacts;
 use Core\System\ShellExecutor;
 
 /**
@@ -27,10 +28,12 @@ use Core\System\ShellExecutor;
  * can never say « présent » about something the feature then fails to
  * find:
  *
- * - ffmpeg and ffprobe through Core\System\ExecutableLocator, as
- *   Core\Support\Collector\CommandsCollector does. Core may not name
- *   Modules\Gallery (ARCHITECTURE.md §7.5), and the gallery's own rule is
- *   « the setting and both binaries »: the binaries are the host's half.
+ * - ffmpeg and ffprobe as the CRON found them (Core\System\
+ *   CronExecutionFacts, #700): the video is transcoded by a task, and the
+ *   gallery's video switch reads the same stored facts. The web PHP's own
+ *   ability to run a program is a separate line, since the two differ on
+ *   shared hosting;
+ * - PDF compression through Core\Pdf\PdfCompressor's own detection.
  * - archive encryption through BackupService::supportsZipEncryption(),
  *   the check that hides the full backup form;
  * - sodium through PortableKeys::hasSodium(), the check that picks the key
@@ -78,13 +81,12 @@ final class HostHealth
         // and then « ffmpeg absent » would send the operator to install a
         // package that may well be there.
         $shell = ShellExecutor::probe();
+        $pdf = new PdfCompressor($this->storagePath . '/temp');
 
         return new HostFacts(
             cron: (new CronHealth($this->storagePath, $this->settingService))->status(),
             shellDeclared: $shell['declared'],
             shellWorks: $shell['works'],
-            ffmpegPath: $shell['works'] ? ExecutableLocator::find('ffmpeg') : null,
-            ffprobePath: $shell['works'] ? ExecutableLocator::find('ffprobe') : null,
             zipEncryption: $this->backupService->supportsZipEncryption(),
             sodium: PortableKeys::hasSodium(),
             gd: extension_loaded('gd'),
@@ -96,6 +98,13 @@ final class HostHealth
             databaseDriver: $this->pdoAttribute(\PDO::ATTR_DRIVER_NAME),
             databaseVersion: $this->pdoAttribute(\PDO::ATTR_SERVER_VERSION),
             storageWritable: self::isWritableDirectory($this->storagePath),
+            shellFunction: $shell['function'],
+            shellDetail: $shell['detail'],
+            // Measured by the cron, read here (#700): video runs there.
+            cronExecution: CronExecutionFacts::read($this->settingService),
+            procOpen: $pdf->canUseProcOpen(),
+            // The web PHP's tool: it compresses an upload as it arrives.
+            pdfBackend: $pdf->detectBackend(),
             lastInsecureAccessAt: (new InsecureBrowserAccess($this->settingService))->lastObservedAt(),
             measuredAt: time(),
         );
@@ -107,7 +116,10 @@ final class HostHealth
         return [
             self::cronCheck($facts->cron),
             self::secureConnection($facts->lastInsecureAccessAt, $facts->measuredAt),
+            self::webExecution($facts),
+            self::cronExecution($facts),
             self::video($facts),
+            self::pdfCompression($facts),
             self::archiveEncryption($facts->zipEncryption),
             self::sodium($facts->sodium),
             self::gd($facts->gd),
@@ -174,45 +186,104 @@ final class HostHealth
         return ', cadence ~' . ($medianSeconds < 60 ? $medianSeconds . ' s' : intdiv($medianSeconds, 60) . ' min');
     }
 
-    private static function video(HostFacts $facts): HostCheck
+    /**
+     * The web PHP's ability to run a program (#700) — shown on its own line,
+     * because the cron's can differ, and what to ask depends on which one a
+     * feature needs. Video needs the cron's: when the cron runs commands,
+     * there is nothing to ask for this one.
+     */
+    private static function webExecution(HostFacts $facts): HostCheck
     {
-        $consequence = 'Sans eux, la galerie refuse le téléversement de vidéos. Les photos ne sont pas concernées.';
-        $install = 'Installer ffmpeg (le paquet fournit aussi ffprobe), exécutable par l\'utilisateur qui fait '
-            . 'tourner PHP.';
+        $cronWorks = $facts->cronExecution?->shellWorks === true;
 
-        if (!$facts->shellDeclared) {
+        return new HostCheck(
+            'shell_web',
+            'Exécution de commandes (PHP web)',
+            $facts->shellWorks ? HostCheck::STATE_OK : HostCheck::STATE_DEGRADED,
+            self::shellStatus($facts->shellDeclared, $facts->shellWorks, $facts->shellFunction, $facts->shellDetail),
+            'Ce PHP répond aux visiteurs. Les vérifications de cette page en dépendent ; la vidéo et les '
+                . 'tâches de fond dépendent du PHP du cron, sur la ligne suivante.'
+                . (!$facts->shellWorks && $cronWorks
+                    ? ' Rien à demander pour la vidéo : le PHP du cron exécute les commandes.'
+                    : ''),
+            // Empty when the cron covers it, so the page never prints « À demander
+            // à l'hébergeur » above a sentence saying there is nothing to ask.
+            $cronWorks ? '' : self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
+        );
+    }
+
+    /** The cron's PHP, measured by public/cron.php, with when (#700). */
+    private static function cronExecution(HostFacts $facts): HostCheck
+    {
+        $cron = $facts->cronExecution;
+        if ($cron === null) {
             return new HostCheck(
-                'ffmpeg',
-                'ffmpeg et ffprobe',
-                HostCheck::STATE_MISSING,
-                'Introuvables : PHP n\'a le droit de lancer aucun programme',
-                $consequence,
-                'Autoriser une des fonctions exec(), shell_exec(), system() ou passthru(), aujourd\'hui '
-                    . 'désactivées (disable_functions), puis installer ffmpeg.'
+                'shell_cron',
+                'Exécution de commandes (PHP du cron)',
+                HostCheck::STATE_DEGRADED,
+                'Pas encore vérifiée : la tâche planifiée ne l\'a jamais mesurée',
+                'Ce PHP fait tourner les tâches de fond, dont la conversion des vidéos.',
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
             );
         }
-        if (!$facts->shellWorks) {
+
+        return new HostCheck(
+            'shell_cron',
+            'Exécution de commandes (PHP du cron)',
+            $cron->shellWorks ? HostCheck::STATE_OK : HostCheck::STATE_MISSING,
+            self::shellStatus($cron->shellDeclared, $cron->shellWorks, $cron->shellFunction, $cron->shellDetail)
+                . ' — vérifiée ' . self::ago($cron->probedAt, $facts->measuredAt),
+            'Ce PHP fait tourner les tâches de fond, dont la conversion des vidéos.',
+            self::shellAsk('le PHP du cron (PHP en ligne de commande)', $cron->shellDeclared, $cron->shellDetail)
+        );
+    }
+
+    /**
+     * Video is transcoded by a task, so this reads the CRON's facts (#700),
+     * and asks the host for exactly what is missing there — never for a
+     * shell on the web PHP, which the transcoding does not use.
+     */
+    private static function video(HostFacts $facts): HostCheck
+    {
+        $consequence = 'Sans eux, la galerie et les groupes refusent le téléversement de vidéos. Les photos ne '
+            . 'sont pas concernées.';
+        $cron = $facts->cronExecution;
+
+        if ($cron === null) {
+            return new HostCheck(
+                'ffmpeg',
+                'ffmpeg et ffprobe',
+                HostCheck::STATE_DEGRADED,
+                'Inconnus : la tâche planifiée ne les a pas encore cherchés',
+                $consequence,
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
+            );
+        }
+        if (!$cron->shellWorks) {
             return new HostCheck(
                 'ffmpeg',
                 'ffmpeg et ffprobe',
                 HostCheck::STATE_MISSING,
-                'Introuvables : PHP a le droit de lancer un programme, mais rien ne s\'exécute',
+                'Introuvables : le PHP du cron ne peut lancer aucun programme',
                 $consequence,
-                'Demander pourquoi une commande lancée par PHP n\'aboutit pas (module de sécurité, compte '
-                    . 'sans shell, montage « noexec », PATH vide), puis installer ffmpeg.'
+                self::shellAsk('le PHP du cron (PHP en ligne de commande)', $cron->shellDeclared, $cron->shellDetail)
+                    . ' Puis installer ffmpeg.'
             );
         }
 
         $missing = array_keys(array_filter(
-            ['ffmpeg' => $facts->ffmpegPath, 'ffprobe' => $facts->ffprobePath],
+            ['ffmpeg' => $cron->ffmpegPath, 'ffprobe' => $cron->ffprobePath],
             static fn(?string $path): bool => $path === null
         ));
+        $when = ' — vérifié ' . self::ago($cron->probedAt, $facts->measuredAt);
+        $install = 'Installer ffmpeg (le paquet fournit aussi ffprobe), exécutable par le PHP du cron.';
+
         if ($missing === []) {
             return new HostCheck(
                 'ffmpeg',
                 'ffmpeg et ffprobe',
                 HostCheck::STATE_OK,
-                'Présents',
+                'Présents pour le cron : ' . $cron->ffmpegPath . ', ' . $cron->ffprobePath . $when,
                 $consequence,
                 $install
             );
@@ -222,10 +293,103 @@ final class HostHealth
             'ffmpeg',
             'ffmpeg et ffprobe',
             HostCheck::STATE_MISSING,
-            (count($missing) === 2 ? 'Absents' : 'Absent : ' . $missing[0]),
+            (count($missing) === 2 ? 'Absents pour le cron' : 'Absent pour le cron : ' . $missing[0]) . $when,
             $consequence,
             $install
         );
+    }
+
+    /**
+     * PDF compression (#700), read from the facts — never a second
+     * detection here. **Not blocking**: a degraded line at worst, since
+     * nothing is refused without it. The installation advice lives here
+     * and only here; the staff page sends its reader to this page.
+     */
+    public static function pdfCompression(HostFacts $facts): HostCheck
+    {
+        $consequence = 'Sans outil de compression, les PDF téléversés ne sont pas compressés. Rien n\'est refusé.';
+        $tools = [
+            PdfCompressor::BACKEND_GHOSTSCRIPT => 'Ghostscript',
+            PdfCompressor::BACKEND_QPDF => 'qpdf',
+            PdfCompressor::BACKEND_PDFTOCAIRO => 'pdftocairo',
+        ];
+
+        if (!$facts->procOpen) {
+            return new HostCheck(
+                'pdf_compression',
+                'Compression des PDF',
+                HostCheck::STATE_DEGRADED,
+                'Impossible : la fonction proc_open est désactivée',
+                $consequence,
+                'Retirer proc_open de la liste disable_functions de PHP, puis installer Ghostscript si ce n\'est '
+                    . 'pas fait.'
+            );
+        }
+        if (!isset($tools[$facts->pdfBackend]) && $facts->shellDeclared && !$facts->shellWorks) {
+            // proc_open is allowed but this PHP launches nothing at all: the
+            // tools may well be installed, so asking for them would be wrong.
+            return new HostCheck(
+                'pdf_compression',
+                'Compression des PDF',
+                HostCheck::STATE_DEGRADED,
+                'Impossible : ce PHP ne lance aucun programme',
+                $consequence,
+                'Voir la ligne « Exécution de commandes (PHP web) » : tant que PHP ne peut lancer aucun '
+                    . 'programme, la compression ne peut pas tourner, que Ghostscript soit installé ou non.'
+            );
+        }
+        if (!isset($tools[$facts->pdfBackend])) {
+            return new HostCheck(
+                'pdf_compression',
+                'Compression des PDF',
+                HostCheck::STATE_DEGRADED,
+                'Aucun outil trouvé (Ghostscript, qpdf ou pdftocairo)',
+                $consequence,
+                'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+            );
+        }
+
+        return new HostCheck(
+            'pdf_compression',
+            'Compression des PDF',
+            HostCheck::STATE_OK,
+            'Disponible : ' . $tools[$facts->pdfBackend],
+            $consequence,
+            'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+        );
+    }
+
+    /** « Possible (exec) », or what failed, in the probe's own words. */
+    private static function shellStatus(bool $declared, bool $works, ?string $function, string $detail): string
+    {
+        if ($works) {
+            return 'Possible (' . ($function ?? 'exec') . ')';
+        }
+
+        return ($declared ? 'Échoue (' . ($function ?? '?') . ') : ' : 'Interdite : ') . $detail;
+    }
+
+    /** What to ask the host for one PHP, with the exact error to copy. */
+    private static function shellAsk(string $which, bool $declared, string $detail): string
+    {
+        return $declared
+            ? 'Demander pourquoi une commande lancée par ' . $which . ' n\'aboutit pas (module de sécurité, compte '
+                . 'sans shell, montage « noexec », PATH vide). Erreur exacte : ' . $detail . '.'
+            : 'Autoriser pour ' . $which . ' une des fonctions exec(), shell_exec(), system() ou passthru(), '
+                . 'aujourd\'hui désactivées (disable_functions).';
+    }
+
+    /** « il y a 3 min » from two Unix timestamps. */
+    private static function ago(int $then, int $now): string
+    {
+        $seconds = max(0, $now - $then);
+
+        return match (true) {
+            $seconds < 60 => 'il y a moins d\'une minute',
+            $seconds < 3600 => 'il y a ' . intdiv($seconds, 60) . ' min',
+            $seconds < 86400 => 'il y a ' . intdiv($seconds, 3600) . ' h',
+            default => 'il y a ' . intdiv($seconds, 86400) . ' j',
+        };
     }
 
     private static function archiveEncryption(bool $supported): HostCheck

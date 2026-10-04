@@ -149,6 +149,29 @@ class DeskImportServiceTest extends TestCase
         $this->assertSame(3, $result->memberCount);
     }
 
+    /**
+     * Issue #722: a section totem (« Akela ») is set by a chief, never by
+     * Desk — so a re-import, which rewrites the Desk totem, must leave it.
+     */
+    public function testASectionTotemSurvivesAReImport(): void
+    {
+        $this->importFixture();
+        $memberYearId = (int) $this->pdo->query('SELECT id FROM member_years ORDER BY id LIMIT 1')->fetchColumn();
+        $sectionId = (int) $this->pdo->query('SELECT id FROM sections ORDER BY id LIMIT 1')->fetchColumn();
+        $totems = new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption);
+        $totems->set($memberYearId, $sectionId, 'Akela');
+
+        $this->service = $this->createService();
+        $this->importFixture();
+
+        $this->assertSame(
+            (string) $memberYearId,
+            (string) $this->pdo->query('SELECT id FROM member_years ORDER BY id LIMIT 1')->fetchColumn(),
+            'the import updates the member-year in place'
+        );
+        $this->assertSame([$sectionId => 'Akela'], $totems->forMemberYears([$memberYearId])[$memberYearId] ?? []);
+    }
+
     public function testImportJournalEntryCreated(): void
     {
         $this->importFixture();

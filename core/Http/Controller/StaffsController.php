@@ -27,10 +27,15 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
+use Core\Member\Repository\MemberSectionTotemRepository;
+use Core\View\EditableContentService;
 use Twig\Environment;
 
 class StaffsController extends AbstractController
 {
+    /** The key prefix of a section's own text: permanent, not per year (#725). */
+    public const SECTION_TEXT_KEY_PREFIX = 'staff_text_';
+
     public function __construct(
         protected Environment $twig,
         private SectionService $sectionService,
@@ -41,7 +46,9 @@ class StaffsController extends AbstractController
         private UnitStaffSectionService $unitStaffSectionService,
         private SectionDocumentService $sectionDocumentService,
         private SettingService $settingService,
-        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
+        private EditableContentService $editableContentService,
+        private MemberSectionTotemRepository $sectionTotems
     ) {
     }
 
@@ -152,9 +159,17 @@ class StaffsController extends AbstractController
         }
         $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
 
+        // The section's own text (#725): one key per section, no year in
+        // it, so it stays from one year to the next until somebody edits it.
+        $sectionTextKey = $currentSection !== null ? self::SECTION_TEXT_KEY_PREFIX . (int) $currentSection['id'] : null;
+
         $context = [
             'sections' => $sections,
             'current_section' => $currentSection,
+            'section_text_key' => $sectionTextKey,
+            'section_text' => $sectionTextKey !== null
+                ? (string) $this->editableContentService->get($sectionTextKey, '')
+                : '',
             'staff' => $staff,
             'is_chief' => $isChief,
             'can_edit_section' => $canEditSection,
@@ -179,6 +194,81 @@ class StaffsController extends AbstractController
         }
 
         return $this->render('chefs/staffs.html.twig', $context);
+    }
+
+    /**
+     * POST /chefs/staffs/text — a section's own rich text (#725), in the
+     * body shape rich-text-field.js sends ({key, value, type}).
+     *
+     * Its own endpoint on purpose: /api/rich-text-content stays admin-only.
+     * Here the question is the one the page asks to show the button — does
+     * this account animate THIS section (an admin animates every one) — and
+     * it is asked again, because a hidden button is not a boundary. The
+     * global edit mode plays no part.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSectionText(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $key = (string) ($data['key'] ?? '');
+        if (preg_match('/^' . self::SECTION_TEXT_KEY_PREFIX . '([1-9]\d*)$/', $key, $match) !== 1
+            || ($data['type'] ?? 'rich_text') !== 'rich_text'
+        ) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        $sectionId = (int) $match[1];
+
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null || !$this->mayEditSection($sectionId)) {
+            return $this->json(['success' => false, 'error' => "Vous n'animez pas cette section."], 403);
+        }
+
+        $stored = $this->editableContentService->set($key, (string) ($data['value'] ?? ''), 'rich_text', $userId);
+
+        $this->journalService->log(
+            'core',
+            'section_text_updated',
+            'info',
+            'Texte de section modifié',
+            ['section_id' => $sectionId],
+            $userId
+        );
+
+        return $this->json(['success' => true, 'value' => $stored]);
+    }
+
+    /**
+     * The page's own rule for every write that follows the section: a chief
+     * who animates it this year, or an admin (who animates every section).
+     */
+    private function mayEditSection(int $sectionId): bool
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        if (!$role->hasAccess(Role::CHIEF) || $this->sectionService->getSection($sectionId) === null) {
+            return false;
+        }
+        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+        $staffed = $this->sectionStaffAuthorizationService->getStaffedSections(
+            AuthSession::getEmail() ?? '',
+            $role->value,
+            $scoutYearId
+        );
+
+        foreach ($staffed as $section) {
+            if ((int) $section['id'] === $sectionId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -224,6 +314,66 @@ class StaffsController extends AbstractController
         );
 
         return $this->json(['success' => true, 'assigned' => $assigned]);
+    }
+
+    /**
+     * POST /chefs/staffs/totem-de-section — the totem a staff member carries
+     * in the section shown, this year (« Akela », issue #722).
+     *
+     * Same people as the badges: the route is `chief`, like
+     * /chefs/staffs/badge-toggle, and a chief sees every section on this
+     * page. What is checked here is that the pair makes sense — the member
+     * really holds a function in that section — so a hand-made request
+     * cannot give anybody a totem in a section they are not in. A blank
+     * totem removes it.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSectionTotem(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $memberYearId = (int) ($data['member_year_id'] ?? 0);
+        $sectionId = (int) ($data['section_id'] ?? 0);
+        $totem = trim((string) ($data['totem'] ?? ''));
+        if ($memberYearId <= 0 || $sectionId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (mb_strlen($totem) > 100) {
+            return $this->json(['success' => false, 'error' => 'Ce totem de section est trop long.'], 422);
+        }
+
+        $section = $this->sectionService->getSection($sectionId);
+        $scoutYearId = $this->scoutYearResolver
+            ->getEffectiveYear(ScoutYearSession::getPreviewId(), Role::fromString(AuthSession::getRole()))->id;
+        $isStaff = $section !== null
+            && $this->sectionService->isStaffOfSection($memberYearId, $sectionId, $scoutYearId);
+        if (!$isStaff) {
+            return $this->json(
+                ['success' => false, 'error' => "Ce membre n'est pas dans le staff de cette section."],
+                422
+            );
+        }
+
+        $this->sectionTotems->set($memberYearId, $sectionId, $totem, AuthSession::getUserAccountId());
+
+        // What changed and for whom, never the totem itself: it is a name.
+        $this->journalService->log(
+            'core',
+            $totem === '' ? 'section_totem_removed' : 'section_totem_set',
+            'info',
+            $totem === '' ? 'Totem de section retiré' : 'Totem de section enregistré',
+            ['member_year_id' => $memberYearId, 'section_id' => $sectionId],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
     }
 
     /**
@@ -299,7 +449,8 @@ class StaffsController extends AbstractController
                 addresses: [],
                 functions: $member->functions,
                 scoutYearLabel: $member->scoutYearLabel,
-                badges: $member->badges
+                badges: $member->badges,
+                sectionTotems: $member->sectionTotems
             );
         }
         return $stripped;

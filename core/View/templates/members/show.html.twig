@@ -54,7 +54,9 @@
                         {% if section_info.responsable %}
                             <div class="mb-3">
                                 <span class="text-body-secondary d-block small">Responsable</span>
-                                {{ section_info.responsable|display_name_full }}
+                                {# The section is known here, so its own totem
+                                   (« Akela ») shows — issue #722. #}
+                                {{ section_info.responsable|display_name_full(section_info.section.id) }}
                                 {% if section_info.responsable.addresses|length > 0 %}
                                     <div class="small text-body-secondary">{{ section_info.responsable.addresses[0].format()|normalize_address }}</div>
                                 {% endif %}
@@ -68,7 +70,7 @@
                                     {% for badge_name, holders in section_info.badge_assignments %}
                                         <li>
                                             {{ badge_name }} —
-                                            {% for holder in holders %}{{ holder|display_name_full }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                            {% for holder in holders %}{{ holder|display_name_full(section_info.section.id) }}{% if not loop.last %}, {% endif %}{% endfor %}
                                         </li>
                                     {% endfor %}
                                 </ul>
@@ -79,7 +81,7 @@
                             <div class="mb-3">
                                 <span class="text-body-secondary d-block small">Référent(s) Staff d'U</span>
                                 <span class="small">
-                                    {% for holder in section_info.referent_holders %}{{ holder|display_name_full }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                    {% for holder in section_info.referent_holders %}{{ holder|display_name_full(section_info.section.id) }}{% if not loop.last %}, {% endif %}{% endfor %}
                                 </span>
                             </div>
                         {% endif %}

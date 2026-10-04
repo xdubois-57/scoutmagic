@@ -27,6 +27,12 @@ use Core\Security\Role;
  * instead, so the question the menu asks is the question the controller
  * will ask.
  *
+ * **The question is `MemberService::hasUnitChiefAuthority()`** (issue
+ * #743): a real chef d'U, or a superadmin — who outranks the Staff d'U and
+ * may have no member behind the account at all. Hiding the page from the
+ * site's top administrator was the wrong answer to #347; an `admin` who is
+ * not Staff d'U still gets nothing.
+ *
  * **It protects nothing** (ARCHITECTURE.md §7.4/§12, SECURITY.md §3). The
  * route keeps its `role_min`, the controller keeps its own check, and a
  * hidden entry grants and withholds exactly nothing. What it buys is that
@@ -64,7 +70,8 @@ abstract class UnitChiefMenuHook implements MenuEntryProvider
         // spells out: on the computed year nobody is chef d'U between the
         // 1st of September and the import of the new roster.
         $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
-        if (!$this->memberService->isUnitChief($email, $scoutYearId)) {
+        // A superadmin passes without a member behind the account (#743).
+        if (!$this->memberService->hasUnitChiefAuthority($this->viewerRole, $email, $scoutYearId)) {
             return [];
         }
 

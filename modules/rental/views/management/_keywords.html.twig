@@ -5,9 +5,11 @@
   else. Anything else it asks for is reported at edit time rather than
   rendered as literal braces in a signed contract.
 
-  Requires `keywords`.
+  Requires `keywords`. With `keywords_open` set, the panel is open on
+  arrival — a template's own page (#708, IT-10), where reading them is the
+  point; a booking's document keeps it folded.
 #}
-<details class="mb-3">
+<details class="mb-3"{{ keywords_open is defined and keywords_open ? ' open' : '' }}>
     <summary class="fw-semibold">Mots-clés disponibles</summary>
     <p class="text-body-secondary small mt-2">
         Écrivez-les tels quels dans le texte : ils seront remplacés à la génération du document.
