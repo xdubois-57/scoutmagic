@@ -32,7 +32,6 @@ enum BookingBox: string
     case PAYMENT = 'payment';
     case DOCUMENTS = 'documents';
     case MAIL = 'mail';
-    case CHANGES = 'changes';
     case STAY = 'stay';
     case COMMENTS = 'comments';
     case HISTORY = 'history';
@@ -44,7 +43,6 @@ enum BookingBox: string
             self::PAYMENT => 'Paiements',
             self::DOCUMENTS => 'Documents',
             self::MAIL => 'Courrier',
-            self::CHANGES => 'Demandes et propositions',
             self::STAY => 'Séjour',
             self::COMMENTS => 'Commentaires internes',
             self::HISTORY => 'Historique',
@@ -78,7 +76,7 @@ enum BookingBox: string
             self::PRICE, self::PAYMENT => BookingPage::FINANCES,
             self::DOCUMENTS => BookingPage::DOCUMENTS,
             self::MAIL => BookingPage::MAIL,
-            self::CHANGES, self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
+            self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
             self::STAY => null,
         };
     }

@@ -1,16 +1,16 @@
 {#
-  Change requests and proposals on one booking (§6.16), a box of
-  « Le dossier ».
+  Change requests and proposals on one booking (§6.16), the body of the
+  « Modifications » page (#708, IT-20) — moved there whole from the box it
+  was on the dashboard: the list, the statuses, the messages, « Accepter »
+  and « Refuser » with their confirmation, « Proposer ». The count of what
+  is pending is in the rail, beside the page's name.
 
-  Lifted out of booking.html.twig when that page was reorganised into folded
-  boxes; nothing in it changed. It sits inside the box's own card, so it
-  carries no card and no heading of its own — the fold's header is the
-  heading, and it is also where the count of what is still pending is shown,
-  which is the figure that says whether this box wants opening at all.
+  Every form carries `booking_page`, so a manager without JavaScript comes
+  back here rather than to the dashboard.
 
   Requires `asset`, `booking` and `change_requests`.
 #}
-<div class="card-body pt-0">
+<div class="card-body">
                 <p class="text-body-secondary small">
                     Une demande ne modifie jamais la réservation d'elle-même : elle attend une décision.
                 </p>
@@ -45,6 +45,7 @@
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="changes">
                                             <input type="hidden" name="request_id" value="{{ change.id }}">
                                             <input type="hidden" name="decision" value="accept">
                                             <button type="submit" class="btn btn-sm btn-outline-secondary">Accepter</button>
@@ -57,6 +58,7 @@
                                             {{ csrf_field()|raw }}
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="booking_page" value="changes">
                                             <input type="hidden" name="request_id" value="{{ change.id }}">
                                             <input type="hidden" name="decision" value="refuse">
                                             <button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button>
@@ -73,6 +75,7 @@
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="booking_page" value="changes">
                         <input type="hidden" name="kind" value="dates">
                         <div class="col-6 col-md-3">
                             <label class="form-label" for="propose-arrival">Proposer du</label>
@@ -82,13 +85,13 @@
                             <label class="form-label" for="propose-departure">au</label>
                             <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
                         </div>
-                        <div class="col-12 col-md-4">
+                        <div class="col-12">
                             <label class="form-label" for="propose-message">Message au locataire</label>
-                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message"
-                                   aria-describedby="propose-message-help">
+                            <textarea class="form-control form-control-sm" id="propose-message" name="message" rows="3"
+                                      aria-describedby="propose-message-help"></textarea>
                             <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
                         </div>
-                        <div class="col-12 col-md-2">
+                        <div class="col-12 col-md-3">
                             <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Proposer</button>
                         </div>
                     </form>

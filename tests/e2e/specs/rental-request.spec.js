@@ -295,14 +295,15 @@ test.describe('Rentals', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
-        // Same again for « Demandes et propositions » — and it has to be
-        // re-opened, because the page was reloaded in between.
-        await openCard(page, 'dossier-changes');
+        // The requests and proposals have a page of their own,
+        // « Modifications », right after the dashboard (#708, IT-20).
+        await page.locator('#rental-booking-picker').getByRole('link', { name: /^Modifications/ }).click();
+        await page.waitForURL(/\/reservations\/\d+\/modifications$/, { waitUntil: 'load' });
 
         const proposal = page.locator('form[action="/mes-locations/proposition"]');
         await proposal.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
         await proposal.locator('input[name="departure"]').fill(PROPOSED_DEPARTURE);
-        await proposal.locator('input[name="message"]').fill(PROPOSAL_MESSAGE);
+        await proposal.locator('textarea[name="message"]').fill(PROPOSAL_MESSAGE);
         await proposal.getByRole('button', { name: 'Proposer' }).click();
 
         // The manager's own screen still shows the ORIGINAL dates: a
