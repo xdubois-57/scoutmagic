@@ -15,73 +15,63 @@ Vous avez une sauvegarde portable et sa phrase de passe. Voici la suite.
 
 ## Ce qu'il vous faut
 
-L'archive `.zip`, le mot de passe noté en la téléchargeant, et un
-hébergement — le même remis à neuf, ou un autre. Sans la phrase de
-passe, l'archive est définitivement illisible : personne, ici compris,
-ne peut la rouvrir.
+L'archive `.zip`, la phrase de passe notée en la créant, et un
+hébergement en HTTPS — le même remis à neuf, ou un autre. Sans la
+phrase, l'archive est définitivement illisible : personne ne peut la
+rouvrir.
 
-## Installez ScoutMagic, puis arrêtez-vous
+## Installez avec la sauvegarde
 
-Installez ScoutMagic normalement sur le nouvel hébergement, jusqu'à
-l'assistant de configuration. Créez une base de données **vide** et
-saisissez ses identifiants comme d'habitude, puis cliquez sur
-**Installer la base de données**.
+Déposez `bootstrap.php` par FTP et ouvrez-le. Recopiez le jeton de
+`token.php` (lu par FTP), puis laissez-le vérifier l'accès HTTPS.
 
-**Ne remplissez pas la suite du formulaire.** Le nom de l'unité, le
-compte administrateur, la configuration des emails : tout cela est déjà
-dans votre sauvegarde, et ce que vous saisiriez serait écrasé quelques
-secondes plus tard.
+Choisissez ensuite votre sauvegarde. Seul son en-tête est lu, par votre
+navigateur : son site d'origine, sa date et sa **version**. Le bootstrap
+installe cette version-là, pas la dernière, puis envoie l'archive par
+fragments, en reprenant là où il s'était arrêté si la connexion tombe.
 
-## Restaurez
+## Restaurez dans l'assistant
 
-Juste en dessous, le bloc **Repartir d'une sauvegarde portable**
-attend. Choisissez l'archive, tapez la phrase de passe, cliquez sur
-**Restaurer cette sauvegarde**, et laissez la page ouverte : sur une
-grosse archive, l'envoi puis la restauration prennent plusieurs
-minutes.
+L'assistant s'ouvre en mode restauration, sur la **Sauvegarde
+déposée**. Tapez la phrase de passe et faites-la vérifier, puis
+installez une base de données **vide**, et cliquez sur **Restaurer
+cette sauvegarde**. Laissez la page ouverte.
 
-L'archive envoyée reste sur le serveur jusqu'à la restauration. En
-rechargeant la page, l'assistant affiche la **Sauvegarde déposée** et
-ne demande que la phrase de passe. **Abandonner cette sauvegarde** la
-supprime ; sinon, elle l'est au bout de sept jours.
+Quand c'est terminé, connectez-vous avec vos identifiants habituels :
+les comptes font partie de ce qui a été restauré. **Mettez ensuite le
+site à jour** par Configuration › Maintenance : il avance d'une version
+majeure à la fois, avec sa sauvegarde de sécurité.
 
-Trop grosse pour le navigateur ? Déposez-la par FTP sous
-`storage/restore/portable-restore.zip`, puis rechargez l'assistant.
-
-Quand c'est terminé, connectez-vous avec vos identifiants habituels.
-Ce sont ceux d'avant : les comptes font partie de ce qui a été
-restauré.
+L'archive reste sur le serveur jusqu'à la restauration ; **Abandonner
+cette sauvegarde** la supprime, sinon elle l'est au bout de sept jours.
+Trop grosse pour le navigateur ? Installez sans sauvegarde, déposez-la
+par FTP sous `storage/restore/portable-restore.zip`, puis rechargez
+l'assistant.
 
 ## Ce qui change, et pourquoi
 
 Les identifiants de la base de données restent **ceux que vous venez de
-saisir**, jamais ceux de l'ancien hébergeur — sinon le site neuf
-pointerait vers une base qui n'existe plus, ou pire, vers celle de
-quelqu'un d'autre.
+saisir**, jamais ceux de l'ancien hébergeur.
 
-Les abonnements aux notifications push sont vidés. Ils étaient liés à
-l'ancienne adresse du site et n'auraient plus jamais fonctionné ;
-chacun les réactivera depuis son navigateur.
+Les abonnements aux notifications push sont vidés : ils étaient liés à
+l'ancienne adresse. Chacun les réactivera depuis son navigateur.
 
 Le site reçoit une nouvelle identité technique, tout en gardant trace
-de celle qu'il remplace, pour qu'un déménagement ne se lise pas comme
-un abandon.
+de celle qu'il remplace.
 
 ## Si le site refuse
 
-Il vous dira lequel des trois cas vous êtes :
+Il dit lequel de ces cas vous êtes :
 
-- **la phrase de passe ne correspond pas** — c'est la phrase, pas le
-  fichier ;
+- **la phrase de passe ne correspond pas** — retapez-la, l'archive est
+  toujours là ;
 - **ce n'est pas une sauvegarde portable** — une sauvegarde complète
-  ordinaire n'emporte pas les clés du site, donc elle ne se remonte pas
-  telle quelle ailleurs : il faudrait y recopier aussi `storage/keys/`
-  et `storage/config/` ;
-- **l'archive vient d'une version plus récente** — mettez d'abord à
-  jour ce site, puis recommencez.
+  ordinaire n'emporte pas les clés du site ;
+- **l'archive vient d'une version plus récente**, ou son en-tête ne
+  correspond pas à son contenu — elle a été modifiée, ou ce n'est pas la
+  bonne installation.
 
-Dans les trois cas, rien n'a été modifié, et l'archive reste sur le
-serveur : retapez la phrase de passe sans la renvoyer.
+Dans tous ces cas, rien n'a été modifié.
 
 ## Et après
 

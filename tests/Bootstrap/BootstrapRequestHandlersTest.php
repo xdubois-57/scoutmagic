@@ -73,7 +73,13 @@ class BootstrapRequestHandlersTest extends TestCase
      */
     private function withRequestBody(array $body, callable $handler): void
     {
-        BootstrapFakeInput::$body = (string) json_encode($body);
+        $this->withRawRequestBody((string) json_encode($body), $handler);
+    }
+
+    /** The same, with a body that is not JSON — an archive chunk. */
+    private function withRawRequestBody(string $raw, callable $handler): void
+    {
+        BootstrapFakeInput::$body = $raw;
         $outer = ob_get_level();
         ob_start();
         $level = ob_get_level();
@@ -699,6 +705,71 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertDirectoryDoesNotExist($this->tempDir . '/storage');
         $this->assertFileDoesNotExist($stateFile);
         $this->assertFileDoesNotExist($this->tempDir . '/' . \BOOTSTRAP_LOCK_FILE);
+    }
+
+    // -------------------------------------------------------------------
+    // What runs before the install (#719, B)
+    // -------------------------------------------------------------------
+
+    #[RunInSeparateProcess]
+    public function testATypedTokenIsCheckedAndAWrongOneIsCounted(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $token = \bootstrapReadTokenValue($this->tempDir);
+
+        $this->withRequestBody(['token' => 'faux'], fn () => \bootstrapHandleVerifyToken($this->tempDir, time()));
+        $this->assertSame(1, \bootstrapReadAccess($this->tempDir)['token_attempts'] ?? null);
+
+        $this->withRequestBody(['token' => $token], fn () => \bootstrapHandleVerifyToken($this->tempDir, time()));
+        $this->assertArrayNotHasKey('token_attempts', \bootstrapReadAccess($this->tempDir));
+    }
+
+    #[RunInSeparateProcess]
+    public function testChoosingAnArchiveRecordsItsReleaseAndADevelopmentBuildIsRefused(): void
+    {
+        $this->withRequestBody(['version' => '1.4.2'], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null);
+
+        $this->withRequestBody(['version' => 'dev-12b6042'], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null, 'unchanged');
+
+        $this->withRequestBody(['version' => null], fn () => \bootstrapHandleChooseArchive($this->tempDir));
+        $this->assertArrayNotHasKey('release_version', \bootstrapReadAccess($this->tempDir));
+    }
+
+    #[RunInSeparateProcess]
+    public function testTheStepOneRequestCarriesTheAccessDecisionsIntoTheState(): void
+    {
+        \bootstrapWriteAccess($this->tempDir, ['release_version' => '1.4.2']);
+        $stateFile = $this->tempDir . '/' . \BOOTSTRAP_STATE_FILE;
+
+        // No HTTPS verification on record: step 1 refuses, and says why.
+        $this->withRequestBody(['step' => 1], fn () => \bootstrapHandleStepRequest($this->tempDir, $stateFile));
+
+        $written = \bootstrapReadState($stateFile);
+        $this->assertSame('1.4.2', $written['release_version'] ?? null);
+        $this->assertFalse($written['site_https_verified'] ?? true);
+        $this->assertSame(1, $written['failed_step'] ?? null);
+    }
+
+    #[RunInSeparateProcess]
+    public function testAChunkRequestAppendsItsBodyAtTheOffsetItNames(): void
+    {
+        $target = $this->tempDir . '/site';
+        mkdir($target . '/storage', 0755, true);
+        $stateFile = $this->seedState(['gate_passed' => true, 'install_target' => $target, 'layout' => 'A', 'version' => '1.4.2']);
+        \bootstrapArchiveBegin($this->tempDir, \bootstrapReadState($stateFile), null, static fn (): array => []);
+
+        $_GET = ['offset' => '0', 'last' => '0'];
+        $this->withRawRequestBody('premier-fragment', fn () => \bootstrapHandleArchiveChunk($stateFile));
+        $_GET = ['offset' => '0', 'last' => '0'];
+        $this->withRawRequestBody('rejoue', fn () => \bootstrapHandleArchiveChunk($stateFile));
+
+        $this->assertSame(
+            'premier-fragment',
+            file_get_contents($target . '/' . \BOOTSTRAP_INCOMING_DIR . '/' . \BOOTSTRAP_INCOMING_PART),
+            'a replayed offset appends nothing'
+        );
     }
 }
 

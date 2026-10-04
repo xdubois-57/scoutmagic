@@ -481,6 +481,8 @@ class BootstrapTest extends TestCase
     public function testGateReportPassesAndWritesTokenAllowedOnlyAfter(): void
     {
         $state = $this->installedFixtureState();
+        // Written on the first load since #719, before any step.
+        \bootstrapEnsureTokenFile($this->tempDir);
         $state['probes'] = [
             ['id' => 'B1', 'kind' => 'control', 'url' => '/c.txt', 'expected' => 'ok', 'file' => null],
             ['id' => 'B2', 'kind' => 'php_exec', 'url' => '/token.php', 'expected' => '', 'file' => null],
@@ -1131,7 +1133,9 @@ PHP;
         \bootstrapRenderUi($this->tempDir, $this->tempDir . '/.bootstrap-state.php');
         $html = ob_get_clean();
 
-        $this->assertStringContainsString("window.location.href = '/setup'", $html);
+        // The server names the next page (the restore mode when an archive
+        // waits, #719); /setup is the fallback, never the bare root.
+        $this->assertStringContainsString("window.location.href = data.redirect || '/setup'", $html);
         $this->assertStringNotContainsString("window.location.href = '/';", $html);
     }
 

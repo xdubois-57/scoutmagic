@@ -5,11 +5,16 @@ declare(strict_types=1);
 /**
  * ScoutMagic — standalone bootstrap installer.
  *
- * Uploaded via FTP to an empty web folder. Downloads the latest published
- * GitHub release, installs it into whichever of the two supported layouts
- * fits the host, runs a full acceptance gate proving both functionality and
- * non-exposure of storage/, writes token.php only once every check passes,
- * deletes itself, and redirects to the (now token-gated) setup wizard.
+ * Uploaded via FTP to an empty web folder. Writes token.php on its first
+ * load and asks for it before anything else (the operator reads it over
+ * FTP), refuses to go on until the site answers over HTTPS, then installs
+ * either the latest published GitHub release or — when the operator is
+ * restoring a portable backup — the release that wrote that backup (#719),
+ * into whichever of the two supported layouts fits the host. A full
+ * acceptance gate proves both functionality and non-exposure of storage/;
+ * a backup is then sent in resumable chunks to the address the setup
+ * wizard reads. The file deletes itself and redirects to the wizard, which
+ * accepts the proof that the token was typed here.
  *
  * This is the first-run twin of Core\Maintenance\Task\InstallUpdateHandler
  * and Core\Maintenance\GitHubReleaseClient: same VERSION format, same
@@ -42,6 +47,24 @@ const BOOTSTRAP_TEMP_DIR_PREFIX = '.tmp-';
 const BOOTSTRAP_MIN_PHP_VERSION = '8.4.0';
 const BOOTSTRAP_STORAGE_SUBDIRS = ['keys', 'config', 'core', 'modules', 'temp'];
 const BOOTSTRAP_REQUIRED_ARTIFACT_ENTRIES = ['vendor/autoload.php', 'public/index.php', 'schema/core.sql'];
+const BOOTSTRAP_ACCESS_FILE = '.bootstrap-access.php';
+const BOOTSTRAP_INCOMING_PART = 'portable-restore.part';
+const BOOTSTRAP_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+/** Below the smallest post_max_size a shared host is seen to keep (8 MB). */
+const BOOTSTRAP_CHUNK_BYTES = 2 * 1024 * 1024;
+
+// What this file hands the setup wizard (#719, D) — frozen, and the same
+// values as Core\Security\BootstrapHandoff, which this file cannot load.
+// tests/Bootstrap/BootstrapHandoffContractTest pins the two together.
+const BOOTSTRAP_PROOF_COOKIE = 'scoutmagic_setup_proof';
+const BOOTSTRAP_PROOF_LIFETIME_SECONDS = 7200;
+const BOOTSTRAP_PROOF_CONTEXT = 'scoutmagic-setup-proof-v1';
+const BOOTSTRAP_ARCHIVE_PATH = 'storage/restore/portable-restore.zip';
+const BOOTSTRAP_INCOMING_DIR = 'storage/restore/incoming';
+const BOOTSTRAP_RESTORE_MODE_URL = '/setup?restauration=1';
+// The archive comment's format, as Core\Maintenance\Portable\PortableManifest writes it.
+const BOOTSTRAP_PORTABLE_FORMAT = 'scoutmagic-portable-backup';
+const BOOTSTRAP_PORTABLE_FORMAT_VERSION = 2;
 
 // =============================================================================
 // Preflight / environment
@@ -285,7 +308,41 @@ function bootstrapResolveArchiveUrl(array $release): array
  */
 function bootstrapFetchLatestRelease(callable $httpGet): array
 {
-    $url = 'https://api.github.com/repos/' . BOOTSTRAP_REPO_OWNER . '/' . BOOTSTRAP_REPO_NAME . '/releases/latest';
+    return bootstrapFetchRelease(
+        $httpGet,
+        'https://api.github.com/repos/' . BOOTSTRAP_REPO_OWNER . '/' . BOOTSTRAP_REPO_NAME . '/releases/latest',
+        'Aucune version publiée n\'a été trouvée pour ce dépôt.'
+    );
+}
+
+/**
+ * The release that wrote an archive (#719): `releases/tags/vX.Y.Z`. The
+ * version comes from the archive's clear comment, so it is validated as
+ * a bare release number before it is ever put in a URL — a development
+ * build was never published, and is refused by name.
+ *
+ * @return array<string, mixed>
+ */
+function bootstrapFetchReleaseByVersion(callable $httpGet, string $version): array
+{
+    if (!bootstrapIsReleaseVersion($version)) {
+        throw new RuntimeException('La version ' . $version . ' n\'est pas une version publiée : installez sans '
+            . 'sauvegarde, puis envoyez-la dans l\'assistant de configuration.');
+    }
+
+    return bootstrapFetchRelease(
+        $httpGet,
+        'https://api.github.com/repos/' . BOOTSTRAP_REPO_OWNER . '/' . BOOTSTRAP_REPO_NAME
+            . '/releases/tags/v' . $version,
+        'La version ' . $version . ' n\'a pas été trouvée parmi les versions publiées.'
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function bootstrapFetchRelease(callable $httpGet, string $url, string $notFound): array
+{
     $attempts = 0;
     $lastError = null;
 
@@ -304,7 +361,7 @@ function bootstrapFetchLatestRelease(callable $httpGet): array
         }
 
         if ($result['status'] === 404) {
-            throw new RuntimeException('Aucune version publiée n\'a été trouvée pour ce dépôt.');
+            throw new RuntimeException($notFound);
         }
 
         if ($result['status'] >= 200 && $result['status'] < 300) {
@@ -1107,6 +1164,11 @@ function bootstrapStepPreflight(string $docRoot, array $state): array
         throw new RuntimeException('Ce dossier contient déjà une installation ScoutMagic.');
     }
 
+    // Blocking (#719, B3): nothing is installed before the site has been
+    // seen answering over HTTPS from this folder. Injected from the access
+    // file by bootstrapHandleStepRequest().
+    bootstrapRequireVerifiedHttps($state);
+
     $state['doc_root'] = $docRoot;
     $state['layout'] = $layoutInfo['layout'];
     $state['layout_parent'] = $layoutInfo['parent'];
@@ -1120,11 +1182,28 @@ function bootstrapStepPreflight(string $docRoot, array $state): array
 
 /**
  * @param array<string, mixed> $state
+ */
+function bootstrapRequireVerifiedHttps(array $state): void
+{
+    if (empty($state['site_https_verified'])) {
+        throw new RuntimeException("Vérifiez d'abord que le site répond en HTTPS, puis relancez l'installation.");
+    }
+}
+
+/**
+ * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrapStepResolve(string $docRoot, array $state): array
+function bootstrapStepResolve(string $docRoot, array $state, ?callable $httpGet = null): array
 {
-    $release = bootstrapFetchLatestRelease('bootstrapDefaultHttpGet');
+    $httpGet ??= 'bootstrapDefaultHttpGet';
+    // An archive to restore installs the release that wrote it (#719): the
+    // restore then runs on its own version, and the site is updated
+    // afterwards along the usual path, one major version at a time.
+    $wanted = (string) ($state['release_version'] ?? '');
+    $release = $wanted !== ''
+        ? bootstrapFetchReleaseByVersion($httpGet, $wanted)
+        : bootstrapFetchLatestRelease($httpGet);
     $archive = bootstrapResolveArchiveUrl($release);
 
     $installTarget = $state['layout'] === 'A' ? $state['layout_parent'] : $docRoot;
@@ -1138,7 +1217,7 @@ function bootstrapStepResolve(string $docRoot, array $state): array
     $state['archive_size'] = $archive['size'];
     $state['source_type'] = $archive['source'];
     $state['disk_check'] = $diskCheck;
-    $state['label'] = 'Résolution de la dernière version';
+    $state['label'] = $wanted !== '' ? 'Résolution de la version ' . $wanted : 'Résolution de la dernière version';
     $state['percent'] = 100;
 
     return $state;
@@ -1707,27 +1786,18 @@ function bootstrapEvaluateGateReport(string $docRoot, array $state, array $resul
 function bootstrapStepToken(string $docRoot, array $state): array
 {
     if (empty($state['gate_passed'])) {
-        throw new RuntimeException('Le jeton ne peut être généré qu\'après la réussite des contrôles.');
+        throw new RuntimeException('Le jeton ne peut être confirmé qu\'après la réussite des contrôles.');
     }
 
-    $token = bootstrapGenerateToken();
-    $written = @file_put_contents(
-        $docRoot . '/' . BOOTSTRAP_TOKEN_FILE,
-        bootstrapTokenFileContent($token)
-    ) !== false;
-
-    $state['token_written'] = $written;
-    if (!$written) {
-        // Graceful degradation: a failure to write token.php doesn't lock
-        // the operator out — the wizard's own refusal screen already tells
-        // them the exact content to create over FTP, it just never
-        // generates the token itself.
-        $state['token_write_warning'] = "Impossible d'écrire token.php automatiquement — créez-le manuellement via FTP "
-            . "avec le contenu ci-dessous.";
-        $state['token_manual_content'] = bootstrapTokenFileContent($token);
+    // Written on the first load and typed before anything ran (#719, B1);
+    // a rollback since — a failed gate removes it — would have sent the
+    // operator back to the token screen, so its absence here is a fault.
+    if (bootstrapReadTokenValue($docRoot) === '') {
+        throw new RuntimeException('token.php a disparu pendant l\'installation : rechargez la page pour recommencer.');
     }
 
-    $state['label'] = 'Génération du jeton';
+    $state['token_written'] = true;
+    $state['label'] = 'Jeton';
     $state['percent'] = 100;
 
     return $state;
@@ -1742,7 +1812,15 @@ function bootstrapStepCleanup(string $docRoot, array $state, ?callable $selfDele
     $selfDelete ??= static fn (): bool => @unlink(__FILE__);
 
     @unlink($docRoot . '/' . BOOTSTRAP_STATE_FILE);
+    @unlink($docRoot . '/' . BOOTSTRAP_ACCESS_FILE);
     $selfDeleted = (bool) $selfDelete();
+
+    // Where the operator goes next — the wizard's restore mode when an
+    // archive now waits for it (#719, D), the ordinary wizard otherwise.
+    $target = (string) ($state['install_target'] ?? '');
+    $state['redirect'] = $target !== '' && is_file($target . '/' . BOOTSTRAP_ARCHIVE_PATH)
+        ? BOOTSTRAP_RESTORE_MODE_URL
+        : '/setup';
 
     $state['self_deleted'] = $selfDeleted;
     if (!$selfDeleted) {
@@ -1762,6 +1840,386 @@ function bootstrapStepCleanup(string $docRoot, array $state, ?callable $selfDele
 function bootstrapAlreadyInstalled(string $docRoot): bool
 {
     return is_file($docRoot . '/VERSION') || is_dir($docRoot . '/core');
+}
+
+// =============================================================================
+// Access: the token first, HTTPS before anything else, then the archive
+// (#719, B). Everything the bootstrap hands the setup wizard is frozen in
+// Core\Security\BootstrapHandoff — copied here, since this file runs before
+// vendor/ exists, and pinned to it by tests/Bootstrap.
+// =============================================================================
+
+/**
+ * The token's existence, its attempts and lockout, the HTTPS verification
+ * and the release an archive asks for — everything decided before step 1,
+ * kept apart from the step state so an aborted install keeps none of it
+ * and a fresh one inherits nothing.
+ *
+ * @return array<string, mixed>
+ */
+function bootstrapReadAccess(string $docRoot): array
+{
+    return bootstrapReadState($docRoot . '/' . BOOTSTRAP_ACCESS_FILE);
+}
+
+/**
+ * @param array<string, mixed> $access
+ */
+function bootstrapWriteAccess(string $docRoot, array $access): void
+{
+    bootstrapWriteState($docRoot . '/' . BOOTSTRAP_ACCESS_FILE, $access);
+}
+
+/** The token in token.php, or '' when there is none. */
+function bootstrapReadTokenValue(string $docRoot): string
+{
+    $content = (string) @file_get_contents($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
+
+    return preg_match('/TOKEN:\s*([0-9a-f]{64})/i', $content, $m) === 1 ? strtolower($m[1]) : '';
+}
+
+/**
+ * token.php FIRST (#719, B1): written on the very first load, before any
+ * other question, and read by the operator over FTP. Returns whether a
+ * token exists afterwards — false only when the folder refused the write,
+ * in which case the operator creates the file themselves.
+ */
+function bootstrapEnsureTokenFile(string $docRoot): bool
+{
+    if (bootstrapReadTokenValue($docRoot) !== '') {
+        return true;
+    }
+
+    return @file_put_contents(
+        $docRoot . '/' . BOOTSTRAP_TOKEN_FILE,
+        bootstrapTokenFileContent(bootstrapGenerateToken())
+    ) !== false;
+}
+
+/** Same computation as Core\Security\BootstrapHandoff::proofValue(). */
+function bootstrapProofValue(string $token, int $expiresAt): string
+{
+    return $expiresAt . '.' . hash_hmac('sha256', BOOTSTRAP_PROOF_CONTEXT . '|' . $expiresAt, $token);
+}
+
+/** Same rule as Core\Security\BootstrapHandoff::proofIsValid(). */
+function bootstrapProofIsValid(string $cookie, string $token, int $now): bool
+{
+    if ($token === '' || preg_match('/^(\d{1,12})\.([0-9a-f]{64})$/', $cookie, $parts) !== 1) {
+        return false;
+    }
+    $expiresAt = (int) $parts[1];
+    if ($expiresAt <= $now || $expiresAt > $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS) {
+        return false;
+    }
+
+    return hash_equals(bootstrapProofValue($token, $expiresAt), $cookie);
+}
+
+/**
+ * Whether this request comes from the operator who typed the token: the
+ * proof cookie, checked against the token on disk.
+ *
+ * @param array<string, mixed> $cookies
+ */
+function bootstrapIsAuthorized(string $docRoot, array $cookies, int $now): bool
+{
+    $cookie = $cookies[BOOTSTRAP_PROOF_COOKIE] ?? null;
+
+    return is_string($cookie) && bootstrapProofIsValid($cookie, bootstrapReadTokenValue($docRoot), $now);
+}
+
+/**
+ * The setup wizard's ladder, unchanged (SetupController::verifyToken()):
+ * 4, 6, 8 and 10 failures lock for one minute, five, thirty, then a day.
+ */
+function bootstrapTokenLockSeconds(int $attempts): int
+{
+    return match (true) {
+        $attempts >= 10 => 86400,
+        $attempts >= 8 => 1800,
+        $attempts >= 6 => 300,
+        $attempts >= 4 => 60,
+        default => 0,
+    };
+}
+
+/**
+ * One typed token: accepted with a proof cookie value, refused with the
+ * attempt counted, or refused unread while locked. The token is never
+ * echoed back, right or wrong.
+ *
+ * @return array{ok: bool, cookie?: string, error?: string, locked_until?: int}
+ */
+function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): array
+{
+    $access = bootstrapReadAccess($docRoot);
+    $lockedUntil = (int) ($access['token_locked_until'] ?? 0);
+    if ($lockedUntil > $now) {
+        return [
+            'ok' => false,
+            'locked_until' => $lockedUntil,
+            'error' => 'Trop de tentatives — nouvel essai possible dans ' . bootstrapDelayLabel($lockedUntil - $now) . '.',
+        ];
+    }
+
+    $token = bootstrapReadTokenValue($docRoot);
+    $submitted = strtolower(trim($submitted));
+    if ($token !== '' && $submitted !== '' && hash_equals($token, $submitted)) {
+        unset($access['token_attempts'], $access['token_locked_until']);
+        bootstrapWriteAccess($docRoot, $access);
+
+        return ['ok' => true, 'cookie' => bootstrapProofValue($token, $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS)];
+    }
+
+    $attempts = (int) ($access['token_attempts'] ?? 0) + 1;
+    $access['token_attempts'] = $attempts;
+    $lock = bootstrapTokenLockSeconds($attempts);
+    if ($lock > 0) {
+        $access['token_locked_until'] = $now + $lock;
+    }
+    bootstrapWriteAccess($docRoot, $access);
+
+    return $lock > 0
+        ? [
+            'ok' => false,
+            'locked_until' => $now + $lock,
+            'error' => 'Jeton invalide. Trop de tentatives — nouvel essai possible dans ' . bootstrapDelayLabel($lock) . '.',
+        ]
+        : ['ok' => false, 'error' => 'Jeton invalide.'];
+}
+
+function bootstrapDelayLabel(int $seconds): string
+{
+    return match (true) {
+        $seconds >= 3600 => (int) ceil($seconds / 3600) . ' h',
+        $seconds >= 60 => (int) ceil($seconds / 60) . ' min',
+        default => max(1, $seconds) . ' s',
+    };
+}
+
+/**
+ * The host as the browser named it — only a host name and an optional
+ * port, never anything a URL could be built from otherwise.
+ *
+ * @param array<string, mixed> $server
+ */
+function bootstrapRequestHost(array $server): ?string
+{
+    $host = $server['HTTP_HOST'] ?? null;
+
+    return is_string($host) && preg_match('/^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$/', $host) === 1 ? strtolower($host) : null;
+}
+
+/**
+ * **Blocking, before anything is installed or uploaded (#719, B3):** the
+ * site must answer over HTTPS, with a certificate this PHP accepts, from
+ * this very folder. A probe file is written here and fetched back at
+ * `https://<host>/`; anything else is a message saying what to fix.
+ *
+ * @return array{ok: bool, detail: string}
+ */
+function bootstrapCheckSiteHttps(string $docRoot, ?string $host, callable $httpGet): array
+{
+    if ($host === null) {
+        return ['ok' => false, 'detail' => "L'adresse du site n'a pas pu être lue dans la requête. Ouvrez cette page "
+            . "par l'adresse publique du site, puis relancez la vérification."];
+    }
+
+    $name = '.bootstrap-https-' . bin2hex(random_bytes(8)) . '.txt';
+    $content = 'scoutmagic-https-' . bin2hex(random_bytes(16));
+    if (@file_put_contents($docRoot . '/' . $name, $content) === false) {
+        return ['ok' => false, 'detail' => "Le fichier de vérification n'a pas pu être écrit dans ce dossier."];
+    }
+
+    try {
+        $result = $httpGet('https://' . $host . '/' . $name);
+    } finally {
+        @unlink($docRoot . '/' . $name);
+    }
+
+    $status = (int) ($result['status'] ?? 0);
+    if ($status === 0) {
+        return ['ok' => false, 'detail' => "https://{$host}/ ne répond pas en HTTPS : le certificat est absent, expiré "
+            . "ou ne correspond pas à cette adresse, ou le port 443 est fermé. Activez le certificat HTTPS dans le "
+            . "panneau de votre hébergeur (souvent « Let's Encrypt »), attendez qu'il soit émis, puis relancez la "
+            . "vérification."];
+    }
+    if ($status !== 200) {
+        return ['ok' => false, 'detail' => "https://{$host}/ répond, mais avec le code HTTP {$status} au lieu de 200. "
+            . "Vérifiez que l'adresse HTTPS du site pointe vers ce même dossier (et pas vers une page par défaut de "
+            . "l'hébergeur), puis relancez la vérification."];
+    }
+    if (trim((string) ($result['body'] ?? '')) !== $content) {
+        return ['ok' => false, 'detail' => "https://{$host}/ sert un autre dossier que celui-ci : l'adresse HTTPS et "
+            . "l'adresse HTTP ne mènent pas au même endroit chez votre hébergeur. Faites-les pointer vers ce dossier, "
+            . "puis relancez la vérification."];
+    }
+
+    return ['ok' => true, 'detail' => "Le site répond en HTTPS à l'adresse https://{$host}/."];
+}
+
+/** A published release number — `1.2.3`, never a development build. */
+function bootstrapIsReleaseVersion(string $version): bool
+{
+    return preg_match('/^\d{1,4}\.\d{1,4}\.\d{1,4}$/', $version) === 1;
+}
+
+/**
+ * What an archive's clear comment says, the way the setup wizard reads it
+ * (Core\Maintenance\Portable\PortableArchiveHints): a hint for choosing a
+ * release, never a fact — the wizard checks it against the encrypted
+ * manifest. Null when the comment is not one of ours.
+ *
+ * @return array{version: string, site_url: string, created_at: string, kind: string}|null
+ */
+function bootstrapParseArchiveComment(string $comment): ?array
+{
+    $document = json_decode($comment, true);
+    if (
+        !is_array($document)
+        || ($document['format'] ?? null) !== BOOTSTRAP_PORTABLE_FORMAT
+        || ($document['format_version'] ?? null) !== BOOTSTRAP_PORTABLE_FORMAT_VERSION
+        || !is_string($document['scoutmagic_version'] ?? null)
+    ) {
+        return null;
+    }
+
+    $text = static fn (mixed $v): string => is_string($v)
+        ? mb_substr(trim((string) preg_replace('/[\p{Cc}\p{Cf}]/u', '', $v)), 0, 200)
+        : '';
+
+    return [
+        'version' => $text($document['scoutmagic_version']),
+        'site_url' => $text($document['site_url'] ?? ''),
+        'created_at' => $text($document['created_at'] ?? ''),
+        'kind' => $text($document['kind'] ?? ''),
+    ];
+}
+
+/**
+ * Where the archive is assembled, and checked unreachable from the web
+ * before a byte is accepted (#719, B6). In layout A storage/ sits beside
+ * the document root and no URL reaches it; in layout B it is under the
+ * document root, protected by the root .htaccess — proved here by
+ * fetching a canary through the site. Refused rather than guessed: the
+ * caller falls back to sending the archive in the setup wizard.
+ *
+ * @param array<string, mixed> $state
+ * @return array{ok: bool, received?: int, detail?: string}
+ */
+function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, callable $httpGet): array
+{
+    if (empty($state['gate_passed']) || empty($state['install_target'])) {
+        return ['ok' => false, 'detail' => "L'installation n'est pas terminée : l'archive ne peut pas encore être envoyée."];
+    }
+
+    $incoming = $state['install_target'] . '/' . BOOTSTRAP_INCOMING_DIR;
+    if (!is_dir($incoming) && !@mkdir($incoming, 0700, true) && !is_dir($incoming)) {
+        return ['ok' => false, 'detail' => "Le dossier qui reçoit l'archive n'a pas pu être créé."];
+    }
+    @file_put_contents(dirname($incoming) . '/.htaccess', "Require all denied\n");
+    @file_put_contents($incoming . '/.htaccess', "Require all denied\n");
+
+    if (($state['layout'] ?? null) === 'B') {
+        if ($host === null) {
+            return ['ok' => false, 'detail' => "La protection du dossier de réception n'a pas pu être vérifiée."];
+        }
+        $canary = 'canary-' . bin2hex(random_bytes(8)) . '.txt';
+        $content = 'scoutmagic-restore-canary-' . bin2hex(random_bytes(16));
+        file_put_contents($incoming . '/' . $canary, $content);
+        try {
+            $probe = $httpGet('https://' . $host . '/' . BOOTSTRAP_INCOMING_DIR . '/' . $canary);
+        } finally {
+            @unlink($incoming . '/' . $canary);
+        }
+        if (!bootstrapEvaluateProtectionProbe((int) ($probe['status'] ?? 0), (string) ($probe['body'] ?? ''), $content)) {
+            return ['ok' => false, 'detail' => "Le dossier de réception de l'archive n'est pas prouvé inaccessible depuis "
+                . "le web : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration."];
+        }
+    }
+
+    $part = $incoming . '/' . BOOTSTRAP_INCOMING_PART;
+
+    return ['ok' => true, 'received' => is_file($part) ? (int) filesize($part) : 0];
+}
+
+/**
+ * One chunk, appended strictly in sequence: a chunk for any other offset
+ * is refused with the size actually held, so the browser resumes from
+ * there. The last chunk checks the whole file — a zip whose comment names
+ * the release just installed — and moves it to the address the wizard
+ * reads ({@see BOOTSTRAP_ARCHIVE_PATH}).
+ *
+ * @param array<string, mixed> $state
+ * @return array{status: int, received: int, done?: bool, error?: string}
+ */
+function bootstrapArchiveAppend(array $state, int $offset, string $data, bool $last): array
+{
+    $target = (string) ($state['install_target'] ?? '');
+    if (empty($state['gate_passed']) || $target === '') {
+        return ['status' => 409, 'received' => 0, 'error' => "L'installation n'est pas terminée."];
+    }
+
+    $part = $target . '/' . BOOTSTRAP_INCOMING_DIR . '/' . BOOTSTRAP_INCOMING_PART;
+    if (!is_dir(dirname($part))) {
+        return ['status' => 409, 'received' => 0, 'error' => "L'envoi n'a pas été préparé."];
+    }
+
+    $handle = fopen($part, 'c+b');
+    if ($handle === false || !flock($handle, LOCK_EX)) {
+        return ['status' => 500, 'received' => 0, 'error' => "Le fichier de réception n'a pas pu être ouvert."];
+    }
+
+    try {
+        $size = (int) fstat($handle)['size'];
+        if ($offset !== $size) {
+            return ['status' => 409, 'received' => $size, 'error' => 'Fragment hors séquence.'];
+        }
+        if ($size + strlen($data) > BOOTSTRAP_ARCHIVE_MAX_BYTES) {
+            return ['status' => 413, 'received' => $size, 'error' => "L'archive dépasse 2 Go."];
+        }
+        fseek($handle, $size);
+        if ($data !== '' && fwrite($handle, $data) !== strlen($data)) {
+            return ['status' => 500, 'received' => $size, 'error' => "Le fragment n'a pas pu être écrit."];
+        }
+        fflush($handle);
+        $received = $size + strlen($data);
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
+    if (!$last) {
+        return ['status' => 200, 'received' => $received];
+    }
+
+    $zip = new ZipArchive();
+    $hints = $zip->open($part, ZipArchive::RDONLY) === true
+        ? bootstrapParseArchiveComment((string) $zip->getArchiveComment())
+        : null;
+    if ($hints !== null || $zip->filename !== '') {
+        @$zip->close();
+    }
+    if ($hints === null) {
+        @unlink($part);
+
+        return ['status' => 422, 'received' => 0, 'error' => "Le fichier reçu n'est pas une sauvegarde portable "
+            . 'ScoutMagic lisible.'];
+    }
+    if ($hints['version'] !== (string) ($state['version'] ?? '')) {
+        @unlink($part);
+
+        return ['status' => 422, 'received' => 0, 'error' => 'Cette sauvegarde a été écrite par la version '
+            . $hints['version'] . ', pas par celle qui vient d\'être installée.'];
+    }
+
+    $archive = $target . '/' . BOOTSTRAP_ARCHIVE_PATH;
+    if (!@rename($part, $archive)) {
+        return ['status' => 500, 'received' => $received, 'error' => "L'archive n'a pas pu être rangée."];
+    }
+
+    return ['status' => 200, 'received' => $received, 'done' => true];
 }
 
 // =============================================================================
@@ -1868,9 +2326,9 @@ function bootstrapPublicState(array $state): array
     $publicKeys = [
         'label', 'percent', 'layout', 'layout_reason', 'version', 'done', 'done_gate',
         'gate_passed', 'gate_aborted_at', 'error', 'failed_step', 's_checks', 'b_checks',
-        'f_checks', 'probes', 'awaiting_gate_report', 'token_written', 'token_write_warning',
-        'token_manual_content', 'self_deleted', 'cleanup_warning', 'disk_check', 'environment',
-        'gate_report',
+        'f_checks', 'probes', 'awaiting_gate_report', 'token_written',
+        'self_deleted', 'cleanup_warning', 'disk_check', 'environment',
+        'gate_report', 'redirect', 'release_version',
     ];
 
     $out = [];
@@ -1978,6 +2436,13 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
     }
 
     $state = bootstrapReadState($stateFile);
+    if ($step === 1) {
+        // Decided before the install started (#719): the HTTPS check that
+        // gates it, and the release an archive asks for.
+        $access = bootstrapReadAccess($docRoot);
+        $state['site_https_verified'] = !empty($access['https_verified_at']);
+        $state['release_version'] = (string) ($access['release_version'] ?? '');
+    }
 
     try {
         switch ($step) {
@@ -2138,6 +2603,173 @@ function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
 }
 
 /**
+ * Reads a JSON request body, `php://input` being the only place it lives.
+ *
+ * @return array<string, mixed>
+ */
+function bootstrapJsonInput(): array
+{
+    $input = json_decode((string) file_get_contents('php://input'), true);
+
+    return is_array($input) ? $input : [];
+}
+
+/** @param array<string, mixed> $server */
+function bootstrapRequestIsHttps(array $server): bool
+{
+    return strtolower((string) ($server['HTTPS'] ?? '')) === 'on'
+        || (string) ($server['SERVER_PORT'] ?? '') === '443';
+}
+
+/**
+ * POST ?action=verify-token — `{"token": "…"}`. On success the proof
+ * cookie is set: HttpOnly, SameSite=Strict, Secure on HTTPS, two hours,
+ * and the setup wizard accepts it in place of a typed token (#719, B2).
+ */
+function bootstrapHandleVerifyToken(string $docRoot, int $now): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    $result = bootstrapVerifyToken($docRoot, (string) (bootstrapJsonInput()['token'] ?? ''), $now);
+    if ($result['ok'] && isset($result['cookie'])) {
+        setcookie(BOOTSTRAP_PROOF_COOKIE, $result['cookie'], [
+            'expires' => $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS,
+            'path' => '/',
+            'secure' => bootstrapRequestIsHttps($_SERVER),
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
+        bootstrapSendJson(['ok' => true], $buffering);
+        return;
+    }
+
+    bootstrapSendJson([
+        'ok' => false,
+        'error' => $result['error'] ?? 'Jeton invalide.',
+        'locked_until' => $result['locked_until'] ?? null,
+    ], $buffering);
+}
+
+/**
+ * POST ?action=token-exposed — the page found token.php readable as text.
+ * Not taken on the browser's word, since this action needs no token: the
+ * server fetches the file itself, and only a token it can read back gets
+ * the file deleted (#719, B1).
+ */
+function bootstrapHandleTokenExposed(string $docRoot, callable $httpGet): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    $token = bootstrapReadTokenValue($docRoot);
+    $host = bootstrapRequestHost($_SERVER);
+    $exposed = false;
+    if ($token !== '' && $host !== null) {
+        foreach (['https', 'http'] as $scheme) {
+            $result = $httpGet($scheme . '://' . $host . '/' . BOOTSTRAP_TOKEN_FILE);
+            if (str_contains((string) ($result['body'] ?? ''), $token)) {
+                $exposed = true;
+                break;
+            }
+        }
+    }
+    if ($exposed) {
+        @unlink($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
+    }
+
+    bootstrapSendJson(['exposed' => $exposed], $buffering);
+}
+
+/** POST ?action=https-check — the blocking HTTPS verification (#719, B3). */
+function bootstrapHandleHttpsCheck(string $docRoot, callable $httpGet, int $now): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    $check = bootstrapCheckSiteHttps($docRoot, bootstrapRequestHost($_SERVER), $httpGet);
+    $access = bootstrapReadAccess($docRoot);
+    if ($check['ok']) {
+        $access['https_verified_at'] = $now;
+    } else {
+        unset($access['https_verified_at']);
+    }
+    bootstrapWriteAccess($docRoot, $access);
+
+    bootstrapSendJson($check, $buffering);
+}
+
+/**
+ * POST ?action=choose-archive — `{"version": "1.2.3"}` to install the
+ * release an archive names, `{"version": null}` for the latest one.
+ */
+function bootstrapHandleChooseArchive(string $docRoot): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    $version = bootstrapJsonInput()['version'] ?? null;
+    $access = bootstrapReadAccess($docRoot);
+    if ($version === null) {
+        unset($access['release_version']);
+    } elseif (!is_string($version) || !bootstrapIsReleaseVersion($version)) {
+        bootstrapSendJson(['ok' => false, 'error' => 'Cette sauvegarde vient d\'une version de développement, qui '
+            . 'n\'est pas publiée : installez sans sauvegarde, puis envoyez-la dans l\'assistant de configuration.'], $buffering);
+        return;
+    } else {
+        $access['release_version'] = $version;
+    }
+    bootstrapWriteAccess($docRoot, $access);
+
+    bootstrapSendJson(['ok' => true, 'version' => $access['release_version'] ?? null], $buffering);
+}
+
+/** POST ?action=archive-begin — prepares and proves the reception folder (#719, B6). */
+function bootstrapHandleArchiveBegin(string $docRoot, string $stateFile, callable $httpGet): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    bootstrapSendJson(
+        bootstrapArchiveBegin($docRoot, bootstrapReadState($stateFile), bootstrapRequestHost($_SERVER), $httpGet)
+            + ['chunk_bytes' => BOOTSTRAP_CHUNK_BYTES],
+        $buffering
+    );
+}
+
+/**
+ * POST ?action=archive-chunk&offset=N&last=0|1 — one raw chunk, at most
+ * {@see BOOTSTRAP_CHUNK_BYTES}.
+ */
+function bootstrapHandleArchiveChunk(string $stateFile): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    $buffering = ob_get_level();
+    ob_start();
+
+    $data = (string) file_get_contents('php://input', false, null, 0, BOOTSTRAP_CHUNK_BYTES + 1);
+    if (strlen($data) > BOOTSTRAP_CHUNK_BYTES) {
+        http_response_code(413);
+        bootstrapSendJson(['error' => 'Fragment trop grand.'], $buffering);
+        return;
+    }
+
+    $result = bootstrapArchiveAppend(
+        bootstrapReadState($stateFile),
+        max(0, (int) ($_GET['offset'] ?? 0)),
+        $data,
+        (string) ($_GET['last'] ?? '0') === '1'
+    );
+    http_response_code($result['status']);
+    bootstrapSendJson($result, $buffering);
+}
+
+/**
  * Discards any output already buffered — a stray PHP warning/notice
  * (an unsuppressed mkdir()/file_put_contents() hitting an edge case, or
  * simply a host with display_errors on) printed ahead of the intended
@@ -2228,6 +2860,103 @@ function bootstrapRenderErrorPage(string $message): void
         . '</div></body></html>';
 }
 
+/**
+ * The first screen, before any other question (#719, B1): the token the
+ * operator reads in token.php over FTP. Never the token itself — when the
+ * file could not be written, the operator is told how to create one.
+ */
+function bootstrapRenderTokenScreen(string $docRoot): void
+{
+    header('Content-Type: text/html; charset=utf-8');
+    $tokenFile = BOOTSTRAP_TOKEN_FILE;
+    $hasToken = bootstrapReadTokenValue($docRoot) !== '';
+    $access = bootstrapReadAccess($docRoot);
+    $lockedUntil = (int) ($access['token_locked_until'] ?? 0);
+    $lockedNote = $lockedUntil > time()
+        ? '<div class="alert alert-error">Trop de tentatives — nouvel essai possible dans '
+            . bootstrapHtmlEscape(bootstrapDelayLabel($lockedUntil - time())) . '.</div>'
+        : '';
+
+    $body = $hasToken
+        ? <<<HTML
+<p>Un fichier <code>{$tokenFile}</code> vient d'être créé dans ce dossier. Ouvrez-le avec votre logiciel FTP
+et recopiez ici la suite de 64 caractères qui suit <code>TOKEN:</code>. C'est la preuve que vous avez accès
+aux fichiers de ce serveur : rien d'autre ne se fait avant.</p>
+{$lockedNote}
+<form id="token-form">
+  <label for="token-input">Jeton d'installation</label><br>
+  <input type="text" id="token-input" autocomplete="off" spellcheck="false" style="width:100%;font-family:monospace;padding:.5rem">
+  <p><button type="submit" id="token-submit">Continuer</button></p>
+</form>
+<div id="token-result" class="alert" hidden></div>
+HTML
+        : <<<HTML
+<div class="alert alert-error">Le fichier <code>{$tokenFile}</code> n'a pas pu être créé dans ce dossier. Créez-le
+vous-même par FTP, avec pour seul contenu <code>&lt;?php /* TOKEN: … */</code>, où « … » est une suite de
+64 caractères 0-9 et a-f de votre choix, puis rechargez cette page.</div>
+HTML;
+
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScoutMagic — Installation</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; }
+  button { min-height: 44px; font-size: 1rem; padding: .6rem 1.2rem; border-radius: .5rem; border: none; background: #0d6efd; color: #fff; cursor: pointer; }
+  .alert { border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+  .alert-error { background: #fdecea; color: #611a15; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>ScoutMagic — Installation</h1>
+<section id="screen-token">
+{$body}
+</section>
+<script>
+(function () {
+  var result = document.getElementById('token-result');
+  function show(text) { result.textContent = text; result.className = 'alert alert-error'; result.hidden = false; }
+
+  // token.php must run as PHP and print nothing. A host serving it as text
+  // would hand the token to anybody: the server checks for itself and
+  // deletes it (#719, B1).
+  fetch('{$tokenFile}', { cache: 'no-store' }).then(function (res) { return res.text(); }).then(function (text) {
+    if (text.indexOf('TOKEN') === -1) { return; }
+    return fetch('?action=token-exposed', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.exposed) {
+        show("Ce serveur affiche token.php comme du texte au lieu de l'exécuter : le jeton a été supprimé et "
+          + "l'installation est impossible ici. Demandez à votre hébergeur d'activer PHP pour ce dossier.");
+        var form = document.getElementById('token-form');
+        if (form) { form.hidden = true; }
+      }
+    });
+  }).catch(function () { /* unreachable is not exposed */ });
+
+  var form = document.getElementById('token-form');
+  if (!form) { return; }
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    fetch('?action=verify-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: document.getElementById('token-input').value })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) { window.location.reload(); return; }
+      show(data.error || 'Jeton invalide.');
+    }).catch(function () { show('Erreur réseau — réessayez.'); });
+  });
+})();
+</script>
+</body>
+</html>
+HTML;
+}
+
 function bootstrapRenderUi(string $docRoot, string $stateFile): void
 {
     header('Content-Type: text/html; charset=utf-8');
@@ -2273,6 +3002,9 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
     }
 
     $installDisabled = $preview['ok'] ? '' : 'disabled';
+    $httpsVerifiedJs = json_encode(!empty(bootstrapReadAccess($docRoot)['https_verified_at']));
+    $portableFormatJs = json_encode(BOOTSTRAP_PORTABLE_FORMAT);
+    $portableFormatVersionJs = json_encode(BOOTSTRAP_PORTABLE_FORMAT_VERSION);
 
     echo <<<HTML
 <!DOCTYPE html>
@@ -2317,9 +3049,32 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
 <body>
 <h1>ScoutMagic — Installation</h1>
 
-<section id="screen-confirm">
+<section id="screen-https" hidden>
+  <h2>Accès en HTTPS</h2>
+  <p>Avant d'installer quoi que ce soit, le site doit répondre en HTTPS : les mots de passe, le jeton et la
+  sauvegarde que vous enverrez ensuite ne doivent jamais circuler en clair.</p>
+  <button id="https-btn">Vérifier l'accès HTTPS</button>
+  <div id="https-result" class="alert" hidden></div>
+</section>
+
+<section id="screen-confirm" hidden>
   <div id="report-table">{$checksHtml}</div>
   {$layoutBlock}
+  <div class="option-box" id="archive-box">
+    <h3>Restaurer depuis une sauvegarde ?</h3>
+    <p>Si vous remontez le site à partir d'une sauvegarde portable, choisissez-la ici : la version de ScoutMagic
+    qui l'a écrite sera installée, puis l'archive envoyée au serveur. À ce stade, seul son en-tête est lu, par
+    votre navigateur — rien n'est envoyé ni déchiffré.</p>
+    <input type="file" id="archive-file" accept=".zip">
+    <dl id="archive-hints" hidden>
+      <dt>Site d'origine</dt><dd id="archive-site"></dd>
+      <dt>Créée le</dt><dd id="archive-date"></dd>
+      <dt>Version de ScoutMagic</dt><dd id="archive-version"></dd>
+      <dt>Type</dt><dd id="archive-kind"></dd>
+    </dl>
+    <p id="archive-error" class="report-fail" hidden></p>
+    <p><button id="archive-clear" type="button" hidden>Installer sans sauvegarde</button></p>
+  </div>
   <button id="install-btn" {$installDisabled}>Installer</button>
 </section>
 
@@ -2339,7 +3094,13 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
 (function () {
   var STATE_FILE_NAME = {$stateFileNameJs};
   var LOCK_FILE_NAME = {$lockFileNameJs};
+  var HTTPS_VERIFIED = {$httpsVerifiedJs};
+  var PORTABLE_FORMAT = {$portableFormatJs};
+  var PORTABLE_FORMAT_VERSION = {$portableFormatVersionJs};
+  /** The archive chosen for a restore, with what its header says — or null. */
+  var chosenArchive = null;
   var screens = {
+    https: document.getElementById('screen-https'),
     confirm: document.getElementById('screen-confirm'),
     progress: document.getElementById('screen-progress'),
     report: document.getElementById('screen-report')
@@ -2389,9 +3150,194 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
     progressLabel.textContent = 'Étape ' + step + '/11 — ' + STEP_LABELS[step];
   }
 
+  // ————— HTTPS first (#719, B3) —————
+  // Checked by the server, which fetches a probe file back through
+  // https://<this host>/. A page opened over http:// moves to https://
+  // once that works, so everything after it travels encrypted.
+  function afterHttps() {
+    if (window.location.protocol !== 'https:') {
+      window.location.href = 'https://' + window.location.host + window.location.pathname;
+      return;
+    }
+    showScreen('confirm');
+  }
+
+  var httpsBtn = document.getElementById('https-btn');
+  var httpsResult = document.getElementById('https-result');
+  httpsBtn.addEventListener('click', function () {
+    httpsBtn.disabled = true;
+    httpsResult.hidden = true;
+    postJson('?action=https-check', {}).then(function (data) {
+      httpsBtn.disabled = false;
+      httpsResult.textContent = data.detail || '';
+      httpsResult.className = 'alert ' + (data.ok ? 'alert-ok' : 'alert-error');
+      httpsResult.hidden = false;
+      if (data.ok) { setTimeout(afterHttps, 1200); }
+    }).catch(function () {
+      httpsBtn.disabled = false;
+      httpsResult.textContent = 'Erreur réseau — relancez la vérification.';
+      httpsResult.className = 'alert alert-error';
+      httpsResult.hidden = false;
+    });
+  });
+
+  // ————— The archive's header, read here (#719, B4) —————
+  // The last 65 557 bytes hold the end-of-central-directory record and
+  // the zip comment, which is all that is read: nothing is uploaded or
+  // decrypted before the operator confirms. The comment is a hint, shown
+  // as text and never as markup; the wizard checks it against the
+  // encrypted manifest.
+  function readArchiveHeader(file) {
+    var tailSize = Math.min(file.size, 65557);
+    return file.slice(file.size - tailSize).arrayBuffer().then(function (buffer) {
+      var bytes = new Uint8Array(buffer);
+      for (var i = bytes.length - 22; i >= 0; i--) {
+        if (bytes[i] !== 0x50 || bytes[i + 1] !== 0x4b || bytes[i + 2] !== 0x05 || bytes[i + 3] !== 0x06) {
+          continue;
+        }
+        var length = bytes[i + 20] | (bytes[i + 21] << 8);
+        if (i + 22 + length > bytes.length) { continue; }
+        var doc;
+        try {
+          doc = JSON.parse(new TextDecoder('utf-8').decode(bytes.subarray(i + 22, i + 22 + length)));
+        } catch (e) {
+          return null;
+        }
+        if (!doc || doc.format !== PORTABLE_FORMAT || doc.format_version !== PORTABLE_FORMAT_VERSION
+          || typeof doc.scoutmagic_version !== 'string') {
+          return null;
+        }
+        return doc;
+      }
+      return null;
+    });
+  }
+
+  var archiveFile = document.getElementById('archive-file');
+  var archiveHints = document.getElementById('archive-hints');
+  var archiveError = document.getElementById('archive-error');
+  var archiveClear = document.getElementById('archive-clear');
+
+  function setArchive(choice) {
+    chosenArchive = choice;
+    archiveHints.hidden = choice === null;
+    archiveClear.hidden = choice === null;
+    installBtn.textContent = choice === null
+      ? 'Installer'
+      : 'Installer la version ' + choice.version + ' et déposer cette sauvegarde';
+  }
+
+  archiveFile.addEventListener('change', function () {
+    archiveError.hidden = true;
+    var file = archiveFile.files && archiveFile.files[0];
+    if (!file) { setArchive(null); return; }
+    readArchiveHeader(file).then(function (doc) {
+      if (doc === null) {
+        setArchive(null);
+        archiveError.textContent = "Ce fichier n'est pas une sauvegarde portable ScoutMagic de ce format.";
+        archiveError.hidden = false;
+        return;
+      }
+      if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(doc.scoutmagic_version)) {
+        setArchive(null);
+        archiveError.textContent = 'Cette sauvegarde vient de la version de développement '
+          + doc.scoutmagic_version + ", qui n'est pas publiée : installez sans sauvegarde, puis "
+          + "envoyez-la dans l'assistant de configuration.";
+        archiveError.hidden = false;
+        return;
+      }
+      var created = new Date(String(doc.created_at || ''));
+      document.getElementById('archive-site').textContent = String(doc.site_url || 'Non indiqué');
+      document.getElementById('archive-date').textContent = isNaN(created.getTime())
+        ? 'Non indiquée' : created.toLocaleString('fr-BE');
+      document.getElementById('archive-version').textContent = doc.scoutmagic_version;
+      document.getElementById('archive-kind').textContent = doc.kind === 'remote'
+        ? 'Automatique, hors site' : 'Manuelle';
+      setArchive({ file: file, version: doc.scoutmagic_version });
+    }).catch(function () {
+      setArchive(null);
+      archiveError.textContent = "L'en-tête de ce fichier n'a pas pu être lu.";
+      archiveError.hidden = false;
+    });
+  });
+
+  archiveClear.addEventListener('click', function () {
+    archiveFile.value = '';
+    setArchive(null);
+  });
+
   function runInstall() {
-    showScreen('progress');
-    runStep(1);
+    installBtn.disabled = true;
+    postJson('?action=choose-archive', { version: chosenArchive ? chosenArchive.version : null }).then(function (data) {
+      if (!data.ok) {
+        installBtn.disabled = false;
+        archiveError.textContent = data.error || 'Choix impossible.';
+        archiveError.hidden = false;
+        return;
+      }
+      showScreen('progress');
+      runStep(1);
+    }).catch(function () {
+      installBtn.disabled = false;
+      archiveError.textContent = 'Erreur réseau — réessayez.';
+      archiveError.hidden = false;
+    });
+  }
+
+  // ————— Sending the archive, resumable (#719, B6) —————
+  // After the gate, so the folder it lands in is the installed site's own;
+  // in chunks small enough for any post_max_size, each one appended only
+  // at the offset the server holds, so a dropped request resumes. When
+  // the server cannot prove the folder unreachable from the web, nothing
+  // is sent and the wizard takes the upload instead.
+  function uploadArchive() {
+    var file = chosenArchive.file;
+    logLine("Préparation de l'envoi de la sauvegarde…");
+    return postJson('?action=archive-begin', {}).then(function (begin) {
+      if (!begin.ok) {
+        logLine(begin.detail || "L'archive ne peut pas être envoyée ici.", true);
+        return;
+      }
+      var chunk = begin.chunk_bytes || 2097152;
+      var lastReported = -1;
+      var retries = 0;
+
+      function next(offset) {
+        if (offset >= file.size && file.size > 0) { return Promise.resolve(); }
+        var end = Math.min(offset + chunk, file.size);
+        var last = end >= file.size ? 1 : 0;
+        return fetch('?action=archive-chunk&offset=' + offset + '&last=' + last, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file.slice(offset, end)
+        }).then(function (res) { return res.json().then(function (data) { return { status: res.status, data: data }; }); })
+          .then(function (reply) {
+            if (reply.status === 409 && retries < 5) {
+              retries++;
+              return next(reply.data.received || 0);
+            }
+            if (reply.status !== 200) {
+              throw new Error(reply.data.error || ('Erreur HTTP ' + reply.status));
+            }
+            retries = 0;
+            var percent = Math.floor((reply.data.received / file.size) * 100);
+            if (percent >= lastReported + 10 || reply.data.done) {
+              lastReported = percent;
+              progressLabel.textContent = 'Envoi de la sauvegarde — ' + percent + ' %';
+            }
+            if (reply.data.done) {
+              logLine('Sauvegarde déposée sur le serveur.');
+              return;
+            }
+            return next(reply.data.received);
+          });
+      }
+
+      return next(begin.received || 0);
+    }).catch(function (err) {
+      logLine("L'envoi de la sauvegarde a échoué (" + (err && err.message ? err.message : err)
+        + ") : vous l'enverrez dans l'assistant de configuration.", true);
+    });
   }
 
   function runStep(step) {
@@ -2411,6 +3357,10 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
 
       if (step === 9) { handleGate(data); return; }
       if (step === 11) { showReport(data, true); return; }
+      if (step === 10 && chosenArchive) {
+        uploadArchive().then(function () { runStep(11); });
+        return;
+      }
       runStep(step + 1);
     }).catch(function (err) {
       logLine('Erreur réseau : ' + err, true);
@@ -2535,7 +3485,6 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
         + ' Une fois supprimé (ou si vous préférez continuer sans le faire), '
         + 'cliquez ci-dessous.';
       summary.className = 'alert alert-warning';
-      if (data.token_write_warning) { logLine(data.token_write_warning, true); }
       var continueBtn = document.createElement('button');
       continueBtn.textContent = "Continuer vers l'assistant de configuration";
       // Straight to /setup rather than "/" + relying on the app's own
@@ -2543,15 +3492,13 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
       // hardening earlier in this file is that some hosts intercept the
       // bare root path before a PHP request is ever made, so bouncing
       // through "/" first is exactly the ambiguity to avoid here.
-      continueBtn.addEventListener('click', function () { window.location.href = '/setup'; });
+      continueBtn.addEventListener('click', function () { window.location.href = data.redirect || '/setup'; });
       summary.insertAdjacentElement('afterend', continueBtn);
     } else if (effectivePassed) {
-      summary.textContent = 'Installation terminée avec succès. token.php vous '
-        + 'attend dans le même dossier FTP — la page suivante vous le demandera. '
-        + 'Redirection automatique dans quelques secondes.';
+      summary.textContent = 'Installation terminée avec succès. La page suivante reconnaît le jeton que '
+        + 'vous venez de saisir. Redirection automatique dans quelques secondes.';
       summary.className = 'alert alert-ok';
-      if (data.token_write_warning) { logLine(data.token_write_warning, true); }
-      setTimeout(function () { window.location.href = '/setup'; }, 5000);
+      setTimeout(function () { window.location.href = data.redirect || '/setup'; }, 5000);
     } else {
       // For a plain step failure (steps 1-8/10), there are no s_checks/
       // b_checks/f_checks rows at all — data.error is the ONLY place the
@@ -2566,6 +3513,11 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
   }
 
   if (installBtn) { installBtn.addEventListener('click', runInstall); }
+  if (HTTPS_VERIFIED && window.location.protocol === 'https:') {
+    showScreen('confirm');
+  } else {
+    showScreen('https');
+  }
 })();
 </script>
 </body>
@@ -2590,6 +3542,50 @@ function bootstrapMain(): void
 
     $action = $_GET['action'] ?? ($_POST['action'] ?? '');
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $now = time();
+
+    // The token before anything else (#719, B1). These two are the only
+    // actions open without it: typing it, and reporting it exposed.
+    if ($action === 'verify-token' && $method === 'POST') {
+        bootstrapHandleVerifyToken($docRoot, $now);
+        return;
+    }
+    if ($action === 'token-exposed' && $method === 'POST') {
+        bootstrapHandleTokenExposed($docRoot, 'bootstrapDefaultHttpGet');
+        return;
+    }
+
+    if (!bootstrapIsAuthorized($docRoot, $_COOKIE, $now)) {
+        if ($action !== '') {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['done' => true, 'error' => "Jeton d'installation requis — rechargez la page."]);
+            return;
+        }
+        bootstrapEnsureTokenFile($docRoot);
+        bootstrapRenderTokenScreen($docRoot);
+        return;
+    }
+
+    if ($action === 'https-check' && $method === 'POST') {
+        bootstrapHandleHttpsCheck($docRoot, 'bootstrapDefaultHttpGet', $now);
+        return;
+    }
+
+    if ($action === 'choose-archive' && $method === 'POST') {
+        bootstrapHandleChooseArchive($docRoot);
+        return;
+    }
+
+    if ($action === 'archive-begin' && $method === 'POST') {
+        bootstrapHandleArchiveBegin($docRoot, $stateFile, 'bootstrapDefaultHttpGet');
+        return;
+    }
+
+    if ($action === 'archive-chunk' && $method === 'POST') {
+        bootstrapHandleArchiveChunk($stateFile);
+        return;
+    }
 
     if ($action === 'step' && $method === 'POST') {
         bootstrapHandleStepRequest($docRoot, $stateFile);
