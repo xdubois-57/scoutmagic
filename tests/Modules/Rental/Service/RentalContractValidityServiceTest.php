@@ -191,6 +191,8 @@ class RentalContractValidityServiceTest extends TestCase
         $booking = $this->bookingWithItsContractSent();
         $copyId = $this->documentRepository->create($booking->id, 0, DocumentType::SIGNED_COPY, 1, false, null, null);
         $this->marks->mark($booking->id, BookingMilestones::CONTRACT_COUNTERSIGNED, null, new \DateTimeImmutable());
+        // The retired agreement mark, which ticks every contract step.
+        $this->marks->mark($booking->id, 'contract_accepted', null, new \DateTimeImmutable());
         $this->assertTrue($this->documents->textIsLocked($booking, DocumentType::CONTRACT));
 
         $this->bookingRepository->setStay($booking->id, '2027-07-01', '2027-07-04', 1, 25);

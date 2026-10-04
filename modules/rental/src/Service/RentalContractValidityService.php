@@ -11,6 +11,7 @@ namespace Modules\Rental\Service;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\ContractFingerprint;
 use Modules\Rental\Document\DocumentType;
@@ -121,7 +122,10 @@ class RentalContractValidityService
         }
         $this->documentRepository->markSuperseded($void, $now);
 
-        foreach (self::CONTRACT_STEPS as $step) {
+        // The retired « Conditions et contrat acceptés » mark ticked the
+        // whole agreement (MilestoneEvidence): left standing, it would tick
+        // the void contract's steps straight back.
+        foreach ([...self::CONTRACT_STEPS, MilestoneEvidence::LEGACY_CONTRACT_ACCEPTED] as $step) {
             $this->marks?->unmark($booking->id, $step);
         }
 
