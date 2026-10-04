@@ -375,6 +375,140 @@ class AvailabilityCalculatorTest extends TestCase
         $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-20']->state, 'The buffer holds it — it is not free from midday.');
     }
 
+    // ── The arrival half-day, the departure's mirror (#708, IT-08) ───────
+
+    public function testTheArrivalDayIsFreeInTheMorningAndTakenAfterwards(): void
+    {
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20')];
+
+        $states = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertSame(DayState::STATE_FREE, $states['2027-07-16']->state);
+        $this->assertSame(DayState::STATE_ARRIVING, $states['2027-07-17']->state);
+        $this->assertSame('Libre le matin, arrivée ensuite', $states['2027-07-17']->accessibleLabel);
+        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-18']->state);
+    }
+
+    public function testTheArrivalDayIsPickableOnlyToEndAStay(): void
+    {
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20')];
+
+        $states = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertTrue($states['2027-07-17']->selectable);
+        $this->assertSame(['departure-only' => '1'], $states['2027-07-17']->data);
+    }
+
+    public function testAStayEndingWhereTheArrivalDayBeginsIsAvailableAndOneStartingThereIsNot(): void
+    {
+        // The server is the authority, not the picker: leaving the morning
+        // somebody else arrives fits, arriving that day does not.
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20')];
+
+        $this->assertTrue($this->calculator->isRangeAvailable(
+            $this->date('2027-07-14'), $this->date('2027-07-17'), 1, 1, $occupancies, BillingUnit::PER_NIGHT
+        ));
+        $this->assertFalse($this->calculator->isRangeAvailable(
+            $this->date('2027-07-17'), $this->date('2027-07-18'), 1, 1, $occupancies, BillingUnit::PER_NIGHT
+        ));
+    }
+
+    public function testADayWhereOneStayLeavesAndAnotherArrivesIsOccupied(): void
+    {
+        $occupancies = [
+            new Occupancy('2027-07-10', '2027-07-17'),
+            new Occupancy('2027-07-17', '2027-07-20'),
+        ];
+
+        $states = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-17']->state);
+        $this->assertSame(DayState::STATE_ARRIVING, $states['2027-07-10']->state);
+        $this->assertSame(DayState::STATE_DEPARTING, $states['2027-07-20']->state);
+    }
+
+    public function testThereIsNoArrivalDayStateInAFullDaysModelNorWithABuffer(): void
+    {
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20')];
+
+        $days = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_DAY, new BookingConstraints(), $this->today());
+        $buffered = $this->calculator->monthDayStates(
+            2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(bufferNights: 1), $this->today()
+        );
+
+        $this->assertSame(DayState::STATE_OCCUPIED, $days['2027-07-17']->state);
+        $this->assertSame(DayState::STATE_OCCUPIED, $buffered['2027-07-17']->state);
+    }
+
+    public function testAPartlyLetMultiUnitAssetKeepsItsPartialStateOnAnArrivalDay(): void
+    {
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20', 5)];
+
+        $states = $this->calculator->monthDayStates(2027, 7, 8, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertSame(DayState::STATE_PARTIAL, $states['2027-07-17']->state);
+    }
+
+    public function testTheEdgesOfAUnitBlockAreNeverHalfFree(): void
+    {
+        // A block is a closed run of whole days, not a stay: its first and
+        // last days are closed from morning to night.
+        $occupancies = [new Occupancy('2027-07-17', '2027-07-20', endDateIsHeld: true)];
+
+        $states = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertSame(DayState::STATE_FREE, $states['2027-07-16']->state);
+        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-17']->state);
+        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-20']->state);
+        $this->assertSame(DayState::STATE_FREE, $states['2027-07-21']->state);
+    }
+
+    // ── A manager sees every occupancy state, whatever the window (IT-08) ─
+
+    public function testAManagerSeesHalfDaysAndPartialDaysInThePastAndTheNoticePeriod(): void
+    {
+        $constraints = new BookingConstraints(minNoticeDays: 30);
+        $occupancies = [
+            new Occupancy('2027-05-10', '2027-05-13'),
+            new Occupancy('2027-06-05', '2027-06-08'),
+        ];
+
+        $states = $this->calculator->monthDayStates(
+            2027, 5, 1, $occupancies, BillingUnit::PER_NIGHT, $constraints, $this->today(), null, true
+        );
+        $june = $this->calculator->monthDayStates(
+            2027, 6, 1, $occupancies, BillingUnit::PER_NIGHT, $constraints, $this->today(), null, true
+        );
+
+        $this->assertSame(DayState::STATE_ARRIVING, $states['2027-05-10']->state, 'In the past.');
+        $this->assertSame(DayState::STATE_DEPARTING, $states['2027-05-13']->state, 'In the past.');
+        $this->assertSame(DayState::STATE_ARRIVING, $june['2027-06-05']->state, 'Inside the notice period.');
+        $this->assertSame(DayState::STATE_DEPARTING, $june['2027-06-08']->state, 'Inside the notice period.');
+        $this->assertSame(DayState::STATE_UNSELECTABLE, $june['2027-06-15']->state, 'A free day is still out of reach.');
+    }
+
+    public function testAManagerSeesAPartlyLetMultiUnitDayInThePast(): void
+    {
+        $occupancies = [new Occupancy('2027-05-10', '2027-05-13', 3)];
+
+        $states = $this->calculator->monthDayStates(
+            2027, 5, 8, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today(), null, true
+        );
+
+        $this->assertSame(DayState::STATE_PARTIAL, $states['2027-05-11']->state);
+        $this->assertFalse($states['2027-05-11']->selectable);
+    }
+
+    public function testThePublicCalendarStillHidesOccupancyOutsideTheBookableWindow(): void
+    {
+        $occupancies = [new Occupancy('2027-05-10', '2027-05-13')];
+
+        $states = $this->calculator->monthDayStates(2027, 5, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
+
+        $this->assertSame(DayState::STATE_UNSELECTABLE, $states['2027-05-10']->state);
+        $this->assertSame(DayState::STATE_UNSELECTABLE, $states['2027-05-13']->state);
+    }
+
     // ── Partial stock in the grid ───────────────────────────────────────
 
     public function testPartialStockRendersItsRemainingCountForTheVisitor(): void
@@ -411,7 +545,8 @@ class AvailabilityCalculatorTest extends TestCase
         $states = $this->calculator->monthDayStates(2027, 7, 1, $occupancies, BillingUnit::PER_NIGHT, new BookingConstraints(), $this->today());
 
         $this->assertArrayHasKey('2027-06-28', $states);
-        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-06-28']->state);
+        $this->assertSame(DayState::STATE_ARRIVING, $states['2027-06-28']->state);
+        $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-06-29']->state);
         $this->assertSame(DayState::STATE_OCCUPIED, $states['2027-07-01']->state);
     }
 

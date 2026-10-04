@@ -7,6 +7,15 @@
             subtitle: "Les intendants inscrits, et ce que la période de l'année implique pour eux.",
         } only %}
 
+        {% include '@leadership/partials/_nav.html.twig' %}
+
+        <div class="d-flex justify-content-end mb-3">
+            <a href="/admin/leadership/stewards/export" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-excel" aria-hidden="true"></i>
+                Exporter (Excel)
+            </a>
+        </div>
+
         {% if summer_regime %}
             <output class="alert alert-info d-block">
                 <p class="mb-2">
@@ -39,6 +48,7 @@
                     lines: registrations,
                     list_id: 'stewards-registrations',
                     empty_message: "Aucune fonction d'intendance encodée pour cette année scoute.",
+                    draft_available: draft_available,
                 } only %}
             </div>
         </div>
@@ -55,6 +65,7 @@
                         lines: under_age,
                         list_id: 'stewards-under-age',
                         empty_message: '',
+                        draft_available: draft_available,
                     } only %}
                 </div>
             </div>
@@ -67,7 +78,4 @@
             rules_verified_on: rules_verified_on,
         } only %}
     </div>
-{% endblock %}
-{% block scripts %}
-<script src="{{ asset('/assets/js/leadership-copy-emails.js') }}" defer></script>
 {% endblock %}

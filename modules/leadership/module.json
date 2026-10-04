@@ -2,7 +2,7 @@
   "id": "leadership",
   "name": "Encadrement",
   "description": "Qui contacter pour les formations et le parcours des animateurs.",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "routes": [
     {
       "path": "/admin/leadership",
@@ -86,7 +86,46 @@
       }
     },
     {
-      "path": "/admin/leadership/training/mapping",
+      "path": "/admin/leadership/configuration",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "configuration",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin",
+      "breadcrumb": {
+        "label": "Configuration",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Encadrement",
+            "path": "/admin/leadership"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/admin/leadership/{page}/export",
+      "method": "GET",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "export",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/leadership/draft",
+      "method": "POST",
+      "controller": "Modules\\Leadership\\Controller\\LeadershipController",
+      "action": "draft",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
+    },
+    {
+      "path": "/admin/leadership/configuration/mapping",
       "method": "POST",
       "controller": "Modules\\Leadership\\Controller\\FormationMappingController",
       "action": "save",

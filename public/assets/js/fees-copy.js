@@ -63,9 +63,8 @@
             window.ScoutMagicToast.show('Foyer copié.', { variant: 'success' });
         } catch {
             // navigator.clipboard needs a secure context and is simply
-            // absent otherwise — the same fallback as
-            // leadership-copy-emails.js: hand the text over, pre-selected,
-            // rather than let a button silently do nothing.
+            // absent otherwise: hand the text over, pre-selected, rather
+            // than let a button silently do nothing.
             await window.ScoutMagicConfirm.prompt({
                 message: 'Copiez ce foyer pour Desk :',
                 title: 'Foyer',

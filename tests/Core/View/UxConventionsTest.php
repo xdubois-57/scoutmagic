@@ -625,6 +625,8 @@ final class UxConventionsTest extends TestCase
         // before that, since « Partager » writes no row on opening.
         '/medias-sociaux/{id}/apercu',
         '/medias-sociaux/nouvelle/{kind}/{id}/apercu',
+        // XLSX download of one Encadrement page's lists (#727), never a page.
+        '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.
