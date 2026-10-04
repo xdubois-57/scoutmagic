@@ -12,18 +12,46 @@
 // .section-row with its four controls, and .branch-row.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const FUNCTION_ROW = `
-    <div class="function-row" data-id="7">
-        <span class="badge text-bg-warning">Non confirmée</span>
-        <select class="role-select" data-id="7">
-            <option value="animated">Animé</option>
-            <option value="chief" selected>Chef</option>
-        </select>
+const FLAGS_GROUP = `
+    <div class="flags-group d-none" data-id="7">
+        <input type="checkbox" class="flag-lead">
     </div>`;
 
-const FLAGS_GROUP = `
-    <div class="flags-group" data-id="7">
-        <input type="checkbox" class="flag-lead">
+/**
+ * The board of role zones (issue #741), as the template renders it: an
+ * « À configurer » zone that lends rows and takes none, then one zone per
+ * role, empty ones included.
+ */
+const BOARD = `
+    <div id="function-board">
+        <section class="function-zone">
+            <span data-zone-count>1</span>
+            <div class="function-zone-items" data-role="" data-receives="0" id="zone-unconfirmed">
+                <div class="function-row" draggable="true" data-id="7" data-role="">
+                    <span class="function-pending-badge"><span class="badge text-bg-warning">Non confirmée</span></span>
+                    ${FLAGS_GROUP}
+                    <button type="button" class="function-move-up"></button>
+                    <button type="button" class="function-move-down"></button>
+                </div>
+                <p class="function-zone-empty d-none">Toutes les fonctions sont configurées.</p>
+            </div>
+        </section>
+        <section class="function-zone">
+            <span data-zone-count>0</span>
+            <div class="function-zone-items" data-role="identified" id="zone-identified">
+                <p class="function-zone-empty">Aucune fonction — glissez-en une ici.</p>
+            </div>
+        </section>
+        <section class="function-zone">
+            <span data-zone-count>1</span>
+            <div class="function-zone-items" data-role="chief" id="zone-chief">
+                <div class="function-row" draggable="true" data-id="8" data-role="chief">
+                    <button type="button" class="function-move-up"></button>
+                    <button type="button" class="function-move-down"></button>
+                </div>
+                <p class="function-zone-empty d-none">Aucune fonction — glissez-en une ici.</p>
+            </div>
+        </section>
     </div>`;
 
 const SECTION_ROW = `
@@ -42,7 +70,7 @@ const BRANCH_ROW = `
         <input type="url" class="branch-url-input" value="https://lesscouts.be/lou">
     </div>`;
 
-const PAGE = FUNCTION_ROW + FLAGS_GROUP + SECTION_ROW + BRANCH_ROW;
+const PAGE = BOARD + SECTION_ROW + BRANCH_ROW;
 
 /** The site-wide envelope for a JSON answer the server really sent. */
 function jsonResponse(body, status = 200) {
@@ -64,6 +92,7 @@ describe('config-functions.js', () => {
         // window.ScoutMagicApi (base.html.twig guarantees this load order
         // in production).
         await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/sortable.js');
         await import('../../public/assets/js/config-functions.js');
     }
 
@@ -90,98 +119,192 @@ describe('config-functions.js', () => {
         });
     });
 
-    describe('function role', () => {
-        it('POSTs the role to /config/functions/update with the CSRF token in the body AND the header', async () => {
-            await boot();
-            const select = document.querySelector('.role-select');
-            select.value = 'animated';
-            select.dispatchEvent(new Event('change'));
+    describe('function roles — the board (issue #741)', () => {
+        const zone = (id) => document.getElementById(id);
+        const row = (id) => document.querySelector(`.function-row[data-id="${id}"]`);
+        const zoneIds = (id) => [...zone(id).querySelectorAll('.function-row')].map((r) => r.dataset.id);
+        const emptyShown = (id) => !zone(id).querySelector('.function-zone-empty').classList.contains('d-none');
+        const countOf = (id) => zone(id).closest('.function-zone').querySelector('[data-zone-count]').textContent;
 
+        /**
+         * A native drag of `id` into `target`'s empty space, released there
+         * (`drop`) unless `released` is false — an abandoned gesture, which
+         * sortable.js must not save between lists.
+         */
+        function drag(id, target, released = true) {
+            row(id).dispatchEvent(new Event('dragstart', { bubbles: true }));
+            const over = new Event('dragover', { bubbles: true, cancelable: true });
+            Object.defineProperties(over, { clientX: { value: 0 }, clientY: { value: 0 } });
+            target.dispatchEvent(over);
+            if (released) {
+                target.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+            }
+            row(id).dispatchEvent(new Event('dragend', { bubbles: true }));
+        }
+
+        it('offers no role select any more', async () => {
+            await boot();
+            expect(document.querySelector('.role-select')).toBeNull();
+        });
+
+        it('a drag into an EMPTY role saves that role, confirms the function and says so', async () => {
+            await boot();
+
+            drag('7', zone('zone-identified').querySelector('.function-zone-empty'));
+
+            expect(zoneIds('zone-identified')).toEqual(['7']);
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, opts, body } = lastRequest();
             expect(url).toBe('/config/functions/update');
-            expect(opts.method).toBe('POST');
-            expect(body).toEqual({ function_id: 7, role: 'animated', _csrf_token: 'tok-123' });
+            expect(body).toEqual({ function_id: 7, role: 'identified', _csrf_token: 'tok-123' });
             expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
-        });
-
-        it('disables the select for the round trip and re-enables it afterwards', async () => {
-            await boot();
-            const select = document.querySelector('.role-select');
-            select.dispatchEvent(new Event('change'));
-            expect(select.disabled).toBe(true);
-            await vi.waitFor(() => expect(select.disabled).toBe(false));
-        });
-
-        it('drops the « Non confirmée » badge and confirms with a toast, not a row flash', async () => {
-            await boot();
-            const row = document.querySelector('.function-row');
-            row.querySelector('.role-select').dispatchEvent(new Event('change'));
-
-            await vi.waitFor(() => expect(row.querySelector('.badge.text-bg-warning')).toBeNull());
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
-            expect(row.style.backgroundColor).toBe('');
-        });
-
-        it('puts the role back on the one the server still holds when the save is refused', async () => {
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Rôle invalide.' }));
-            await boot();
-            const select = document.querySelector('.role-select');
-            select.value = 'animated';
-            select.dispatchEvent(new Event('change'));
-
-            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
-            expect(select.value).toBe('chief');
-        });
-
-        it('reverts to the LAST SAVED role, not the one the page loaded with', async () => {
-            await boot();
-            const select = document.querySelector('.role-select');
-            select.value = 'animated';
-            select.dispatchEvent(new Event('change'));
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
-
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Non.' }));
-            select.value = 'chief';
-            select.dispatchEvent(new Event('change'));
-            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
-            expect(select.value).toBe('animated');
+            expect(row('7').querySelector('.function-pending-badge')).toBeNull();
+            expect(row('7').dataset.role).toBe('identified');
+            expect(emptyShown('zone-identified')).toBe(false);
+            expect(emptyShown('zone-unconfirmed')).toBe(true);
+            expect(countOf('zone-identified')).toBe('1');
+            expect(countOf('zone-unconfirmed')).toBe('0');
         });
 
-        it('surfaces a business failure as an error toast and keeps the badge', async () => {
+        it('a drag released outside every role saves nothing and leaves the function where it was', async () => {
+            await boot();
+
+            drag('7', zone('zone-identified').querySelector('.function-zone-empty'), false);
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(zoneIds('zone-identified')).toEqual([]);
+        });
+
+        it('moving a confirmed function changes its role, and shows the Chef-only flag only where it applies', async () => {
+            await boot();
+
+            drag('7', zone('zone-chief'));
+
+            await vi.waitFor(() => expect(row('7').dataset.role).toBe('chief'));
+            expect(row('7').querySelector('.flags-group').classList.contains('d-none')).toBe(false);
+
+            drag('7', zone('zone-identified'));
+            await vi.waitFor(() => expect(row('7').dataset.role).toBe('identified'));
+            expect(row('7').querySelector('.flags-group').classList.contains('d-none')).toBe(true);
+            expect(lastRequest().body).toEqual({ function_id: 7, role: 'identified', _csrf_token: 'tok-123' });
+        });
+
+        it('PUTS THE FUNCTION BACK in its previous zone when the server refuses, with the error toast', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Rôle invalide.' }));
             await boot();
-            const row = document.querySelector('.function-row');
-            row.querySelector('.role-select').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Rôle invalide.', { variant: 'error' });
-            expect(row.querySelector('.badge.text-bg-warning')).not.toBeNull();
+            drag('8', zone('zone-identified'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Rôle invalide.', { variant: 'error' }));
+            expect(zoneIds('zone-chief')).toEqual(['8']);
+            expect(zoneIds('zone-identified')).toEqual([]);
+            expect(emptyShown('zone-identified')).toBe(true);
+            expect(row('8').dataset.role).toBe('chief');
         });
 
-        it('reads an HTTP 500 error page as a failure, never as a save (ok is not success)', async () => {
-            // The bug this extraction exists to prevent: res.ok (or an
-            // unchecked res.json()) standing in for data.success.
+        it('reads an HTTP 500 error page as a failure, never as a save', async () => {
             global.fetch = vi.fn(() => Promise.resolve({
                 ok: false,
                 status: 500,
                 json: () => Promise.reject(new SyntaxError('Unexpected token <')),
             }));
             await boot();
-            const row = document.querySelector('.function-row');
-            row.querySelector('.role-select').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
-            expect(row.querySelector('.badge.text-bg-warning')).not.toBeNull();
+            drag('7', zone('zone-chief'));
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(row('7').querySelector('.function-pending-badge')).not.toBeNull();
         });
 
-        it('toasts a network failure instead of failing silently', async () => {
-            global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+        it('never takes a function back into « À configurer »', async () => {
             await boot();
-            document.querySelector('.role-select').dispatchEvent(new Event('change'));
 
-            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            drag('8', zone('zone-unconfirmed'));
+
+            expect(zoneIds('zone-chief')).toEqual(['8']);
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('a reorder inside a role sends nothing — the order means nothing', async () => {
+            await boot();
+
+            drag('8', zone('zone-chief'));
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('the arrows move a function to the zone below or above, never into « À configurer »', async () => {
+            await boot();
+
+            row('7').querySelector('.function-move-down').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+            await vi.waitFor(() => expect(lastRequest().body.role).toBe('identified'));
+
+            row('7').querySelector('.function-move-up').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            row('8').querySelector('.function-move-up').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            expect(zoneIds('zone-identified')).toEqual(['7', '8']);
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+            expect(lastRequest().body).toEqual({ function_id: 8, role: 'identified', _csrf_token: 'tok-123' });
+        });
+
+        it('a release over « À configurer », after passing through a role, saves nothing and puts the row back', async () => {
+            await boot();
+
+            // Over the « Identifié » zone first: the row follows the pointer…
+            row('7').dispatchEvent(new Event('dragstart', { bubbles: true }));
+            const over = new Event('dragover', { bubbles: true, cancelable: true });
+            Object.defineProperties(over, { clientX: { value: 0 }, clientY: { value: 0 } });
+            zone('zone-identified').querySelector('.function-zone-empty').dispatchEvent(over);
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+            // …then released back over « À configurer », which takes nothing.
+            zone('zone-unconfirmed').dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+            row('7').dispatchEvent(new Event('dragend', { bubbles: true }));
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).not.toHaveBeenCalled();
+            expect(zoneIds('zone-unconfirmed')).toEqual(['7']);
+            expect(zoneIds('zone-identified')).toEqual([]);
+        });
+
+        it('disables an arrow with nowhere to go, at either edge of the board', async () => {
+            await boot();
+            const arrows = (id) => [row(id).querySelector('.function-move-up').disabled,
+                row(id).querySelector('.function-move-down').disabled];
+
+            // « À configurer » takes nothing back; « Chef » is the last zone.
+            expect(arrows('7')).toEqual([true, false]);
+            expect(arrows('8')).toEqual([false, true]);
+        });
+
+        it('locks a row while its move is being saved, so two answers can never cross', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+            const down = () => row('7').querySelector('.function-move-down');
+
+            down().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            expect(down().disabled).toBe(true);
+            expect(row('7').querySelector('.function-move-up').disabled).toBe(true);
+            expect(row('7').draggable).toBe(false);
+
+            down().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(row('7').draggable).toBe(true));
+            expect(down().disabled).toBe(false);
+            expect(row('7').querySelector('.function-move-up').disabled).toBe(true);
         });
     });
 
@@ -268,7 +391,7 @@ describe('config-functions.js', () => {
         it('shows the warning the server sent for an address it cannot sign for', async () => {
             global.fetch = vi.fn(() => jsonResponse({
                 success: true,
-                alignment_warning: 'Cette adresse n\'est pas sur le domaine d\'envoi du site (unite.be).'
+                alignment_warning: 'L\'adresse e-mail configurée pour cette section n\'est pas sur le domaine d\'envoi du site (unite.be).'
             }));
             await boot();
             const input = document.querySelector('.section-email-input');
@@ -422,7 +545,8 @@ describe('config-functions.js', () => {
             await import('../../public/assets/js/toast.js');
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: '<img src=x onerror=alert(1)>' }));
             await boot();
-            document.querySelector('.role-select').dispatchEvent(new Event('change'));
+            document.querySelector('.function-row[data-id="8"] .function-move-up')
+                .dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
             await vi.waitFor(() => expect(document.querySelector('.toast-body')).not.toBeNull());
             expect(document.querySelector('.toast-body img')).toBeNull();

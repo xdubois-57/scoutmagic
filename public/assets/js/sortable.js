@@ -42,6 +42,11 @@
 // item ended up in, with `{item, from, to}`. Without `group` nothing
 // changes: a list only ever reorders its own items, which is what every
 // other screen using this file relies on.
+//
+// `receive: false` makes a grouped list a source only: its items can be
+// dragged out, nothing from another list can be dropped in (Correspondances
+// Desk's « À configurer », issue #741 — a function is confirmed by being
+// placed, and cannot be un-confirmed by being dragged back).
 (function () {
     /**
      * Shared per group: what is being dragged, and from where. A list
@@ -54,7 +59,7 @@
 
     /**
      * @param {HTMLElement|null} container
-     * @param {{itemSelector: string, axis?: string, draggingClass?: string, group?: string,
+     * @param {{itemSelector: string, axis?: string, draggingClass?: string, group?: string, receive?: boolean,
      *          onReorder?: (move?: {item: HTMLElement, from: HTMLElement, to: HTMLElement}) => void}} options
      * @returns {void}
      */
@@ -79,6 +84,9 @@
         if (options.group) {
             state.members.push(container);
         }
+        if (options.receive === false) {
+            container.dataset.sortableReceives = '0';
+        }
 
         /** @param {boolean} on */
         function markDropZones(on) {
@@ -86,7 +94,9 @@
                 return;
             }
             state.members.forEach(function (member) {
-                member.classList.toggle('sortable-drop-zone', on);
+                if (member.dataset.sortableReceives !== '0') {
+                    member.classList.toggle('sortable-drop-zone', on);
+                }
             });
         }
 
@@ -151,11 +161,37 @@
         });
 
         container.addEventListener('drop', function (e) {
-            if (state.dragged) {
+            // A list that takes nothing does not take a release either: a
+            // drop on it must not commit a move the item made elsewhere on
+            // its way there.
+            if (state.dragged && !(options.receive === false && state.dragged.parentNode !== container)) {
                 e.preventDefault();
                 state.dropped = true;
             }
         });
+
+        /**
+         * The pointer is over the list but not over an item — an empty
+         * list, or the space below the last item. Only a connected list
+         * takes the item there; a lone list has nothing to gain.
+         *
+         * @param {HTMLElement} dragged
+         */
+        function takeIntoEmptySpace(dragged) {
+            if (!options.group || dragged.parentNode === container) {
+                return;
+            }
+            // After the last item rather than at the very end: a list may
+            // close on a non-item (an « empty » note), and the item belongs
+            // among the items.
+            var items = container.querySelectorAll(itemSelector);
+            var last = items.length ? items[items.length - 1] : null;
+            if (last?.parentNode === container) {
+                container.insertBefore(dragged, last.nextSibling);
+            } else {
+                container.insertBefore(dragged, container.firstChild);
+            }
+        }
 
         container.addEventListener('dragover', function (e) {
             // Without this the browser refuses the drop outright.
@@ -165,27 +201,16 @@
             if (!dragged) {
                 return;
             }
+            if (options.receive === false && dragged.parentNode !== container) {
+                return;
+            }
 
             var over = itemOf(e);
             if (over === dragged) {
                 return;
             }
             if (!over) {
-                // Over the list but not over an item — an empty list, or
-                // the space below the last item. Only a connected list
-                // takes the item there; a lone list has nothing to gain.
-                if (options.group && dragged.parentNode !== container) {
-                    // After the last item rather than at the very end: a
-                    // list may close on a non-item (an « empty » note),
-                    // and the item belongs among the items.
-                    var items = container.querySelectorAll(itemSelector);
-                    var last = items.length ? items[items.length - 1] : null;
-                    if (last?.parentNode === container) {
-                        container.insertBefore(dragged, last.nextSibling);
-                    } else {
-                        container.insertBefore(dragged, container.firstChild);
-                    }
-                }
+                takeIntoEmptySpace(dragged);
                 return;
             }
 

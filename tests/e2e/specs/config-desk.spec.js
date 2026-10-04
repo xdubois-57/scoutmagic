@@ -5,7 +5,7 @@
 // /config/functions is where a Desk function is bound to a site role,
 // which makes it the configuration surface of the entire access model
 // (ARCHITECTURE.md §3). Every control on it auto-saves through its own
-// hand-built fetch — role select, section name/email on blur, visibility
+// hand-built fetch — role board (drag and drop between role zones), section name/email on blur, visibility
 // switch, colour picker, branch URL — with no submit button anywhere and
 // no Vitest file behind any of it: a CSP regression or a renamed endpoint
 // silences the page while every other suite stays green.
@@ -71,14 +71,17 @@ test('config desk auto-saves roles and sections, and a role change reaches the m
 
         // ---------------------------------------------------------------
         // Promote the member's function ('Animé', E2E-FCT) to intendant —
-        // one change event, one fetch, no button.
+        // dragged from one role zone into the other (issue #741), one
+        // fetch, no button.
         // ---------------------------------------------------------------
-        const roleSelect = page.getByLabel('Rôle pour E2E-FCT');
-        await expect(roleSelect).toHaveValue('identified');
+        const fctRow = page.locator('.function-row', { hasText: 'E2E-FCT' });
+        const zone = (role) => page.locator(`.function-zone-items[data-role="${role}"]`);
+        await expect(zone('identified').locator('.function-row', { hasText: 'E2E-FCT' })).toHaveCount(1);
 
         const promote = nextSave(page, '/config/functions/update');
-        await roleSelect.selectOption('intendant');
+        await fctRow.dragTo(zone('intendant'));
         expect((await promote).ok()).toBe(true);
+        await expect(zone('intendant').locator('.function-row', { hasText: 'E2E-FCT' })).toHaveCount(1);
 
         // The member's NEXT request already carries the new role: the
         // intendant page opens, without any re-login.
@@ -88,9 +91,11 @@ test('config desk auto-saves roles and sections, and a role change reaches the m
         // ---------------------------------------------------------------
         // And back. The demotion lands on the next click just as fast.
         // ---------------------------------------------------------------
+        // The arrow is the same move without a drag: one zone up.
         const demote = nextSave(page, '/config/functions/update');
-        await page.getByLabel('Rôle pour E2E-FCT').selectOption('identified');
+        await fctRow.getByRole('button', { name: 'Passer E2E-FCT au rôle du dessus' }).click();
         expect((await demote).ok()).toBe(true);
+        await expect(zone('identified').locator('.function-row', { hasText: 'E2E-FCT' })).toHaveCount(1);
 
         await memberPage.goto('/chefs/staffs', { waitUntil: 'domcontentloaded' });
         await expect(
