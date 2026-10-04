@@ -44,6 +44,11 @@ class ReenrollmentCampaignService
     public const SETTING_CLOSE_AT = 'registration_reenrollment_close_at';
     public const SETTING_REMINDER_1_DAYS = 'registration_reenrollment_reminder_1_days';
     public const SETTING_REMINDER_2_DAYS = 'registration_reenrollment_reminder_2_days';
+    /**
+     * The one switch over the four e-mails and the manual reminder
+     * (issue #732). On by default: a unit that set dates expects them.
+     */
+    public const SETTING_EMAILS_ENABLED = 'registration_reenrollment_emails_enabled';
 
     public const MARKER_OPENED = 'registration_reenrollment_open_applied_on';
     public const MARKER_CLOSED = 'registration_reenrollment_close_applied_on';
@@ -69,6 +74,122 @@ class ReenrollmentCampaignService
     }
 
     /**
+     * Whether the campaign may write to families at all. Off, nothing goes
+     * out: no opening, no reminder, no manual reminder, no closing.
+     */
+    public function emailsEnabled(): bool
+    {
+        return (string) $this->settingService->get(self::SETTING_EMAILS_ENABLED, 'registration', '1') !== '0';
+    }
+
+    /**
+     * What saving a configuration would do to a CLOSED campaign right now
+     * (issue #732) — asked before anything is saved, so a chief can be told
+     * that an opening e-mail is about to leave, and can say no.
+     *
+     * Two ways a save opens a campaign today: the manual switch turned on,
+     * or an opening date that makes the scheduled opening due TODAY (and
+     * not already applied for that campaign). A date already in the past
+     * opens nothing — a missed date is missed, as everywhere else here.
+     *
+     * Null when nothing would open (or the campaign is already open).
+     * Otherwise the campaign the opening belongs to — null when the dates
+     * do not designate one, in which case no e-mail can follow — and
+     * whether it is the scheduled opening rather than the switch.
+     *
+     * @return array{key: ?string, scheduled: bool}|null
+     */
+    public function openingOnSave(
+        ?string $openAt,
+        ?string $closeAt,
+        bool $switchOn,
+        ?\DateTimeImmutable $now = null
+    ): ?array {
+        if ($this->isOpen()) {
+            return null;
+        }
+
+        $now ??= new \DateTimeImmutable();
+        $today = $now->setTime(0, 0);
+        $openAt = self::validMonthDay($openAt);
+        $closeAt = self::validMonthDay($closeAt);
+
+        if ($openAt !== null && $closeAt !== null) {
+            $openOn = self::dateIn((int) $today->format('Y'), $openAt);
+            if ($openOn !== null && $openOn->format('Y-m-d') === $today->format('Y-m-d')) {
+                $key = self::keyForOpening($today, $closeAt);
+                if ($key !== null && !$this->alreadyDone(self::MARKER_OPENED, $key)) {
+                    return ['key' => $key, 'scheduled' => true];
+                }
+            }
+        }
+
+        if (!$switchOn) {
+            return null;
+        }
+
+        return ['key' => self::keyForManualOpening($today, $openAt, $closeAt), 'scheduled' => false];
+    }
+
+    /**
+     * Whether opening the campaign `$opening` describes would write the
+     * opening e-mail — the question the confirmation is about.
+     *
+     * @param array{key: ?string, scheduled: bool}|null $opening
+     */
+    public function openingSendsEmail(?array $opening, bool $emailsEnabled): bool
+    {
+        return $opening !== null
+            && $opening['key'] !== null
+            && $emailsEnabled
+            && !$this->alreadyDone(self::emailMarker(self::EMAIL_OPENING), $opening['key']);
+    }
+
+    /**
+     * The campaign a MANUAL opening opens, when it opens one that still
+     * has a deadline ahead — the only kind an opening e-mail can announce.
+     *
+     * Inside a campaign's window, that campaign. Outside every window the
+     * switch serves two purposes, and the calendar tells them apart: just
+     * after a close it lets a late family back into the campaign that has
+     * just ended, and ahead of the next opening date it opens that next
+     * campaign early. Whichever of the two dates is nearer decides, a tie
+     * going to the campaign just closed. Reopening a finished campaign is
+     * null: an « ouverture » e-mail whose closing date has already passed
+     * would announce a deadline that is behind everybody.
+     */
+    private static function keyForManualOpening(
+        \DateTimeImmutable $today,
+        ?string $openAt,
+        ?string $closeAt
+    ): ?string {
+        if ($openAt === null || $closeAt === null) {
+            return null;
+        }
+
+        $current = self::keyAt($today, $openAt, $closeAt);
+        if ($current !== null && $current >= $today->format('Y-m-d')) {
+            return $current;
+        }
+
+        $year = (int) $today->format('Y');
+        $nextOpen = self::dateIn($year, $openAt);
+        if ($nextOpen !== null && $nextOpen < $today) {
+            $nextOpen = self::dateIn($year + 1, $openAt);
+        }
+        if ($nextOpen === null) {
+            return null;
+        }
+
+        $lastClose = $current !== null ? DateInput::parse('!Y-m-d', $current) : null;
+        if ($lastClose !== null && $today->diff($lastClose)->days <= $today->diff($nextOpen)->days) {
+            return null;
+        }
+
+        return self::keyForOpening($nextOpen, $closeAt);
+    }
+
+    /**
      * The campaign a given moment belongs to, as its own close date
      * (`Y-m-d`) — the key every marker is written against.
      *
@@ -82,17 +203,27 @@ class ReenrollmentCampaignService
     {
         $now ??= new \DateTimeImmutable();
         $closeAt = $this->monthDay(self::SETTING_CLOSE_AT);
-        if ($closeAt === null) {
+        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
+        if ($closeAt === null || $openAt === null) {
             return null;
         }
 
+        return self::keyAt($now, $openAt, $closeAt);
+    }
+
+    /**
+     * currentCampaignKey() for any pair of dates — the saved ones, or the
+     * ones a chief is about to save.
+     */
+    private static function keyAt(\DateTimeImmutable $now, string $openAt, string $closeAt): ?string
+    {
         $year = (int) $now->format('Y');
         foreach ([$year, $year - 1] as $candidateYear) {
-            $close = DateInput::parse('!Y-m-d', sprintf('%04d-%s', $candidateYear, $closeAt));
+            $close = self::dateIn($candidateYear, $closeAt);
             if ($close === null) {
                 continue;
             }
-            $openOn = $this->openDateFor($candidateYear);
+            $openOn = self::dateIn($candidateYear, $openAt);
             if ($openOn !== null && $now->setTime(0, 0) >= $openOn) {
                 return $close->format('Y-m-d');
             }
@@ -250,6 +381,54 @@ class ReenrollmentCampaignService
         return DateInput::fromStorage(is_string($stored) && $stored !== '' ? $stored : null);
     }
 
+    /**
+     * Where the two AUTOMATIC reminders stand, for the « Relancer
+     * maintenant » question (issue #732): the last one that went out, and
+     * the next one still to come.
+     *
+     * « Last » is a sent reminder of this campaign — with its moment when
+     * it was recorded, `last_at` null otherwise. « Next » is the earliest
+     * reminder due today or later that has not gone out; null when none is
+     * left, or when the e-mails are switched off and none will go.
+     *
+     * @return array{last_sent: bool, last_at: ?\DateTimeImmutable, next: ?\DateTimeImmutable}
+     */
+    public function automaticReminders(?\DateTimeImmutable $now = null): array
+    {
+        $now ??= new \DateTimeImmutable();
+        $key = $this->currentCampaignKey($now);
+
+        $lastSent = false;
+        $lastAt = null;
+        $next = null;
+        if ($key === null) {
+            return ['last_sent' => false, 'last_at' => null, 'next' => null];
+        }
+
+        foreach ([self::EMAIL_REMINDER_1, self::EMAIL_REMINDER_2] as $type) {
+            $marker = self::emailMarker($type);
+            if ($this->alreadyDone($marker, $key)) {
+                $lastSent = true;
+                $at = $this->doneAt($marker, $key);
+                if ($at !== null && ($lastAt === null || $at > $lastAt)) {
+                    $lastAt = $at;
+                }
+                continue;
+            }
+
+            $due = $this->reminderDate($type, $now);
+            if ($due !== null && $due >= $now->setTime(0, 0) && ($next === null || $due < $next)) {
+                $next = $due;
+            }
+        }
+
+        return [
+            'last_sent' => $lastSent,
+            'last_at' => $lastAt,
+            'next' => $this->emailsEnabled() ? $next : null,
+        ];
+    }
+
     public static function emailMarker(string $type): string
     {
         return 'registration_reenrollment_' . $type . '_sent_on';
@@ -319,7 +498,12 @@ class ReenrollmentCampaignService
     {
         $openAt = $this->monthDay(self::SETTING_OPEN_AT);
 
-        return $openAt !== null ? DateInput::parse('!Y-m-d', sprintf('%04d-%s', $year, $openAt)) : null;
+        return $openAt !== null ? self::dateIn($year, $openAt) : null;
+    }
+
+    private static function dateIn(int $year, string $monthDay): ?\DateTimeImmutable
+    {
+        return DateInput::parse('!Y-m-d', sprintf('%04d-%s', $year, $monthDay));
     }
 
     /**
@@ -330,18 +514,20 @@ class ReenrollmentCampaignService
     private function campaignKeyForOpening(\DateTimeImmutable $openDay): ?string
     {
         $closeAt = $this->monthDay(self::SETTING_CLOSE_AT);
-        if ($closeAt === null) {
-            return null;
-        }
 
+        return $closeAt !== null ? self::keyForOpening($openDay, $closeAt) : null;
+    }
+
+    private static function keyForOpening(\DateTimeImmutable $openDay, string $closeAt): ?string
+    {
         $year = (int) $openDay->format('Y');
-        $close = DateInput::parse('!Y-m-d', sprintf('%04d-%s', $year, $closeAt));
+        $close = self::dateIn($year, $closeAt);
         if ($close === null) {
             return null;
         }
 
         if ($close < $openDay) {
-            $close = DateInput::parse('!Y-m-d', sprintf('%04d-%s', $year + 1, $closeAt));
+            $close = self::dateIn($year + 1, $closeAt);
         }
 
         return $close?->format('Y-m-d');
@@ -349,7 +535,12 @@ class ReenrollmentCampaignService
 
     private function monthDay(string $setting): ?string
     {
-        $value = trim((string) ($this->settingService->get($setting, 'registration') ?: ''));
+        return self::validMonthDay((string) ($this->settingService->get($setting, 'registration') ?: ''));
+    }
+
+    private static function validMonthDay(?string $value): ?string
+    {
+        $value = trim((string) $value);
 
         return preg_match('/^\d{2}-\d{2}$/', $value) === 1 ? $value : null;
     }
