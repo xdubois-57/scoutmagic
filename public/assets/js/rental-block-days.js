@@ -379,10 +379,12 @@ export function wireBlockCalendar(root) {
         const finished = gesture;
         end();
         if (finished.selecting) {
-            // The click a mouse raises after a drag released on a day must
-            // not toggle that day. A finger raises no click after a drag,
-            // and a release off the grid clicks no day: nothing to swallow.
-            swallowNextClick = event.pointerType === 'mouse' && root.contains(/** @type {Node|null} */ (event.target));
+            // The click raised after a selection released on a day must not
+            // toggle that day again. A mouse always raises one; a finger
+            // does after a long press it never moved (no touchmove was
+            // there to cancel it). Where none comes — a finger that moved,
+            // a release off the grid — the flag dies at the next press.
+            swallowNextClick = root.contains(/** @type {Node|null} */ (event.target));
             commit(gestureDays(finished.start, finished.current, month, today), finished.mode, null);
         }
     };
@@ -400,6 +402,11 @@ export function wireBlockCalendar(root) {
         if (actionableDay(event.target)) {
             event.preventDefault();
         }
+    });
+
+    // Enter or Space presses no pointer: clear a flag no click consumed.
+    root.addEventListener('keydown', function () {
+        swallowNextClick = false;
     });
 
     // A tap, a click, Enter or Space: one day.

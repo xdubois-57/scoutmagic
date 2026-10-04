@@ -208,10 +208,44 @@ describe('wireBlockCalendar', () => {
         pointer('pointermove', root, { pointerType: 'touch', clientY: 40 });
         pointer('pointerup', root, { pointerType: 'touch' });
         vi.useRealTimers();
+        // The next tap is a press of its own, then its click.
+        pointer('pointerdown', cell('2027-07-11'), { pointerType: 'touch' });
+        pointer('pointerup', cell('2027-07-11'), { pointerType: 'touch' });
         cell('2027-07-11').click();
 
         expect(postJson).toHaveBeenCalledTimes(2);
         expect(postJson).toHaveBeenLastCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'] });
+    });
+
+    it('toggles once on a long press the finger never moved', () => {
+        vi.useFakeTimers();
+        render();
+
+        pointer('pointerdown', cell('2027-07-10'), { pointerType: 'touch' });
+        vi.advanceTimersByTime(400);
+        pointer('pointerup', cell('2027-07-10'), { pointerType: 'touch' });
+        vi.useRealTimers();
+        // No touchmove cancelled it: the browser still clicks the day.
+        cell('2027-07-10').click();
+
+        expect(postJson).toHaveBeenCalledTimes(1);
+        expect(postJson).toHaveBeenCalledWith(expect.any(String), { mode: 'block', days: ['2027-07-10'] });
+    });
+
+    it('lets the keyboard toggle a day right after a finger drag', () => {
+        vi.useFakeTimers();
+        const root = render();
+        document.elementFromPoint = vi.fn().mockReturnValue(cell('2027-07-12'));
+
+        pointer('pointerdown', cell('2027-07-10'), { pointerType: 'touch' });
+        vi.advanceTimersByTime(400);
+        pointer('pointermove', root, { pointerType: 'touch', clientY: 40 });
+        pointer('pointerup', cell('2027-07-12'), { pointerType: 'touch' });
+        vi.useRealTimers();
+        cell('2027-07-11').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        cell('2027-07-11').click();
+
+        expect(postJson).toHaveBeenCalledTimes(2);
     });
 
     it('offers no undo when the server changed nothing', async () => {
