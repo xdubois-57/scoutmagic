@@ -64,6 +64,7 @@ npm run e2e:install  # only needed once, before your first `npm run e2e`
 ```
 
 (`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)
+The historical README details referenced by the two comments above are preserved in [README-reference.md](README-reference.md); the current commands and limits are documented directly below.
 
 ### Technical prerequisites
 
@@ -112,5 +113,5 @@ reaching real third parties.
 
 For what each layer proves, the two E2E tiers, CI behaviour and the four DAST profiles, see
 [docs/quality-pipeline.md](docs/quality-pipeline.md). For the architecture of the E2E/DAST harness,
-including module activation, TLS termination, proxy coverage and the maildrop, see
-[ARCHITECTURE.md](ARCHITECTURE.md) §15 and [SECURITY.md](SECURITY.md) for the security model.
+including module activation, TLS termination and proxy coverage, see
+[ARCHITECTURE.md](ARCHITECTURE.md) §15 (and §8 for the maildrop) and [SECURITY.md](SECURITY.md) for the security model.
