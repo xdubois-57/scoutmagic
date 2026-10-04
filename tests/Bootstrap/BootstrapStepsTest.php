@@ -304,9 +304,32 @@ class BootstrapStepsTest extends TestCase
                 $this->assertFileExists($probe['file'], $probe['id'] . ' must have written its canary');
             }
         }
-        // B2 overwrites token.php with a placeholder: the real token is
-        // only written once the whole gate has passed.
-        $this->assertStringContainsString('gate probe', (string) file_get_contents($this->tempDir . '/token.php'));
+    }
+
+    /**
+     * Regression (#719): B2 used to overwrite token.php with a placeholder,
+     * which — since the token is written first and the proof cookie is
+     * checked against it on every request — locked the operator out at the
+     * gate report. The probe now fetches the real file, untouched.
+     */
+    public function testTheGateProbesTheRealTokenAndTheOperatorsProofSurvivesIt(): void
+    {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $before = (string) file_get_contents($this->tempDir . '/token.php');
+        $proof = [\BOOTSTRAP_PROOF_COOKIE => \bootstrapProofValue(\bootstrapReadTokenValue($this->tempDir), time() + 600)];
+        $state = $this->installedLayoutB();
+        $this->removeDirectory($state['temp_dir']);
+
+        $state = \bootstrapStepGatePrepare($this->tempDir, $state);
+
+        $b2 = array_values(array_filter($state['probes'], static fn (array $p): bool => $p['id'] === 'B2'))[0];
+        $this->assertSame('/token.php', $b2['url']);
+        $this->assertSame($before, file_get_contents($this->tempDir . '/token.php'));
+        $this->assertTrue(\bootstrapIsAuthorized($this->tempDir, $proof, time()));
+
+        // And it outlives the probes' cleanup, ready for step 10.
+        \bootstrapCleanupGateProbes($state);
+        $this->assertTrue(\bootstrapStepToken($this->tempDir, ['gate_passed' => true])['token_written']);
     }
 
     public function testStepGatePrepareRollsTheInstallBackWhenAStaticCheckFails(): void
@@ -436,17 +459,20 @@ class BootstrapStepsTest extends TestCase
         \bootstrapStepToken($this->tempDir, ['gate_passed' => false]);
     }
 
-    public function testStepTokenWritesTheTokenFileOnceTheGateHasPassed(): void
+    /**
+     * The token is written on the first load and typed before anything
+     * runs (#719, B1): the step confirms it is still there, never makes a
+     * new one under the operator.
+     */
+    public function testStepTokenConfirmsTheTokenWrittenOnTheFirstLoad(): void
     {
+        \bootstrapEnsureTokenFile($this->tempDir);
+        $before = (string) file_get_contents($this->tempDir . '/token.php');
+
         $state = \bootstrapStepToken($this->tempDir, ['gate_passed' => true]);
 
         $this->assertTrue($state['token_written']);
-        $this->assertArrayNotHasKey('token_write_warning', $state);
-        $content = (string) file_get_contents($this->tempDir . '/token.php');
-        $this->assertStringStartsWith('<?php', $content);
-        // The token is what the operator types into the setup wizard, so
-        // it has to survive being read back out of the file.
-        $this->assertMatchesRegularExpression('/[0-9a-f]{16,}/', $content);
+        $this->assertSame($before, file_get_contents($this->tempDir . '/token.php'));
     }
 
     public function testStepCleanupRemovesTheStateFileAndReportsASelfDeletionItCouldNotDo(): void
@@ -471,16 +497,13 @@ class BootstrapStepsTest extends TestCase
         $this->assertArrayNotHasKey('cleanup_warning', $state);
     }
 
-    public function testStepTokenSaysSoWhenItCouldNotWriteTheFileItself(): void
+    /** A token that vanished mid-install sends the operator back to the token screen. */
+    public function testStepTokenRefusesWhenTheTokenFileVanished(): void
     {
-        // A document root the installer cannot write into is the ordinary
-        // shared-hosting case, and it must not end the install: the wizard
-        // shows the exact content to create over FTP instead.
-        $state = \bootstrapStepToken($this->tempDir . '/does-not-exist', ['gate_passed' => true]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/token\.php/');
 
-        $this->assertFalse($state['token_written']);
-        $this->assertStringContainsString('manuellement', $state['token_write_warning']);
-        $this->assertStringStartsWith('<?php', $state['token_manual_content']);
+        \bootstrapStepToken($this->tempDir, ['gate_passed' => true]);
     }
 
     // -------------------------------------------------------------------
@@ -506,12 +529,14 @@ class BootstrapStepsTest extends TestCase
             if (!\bootstrapDefaultHttpsProbe()) {
                 $this->expectException(RuntimeException::class);
                 $this->expectExceptionMessageMatches('/HTTPS/');
-                \bootstrapStepPreflight($this->tempDir, []);
+                \bootstrapStepPreflight($this->tempDir, ['site_https_verified' => true]);
 
                 return;
             }
 
-            $state = \bootstrapStepPreflight($this->tempDir, []);
+            // HTTPS already seen working (#719): what step 1 needs from
+            // the access file, injected by its request handler.
+            $state = \bootstrapStepPreflight($this->tempDir, ['site_https_verified' => true]);
 
             $this->assertSame($this->tempDir, $state['doc_root']);
             $this->assertContains($state['layout'], ['A', 'B']);
@@ -540,7 +565,8 @@ class BootstrapStepsTest extends TestCase
 
             $this->expectException(RuntimeException::class);
             $this->expectExceptionMessageMatches('/déjà une installation/');
-            \bootstrapStepPreflight($this->tempDir, []);
+            // HTTPS verified: that refusal comes first, and is not the one under test.
+            \bootstrapStepPreflight($this->tempDir, ['site_https_verified' => true]);
         } finally {
             if ($scriptName === null) {
                 unset($_SERVER['SCRIPT_NAME']);
