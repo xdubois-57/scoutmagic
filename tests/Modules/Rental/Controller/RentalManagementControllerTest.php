@@ -2550,6 +2550,45 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
+    /**
+     * A contract sent before contracts carried a fingerprint is never
+     * voided, so its steps never reopen: the Documents page keeps offering
+     * its new version — and only for that contract.
+     */
+    public function testAContractSentBeforeFingerprintsCanStillBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents, 'a fingerprinted contract reopens by itself');
+
+        $this->pdo->prepare('UPDATE rental_documents SET fingerprint = NULL WHERE id = ?')->execute([$contract->id]);
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'documents',
+            'document_type' => 'contract',
+        ]);
+        $this->assertCount(2, $this->documentService->forBooking($booking->id), 'v2 beside v1');
+    }
+
     /** What the contract does not state — an internal comment — voids nothing. */
     public function testAnInternalCommentVoidsNothing(): void
     {
