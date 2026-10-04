@@ -56,6 +56,12 @@ final class CommunicationControllerTest extends TestCase
     public const ALBUM_ID = 42;
     public const ALBUM_TITLE = 'Week-end de rentrée';
 
+    /**
+     * Whether the one album `albumSource()` describes has a cover photo.
+     * Reset in setUp, so a test that clears it cannot reach another.
+     */
+    private static bool $albumHasCover = true;
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -70,6 +76,7 @@ final class CommunicationControllerTest extends TestCase
 
     protected function setUp(): void
     {
+        self::$albumHasCover = true;
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -377,6 +384,60 @@ final class CommunicationControllerTest extends TestCase
         // so a second answer here could only ever disagree with it.
         $this->assertSame('', (string) $row['title']);
         $this->assertNotNull($this->request('/photos'));
+    }
+
+    /**
+     * When the source has gone, the page must not send the visitor to it.
+     *
+     * `from_source` is read from the row's own `source_kind`, which
+     * outlives the album, so the « this album has no image, go and choose
+     * one over there » branch fired for a deleted album too — while the
+     * alert further down said, correctly, that the album no longer
+     * exists. The page told the visitor to go and edit something it had
+     * just said was gone. Raised in review on the pull request for IT-01.
+     */
+    public function testAVanishedSourceIsNotAnInvitationToGoAndFixIt(): void
+    {
+        $this->loginAuthor();
+        $id = $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            9999
+        );
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        // Said once, where publishing is refused.
+        $this->assertStringContainsString('n&#039;existe plus', $html);
+        // And not as advice to act on a source that is not there.
+        $this->assertStringNotContainsString('puis revenez', $html);
+        $this->assertStringNotContainsString('n\'a pas d\'image', $html);
+        // Nor as « choose an image »: both image buttons are absent for a
+        // source-backed communication, so there would be no way to obey.
+        $this->assertStringNotContainsString('Choisissez une image', $html);
+    }
+
+    /**
+     * The other half of the branch above, so the refusal is about the
+     * source being GONE and not about a source-backed share as such: an
+     * album that is there and simply has no cover photo still gets the
+     * invitation to go and choose one.
+     */
+    public function testAnAlbumWithoutACoverStillSaysWhereToAddOne(): void
+    {
+        self::$albumHasCover = false;
+        $this->loginAuthor();
+
+        $html = $this->controller()
+            ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+            ->getBody();
+
+        $this->assertStringContainsString('n\'a pas d\'image', $html);
+        $this->assertStringContainsString('puis revenez', $html);
+        $this->assertStringNotContainsString('n&#039;existe plus', $html);
     }
 
     /**
@@ -823,14 +884,23 @@ final class CommunicationControllerTest extends TestCase
      */
     private static function albumSource(): \Modules\Gallery\Api\AlbumShareSourceInterface
     {
-        return new class implements \Modules\Gallery\Api\AlbumShareSourceInterface {
+        // The cover is passed in, not read from the test class: an
+        // anonymous class is its own scope, so `self::` here would mean
+        // this class and not the enclosing one.
+        $cover = self::$albumHasCover ? \Tests\Modules\Social\SocialTestHelper::groupPhoto() : null;
+
+        return new class ($cover) implements \Modules\Gallery\Api\AlbumShareSourceInterface {
+            public function __construct(private readonly ?string $cover)
+            {
+            }
+
             public function describe(int $albumId, string $role, string $email): ?\Modules\Gallery\Api\SharedAlbum
             {
                 return $albumId === CommunicationControllerTest::ALBUM_ID
                     ? new \Modules\Gallery\Api\SharedAlbum(
                         CommunicationControllerTest::ALBUM_ID,
                         CommunicationControllerTest::ALBUM_TITLE,
-                        \Tests\Modules\Social\SocialTestHelper::groupPhoto(),
+                        $this->cover,
                         '/gallery/' . CommunicationControllerTest::ALBUM_ID
                     )
                     : null;
