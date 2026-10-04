@@ -339,14 +339,14 @@ class ReenrollmentSavePlannerTest extends TestCase
     public function testASwitchLeftOnPastItsWindowWritesToNobodyWhateverTheDates(): void
     {
         // The next opening (2027-01-03) is nearer than the last close
-        // (2026-05-15), yet nothing opened that campaign: closing the
-        // switch tells nobody it has closed.
+        // (2026-05-15), yet nothing opened that campaign: it has not
+        // started, so closing the switch tells nobody it has closed.
         $this->campaign->open();
 
         $plan = $this->plan(['is_open' => false, 'open_at' => '01-03'], '2026-10-04 10:00');
 
         $this->assertSame([], $plan->emails);
-        $this->assertSame(ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED, $plan->noEmailReason);
+        $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
     }
 
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
