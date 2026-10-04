@@ -16,7 +16,7 @@ namespace Modules\MassMail\Repository;
  * Core\File\UploadHandler and gated by Core\File\FileAccessGuard using the
  * module.json `storage` entry's role_min, same as any other module.
  */
-class EmailAttachmentRepository
+class EmailAttachmentRepository implements \Core\File\AttachedFileRepository
 {
     public function __construct(private \PDO $pdo)
     {
@@ -56,6 +56,19 @@ class EmailAttachmentRepository
     public function delete(int $id): void
     {
         $this->pdo->prepare('DELETE FROM mass_mail_attachments WHERE id = ?')->execute([$id]);
+    }
+
+    /**
+     * Whether another email still attaches this file — a resent email
+     * shares its original's attachments, and deleting one must not take
+     * the other's file with it.
+     */
+    public function isFileReferencedElsewhere(int $fileId, int $exceptDocumentId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM mass_mail_attachments WHERE file_id = ? AND id <> ? LIMIT 1');
+        $stmt->execute([$fileId, $exceptDocumentId]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     public function deleteByEmailId(int $emailId): void
