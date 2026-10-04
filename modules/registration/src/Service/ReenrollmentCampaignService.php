@@ -536,13 +536,15 @@ class ReenrollmentCampaignService
         }
 
         $openingAt = $this->doneAt(self::emailMarker(self::EMAIL_OPENING), $key);
-        $previousKey = self::dateIn((int) substr($key, 0, 4) - 1, (string) $this->monthDay(self::SETTING_CLOSE_AT))
-            ?->format('Y-m-d');
-        $started = $this->hasStarted($key, $now);
+        // A campaign the switch has opened is under way, whatever its e-mails
+        // did: the switch writes no marker, and with the e-mails off nothing
+        // else does either — the page's « Ouverte » badge reads isOpen() too.
+        $started = $this->hasStarted($key, $now) || $this->isOpen();
+        $previousKey = $this->lastClosedCampaignBefore($key);
 
         return [
             'key' => $key,
-            'label' => self::targetLabelOf($key),
+            'label' => $this->targetLabelOf($key),
             'opens' => $opens,
             'closes' => $key,
             'opened_early_at' => $openingAt !== null && $opens !== null && $openingAt->format('Y-m-d') < $opens
@@ -552,10 +554,32 @@ class ReenrollmentCampaignService
             'steps' => $steps,
             // Between two campaigns, one grey line says how the last one
             // ended — what the box used to show in full, as if current.
-            'previous' => !$started && $previousKey !== null && $previousKey < $today
-                ? ['label' => self::targetLabelOf($previousKey), 'closed_on' => $previousKey]
+            'previous' => !$started && $previousKey !== null
+                ? ['label' => $this->targetLabelOf($previousKey), 'closed_on' => $previousKey]
                 : null,
         ];
+    }
+
+    /**
+     * The close date of the last campaign that really closed before the one
+     * keyed `$key`, as recorded — by the clock's closing or by its closing
+     * e-mail — never worked out from today's settings: a unit that has never
+     * run a campaign has no previous one to speak of, and one that has moved
+     * its close date since must not have the old campaign restated with the
+     * new one. A campaign the switch closed by hand leaves no mark, and so
+     * no line: a wrong answer looks worse than none.
+     */
+    private function lastClosedCampaignBefore(string $key): ?string
+    {
+        $recorded = [];
+        foreach ([self::MARKER_CLOSED, self::emailMarker(self::EMAIL_CLOSING)] as $marker) {
+            $value = (string) $this->settingService->get($marker, 'registration', '');
+            if ($value !== '' && $value < $key) {
+                $recorded[] = $value;
+            }
+        }
+
+        return $recorded === [] ? null : max($recorded);
     }
 
     /**

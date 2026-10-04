@@ -592,6 +592,8 @@ class ReenrollmentCampaignServiceTest extends TestCase
      */
     public function testBetweenTwoCampaignsTheBoxIsTheNextOneAndOneLineTheLast(): void
     {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15');
+
         $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
         $this->assertNotNull($timeline);
 
@@ -599,6 +601,36 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertSame('2027-2028', $timeline['label']);
         $this->assertFalse($timeline['started']);
         $this->assertSame(['label' => '2026-2027', 'closed_on' => '2026-05-15'], $timeline['previous']);
+    }
+
+    /**
+     * The line about the last campaign is read from what was recorded, not
+     * worked out from the settings: a unit that has never run one has none.
+     */
+    public function testAUnitThatNeverRanACampaignHasNoPreviousOne(): void
+    {
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertNull($timeline['previous']);
+    }
+
+    /**
+     * The switch writes no marker and, with the e-mails off, nothing else
+     * does: the campaign it opened is under way all the same, as the page's
+     * badge says, and no « previous campaign » line sits beside it.
+     */
+    public function testACampaignOpenedByHandWithTheEmailsOffIsUnderWay(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        $this->campaign->open();
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertTrue($timeline['started']);
+        $this->assertNull($timeline['previous']);
     }
 
     public function testAReminderIsDueItsConfiguredNumberOfDaysBeforeTheClose(): void

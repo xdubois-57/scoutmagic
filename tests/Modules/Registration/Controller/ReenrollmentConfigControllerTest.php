@@ -800,7 +800,9 @@ class ReenrollmentConfigControllerTest extends TestCase
         return [
             'before the opening' => ['2027-02-20 10:00', static fn (self $t) => null,
                 ['Campagne pour 2027-2028 : du 01/03/2027 au 15/05/2027', 'prévu le 01/03/2027', 'Fermée'], ['Pas envoyé']],
-            'between two campaigns' => ['2026-10-04 10:00', static fn (self $t) => null,
+            'between two campaigns' => ['2026-10-04 10:00', static function (self $t): void {
+                $t->settingService->setInternal(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15', 'registration');
+            },
                 ['Campagne pour 2027-2028 : du 01/03/2027 au 15/05/2027', 'Campagne précédente, pour 2026-2027 : clôturée le 15/05/2026.'], ['2026-2027 : du']],
             'opened by hand' => ['2026-10-04 11:00', $opening('2026-10-04 10:35'),
                 ['ouverte le 04/10/2026, fermeture le 15/05/2027', '(ouverte à la main)', 'Ouverte à la main, avant la date prévue.'], ['Campagne précédente']],
