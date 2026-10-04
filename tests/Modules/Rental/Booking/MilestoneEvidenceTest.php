@@ -539,6 +539,34 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertStringNotContainsString('à la main', $evidence->details[BookingMilestones::CONTRACT_SENT]);
     }
 
+    /**
+     * « Conditions et contrat acceptés » ticked by hand before the contract
+     * had steps of its own stood for the whole agreement: the mark carries
+     * over to the renter's signed copy and the countersignature, so a
+     * booking that was ready to confirm still is.
+     */
+    public function testAHandTickOnTheRetiredAgreementStepCarriesOverToBothSignatures(): void
+    {
+        $evidence = MilestoneEvidence::collect(
+            $this->booking(),
+            [],
+            $this->payment(),
+            null,
+            null,
+            null,
+            true,
+            ['contract_accepted' => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
+        );
+
+        $this->assertTrue($evidence->done[BookingMilestones::SIGNED_COPY_RECEIVED]);
+        $this->assertTrue($evidence->done[BookingMilestones::CONTRACT_COUNTERSIGNED]);
+        $this->assertSame(
+            [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED],
+            $evidence->manual
+        );
+        $this->assertArrayNotHasKey('contract_accepted', $evidence->done);
+    }
+
     /** A step that does not apply here cannot be ticked into being. */
     public function testAHandTickCannotMakeAStepApplicable(): void
     {

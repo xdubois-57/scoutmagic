@@ -10,6 +10,7 @@ namespace Modules\Rental\Service;
 
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Booking\BookingMilestones;
+use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Repository\RentalMilestoneMarkRepository;
 
@@ -66,6 +67,17 @@ class RentalMilestoneMarkService
         $changed = $done
             ? $this->repository->mark($booking->id, $milestoneKey, $actorMemberId, $at)
             : $this->repository->unmark($booking->id, $milestoneKey);
+
+        // Reopening a signature the retired « Conditions et contrat
+        // acceptés » mark stands for removes that mark: it is what ticks
+        // the step (MilestoneEvidence::collect()).
+        if (!$done && in_array(
+            $milestoneKey,
+            [BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED],
+            true
+        )) {
+            $changed = $this->repository->unmark($booking->id, MilestoneEvidence::LEGACY_CONTRACT_ACCEPTED) || $changed;
+        }
 
         if ($changed) {
             $this->bookingAudit->record(
