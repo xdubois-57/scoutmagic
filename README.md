@@ -195,7 +195,7 @@ Les jobs bloquants sont :
 - **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
 - **`javascript-tests`** : analyse statique et tests JavaScript.
 - **`e2e-tests`** : scénarios navigateur Playwright.
-- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison ; ce job rejoue **toutes** les routes que l'application déclare et compare chaque réponse au rôle minimal annoncé.
+- **`authorization-matrix`** : La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles. Elle rejoue **toutes** les routes que l'application déclare et compare chaque réponse au rôle minimal annoncé.
 - **`dast-passive`** : analyse dynamique passive avec OWASP ZAP.
 - **`security`** : audit des dépendances Composer.
 - **`sonarqube`** : analyse SonarQube Cloud et Quality Gate.
