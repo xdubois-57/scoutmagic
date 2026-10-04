@@ -32,9 +32,10 @@ Parmi les nombreuses possibilités de ScoutMagic :
   campagnes de paiement, locations, année scoute, mises à jour automatiques,
   etc.
 
-Cette liste est loin d'être exhaustive. ScoutMagic propose de nombreuses
-autres fonctionnalités et peut être complété par des modules selon les
-besoins de chaque unité.
+Cette liste est loin d'être exhaustive. L'[inventaire détaillé des
+fonctionnalités](docs/features.md) présente plus précisément ce que ScoutMagic
+propose, et les [spécifications fonctionnelles](specifications.md) décrivent le
+comportement attendu de chaque fonction et module.
 
 ## Utiliser ScoutMagic pour votre unité
 
@@ -47,7 +48,7 @@ d'améliorer ScoutMagic avant sa première version pleinement stabilisée.
 Vous souhaitez découvrir ScoutMagic, l'utiliser dans votre unité ou poser des
 questions avant de vous lancer ? Contactez-nous à **info@scoutmagic.be**.
 
-## Installation
+## Installation et premiers pas
 
 L'installation de ScoutMagic se fait à l'aide du fichier `bootstrap.php`
 fourni avec chaque release.
@@ -62,6 +63,19 @@ fourni avec chaque release.
 L'assistant vérifie votre hébergement, télécharge ScoutMagic et vous guide
 jusqu'à la fin de l'installation. Aucun accès SSH, Git ou Composer n'est
 nécessaire sur le serveur.
+
+Une fois l'assistant terminé, deux écrans constituent de bons premiers points
+de contrôle :
+
+- **Espace chefs d'U › Points d'attention** rassemble ce qui demande encore
+  une intervention dans la vie de l'unité ;
+- **Configuration › Maintenance › Santé de l'hébergement** vérifie les
+  dépendances de l'hébergement et explique ce qui ne fonctionnerait pas en cas
+  de problème.
+
+La configuration du serveur, de la base de données, du cron et des mises à
+jour automatiques est détaillée dans le guide
+[Installation & serveur](docs/help/installation-serveur.md).
 
 ## Contribuer
 
@@ -96,16 +110,22 @@ Pour contribuer au code, consultez [CONTRIBUTING.md](CONTRIBUTING.md).
 
 La documentation détaillée est volontairement séparée de ce README :
 
-- [Spécifications fonctionnelles](specifications.md) — fonctionnement attendu
-  de ScoutMagic et de ses modules.
+- [Fonctionnalités détaillées](docs/features.md) — inventaire fonctionnel
+  destiné aux personnes qui découvrent le projet.
+- [Spécifications fonctionnelles](specifications.md) — comportement attendu de
+  ScoutMagic et de ses modules.
 - [Architecture](ARCHITECTURE.md) — architecture technique et décisions
   structurantes.
 - [Sécurité](SECURITY.md) — exigences de sécurité et signalement privé des
   vulnérabilités.
 - [Pipeline de qualité](docs/quality-pipeline.md) — tests, analyse statique,
   intégration continue, contrôles de qualité et processus de release.
+- [Référence détaillée de l'ancien README](docs/readme-reference.md) — contenu
+  technique et opérationnel conservé intégralement lors de la simplification.
 - [Développement de modules](docs/module-development.md) — création et
   intégration d'un module ScoutMagic.
+- [Installation & serveur](docs/help/installation-serveur.md) — base de
+  données, e-mail, cron et maintenance de l'hébergement.
 - [Guide de location](docs/rental-guide.md) — gestion des biens proposés à la
   location.
 - [Configuration du courrier entrant](docs/inbound-mail-setup.md) — connexion
@@ -114,72 +134,21 @@ La documentation détaillée est volontairement séparée de ce README :
 Les règles destinées aux contributeurs et aux agents de développement se
 trouvent également dans [AGENTS.md](AGENTS.md).
 
-### Analyse statique JavaScript
-
-Les commandes, garanties et limites de l'analyse statique JavaScript sont
-documentées dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis).
-
-### Tests de bout en bout
-
-La suite Playwright, ses deux niveaux et son rôle dans le CI sont documentés
-dans le [pipeline de qualité](docs/quality-pipeline.md#end-to-end--playwright).
-L'inventaire à jour des scénarios est le répertoire `tests/e2e/specs/`.
-
-### Analyse de sécurité dynamique
-
-Les profils OWASP ZAP et leur rôle sont documentés dans le
-[pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ; le
-modèle de sécurité détaillé reste dans [SECURITY.md](SECURITY.md).
-
-La matrice d'autorisation rejoue **toutes** les routes que l'application déclare
-sous les six rôles ; son fonctionnement est décrit dans ce même pipeline de
-qualité.
-
-## Intégration continue
-
-Le détail du pipeline reste dans [docs/quality-pipeline.md](docs/quality-pipeline.md),
-mais le README conserve l'inventaire vérifié des jobs bloquants :
-
-- **`test`** : PHPStan et PHPUnit sur MySQL 8.
-- **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
-- **`javascript-tests`** : analyse statique et tests JavaScript.
-- **`e2e-tests`** : tests de bout en bout Playwright.
-- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
-- **`dast-passive`** : analyse dynamique passive OWASP ZAP.
-- **`security`** : audit des dépendances Composer.
-- **`sonarqube`** : Quality Gate SonarQube Cloud.
-
-`All checks` agrège ces contrôles et bloque la fusion si l'un d'eux échoue.
-
-## Releases
-
-Le processus détaillé est documenté dans le
-[pipeline de qualité](docs/quality-pipeline.md#release-pipeline). Avant une
-release, le script exécute sept verrous :
-
-1. **Déploiement** : la release précédente est bien en production et le site répond.
-2. **Intégration continue** : `All checks` est vert sur le commit publié.
-3. **Sécurité** : les audits de dépendances et alertes de sécurité ne bloquent pas.
-4. **Fraîcheur des dépendances** : les dépendances directes et bibliothèques embarquées sont à jour.
-5. **API navigateur dépréciées** : les API indispensables restent supportées par les navigateurs ciblés.
-6. **SonarQube Cloud** : le Quality Gate et les contrôles de sécurité SonarQube sont satisfaits.
-7. **Sources externes** : les sources externes dont dépend ScoutMagic restent accessibles.
-
-La définition canonique de ces verrous reste dans `scripts/release.sh` et la
-documentation spécialisée.
-
 ## Données, sécurité et responsabilité
 
 Chaque unité qui déploie ScoutMagic agit en tant que responsable de
 traitement au sens du RGPD pour les données qu'elle y héberge. Elle reste
-responsable de la conformité de ses traitements et de la sécurité de son
-hébergement. L'auteur et les contributeurs du projet ne sont ni responsables
-de traitement ni sous-traitants pour les instances déployées par des tiers,
-et n'ont aucun accès aux données qui y sont hébergées.
+responsable de l'évaluation de la conformité de ses traitements, de la
+sécurité de son hébergement, de la tenue de son registre de traitement et des
+notifications requises en cas de violation de données. L'auteur et les
+contributeurs du projet ne sont ni responsables de traitement ni
+sous-traitants pour les instances déployées par des tiers, et n'ont aucun
+accès aux données qui y sont hébergées.
 
 Une faille de sécurité découverte dans ScoutMagic ne doit pas être publiée
 dans une issue GitHub. La procédure de signalement privé est décrite dans
-[SECURITY.md](SECURITY.md).
+[SECURITY.md](SECURITY.md). Les corrections sont apportées sur une base
+bénévole, sans garantie de délai.
 
 ScoutMagic est un logiciel libre fourni sans garantie d'aucune sorte,
 conformément aux conditions de la licence AGPL-3.0.
