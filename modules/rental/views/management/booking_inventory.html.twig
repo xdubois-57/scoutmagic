@@ -133,7 +133,10 @@
             {% if inventory_validations is not empty %}
                 <div class="card mb-3">
                     <div class="card-body">
-                        <h2 class="h5 mb-2">{{ inventory_phase ? 'Déjà validé' : 'Les deux états des lieux sont validés' }}</h2>
+                        {# Resolved is not validated: an arrival ticked by hand
+                           has no validation of its own, so "both" is said
+                           only when there are two. #}
+                        <h2 class="h5 mb-2">{{ inventory_phase ? 'Déjà validé' : (inventory_validations|length > 1 ? 'Les deux états des lieux sont validés' : 'État des lieux validé') }}</h2>
                         <ul class="list-unstyled mb-0">
                             {% for validated_phase, validation in inventory_validations %}
                                 {% set document = inventory_documents[validated_phase]|default(null) %}

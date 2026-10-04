@@ -181,10 +181,18 @@ class RentalInventoryValidationService
                     $path,
                     $document->originalName ?? 'etat-des-lieux.pdf'
                 );
-                $this->documents->markSent($document->id, $now);
                 $sent = true;
             } catch (\Throwable) {
                 $sent = false;
+            }
+            // Recording the send is bookkeeping: once the e-mail has left,
+            // a failure here must not tell the manager to send it again.
+            if ($sent) {
+                try {
+                    $this->documents->markSent($document->id, $now);
+                } catch (\Throwable) {
+                    // The renter has it; Documents merely shows no date.
+                }
             }
         }
 

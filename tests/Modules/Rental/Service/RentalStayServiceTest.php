@@ -704,6 +704,40 @@ class RentalStayServiceTest extends TestCase
         $this->assertSame([], $this->service->inventoryValidations($booking->id));
     }
 
+    /**
+     * Once the e-mail has left, failing to record it must not tell the
+     * manager to send it again: the renter would get the PDF twice.
+     */
+    public function testASendThatWentOutIsSaidSentEvenIfRecordingItFails(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $documents = $this->createStub(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn(new \Modules\Rental\Document\RentalDocument(
+            id: 41,
+            bookingId: $booking->id,
+            fileId: 141,
+            type: \Modules\Rental\Document\DocumentType::INVENTORY,
+            version: 1,
+            isForRenter: true,
+            originalName: 'etat-des-lieux-entree.pdf',
+            sizeBytes: 1024,
+            sentAt: null,
+            createdByMemberId: 1,
+            createdAt: $this->now()
+        ));
+        $documents->method('absolutePath')->willReturn(__FILE__);
+        $documents->method('markSent')->willThrowException(new \RuntimeException('verrou'));
+
+        $result = $this->validationService(null, $documents)->validate(
+            $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
+        );
+
+        $this->assertTrue($result['sent']);
+        $this->assertArrayHasKey('arrival', $this->service->inventoryValidations($booking->id));
+    }
+
     public function testAMeterWithoutItsReadingBlocksTheValidation(): void
     {
         $this->addMeter();

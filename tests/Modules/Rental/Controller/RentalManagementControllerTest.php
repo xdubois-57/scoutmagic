@@ -4648,6 +4648,13 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('État des lieux de sortie', $body);
         $this->assertStringContainsString("coché à la main", $body);
         $this->assertTrue($this->saveLine($booking, $chairs, 'departure', '40')['success']);
+
+        // Once the departure is validated, only ONE inventory was: the
+        // arrival was ticked, never validated, and the page says so.
+        $this->validateInventoryPhase($booking, 'departure');
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('État des lieux validé', $body);
+        $this->assertStringNotContainsString('Les deux états des lieux sont validés', $body);
     }
 
     private function templatesPage(): string
