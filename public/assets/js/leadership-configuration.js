@@ -76,9 +76,11 @@
         });
 
         trash.addEventListener('click', async function () {
+            var fallback = row.dataset.fallbackLabel || '';
             var confirmed = await window.ScoutMagicConfirm.ask({
-                message: 'Supprimer le rattachement de « ' + rawValue + ' » ? Cette valeur redeviendra non '
-                    + "reconnue tant qu'elle ne sera pas rattachée à nouveau.",
+                message: 'Supprimer le rattachement de « ' + rawValue + ' » ? ' + (fallback
+                    ? 'Le site la lira de nouveau seul, comme « ' + fallback + ' ».'
+                    : "Cette valeur redeviendra non reconnue tant qu'elle ne sera pas rattachée à nouveau."),
                 confirmLabel: 'Supprimer',
             });
             if (!confirmed) {
@@ -91,10 +93,10 @@
                 toastFailure(res, 'Erreur lors de la suppression.');
                 return;
             }
-            if (Number.parseInt(row.dataset.holders || '0', 10) > 0) {
-                // Someone still carries this wording this year: it is
-                // unrecognised again, so it goes back to « À configurer »
-                // as the server will show it on the next load.
+            if (res.data.unresolved === true && Number.parseInt(row.dataset.holders || '0', 10) > 0) {
+                // Someone still carries this wording this year and the
+                // server no longer understands it: it goes back to
+                // « À configurer », as the next load will show it.
                 var placeholder = document.createElement('option');
                 placeholder.value = '';
                 placeholder.textContent = 'Choisir une étape…';
@@ -104,7 +106,8 @@
                 trash.classList.add('d-none');
                 unresolved.appendChild(row);
             } else {
-                // Nobody carries it any more: it belongs in neither list.
+                // Nobody carries it any more, or the site reads it on its
+                // own: it belongs in neither list.
                 row.remove();
             }
             refreshEmpties();

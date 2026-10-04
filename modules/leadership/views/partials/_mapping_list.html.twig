@@ -25,12 +25,14 @@
     rows      -- [{ raw_value, holders, selected }, …]
                  selected: the step currently chosen, or null for a value
                  nobody has decided yet
+                 fallback: optional — what the site reads the value as
+                 with no decision, empty when it does not understand it
     steps     -- assignable_steps: [{ value, label }, …]
 #}
 <ul class="list-group list-group-flush leadership-mapping-list" id="{{ list_id }}">
     {% for row in rows %}
         {% set _selected = row.selected|default(null) %}
-        <li class="list-group-item px-0 py-2 leadership-mapping-row" data-raw-value="{{ row.raw_value }}" data-holders="{{ row.holders }}">
+        <li class="list-group-item px-0 py-2 leadership-mapping-row" data-raw-value="{{ row.raw_value }}" data-holders="{{ row.holders }}" data-fallback-label="{{ row.fallback|default('') }}">
             <div class="fw-semibold text-break"><code>{{ row.raw_value }}</code></div>
             <div class="small text-body-secondary">
                 {% if row.holders > 0 %}

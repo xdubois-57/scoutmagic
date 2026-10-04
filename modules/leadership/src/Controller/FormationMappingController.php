@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Modules\Leadership\FormationStep;
 use Modules\Leadership\Repository\FormationLevelMappingRepository;
+use Modules\Leadership\Service\FormationLevelResolver;
 use Twig\Environment;
 
 /**
@@ -63,7 +64,12 @@ class FormationMappingController extends AbstractController
             $this->repository->delete($rawValue);
             $this->journal('leadership_formation_mapping_removed');
 
-            return $this->json(['success' => true]);
+            // Whether the wording is unrecognised again or read by the
+            // heuristic decides which list it belongs to now: the page
+            // asks rather than guessing from the row.
+            $builtIn = (new FormationLevelResolver())->resolve($rawValue);
+
+            return $this->json(['success' => true, 'unresolved' => $builtIn === FormationStep::UNKNOWN]);
         }
 
         $step = FormationStep::tryFrom($stepValue);

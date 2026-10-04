@@ -107,6 +107,20 @@ class FormationMappingControllerTest extends TestCase
         $this->assertSame([], $this->repository->findAllRows());
     }
 
+    public function testRemovingAMappingSaysWhetherTheWordingIsUnrecognisedAgain(): void
+    {
+        $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => 't2']), []);
+        $this->controller->save($this->post(['raw_value' => 'Brevet BACV', 'step' => 'woodbadge']), []);
+
+        $unknown = $this->controller->save($this->post(['raw_value' => 'Zorglub', 'step' => '']), []);
+        $known = $this->controller->save($this->post(['raw_value' => 'Brevet BACV', 'step' => '']), []);
+
+        // The built-in reading still understands « Brevet BACV »: it lands
+        // in neither list, and the page must not offer to configure it.
+        $this->assertSame(['success' => true, 'unresolved' => true], json_decode($unknown->getBody(), true));
+        $this->assertSame(['success' => true, 'unresolved' => false], json_decode($known->getBody(), true));
+    }
+
     /**
      * 'unknown' is a real FormationStep but not an assignable one: it is
      * what the site says when nobody has decided, never a decision. A

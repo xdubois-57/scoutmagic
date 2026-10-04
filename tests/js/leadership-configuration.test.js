@@ -10,9 +10,9 @@
 // supprimé. ».
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-function row(raw, selected, holders = 0) {
+function row(raw, selected, holders = 0, fallback = '') {
     const options = ['t1', 't2', 't3'].map((v) => `<option value="${v}"${v === selected ? ' selected' : ''}>${v.toUpperCase()}</option>`).join('');
-    return `<li class="list-group-item leadership-mapping-row" data-raw-value="${raw}" data-holders="${holders}">
+    return `<li class="list-group-item leadership-mapping-row" data-raw-value="${raw}" data-holders="${holders}" data-fallback-label="${fallback}">
         <code>${raw}</code>
         <select class="form-select leadership-mapping-select" aria-label="Étape pour « ${raw} »">
             ${selected ? '' : '<option value="" selected>Choisir une étape…</option>'}${options}
@@ -21,12 +21,12 @@ function row(raw, selected, holders = 0) {
     </li>`;
 }
 
-function page({ unresolved = ['Zorglub'], decided = [['Wording maison', 't2']], holders = 0 } = {}) {
+function page({ unresolved = ['Zorglub'], decided = [['Wording maison', 't2']], holders = 0, fallback = '' } = {}) {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
         <ul id="leadership-mapping-unresolved">${unresolved.map((r) => row(r, null)).join('')}</ul>
         <p class="leadership-mapping-empty${unresolved.length ? ' d-none' : ''}" data-empty-for="leadership-mapping-unresolved">Tout est reconnu.</p>
-        <ul id="leadership-mapping-decided">${decided.map(([r, s]) => row(r, s, holders)).join('')}</ul>
+        <ul id="leadership-mapping-decided">${decided.map(([r, s]) => row(r, s, holders, fallback)).join('')}</ul>
         <p class="leadership-mapping-empty${decided.length ? ' d-none' : ''}" data-empty-for="leadership-mapping-decided">Aucun rattachement.</p>`;
 }
 
@@ -118,6 +118,7 @@ describe('leadership-configuration.js (#727)', () => {
 
     it('sends a wording someone still carries back to « À configurer », placeholder restored', async () => {
         page({ unresolved: [], holders: 3 });
+        global.fetch = vi.fn(() => jsonResponse({ success: true, unresolved: true }));
         await boot();
 
         rowOf('Wording maison').querySelector('.leadership-mapping-delete').click();
@@ -129,6 +130,22 @@ describe('leadership-configuration.js (#727)', () => {
         expect(rowOf('Wording maison').querySelector('.leadership-mapping-delete').classList.contains('d-none')).toBe(true);
         expect(emptyShown('leadership-mapping-unresolved')).toBe(false);
         expect(emptyShown('leadership-mapping-decided')).toBe(true);
+    });
+
+    it('removes a wording the site reads on its own, even if someone carries it, and says so first', async () => {
+        page({ unresolved: [], holders: 3, fallback: 'BACV' });
+        global.fetch = vi.fn(() => jsonResponse({ success: true, unresolved: false }));
+        await boot();
+
+        rowOf('Wording maison').querySelector('.leadership-mapping-delete').click();
+
+        await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+            .toHaveBeenCalledWith('Rattachement supprimé.', { variant: 'success' }));
+        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Supprimer le rattachement de « Wording maison » ? Le site la lira de nouveau seul, comme « BACV ».',
+        }));
+        expect(rowOf('Wording maison')).toBeNull();
+        expect(emptyShown('leadership-mapping-unresolved')).toBe(true);
     });
 
     it('removes nothing when the confirmation is declined', async () => {
