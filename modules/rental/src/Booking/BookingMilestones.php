@@ -257,7 +257,10 @@ final class BookingMilestones
                 $m->detail,
                 $m->kind,
                 'Se confirme quand l\'accord est complet. Il manque : '
-                    . implode(', ', array_map(static fn(BookingMilestone $x): string => '« ' . $x->label . ' »', $missing))
+                    . implode(', ', array_map(
+                        static fn(BookingMilestone $x): string => '« ' . $x->label . ' »',
+                        $missing
+                    ))
                     . '.',
                 null,
                 $m->isState,

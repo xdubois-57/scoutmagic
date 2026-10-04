@@ -2744,7 +2744,7 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString('action="/mes-locations/statut"', $step);
         $this->assertStringContainsString('name="status" value="confirmed"', $step);
-        $this->assertStringContainsString('aria-label="Confirmer la réservation"', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Confirmer la réservation</span>', $step);
         $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
         $this->assertSame(302, $this->markStep($booking, 'confirmed')->getStatusCode());
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
@@ -2817,7 +2817,11 @@ class RentalManagementControllerTest extends TestCase
             if (str_contains($markup, 'action="/mes-locations/etape"')) {
                 $tickable[] = $key;
                 $this->assertStringContainsString('<input type="hidden" name="done" value="1">', $markup, $key);
-                $this->assertMatchesRegularExpression('#aria-label="Marquer « [^»]+ » comme fait"#', $markup, $key);
+                $this->assertMatchesRegularExpression(
+                    '#<span class="visually-hidden">Marquer « [^»]+ » comme fait</span>#',
+                    $markup,
+                    $key
+                );
             }
         }
         $this->assertContains('arrival_inventory', $tickable);
@@ -2885,7 +2889,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Coché à la main', $step);
         $this->assertStringContainsString(' le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
         // Reopened from the same disc.
-        $this->assertStringContainsString('aria-label="Rouvrir « État des lieux d&#039;entrée »"', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Rouvrir « État des lieux d&#039;entrée »</span>', $step);
         $this->assertStringContainsString('Étape cochée à la main', self::panel($body, 'history'));
 
         $this->markStep($booking, 'arrival_inventory', false);

@@ -965,7 +965,10 @@ class RentalManagementController extends AbstractController
      *
      * @param RentalBooking[] $bookings
      * @param RentalAsset[] $assets the assets they belong to
-     * @return array<int, array{next: ?\Modules\Rental\Booking\BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}>
+     * @return array<int, array{
+     *     next: ?\Modules\Rental\Booking\BookingMilestone,
+     *     deadline: ?\Modules\Rental\Reminder\RenterDeadline
+     * }>
      */
     private function nextSteps(array $bookings, array $assets, \DateTimeImmutable $now): array
     {
@@ -1748,7 +1751,12 @@ class RentalManagementController extends AbstractController
             // The contract is the unit's answer (#708, IT-13): « Contrat
             // envoyé », and the dates held while the renter signs.
             if ($document->type === DocumentType::CONTRACT) {
-                $this->operationsService->contractSent($booking, $this->actorMemberId(), $now, $this->contractHoldMinDays());
+                $this->operationsService->contractSent(
+                    $booking,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->contractHoldMinDays()
+                );
             }
 
             FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');

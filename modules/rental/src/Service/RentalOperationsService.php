@@ -295,7 +295,9 @@ class RentalOperationsService
             throw new RentalException(BookingTransition::refusalReason($booking->status, BookingStatus::CONFIRMED));
         }
 
-        $missing = $milestones !== null ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones) : [];
+        $missing = $milestones !== null
+            ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones)
+            : [];
         if ($missing !== []) {
             throw new RentalException(
                 'La réservation ne peut être confirmée qu\'au bout de l\'accord. Il manque : '

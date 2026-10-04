@@ -247,7 +247,7 @@ describe('rental-booking.js: a step ticked by hand from its disc (#708, IT-14)',
                 <form method="post" action="/mes-locations/etape" id="step-form" data-step-disc>
                     <input type="hidden" name="milestone_key" value="arrival_inventory">
                     <input type="hidden" name="done" value="1">
-                    <button type="submit" class="step-disc-button" aria-label="Marquer « État des lieux d'entrée » comme fait"></button>
+                    <button type="submit" class="step-disc-button"><span class="visually-hidden">Marquer « État des lieux d'entrée » comme fait</span></button>
                 </form>
             </div>
         </div>`;

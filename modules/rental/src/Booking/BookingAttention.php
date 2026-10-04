@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Booking;
 
+use Modules\Rental\Reminder\RenterDeadline;
 /**
  * One booking on « À traiter », and what put it there (§22.5).
  *
@@ -165,7 +166,7 @@ final class BookingAttention
     /**
      * @param RentalBooking[] $bookings
      * @param array<int, ChangeRequest[]> $pendingByBooking keyed by booking id
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
      *   keyed by booking id — the step each booking's page puts forward
      * @return list<self>
      */
@@ -200,7 +201,7 @@ final class BookingAttention
      *
      * @param RentalBooking[] $bookings
      * @param array<int, ChangeRequest[]> $pendingByBooking
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
      */
     public static function countIn(
         array $bookings,

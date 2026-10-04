@@ -69,10 +69,13 @@
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="milestone_key" value="{{ milestone.key }}">
                 <input type="hidden" name="done" value="{{ can_tick ? '1' : '0' }}">
-                <button type="submit" class="step-disc-button"
-                        aria-label="{{ can_tick ? 'Marquer « ' ~ milestone.label ~ ' » comme fait' : 'Rouvrir « ' ~ milestone.label ~ ' »' }}"
-                        title="{{ can_tick ? 'Marquer « ' ~ milestone.label ~ ' » comme fait' : 'Rouvrir « ' ~ milestone.label ~ ' »' }}">
-                    {{ disc }}
+                {% set disc_name = can_tick
+                    ? 'Marquer « ' ~ milestone.label ~ ' » comme fait'
+                    : 'Rouvrir « ' ~ milestone.label ~ ' »' %}
+                {# The name is the button's own text, hidden but read, rather
+                   than an aria-label the visible disc would not contain. #}
+                <button type="submit" class="step-disc-button" title="{{ disc_name }}">
+                    {{ disc }}<span class="visually-hidden">{{ disc_name }}</span>
                 </button>
             </form>
         {% elseif runs_transition %}
@@ -93,9 +96,8 @@
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="status" value="{{ milestone.action.transition.value }}">
-                <button type="submit" class="step-disc-button" aria-label="{{ milestone.action.label }}"
-                        title="{{ milestone.action.label }}">
-                    {{ disc }}
+                <button type="submit" class="step-disc-button" title="{{ milestone.action.label }}">
+                    {{ disc }}<span class="visually-hidden">{{ milestone.action.label }}</span>
                 </button>
             </form>
         {% else %}
