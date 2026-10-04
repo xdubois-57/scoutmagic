@@ -380,7 +380,7 @@ class RentalDocumentService
         // In the frame rather than only as a keyword: a unit whose own
         // template predates the keyword still sends a contract that names
         // the conditions its renter accepted — never today's (#708, IT-16).
-        if ($type === DocumentType::CONTRACT && ($values['conditions_acceptees'] ?? null) !== null) {
+        if ($type === DocumentType::CONTRACT && $this->acceptedConditions($booking) !== null) {
             $header[] = 'Conditions de location acceptées : ' . $values['conditions_acceptees'];
         }
 
@@ -663,12 +663,18 @@ class RentalDocumentService
      * « version du 12/09/2027, https://…/locations/salle/conditions/a1b2c3d4e5f6 »
      * — the version the renter accepted and the permanent address of THAT
      * text, the same one every email to them ends with.
+     *
+     * Never empty: the standard contract cites it inside a sentence, which
+     * a bare « — » would leave reading « lors de sa demande (—) ». When the
+     * archive cannot name the text — it was overwritten before the archive
+     * existed, or the request predates acceptance being recorded — the
+     * line says when the conditions in question were in force.
      */
-    private function acceptedConditionsLine(RentalBooking $booking, RentalAsset $asset): ?string
+    private function acceptedConditionsLine(RentalBooking $booking, RentalAsset $asset): string
     {
         $version = $this->acceptedConditions($booking);
         if ($version === null) {
-            return null;
+            return 'en vigueur le ' . ($booking->conditionsAcceptedAt ?? $booking->receivedAt)->format('d/m/Y');
         }
 
         $dated = $version->dateKnownAt($booking->conditionsAcceptedAt);

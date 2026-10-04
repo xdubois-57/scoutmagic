@@ -960,7 +960,9 @@ class RentalDocumentServiceTest extends TestCase
 
     /**
      * A booking whose fingerprint matches no archived text names none: a
-     * link to some other wording would be worse than a dash.
+     * link to some other wording would be worse than nothing. The standard
+     * contract still reads as a sentence — it says when the conditions
+     * were in force, never « (—) » — and the PDF frame names no version.
      */
     public function testAContractNamesNoConditionsItCannotProve(): void
     {
@@ -981,7 +983,15 @@ class RentalDocumentServiceTest extends TestCase
         $service = $this->serviceWithConditions($versions);
 
         $this->assertNull($service->acceptedConditions($booking));
-        $this->assertNull($service->valuesFor($booking, $this->asset(), $this->settings())['conditions_acceptees']);
+        $line = (string) $service->valuesFor($booking, $this->asset(), $this->settings())['conditions_acceptees'];
+        $this->assertStringStartsWith('en vigueur le ', $line);
+        $this->assertStringNotContainsString('/conditions/', $line);
+
+        $document = $service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $text = (string) preg_replace('/\s+/', ' ', $this->renderedTextOf($document->id));
+        $this->assertStringNotContainsString('(—)', $text);
+        $this->assertMatchesRegularExpression('#\d{2}/\d{2}/\d{4}\) font partie#', $text, 'a date where the dash was');
+        $this->assertStringNotContainsString('Conditions de location acceptées :', $text);
     }
 
     private function serviceWithConditions(
