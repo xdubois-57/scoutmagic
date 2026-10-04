@@ -225,17 +225,25 @@ describe('rental-booking.js: posting a form without leaving the page', () => {
         global.fetch = actionThenRefresh({ success: true, message: 'Contrat envoyé.' }, pageHtml('Fait'));
         await boot();
         const heard = [];
-        document.addEventListener('rental-booking:refreshed', () => {
+        // Removed at the end: a listener left on `document` outlives this
+        // test and would hear the next test's refresh, on a page it does
+        // not know.
+        const listen = () => {
             heard.push({
-                milestone: document.getElementById('milestone').textContent,
-                busy: document.querySelector('[data-rental-booking]').hasAttribute('aria-busy'),
+                milestone: document.getElementById('milestone')?.textContent,
+                busy: document.querySelector('[data-rental-booking]')?.hasAttribute('aria-busy'),
             });
-        });
+        };
+        document.addEventListener('rental-booking:refreshed', listen);
 
-        submit('send-form');
+        try {
+            submit('send-form');
 
-        await vi.waitFor(() => expect(heard).toHaveLength(1));
-        expect(heard[0]).toEqual({ milestone: 'Fait', busy: false });
+            await vi.waitFor(() => expect(heard).toHaveLength(1));
+            expect(heard[0]).toEqual({ milestone: 'Fait', busy: false });
+        } finally {
+            document.removeEventListener('rental-booking:refreshed', listen);
+        }
     });
 
     it('stops saying it is busy when the refresh itself fails', async () => {
