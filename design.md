@@ -828,6 +828,20 @@ the synchronous marker still refuses the second tap in between. The
 synchronous check stays as well, for a canceller that ran before the lock
 (the capture phase).
 
+**That same reading is why a form sent with `fetch` never opts in.**
+`defaultPrevented` means « the browser was stopped from sending this »,
+which covers a refusal and a request somebody else has already started
+alike; from inside the lock the two are indistinguishable. Reading it as
+a refusal there would release the button in the middle of an upload,
+which is the double submit this whole mechanism exists to close. Every
+form under `[data-rental-booking]` is intercepted by `rental-booking.js`
+and sent with `fetch`, so none of them carries the attribute: they are
+guarded by `api.withDisabled`, which holds the submit button for exactly
+as long as the request lasts.
+`UxConventionsTest::testNoAsyncFormOptsIntoTheSubmitLock` keeps the two
+kinds of form apart, because the mistake is invisible on the page — the
+button looks right, and only a second tap during the upload shows it.
+
 `window.ScoutMagicSortable.bind(container, {itemSelector, axis,
 draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
 drag-and-drop reordering. It saves on `dragend`, never on the item's own

@@ -250,6 +250,18 @@
                 // a refusal from any phase shows up here and the lock is
                 // undone. The marker still goes up synchronously above,
                 // so the second tap is refused in the meantime.
+                //
+                // **This is why a form sent with `fetch` must not opt in.**
+                // `defaultPrevented` says « the browser was stopped from
+                // sending this », which covers a refusal AND a request
+                // somebody else has already started. The two cannot be
+                // told apart from here, and reading it as a refusal
+                // releases the button while the upload is in flight — the
+                // double submit this file exists to close. Such a form is
+                // guarded by `api.withDisabled`, which holds the button
+                // for exactly as long as the request lasts, and
+                // `UxConventionsTest::testNoAsyncFormOptsIntoTheSubmitLock`
+                // keeps the two apart.
                 setTimeout(function () {
                     if (event.defaultPrevented) {
                         unlock(form);

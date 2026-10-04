@@ -257,9 +257,20 @@
             </div>
         {% endif %}
 
-        {# `data-submit-lock` (issue #756). #}
+        {# **No `data-submit-lock` here, deliberately** (issue #756). Every
+           form in these panels is intercepted by `rental-booking.js` and
+           sent with `fetch` instead of navigating, and the lock is built
+           for the opposite case: a form that posts, leaves, and takes
+           several seconds doing it. The lock's listener sits on the form
+           and fires at the target, while the interceptor sits on
+           `[data-rental-booking]`, an ancestor, and fires later in the
+           bubble phase — so the lock cannot tell « nobody sent this »
+           from « somebody is sending it by fetch », and would release the
+           button in the middle of the upload. `api.withDisabled` already
+           holds the button for exactly as long as the request lasts.
+           `UxConventionsTest` keeps this true. #}
         <form method="post" action="/mes-locations/document-ajouter" enctype="multipart/form-data"
-              class="row g-2 align-items-end mt-2" data-submit-lock>
+              class="row g-2 align-items-end mt-2">
             {{ csrf_field()|raw }}
             <input type="hidden" name="asset_id" value="{{ asset.id }}">
             <input type="hidden" name="booking_id" value="{{ booking.id }}">
