@@ -49,7 +49,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own.
 import { test, expect } from '@playwright/test';
@@ -188,7 +188,7 @@ test.describe('Camps', () => {
         // is proof the map was BUILT — not merely that a div is on
         // screen. The module's own JavaScript binds to these two ids;
         // neither the panel nor the map container carries a role or an
-        // accessible name a locator could use instead (README.md § Tests
+        // accessible name a locator could use instead (docs/developpement.md § Tests
         // de bout en bout).
         const built = page.locator('#camps-map.leaflet-container');
         const toggle = page.getByRole('button', { name: 'Carte', exact: true });

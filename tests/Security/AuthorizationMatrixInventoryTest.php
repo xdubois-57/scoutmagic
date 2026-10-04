@@ -263,17 +263,17 @@ class AuthorizationMatrixInventoryTest extends TestCase
         // the matrix does not own.
         $claims = [
             [
-                'README.md',
+                'docs/developpement.md',
                 "La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles",
                 'the authorization matrix, in the DAST profile table',
             ],
             [
-                'README.md',
+                'docs/developpement.md',
                 "rejoue **toutes** les routes que l'application déclare",
                 'the authorization matrix, where the profile is explained',
             ],
             [
-                'README.md',
+                'docs/developpement.md',
                 '**toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison',
                 "the authorization matrix, in the CI job list",
             ],
@@ -302,7 +302,7 @@ class AuthorizationMatrixInventoryTest extends TestCase
         // than none.
         $quoted = [];
 
-        foreach (['README.md', 'SECURITY.md'] as $file) {
+        foreach (['README.md', 'docs/developpement.md', 'SECURITY.md'] as $file) {
             preg_match_all(
                 '/[0-9][0-9 ]*\s+(?:routes|couples|pairs|paires)\b/u',
                 $this->read($file),

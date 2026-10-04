@@ -20,7 +20,8 @@
  which carries the same reminder.
 
  The test is blocking: it fails CI (the "End-to-end (browser)" job) and
- scripts/release.sh's E2E gate. See README.md § Tests de bout en bout.
+ the release, whose CI gate requires that job green. See
+ docs/developpement.md § Tests de bout en bout.
 #}
 {% block title %}Année scoute — {{ param('site_name') }}{% endblock %}
 {% block content %}

@@ -48,7 +48,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text everywhere they identify the element (README.md
+// Roles and visible text everywhere they identify the element (docs/developpement.md
 // § Tests de bout en bout). The login page's three tabs each carry their
 // own "Adresse email" field and their own consent checkbox, so locators
 // are scoped to the tab panel the visitor is on — the ids auth.js itself

@@ -53,7 +53,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own.
 import { test, expect } from '@playwright/test';

@@ -7,8 +7,9 @@ namespace Tests\Architecture;
 use PHPUnit\Framework\TestCase;
 
 /**
- * README.md's « Intégration continue » section enumerates the jobs a pull
- * request runs. That list is what a contributor reads to know what will
+ * docs/developpement.md's « Intégration continue » section enumerates the
+ * jobs a pull request runs. (It lived in README.md until the README became
+ * the short entry point for units; the section moved with its test.) That list is what a contributor reads to know what will
  * judge their change, and what a maintainer reads when deciding whether a
  * check may be made required.
  *
@@ -24,16 +25,16 @@ use PHPUnit\Framework\TestCase;
 final class EveryCiJobIsDocumentedTest extends TestCase
 {
     private const WORKFLOW = '.github/workflows/checks.yml';
-    private const README = 'README.md';
+    private const DOCUMENT = 'docs/developpement.md';
 
     /**
      * `All checks` is deliberately exempt: it runs nothing of its own and
-     * README describes it in the paragraph above the list rather than as
+     * the document describes it in the paragraph above the list rather than as
      * an entry in it, which is the right place for a roll-up.
      */
     private const NOT_AN_ENTRY = ['all-checks'];
 
-    public function testEveryJobOfTheReusableWorkflowIsNamedInTheReadme(): void
+    public function testEveryJobOfTheReusableWorkflowIsNamedInTheDevelopmentGuide(): void
     {
         // The job must have an ENTRY of its own, not merely be mentioned.
         // Searching the whole file for `job` was the first version, and it
@@ -41,7 +42,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
         // `javascript-tests` are each quoted in a neighbouring bullet's
         // prose ("la même suite complète que `test`"), so deleting their
         // own entry left the name matching elsewhere and the test green.
-        // Only `database-mariadb` is quoted exactly once in README — which
+        // Only `database-mariadb` is quoted exactly once there — which
         // is why the mutation that removed ITS bullet went red, and why
         // that red proved nothing about the other seven.
         preg_match_all(
@@ -50,7 +51,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
             $listed
         );
 
-        $this->assertNotEmpty($listed[1], "README.md's job list could not be parsed.");
+        $this->assertNotEmpty($listed[1], self::DOCUMENT . "'s job list could not be parsed.");
 
         $undocumented = [];
 
@@ -67,17 +68,17 @@ final class EveryCiJobIsDocumentedTest extends TestCase
         $this->assertSame(
             [],
             $undocumented,
-            'Jobs of ' . self::WORKFLOW . " that README.md's « Intégration continue » section "
+            'Jobs of ' . self::WORKFLOW . " that " . self::DOCUMENT . "'s « Intégration continue » section "
             . "gives no entry of its own:\n  " . implode("\n  ", $undocumented)
         );
     }
 
     /**
-     * The other direction: a backtick-quoted job name README still lists
+     * The other direction: a backtick-quoted job name the document still lists
      * after the workflow stopped defining it sends a contributor looking
      * for a check that cannot go red.
      */
-    public function testTheReadmeNamesNoJobTheWorkflowNoLongerDefines(): void
+    public function testTheDevelopmentGuideNamesNoJobTheWorkflowNoLongerDefines(): void
     {
         $jobs = $this->jobs();
         $section = $this->continuousIntegrationSection();
@@ -91,7 +92,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
             }
         }
 
-        $this->assertNotEmpty($listed[1], "README.md's job list could not be parsed.");
+        $this->assertNotEmpty($listed[1], self::DOCUMENT . "'s job list could not be parsed.");
         $this->assertSame([], $stale);
     }
 
@@ -104,7 +105,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
      * carry a trailing comment. `checks.yml` uses only the bare form
      * today, so a stricter pattern would pass — and would silently stop
      * seeing a job the day somebody quotes one or annotates it. A job
-     * this method cannot see is a job the README need not document, which
+     * this method cannot see is a job the guide need not document, which
      * is exactly the hole this class exists to close.
      *
      * Matched here rather than parsed: the project has no YAML parser,
@@ -113,7 +114,7 @@ final class EveryCiJobIsDocumentedTest extends TestCase
      *
      * **Scoped to the `jobs:` block**, which the first widening was not:
      * two-space keys also occur under `on:`, so accepting `_` turned
-     * `workflow_call:` into a job the README was asked to document. The
+     * `workflow_call:` into a job the guide was asked to document. The
      * block runs from `jobs:` to the next key at column zero.
      *
      * @return list<string>
@@ -148,11 +149,11 @@ final class EveryCiJobIsDocumentedTest extends TestCase
     {
         $matched = preg_match(
             '/^## Intégration continue$(.*?)(?=^## )/msu',
-            $this->read(self::README),
+            $this->read(self::DOCUMENT),
             $found
         );
 
-        $this->assertSame(1, $matched, "README.md has no « Intégration continue » section.");
+        $this->assertSame(1, $matched, self::DOCUMENT . " has no « Intégration continue » section.");
 
         return $found[1];
     }

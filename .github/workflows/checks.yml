@@ -292,7 +292,7 @@ jobs:
         # Vitest/Playwright/SonarQube ever run. Runs first: cheap,
         # deterministic, and fails fast on the kind of mistake a unit test
         # wouldn't otherwise catch. See AGENTS.md § Static analysis and
-        # README.md § Analyse statique JavaScript.
+        # docs/developpement.md § Analyse statique JavaScript.
         if: ${{ !inputs.evidence }}
         run: npm run typecheck
 
@@ -408,8 +408,8 @@ jobs:
         run: npm ci
 
       - name: Install the Chromium runtime
-        # Same command developers run once locally (README.md
-        # § Tests end-to-end) — no CI-specific browser setup to drift.
+        # Same command developers run once locally (docs/developpement.md
+        # § Tests de bout en bout) — no CI-specific browser setup to drift.
         run: npm run e2e:install
 
       - name: Run end-to-end tests
