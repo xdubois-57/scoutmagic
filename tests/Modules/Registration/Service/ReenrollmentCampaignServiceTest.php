@@ -292,6 +292,21 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertSame('2026-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-02-01')));
     }
 
+    public function testAWindowStraddlingNewYearClosesTheYearAfterItOpens(): void
+    {
+        // Open 11-01, close 02-15: in December the campaign closes next
+        // February, not ten months ago.
+        $key = static fn (string $now): ?string => ReenrollmentCampaignService::campaignKeyFor(
+            new \DateTimeImmutable($now),
+            '11-01',
+            '02-15'
+        );
+
+        $this->assertSame('2027-02-15', $key('2026-12-20'));
+        $this->assertSame('2027-02-15', $key('2027-01-10'));
+        $this->assertSame('2027-02-15', $key('2027-02-16'));
+    }
+
     public function testTheManualSwitchWorksBothWaysAndTouchesNoMarker(): void
     {
         $this->campaign->open();

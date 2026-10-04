@@ -215,7 +215,9 @@ class ReenrollmentCampaignService
     {
         $year = (int) $now->format('Y');
         foreach ([$year, $year - 1] as $candidateYear) {
-            $close = self::dateIn($candidateYear, $closeAt);
+            // A window that straddles New Year closes the calendar year after
+            // it opens (open 11-01, close 02-15).
+            $close = self::dateIn($closeAt >= $openAt ? $candidateYear : $candidateYear + 1, $closeAt);
             if ($close === null) {
                 continue;
             }
