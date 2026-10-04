@@ -215,6 +215,65 @@ final class TextPagesConfigTemplatesTest extends TestCase
     }
 
     /**
+     * Issue #752: the per-section lists are CONNECTED — same group, each
+     * with its section as key — and a section's empty sentence is there
+     * even when it has pages (hidden), so a drag can show it or hide it.
+     */
+    public function testTheSectionListsAreConnectedAndEachCarriesItsSection(): void
+    {
+        $html = $this->renderBlock('config/text_pages/index.html.twig', [
+            'sections' => [
+                ['id' => 'notre_unite', 'label' => 'Notre unité', 'pages' => [[
+                    'id' => 1, 'is_active' => true, 'menu_label' => 'ASBL', 'title' => 'Notre ASBL',
+                    'section_label' => 'Notre unité', 'group_label' => null, 'path' => '/pages/notre-asbl',
+                ]]],
+                ['id' => 'configuration', 'label' => 'Configuration', 'pages' => []],
+            ],
+            'site_name' => 'Test Unité',
+        ]);
+
+        $this->assertMatchesRegularExpression(
+            '/id="text-page-list-notre_unite"[^>]*data-sortable-group="text-pages" data-group-key="notre_unite"/s',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '/id="text-page-list-configuration"[^>]*data-sortable-group="text-pages" data-group-key="configuration"/s',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/list-editor-empty d-none">Aucune page dans cette section/', $html);
+        $this->assertStringContainsString('data-item-field="group_label"', $html);
+    }
+
+    /**
+     * The partial's other users never asked for connected lists, and must
+     * not get them by side effect.
+     */
+    public function testAListEditorWithoutAGroupIsNotConnected(): void
+    {
+        $html = $this->twig->createTemplate(
+            "{% embed 'partials/list_editor.html.twig' with { list_id: 'x', items: [{ id: 1, is_active: true }], "
+            . "reorder_url: '/r' } %}{% block item_content %}x{% endblock %}{% endembed %}"
+        )->render([]);
+
+        $this->assertStringNotContainsString('data-sortable-group', $html);
+        $this->assertStringNotContainsString('data-group-key', $html);
+    }
+
+    /**
+     * A group without its key is no connection at all, rather than a drop
+     * zone that would post an empty group and be answered with success.
+     */
+    public function testAGroupWithoutAKeyIsNotConnected(): void
+    {
+        $html = $this->twig->createTemplate(
+            "{% embed 'partials/list_editor.html.twig' with { list_id: 'x', items: [{ id: 1, is_active: true }], "
+            . "reorder_url: '/r', sortable_group: 'g' } %}{% block item_content %}x{% endblock %}{% endembed %}"
+        )->render([]);
+
+        $this->assertStringNotContainsString('data-sortable-group', $html);
+    }
+
+    /**
      * **The list is inert without these two.** The partial draws the drag
      * handle, the toggle and the bin; `list-editor.js` is what binds them,
      * and `base.html.twig` loads neither globally. A page that embeds the

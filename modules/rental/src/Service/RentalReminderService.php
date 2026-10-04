@@ -79,7 +79,12 @@ class RentalReminderService
          * The unit-wide defaults, one setting per reminder. Null falls back
          * to the values shipped in `ReminderKind::defaultDays()`.
          */
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        /**
+         * Who hears about an asset — the rule a new request uses too
+         * (#708, IT-05). Null builds one with no Staff d'U fallback.
+         */
+        private ?ManagerRecipientResolver $recipientResolver = null
     ) {
     }
 
@@ -290,11 +295,10 @@ class RentalReminderService
             return false;
         }
 
-        $recipients = $this->managersOf($reminder->assetId);
+        $recipients = $this->recipients()->recipientsFor($reminder->assetId, $reminder->kind->value);
         if ($recipients === []) {
-            // An asset with no manager who has ever logged in. Not an
-            // error — a unit may run entirely on email — but there is
-            // nobody to notify.
+            // Nobody on the asset nor on the Staff d'U with an account —
+            // journaled by the resolver; there is nobody to notify.
             return false;
         }
 
@@ -329,35 +333,14 @@ class RentalReminderService
         return $this->mailService->sendPracticalInfo($booking, $asset);
     }
 
-    /**
-     * The user accounts of the people who manage this asset.
-     *
-     * A manager with no account is skipped rather than guessed at: there is
-     * no notification to deliver to somebody who has never logged in, and
-     * inventing an email channel for them here would duplicate what the
-     * unit's own mail already does.
-     *
-     * @return array<int, array{userAccountId: int, memberId: ?int}>
-     */
-    private function managersOf(int $assetId): array
+    private function recipients(): ManagerRecipientResolver
     {
-        $recipients = [];
-
-        foreach ($this->managerRepository->findAllByAsset($assetId, true) as $manager) {
-            $blindIndex = $this->memberYearRepository->findMostRecentEmailBlindIndexForMember($manager->memberId);
-            if ($blindIndex === null || $blindIndex === '') {
-                continue;
-            }
-
-            $account = $this->userAccountRepository->findByBlindIndex($blindIndex);
-            if ($account === null) {
-                continue;
-            }
-
-            $recipients[$account->id] ??= ['userAccountId' => $account->id, 'memberId' => $manager->memberId];
-        }
-
-        return array_values($recipients);
+        return $this->recipientResolver ??= new ManagerRecipientResolver(
+            $this->managerRepository,
+            $this->memberYearRepository,
+            $this->userAccountRepository,
+            $this->journal
+        );
     }
 
     /**

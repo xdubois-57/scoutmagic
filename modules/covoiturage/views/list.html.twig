@@ -29,7 +29,9 @@
                 <a href="/covoiturage/{{ carpool.id }}" class="card text-decoration-none text-body">
                     <div class="card-body">
                         <div class="fw-semibold">{{ carpool.title }}</div>
-                        <div class="small text-body-secondary">{{ carpool.address }}</div>
+                        {# No direction on a list of carpools: the place is
+                           said for what it is to both trips (#703). #}
+                        <div class="small text-body-secondary">Lieu de l'activité : {{ carpool.address }}</div>
                         <div class="small text-body-secondary">
                             {{ carpool.dates }} ·
                             {{ carpool.cars }} voiture{{ carpool.cars > 1 ? 's' : '' }} ·

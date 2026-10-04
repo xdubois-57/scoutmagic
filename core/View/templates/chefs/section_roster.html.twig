@@ -130,10 +130,10 @@
                                                        would not 404 — the two are both integers — it would silently open
                                                        somebody else's sheet. #}
                                                     <a href="/admin/members/{{ member.memberYearId }}" class="tap-target d-inline-flex align-items-center">
-                                                        {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
+                                                        {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}{% if member.sectionTotem %}{{ member.totem ? ' – ' : ' · ' }}{{ member.sectionTotem }}{% endif %}
                                                     </a>
                                                 {% else %}
-                                                    <span>{{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}</span>
+                                                    <span>{{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}{% if member.sectionTotem %}{{ member.totem ? ' – ' : ' · ' }}{{ member.sectionTotem }}{% endif %}</span>
                                                 {% endif %}
                                                 {% if member.movement.status.isNotable %}
                                                     <span class="badge {{ movement_badge_classes[member.movement.status.tone] }}">{{ member.movement.status.label }}</span>

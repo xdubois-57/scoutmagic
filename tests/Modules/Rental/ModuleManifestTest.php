@@ -108,10 +108,15 @@ class ModuleManifestTest extends TestCase
      * asset's template and in the booking's copy (`kind`,
      * `expected_count`), and moves the Gabarits page to lists edited in
      * place (#708, IT-10).
+     *
+     * 1.35.0 retires the `reviewing` status (#708, IT-11) — a row still
+     * carrying it reads back as `received` — and goes on through the rest
+     * of #708's fourth lot: the automatic hold in days, the « Contrat
+     * envoyé » status, and steps completed by hand.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.34.0', $this->manifest->version);
+        $this->assertSame('1.35.0', $this->manifest->version);
     }
 
     /**

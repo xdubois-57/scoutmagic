@@ -229,6 +229,63 @@ class MediaServiceTest extends TestCase
     }
 
     /**
+     * #700: the video switch follows what the CRON stored, never what this
+     * (web) process can execute — unknown before the cron's first
+     * measurement, refused then; allowed once the cron found both programs.
+     */
+    public function testVideoUploadFollowsTheCronsStoredFacts(): void
+    {
+        // The stored facts are real rows; the gallery's own switch keeps
+        // the stub's default (allowed).
+        $stored = new SettingService(new \Core\Config\SettingRepository($this->pdo));
+        \Core\System\CronExecutionFacts::register($stored);
+        $service = new MediaService(
+            $this->mediaRepository,
+            $this->albumRepository,
+            new UploadHandler($this->fileRepository, sys_get_temp_dir()),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->settingService,
+            $this->accessService,
+            $this->storageBackendFactory,
+            $this->galleryLocationService,
+            new FfmpegAvailability($stored),
+            $this->storedFileCleaner
+        );
+        $this->assertFalse($service->videoUploadAllowed(), 'never measured: refused');
+
+        $ready = new \Core\System\CronExecutionFacts(
+            time(),
+            'cli',
+            true,
+            true,
+            'exec',
+            'code 0',
+            '/usr/bin/ffmpeg',
+            '/usr/bin/ffprobe'
+        );
+        $stored->setInternal(\Core\System\CronExecutionFacts::SETTING, (string) json_encode($ready->toArray()));
+        $this->assertTrue($service->videoUploadAllowed(), 'the cron transcodes: allowed');
+    }
+
+    /**
+     * Groups reach video through the gallery's delegated albums: both
+     * wirings hand them the same cron-backed availability (#700).
+     */
+    public function testTheGroupsPathReadsTheSameCronFacts(): void
+    {
+        $root = dirname(__DIR__, 4);
+
+        $this->assertStringContainsString(
+            'new FfmpegAvailability($context->settings)',
+            (string) file_get_contents($root . '/modules/gallery/src/Api/DelegatedAlbumManagerFactory.php')
+        );
+        $this->assertStringContainsString(
+            '$galleryFfmpegAvailability = new \\Modules\\Gallery\\Service\\FfmpegAvailability($settingService);',
+            (string) file_get_contents($root . '/public/index.php')
+        );
+    }
+
+    /**
      * The service with ffmpeg present — the setUp double reports it
      * missing, which short-circuits every video path before the storage
      * is ever consulted.

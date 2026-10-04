@@ -45,7 +45,10 @@
             {% if not carpool.is_past %}
                 <form method="post" action="/covoiturage/demandes/{{ _mine.id }}/annuler" class="mt-2"
                       data-confirm="Retirer votre demande ? {{ _mine.status == 'accepted' ? 'Votre place sera libérée et le conducteur prévenu.' : 'Le conducteur ne la verra plus.' }}"
-                      data-confirm-label="Retirer ma demande">
+                      data-confirm-label="Retirer ma demande"
+                      data-confirm-note="Un mot pour le conducteur (facultatif)"
+                      data-confirm-note-name="message"
+                      data-confirm-note-maxlength="200">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-sm btn-outline-danger">Retirer ma demande</button>
                 </form>
@@ -79,7 +82,7 @@
                         autocomplete: 'tel',
                     } only %}
                     <div class="alert alert-warning small">
-                        Ce numéro vient de votre fiche et vous pouvez le corriger. Il ne sera montré au conducteur que <strong>s'il accepte</strong>. Les animateurs de la section voient qui monte dans quelle voiture.
+                        Ce numéro vient de votre fiche et vous pouvez le corriger. Il est montré au conducteur <strong>dès votre demande</strong> ; le sien ne vous est montré que s'il accepte. Les animateurs de la section voient qui monte dans quelle voiture.
                     </div>
                     <button type="submit" class="btn btn-primary">Envoyer la demande</button>
                 </form>
@@ -111,7 +114,10 @@
                                 </form>
                                 <form method="post" action="/covoiturage/demandes/{{ request.id }}/refuser"
                                       data-confirm="Refuser cette demande ? La famille sera prévenue et pourra redemander pour moins de personnes."
-                                      data-confirm-label="Refuser">
+                                      data-confirm-label="Refuser"
+                                      data-confirm-note="Un mot pour la famille (facultatif)"
+                                      data-confirm-note-name="message"
+                                      data-confirm-note-maxlength="200">
                                     {{ csrf_field()|raw }}
                                     <button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>
                                 </form>

@@ -97,7 +97,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
         buildEditor({ items: [1, 2, 3] });
         await boot();
 
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
 
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['2', '1', '3']);
@@ -108,7 +108,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('moving the last item down is a no-op — there is no next sibling', async () => {
         buildEditor({ items: [1, 2, 3] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[2].querySelector('.list-editor-move-down').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[2].querySelector('.list-editor-move-down').dispatchEvent(new Event('click', { bubbles: true }));
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['1', '2', '3']);
     });
@@ -116,7 +116,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('moving the first item up is a no-op — there is no previous sibling', async () => {
         buildEditor({ items: [1, 2, 3] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[0].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[0].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         const idsAfter = Array.from(document.querySelectorAll('.list-editor-item')).map((i) => i.dataset.id);
         expect(idsAfter).toEqual(['1', '2', '3']);
     });
@@ -124,7 +124,7 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it("a real move persists the new order via POST, with string (not parseInt'd) ids", async () => {
         buildEditor({ items: ['finance', 'gallery', 'news'] });
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
 
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('/reorder', expect.objectContaining({
             method: 'POST',
@@ -135,16 +135,27 @@ describe('list-editor.js: move up/down — button-state logic (off-by-one bugs l
     it('does nothing (no persist, no throw) when no reorder URL is configured', async () => {
         buildEditor({ items: [1, 2], reorderUrl: '' });
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         await Promise.resolve();
         expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('still refreshes the arrows after a local move when no reorder URL is configured', async () => {
+        buildEditor({ items: [1, 2], reorderUrl: '' });
+        await boot();
+        const [first, second] = document.querySelectorAll('.list-editor-item');
+        second.querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
+
+        expect(second.querySelector('.list-editor-move-up').disabled).toBe(true);
+        expect(first.querySelector('.list-editor-move-down').disabled).toBe(true);
+        expect(first.querySelector('.list-editor-move-up').disabled).toBe(false);
     });
 
     it('toasts the server error message when persisting a move fails', async () => {
         buildEditor({ items: [1, 2] });
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Verrou déjà pris.' }));
         await boot();
-        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click'));
+        document.querySelectorAll('.list-editor-item')[1].querySelector('.list-editor-move-up').dispatchEvent(new Event('click', { bubbles: true }));
         await vi.waitFor(() => expect(lastToastText()).toBe('Verrou déjà pris.'));
     });
 });
@@ -426,6 +437,24 @@ describe('list-editor.js: a list that changes without reloading (#708, IT-10)', 
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         rows[2].querySelector('.list-editor-delete-btn').click();
         await vi.waitFor(() => expect(container.querySelectorAll('.list-editor-item')).toHaveLength(2));
+    });
+
+    it('lets a row inserted in place move with its arrows, through the delegated handler', async () => {
+        const container = buildInPlaceEditor();
+        container.dataset.reorderUrl = '/reorder';
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true,
+            html: `<div class="list-editor">${buildItem(9)}</div>`,
+        }));
+        await boot();
+        container.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
+        await vi.waitFor(() => expect(container.querySelectorAll('.list-editor-item')).toHaveLength(3));
+
+        global.fetch = vi.fn(() => jsonResponse({ success: true }));
+        container.querySelector('.list-editor-item[data-id="9"] .list-editor-move-up').click();
+
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+        expect(JSON.parse(fetch.mock.calls[0][1].body).ids).toEqual(['1', '9', '2']);
     });
 
     it('keeps the form as typed when the request itself fails', async () => {

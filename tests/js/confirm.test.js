@@ -605,6 +605,23 @@ describe('the delegated data-confirm form handler', () => {
             expect(replay).toHaveBeenCalled();
         });
 
+        it('caps the word at data-confirm-note-maxlength, and leaves it free without one', async () => {
+            await loadConfirm();
+            const capped = formWith({
+                'data-confirm': 'Refuser ?',
+                'data-confirm-note': 'Un mot',
+                'data-confirm-note-maxlength': '200',
+            });
+
+            submit(capped);
+            expect(document.getElementById('sm-confirm-modal-input').maxLength).toBe(200);
+            document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+            await Promise.resolve();
+
+            submit(formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' }));
+            expect(document.getElementById('sm-confirm-modal-input').hasAttribute('maxlength')).toBe(false);
+        });
+
         it('defaults the field name to message', async () => {
             await loadConfirm();
             const form = formWith({ 'data-confirm': 'Refuser ?', 'data-confirm-note': 'Un mot' });

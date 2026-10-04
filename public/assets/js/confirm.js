@@ -54,7 +54,7 @@
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
      *          variant: string, input: ({value: string, placeholder: string, inputType: string,
-     *          readonly: boolean, multiline: boolean, label: string}|null)}} opts
+     *          readonly: boolean, multiline: boolean, label: string, maxLength?: number}|null)}} opts
      * @returns {{root: HTMLElement, confirmBtn: HTMLButtonElement,
      *            cancelBtn: HTMLButtonElement, field: (HTMLInputElement|null)}}
      */
@@ -110,6 +110,9 @@
             field.value = opts.input.value;
             field.placeholder = opts.input.placeholder;
             field.readOnly = opts.input.readonly;
+            if (opts.input.maxLength && opts.input.maxLength > 0) {
+                field.maxLength = opts.input.maxLength;
+            }
             if (opts.input.label) {
                 // A second sentence exists, so it is the label rather than
                 // the question above it.
@@ -240,7 +243,7 @@
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
      *          variant: string, input: ({value: string, placeholder: string, inputType: string,
-     *          readonly: boolean, selectOnOpen: boolean, multiline: boolean,
+     *          readonly: boolean, selectOnOpen: boolean, multiline: boolean, maxLength?: number,
      *          label: string}|null)}} opts
      * @param {boolean|null} cancelValue what a dismissal resolves to
      * @returns {Promise<boolean|string|null>}
@@ -345,7 +348,7 @@
      *
      * @param {string|{message: string, title?: string, value?: string, placeholder?: string,
      *                 inputType?: string, readonly?: boolean, selectOnOpen?: boolean,
-     *                 multiline?: boolean, label?: string,
+     *                 multiline?: boolean, label?: string, maxLength?: number,
      *                 confirmLabel?: string, cancelLabel?: string, variant?: 'danger'|'primary'}} input
      * @returns {Promise<string|null>} the value (possibly an empty string)
      *          when confirmed, null on cancel, Escape, backdrop click or
@@ -354,7 +357,7 @@
     function prompt(input) {
         /** @type {{message?: string, title?: string, value?: string, placeholder?: string,
          *          inputType?: string, readonly?: boolean, selectOnOpen?: boolean,
-         *          multiline?: boolean, label?: string,
+         *          multiline?: boolean, label?: string, maxLength?: number,
          *          confirmLabel?: string, cancelLabel?: string, variant?: string}} */
         var raw = typeof input === 'string' ? { message: input } : (input || {});
         var value = raw.value || '';
@@ -375,6 +378,7 @@
                 readonly: raw.readonly === true,
                 multiline: raw.multiline === true,
                 label: raw.label || '',
+                maxLength: raw.maxLength || 0,
                 // A pre-filled value is there to be replaced, or — in the
                 // clipboard fallback — to be copied. Selecting it serves
                 // both.
@@ -422,6 +426,9 @@
      *                           is the field's label.
      *   data-confirm-note-name  the name that word is posted under
      *                           (default `message`).
+     *   data-confirm-note-maxlength  the longest note accepted, as the
+     *                           field's maxlength. The server still checks:
+     *                           this only stops a visitor typing past it.
      *
      * @param {Document} doc
      */
@@ -491,6 +498,7 @@
                 message: host.dataset.confirm || '',
                 label: note,
                 multiline: true,
+                maxLength: Number(host.dataset.confirmNoteMaxlength || 0),
                 variant: 'danger',
                 confirmLabel: host.dataset.confirmLabel || 'Confirmer'
             }).then(function (written) {

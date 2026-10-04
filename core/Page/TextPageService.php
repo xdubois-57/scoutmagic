@@ -233,6 +233,50 @@ class TextPageService
     }
 
     /**
+     * A drop into a section of the list (issue #752): `$orderedIds` is
+     * that section's content, in order, as it now stands on screen — and
+     * any page in it that belonged to another section moves here.
+     *
+     * Moving changes who may read the page ({@see TextPage::roleMin()}),
+     * so it goes through the same placement check as the form: the target
+     * must be a declared menu, and the page takes that menu's default
+     * column (`defaultGroupFor()`, null for a menu without columns) — the
+     * edit form remains the way to choose another. Nothing else about the
+     * page changes: not its title, its slug, its text nor whether it is
+     * active.
+     *
+     * Ids that name no page are ignored, as `reorder()` ignores them.
+     *
+     * @param int[] $orderedIds
+     * @return array<int, string> moved page id => the menu it came from
+     * @throws TextPageException when the target is not a valid placement
+     */
+    public function placeInMenu(string $menuId, array $orderedIds): array
+    {
+        $group = $this->defaultGroupFor($menuId);
+        $this->assertMenuPlacement($menuId, $group);
+
+        $ids = [];
+        $moved = [];
+        $from = [];
+        foreach ($orderedIds as $id) {
+            $page = $this->repository->findById((int) $id);
+            if ($page === null || in_array($page->id, $ids, true)) {
+                continue;
+            }
+            $ids[] = $page->id;
+            if ($page->menuId !== $menuId) {
+                $moved[$page->id] = $group;
+                $from[$page->id] = $page->menuId;
+            }
+        }
+
+        $this->repository->placeInMenu($menuId, $ids, $moved, array_values($from));
+
+        return $from;
+    }
+
+    /**
      * @throws TextPageException
      */
     private function assertExists(int $id): void

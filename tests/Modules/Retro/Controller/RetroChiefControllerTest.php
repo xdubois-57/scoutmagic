@@ -198,6 +198,43 @@ class RetroChiefControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    /** « Espace animateurs / Rétrospectives / <nom> / Configuration » (issue #736). */
+    public function testTheConfigurationBreadcrumbNamesTheRetrospective(): void
+    {
+        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Modifier la rétrospective', 'parents' => ['Espace animateurs']]);
+        $this->twig->addGlobal('route_breadcrumb_ancestors', [['label' => 'Rétrospectives', 'url' => '/retro']]);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->edit(
+            new Request('GET', '/retro/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody());
+
+        $this->assertMatchesRegularExpression(
+            '#Espace animateurs</li>.*<a href="/retro" [^>]*>Rétrospectives</a>.*<a href="/r/token" [^>]*>Camp de Pâques</a></li>.*aria-current="page">Configuration</li>#',
+            $body
+        );
+    }
+
+    /** The card's actions are icons, each named for a screen reader (issue #736). */
+    public function testTheListCardActionsAreIconsWithAccessibleNames(): void
+    {
+        AuthSession::login(3, 'chief@test.be', 'chief');
+        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $this->boardRepository->close($id);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->index(new Request('GET', '/retro', [], [], [], []), [])->getBody());
+
+        foreach (['Voir le tableau', 'Configurer', 'Réouvrir', 'Archiver'] as $action) {
+            $this->assertMatchesRegularExpression(
+                '#title="' . $action . '" aria-label="' . $action . '[^"]*« Camp de Pâques »"> <i class="bi [^"]+" aria-hidden="true"></i> </(a|button)>#',
+                $body,
+                $action
+            );
+        }
+        $this->assertStringNotContainsString('</i> Configurer', $body);
+    }
+
     public function testCloseRequiresCsrf(): void
     {
         $request = new Request('POST', '/retro/1/close', [], ['_csrf_token' => 'bad'], [], []);
