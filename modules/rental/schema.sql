@@ -619,6 +619,13 @@ CREATE TABLE IF NOT EXISTS rental_reference_sequences (
 --
 -- To the public it is indistinguishable from a booking, because
 -- Availability\Occupancy has no discriminator to tell them apart by.
+--
+-- **A block always takes the whole asset**, however many units it has —
+-- no quantity is stored (#708, IT-07). A stored count would leave two
+-- tents bookable on a period meant to be closed the day the asset grew
+-- from 10 to 12; a unit member who wants a few units makes a request like
+-- any renter. Managers block and release days straight on the calendar,
+-- and the days are turned back into periods (Availability\BlockDayPlanner).
 CREATE TABLE IF NOT EXISTS rental_blocks (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
@@ -628,10 +635,6 @@ CREATE TABLE IF NOT EXISTS rental_blocks (
     -- block and a booking would disagree about the same two dates.
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-
-    -- How much of a stock asset the block takes. A hall is one unit; five
-    -- tents out of twelve leave seven bookable.
-    units INT UNSIGNED NOT NULL DEFAULT 1,
 
     -- Internal only, and never rendered publicly. Free text a manager
     -- writes for other managers ("chantier toiture"), so it is not

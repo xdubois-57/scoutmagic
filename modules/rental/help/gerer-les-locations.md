@@ -7,8 +7,8 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
-related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+related: locations, locations-calendrier, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
 ---
 
 « Gérer mes locations » est l'espace des gestionnaires : les personnes

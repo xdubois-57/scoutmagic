@@ -55,10 +55,29 @@
                     {% endif %}
                 </div>
 
-                {% include 'partials/month_day_grid.html.twig' with {
-                    weeks: calendar,
-                    caption: 'Occupation de ' ~ calendar_label,
-                } %}
+                {#
+                  Blocking dates is a gesture on this grid (#708, IT-07):
+                  public/assets/js/rental-block-days.js reads the days'
+                  `data-date` and `data-unit-block`, which the controller
+                  sets (Availability\ManagedCalendarDays). The shared grid
+                  itself is unchanged.
+                #}
+                <div id="rental-block-calendar"
+                     class="rental-block-calendar"
+                     data-month="{{ calendar_month }}"
+                     data-today="{{ today }}"
+                     data-url="/mes-locations/{{ asset.slug }}/calendrier/jours">
+                    {% include 'partials/month_day_grid.html.twig' with {
+                        weeks: calendar,
+                        caption: 'Occupation de ' ~ calendar_label,
+                    } %}
+                </div>
+                <p class="form-text mt-2 mb-0">
+                    Touchez un jour pour le réserver pour l'unité, ou pour le remettre en location.
+                    Pour plusieurs jours, gardez le doigt appuyé un instant puis glissez — à la
+                    souris, cliquez et glissez. Les jours rayés sont réservés par l'unité ; un jour
+                    peut l'être en plus d'une réservation.
+                </p>
             </div>
         </div>
 
@@ -95,74 +114,20 @@
                     un camp — pour qu'aucune demande ne puisse tomber dessus. Le calendrier public
                     les montre comme « occupé » et ne dit jamais pourquoi. Une période peut
                     recouvrir une réservation existante : les deux coexistent et apparaissent
-                    toutes les deux ici, à traiter chacune de son côté.
+                    toutes les deux ici, à traiter chacune de son côté. Les dates se bloquent sur le
+                    calendrier ci-dessus ; le motif se donne ici, et une période se supprime d'un
+                    geste.
                 </p>
 
-                {% if blocks is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucune période réservée.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <ul class="list-unstyled">
-                        {% for block in blocks %}
-                            <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
-                                <span>
-                                    du {{ block.startDate|date_fr }} au {{ block.endDate|date_fr }}
-                                    {% if block.units > 1 %}<span class="text-body-secondary">({{ block.units }} unités)</span>{% endif %}
-                                    {% if block.reason %}
-                                        <span class="text-body-secondary small d-block">{{ block.reason }}</span>
-                                    {% endif %}
-                                </span>
-                                <form method="post" action="/mes-locations/blocage-supprimer"
-                                      data-confirm="Remettre cette période à la location ?">
-                                    {{ csrf_field()|raw }}
-                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                    <input type="hidden" name="block_id" value="{{ block.id }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
-                                </form>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
-
-                <form method="post" action="/mes-locations/blocage" class="row g-2 align-items-end mt-2">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <div class="col-6 col-md-3">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'block-start', field_name: 'start', type: 'date',
-                            label: 'Du', required: true, size: 'sm', wrapper_class: 'mb-0',
-                        } only %}
-                    </div>
-                    <div class="col-6 col-md-3">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'block-end', field_name: 'end', type: 'date',
-                            label: 'Au', required: true, size: 'sm', wrapper_class: 'mb-0',
-                        } only %}
-                    </div>
-                    {% if asset.quantity > 1 %}
-                        <div class="col-6 col-md-2">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'block-units', field_name: 'units', type: 'number',
-                                label: 'Quantité', inputmode: 'numeric',
-                                min: 1, max: asset.quantity, value: 1,
-                                size: 'sm', wrapper_class: 'mb-0',
-                            } only %}
-                        </div>
-                    {% endif %}
-                    <div class="col-12 col-md-{{ asset.quantity > 1 ? 2 : 4 }}">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'block-reason', field_name: 'reason',
-                            label: 'Motif', placeholder: 'Chantier toiture',
-                            size: 'sm', wrapper_class: 'mb-0',
-                        } only %}
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-primary w-100">Réserver</button>
-                    </div>
-                </form>
+                <div id="rental-block-list">
+                    {% include '@rental/management/_block_list.html.twig' %}
+                </div>
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, for its Vitest spec. #}
+    <script type="module" src="{{ asset('/assets/js/rental-block-days.js') }}"></script>
 {% endblock %}

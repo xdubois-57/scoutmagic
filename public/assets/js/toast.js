@@ -36,9 +36,12 @@
     /**
      * @param {string} message      plain text — always set via textContent,
      *                              a message must never inject markup
-     * @param {{variant?: 'success'|'error'|'warning'|'info', delayMs?: number}} [options]
+     * @param {{variant?: 'success'|'error'|'warning'|'info', delayMs?: number, action?: {label: string, onClick: () => void}}} [options]
      *        variant defaults to 'success'; 'error' sticks around longer
      *        by default because it is the one worth reading twice.
+     *        `action` adds one button — « Annuler » after a calendar gesture
+     *        — that runs its callback and closes the toast. Optional: a
+     *        toast without one is exactly what it always was.
      * @returns {HTMLElement} the toast element (tests grip it; callers
      *                        can ignore it)
      */
@@ -64,21 +67,39 @@
         close.className = 'btn-close btn-close-white me-2 m-auto';
         close.setAttribute('aria-label', 'Fermer');
         flex.appendChild(body);
+        /** @type {HTMLButtonElement|null} */
+        var actionButton = null;
+        if (opts.action?.label) {
+            actionButton = document.createElement('button');
+            actionButton.type = 'button';
+            actionButton.className = 'btn btn-sm btn-light my-auto me-2';
+            actionButton.textContent = opts.action.label;
+            flex.appendChild(actionButton);
+        }
         flex.appendChild(close);
         toast.appendChild(flex);
         ensureContainer().appendChild(toast);
 
+        var dismiss;
         var Toast = window.bootstrap?.Toast;
         if (Toast) {
             var instance = new Toast(toast, { delay: delayMs });
             toast.addEventListener('hidden.bs.toast', function () { toast.remove(); });
-            close.addEventListener('click', function () { instance.hide(); });
+            dismiss = function () { instance.hide(); };
             instance.show();
         } else {
             var timer = setTimeout(function () { toast.remove(); }, delayMs);
-            close.addEventListener('click', function () {
+            dismiss = function () {
                 clearTimeout(timer);
                 toast.remove();
+            };
+        }
+        close.addEventListener('click', dismiss);
+        if (actionButton && opts.action) {
+            var onAction = opts.action.onClick;
+            actionButton.addEventListener('click', function () {
+                dismiss();
+                onAction();
             });
         }
 
