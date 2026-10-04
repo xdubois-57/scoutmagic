@@ -363,9 +363,9 @@ describe('secure-context signal', () => {
             window.dispatchEvent(new Event('pagehide'));
 
             expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
-            const [url, body] = navigator.sendBeacon.mock.calls[0];
-            expect(url).toBe('/api/connexion-non-securisee');
-            expect(body.get('_csrf_token')).toBe('tok-123');
+            // No body and no CSRF token: a page in clear has no session to
+            // bind one to; the server checks the beacon's Origin instead.
+            expect(navigator.sendBeacon.mock.calls[0]).toEqual(['/api/connexion-non-securisee']);
         });
 
         it('is sent a few seconds after load when the page stays open', async () => {

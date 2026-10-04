@@ -4206,14 +4206,16 @@ $router->addRoute(
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 // The fallback of the browser's secure-context signal (#751): sent only by
 // a page loaded outside a secure context that made no request of its own.
-// Literal path (scripts/authz-support.php parses this file); the same
-// value as Core\Http\InsecureBrowserAccess::BEACON_PATH, pinned by a test.
+// Public and CSRF-free on purpose — such a page has no session (SECURITY.md
+// § 4); the controller checks the beacon's Origin instead. Literal path
+// (scripts/authz-support.php parses this file); the same value as
+// Core\Http\InsecureBrowserAccess::BEACON_PATH, pinned by a test.
 $router->addRoute(
     'POST',
     '/api/connexion-non-securisee',
     \Core\Http\Controller\SecureContextController::class,
     'report',
-    'identified'
+    'public'
 );
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 // The answer to « Activer les notifications ? », the invitation the
@@ -5330,6 +5332,16 @@ $router->addRoute(
     'superadmin',
     ['label' => 'Réinitialisation', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Maintenance', 'path' => '/config/maintenance']]],
+);
+// « Ignorer » on the « Connexion sécurisée » line of Santé de
+// l'hébergement (#751): clears the browser-observed insecure-access state,
+// which cannot be proven and so must be dismissible.
+$router->addRoute(
+    'POST',
+    '/config/maintenance/connexion-securisee/ignorer',
+    \Core\Http\Controller\SecureContextController::class,
+    'dismiss',
+    'superadmin'
 );
 $router->addRoute(
     'POST',
@@ -6631,7 +6643,8 @@ $frontController->registerController(
     \Core\Http\Controller\SecureContextController::class,
     new \Core\Http\Controller\SecureContextController(
         $twig,
-        new \Core\Http\InsecureBrowserAccess($settingService)
+        new \Core\Http\InsecureBrowserAccess($settingService),
+        $journalService
     )
 );
 
@@ -12783,16 +12796,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
 // The browser's own statement of how it loaded the page (#751). api.js
 // adds Core\Http\InsecureBrowserAccess::HEADER to every same-origin
-// request; only an authenticated session's « not secure » is kept, only
-// while HTTPS is required, and at most once a quarter of an hour. Past
+// request; a « not secure » is kept while HTTPS is required, at most once
+// a quarter of an hour, from any visitor — a page in clear has no session
+// to require (the class docblock says why that is safe enough). Past
 // send() and session_write_close(), like everything below: the visitor
 // whose request carries it never waits for the write.
 if (\Core\Http\InsecureBrowserAccess::reportsInsecure($_SERVER)) {
-    (new \Core\Http\InsecureBrowserAccess($settingService))->observe(
-        $_SERVER,
-        \Core\Security\AuthSession::isAuthenticated(),
-        time()
-    );
+    (new \Core\Http\InsecureBrowserAccess($settingService))->observe($_SERVER, time());
 }
 
 // The two operational checks that CANNOT live in the daily task

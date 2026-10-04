@@ -9,10 +9,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     {# Where api.js reports a page loaded outside a secure context that made
-       no request of its own (#751, Core\Http\InsecureBrowserAccess). Only
-       for a session the server would believe, on an installation that
-       requires HTTPS. #}
-    {% if is_authenticated|default(false) and https_required|default(false) %}
+       no request of its own (#751, Core\Http\InsecureBrowserAccess). For
+       every visitor — a page in clear has no session to wait for — on an
+       installation that requires HTTPS. #}
+    {% if https_required|default(false) %}
     <meta name="secure-context-report" content="/api/connexion-non-securisee">
     {% endif %}
     <title>{% block title %}{{ site_name }}{% endblock %}</title>

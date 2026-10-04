@@ -297,15 +297,16 @@
     // plain HTTP on a page every visitor loaded over HTTPS — so it cannot
     // tell, and used to raise a false alarm. The page can. On a page
     // loaded outside a secure context, every same-origin request says so
-    // in a header, and the server keeps the date of the last one from an
-    // authenticated session (Core\Http\InsecureBrowserAccess). Done here,
+    // in a header, and the server keeps the date of the last one
+    // (Core\Http\InsecureBrowserAccess). Done here,
     // once, by wrapping fetch() itself: the thirty-odd scripts that call
     // fetch() directly get it without a line of their own, and nothing is
     // ever added to a request leaving for another origin.
     //
     // Only where there is something to say: the server renders the
-    // `secure-context-report` meta tag for a signed-in session on an
-    // installation that requires HTTPS, and a page loaded over HTTPS
+    // `secure-context-report` meta tag on an installation that requires
+    // HTTPS — for every visitor, since a page in clear has no session to
+    // sign in with — and a page loaded over HTTPS
     // leaves fetch() exactly as the browser made it — no header, no
     // wrapper, no extra request.
     var SECURE_CONTEXT_HEADER = 'X-ScoutMagic-Secure-Context';
@@ -355,15 +356,15 @@
     /**
      * The fallback, for an insecure page that made no request of its own:
      * one beacon (sendBeacon() cannot set a header, hence its own route),
-     * and only then.
+     * and only then. No CSRF token: on `http://` the `Secure` session
+     * cookie does not travel, so there is no session to bind one to — the
+     * server checks the beacon's Origin instead.
      */
     function reportInsecureContextIfSilent() {
         if (!reportMeta || !insecurePage || secureContextSignalled || typeof navigator.sendBeacon !== 'function') {
             return;
         }
-        var body = new FormData();
-        body.append('_csrf_token', csrfToken());
-        secureContextSignalled = navigator.sendBeacon(reportMeta.content, body);
+        secureContextSignalled = navigator.sendBeacon(reportMeta.content);
     }
 
     if (reportMeta && insecurePage) {

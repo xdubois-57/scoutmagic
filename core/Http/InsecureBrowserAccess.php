@@ -34,9 +34,21 @@ use Core\Config\SettingService;
  * diagnostic package all read this class — none of them looks at a
  * scheme of its own, so they cannot contradict each other.
  *
- * The signal is believed only from an authenticated session (the caller
- * checks), and only while HTTPS is required: an installation that
- * explicitly tolerates HTTP for development has nothing to report.
+ * **From any visitor, because a session cannot exist there.** While HTTPS
+ * is required the session cookie is always `Secure`, and a browser on
+ * plain `http://` neither sends it nor accepts a new one — so a page
+ * genuinely loaded in clear has no session and no CSRF token, and a rule
+ * demanding either would never fire on the one case it exists for. What
+ * stands in their place: the header is a custom one, which a page on
+ * another site cannot add without a CORS preflight this site never
+ * grants, and the beacon must come from this site's own origin
+ * ({@see isSameOrigin()}). Anybody outside a browser can still make the
+ * statement up — it is a statement, not a proof — which is why it costs
+ * nothing but a date written at most once per
+ * {@see WRITE_THROTTLE_SECONDS}, expires on its own after
+ * {@see ACTIVE_HOURS}, and can be cleared by a superadmin
+ * ({@see dismiss()}). Kept only while HTTPS is required: an installation
+ * that explicitly tolerates HTTP for development has nothing to report.
  */
 final class InsecureBrowserAccess
 {
@@ -80,20 +92,48 @@ final class InsecureBrowserAccess
 
     /**
      * What public/index.php does with every request once the response is
-     * sent: keep the browser's « not secure » only from an authenticated
-     * session, and only while HTTPS is required — an installation that
-     * explicitly tolerates HTTP has nothing to report. Returns whether it
-     * wrote.
+     * sent: keep the browser's « not secure » while HTTPS is required — an
+     * installation that explicitly tolerates HTTP has nothing to report.
+     * Returns whether it wrote.
      *
      * @param array<string, mixed> $server
      */
-    public function observe(array $server, bool $authenticated, int $now): bool
+    public function observe(array $server, int $now): bool
     {
-        if (!$authenticated || !RequestScheme::httpsRequired() || !self::reportsInsecure($server)) {
+        if (!RequestScheme::httpsRequired() || !self::reportsInsecure($server)) {
             return false;
         }
 
         return $this->record($now);
+    }
+
+    /**
+     * Whether a beacon comes from a page of this site: its `Origin` names
+     * the host the request was sent to. The scheme is deliberately not
+     * compared — the page that sends it is the one on `http://`, and PHP
+     * behind a TLS terminator may believe either. An absent or opaque
+     * (`null`) Origin is refused: every browser sends one with a POST
+     * beacon, and only a page of another site would hide it.
+     */
+    public static function isSameOrigin(?string $origin, ?string $host): bool
+    {
+        if ($origin === null || $origin === '' || $origin === 'null' || $host === null || $host === '') {
+            return false;
+        }
+
+        $parts = parse_url($origin);
+        if (!is_array($parts) || !isset($parts['host'])) {
+            return false;
+        }
+
+        $originHost = $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+
+        return self::withoutDefaultPort($originHost) === self::withoutDefaultPort($host);
+    }
+
+    private static function withoutDefaultPort(string $host): string
+    {
+        return (string) preg_replace('/:(80|443)$/', '', strtolower($host));
     }
 
     /**
@@ -117,6 +157,18 @@ final class InsecureBrowserAccess
         }
 
         return true;
+    }
+
+    /**
+     * « Ignorer » on Santé de l'hébergement: forget the last observation,
+     * so every surface reads « no insecure access » again. A browser that
+     * is still on `http://` raises it again at its next request — clearing
+     * a statement does not make the connection secure.
+     */
+    public function dismiss(): void
+    {
+        $this->register();
+        $this->settings->setInternal(self::SETTING, '0');
     }
 
     public function lastObservedAt(): ?int
