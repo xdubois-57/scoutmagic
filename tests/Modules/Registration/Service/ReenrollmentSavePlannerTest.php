@@ -111,18 +111,75 @@ class ReenrollmentSavePlannerTest extends TestCase
     }
 
     /**
-     * The incident (issue #796): the « current » campaign in October is the
-     * one that closed in May. Closing it again writes to nobody.
+     * The incident (issue #796): a switch still « on » in October. The
+     * campaign is now the target year's, which has not begun: closing it
+     * writes to nobody, and does not touch May's.
      */
-    public function testClosingInOctoberACampaignThatEndedInMayWritesToNobody(): void
+    public function testClosingInOctoberACampaignThatHasNotBegunWritesToNobody(): void
     {
         $this->campaign->open();
 
         $plan = $this->plan(['is_open' => false], '2026-10-04 10:35');
 
-        $this->assertSame(['campaign' => '2026-05-15'], $plan->closing);
+        $this->assertSame(['campaign' => '2027-05-15'], $plan->closing);
         $this->assertSame([], $plan->emails);
-        $this->assertSame(ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED, $plan->noEmailReason);
+        $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
+    }
+
+    /**
+     * Opened by hand in October, the campaign has begun: closing it writes
+     * the closing e-mail to whoever has not answered (maquette « ouverte à
+     * la main »).
+     */
+    public function testClosingACampaignOpenedByHandInOctoberWritesTheClosingEmail(): void
+    {
+        $this->campaign->open();
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker('opening'), '2027-05-15');
+
+        $plan = $this->plan(['is_open' => false], '2026-10-04 11:00');
+
+        $this->assertSame('closing', $plan->emails[0]['type'] ?? null);
+        $this->assertSame('2027-05-15', $plan->emails[0]['campaign'] ?? null);
+    }
+
+    /**
+     * And a campaign really over — closed in May, reopened in June for one
+     * late family — is closed again without a second closing e-mail.
+     */
+    public function testClosingAgainAfterTheCloseWritesToNobody(): void
+    {
+        $this->campaign->open();
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker('closing'), '2027-05-15');
+
+        $plan = $this->plan(['is_open' => false], '2027-06-12 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
+    }
+
+    /**
+     * Opening by hand in October opens the target year's campaign, says so,
+     * and writes the opening e-mail (D3, D4).
+     */
+    public function testOpeningByHandInOctoberOpensTheTargetYearsCampaign(): void
+    {
+        $plan = $this->plan(['is_open' => true], '2026-10-04 10:35');
+
+        $this->assertSame(['campaign' => '2027-05-15', 'scheduled' => false], $plan->opening);
+        $this->assertSame(
+            [['type' => 'opening', 'campaign' => '2027-05-15', 'families' => 41, 'deferred' => false]],
+            $plan->emails
+        );
+    }
+
+    public function testReopeningAfterTheCloseWritesNothingWhenTheOpeningEmailLeft(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker('opening'), '2027-05-15');
+
+        $plan = $this->plan(['is_open' => true], '2027-06-12 10:00');
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
     }
 
     public function testClosingWithTheEmailsOffWritesToNobody(): void
@@ -282,14 +339,31 @@ class ReenrollmentSavePlannerTest extends TestCase
     public function testASwitchLeftOnPastItsWindowWritesToNobodyWhateverTheDates(): void
     {
         // The next opening (2027-01-03) is nearer than the last close
-        // (2026-05-15), yet nothing opened that campaign: closing the
-        // switch tells nobody it has closed.
+        // (2026-05-15), yet nothing opened that campaign: it has not
+        // started, so closing the switch tells nobody it has closed.
         $this->campaign->open();
 
         $plan = $this->plan(['is_open' => false, 'open_at' => '01-03'], '2026-10-04 10:00');
 
         $this->assertSame([], $plan->emails);
-        $this->assertSame(ReenrollmentSavePlan::REASON_CAMPAIGN_ENDED, $plan->noEmailReason);
+        $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
+    }
+
+    public function testClosingWhileSavingAnOpeningDateThatPutsTheCampaignInTheFutureWritesToNobody(): void
+    {
+        // Stored 10-01: that campaign opened on 2026-10-01. The save moves
+        // the window to 03-01 → 05-15 and closes the switch: by the dates
+        // being saved the campaign has not begun, so nobody is told it is over.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $this->campaign->open();
+
+        $plan = $this->plan(
+            ['is_open' => false, 'open_at' => '03-01', 'close_at' => '05-15'],
+            '2027-01-10 10:00'
+        );
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
     }
 
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
