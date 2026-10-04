@@ -20,10 +20,11 @@ use Core\Config\SettingService;
  * in clear while every visitor is on HTTPS; the previous check read
  * `$_SERVER` and raised a false alarm on exactly those installations
  * (#352). The page itself knows how it was loaded: `public/assets/js/
- * api.js` adds {@see HEADER} to every same-origin request, with
- * `location.protocol === 'https:' && window.isSecureContext` as its value,
- * and sends one beacon to {@see BEACON_PATH} only when an insecure page
- * made no request at all.
+ * api.js` checks `location.protocol === 'https:' && window.isSecureContext`
+ * once; on a page that fails it, every same-origin request carries
+ * {@see HEADER} with `0`, and one beacon goes to {@see BEACON_PATH} when the
+ * page made no request at all. A secure page sends nothing: the signal is
+ * one-way, and an absent header is no statement.
  *
  * **One fact is kept: when it last happened.** The problem is active for
  * {@see ACTIVE_HOURS} after the last insecure observation; a later HTTPS
@@ -42,7 +43,7 @@ final class InsecureBrowserAccess
     /** Unix timestamp of the last insecure observation; '0' = never. */
     public const SETTING = 'last_insecure_browser_access_at';
 
-    /** Carried by every same-origin request from api.js: '1' secure, '0' not. */
+    /** Sent as '0' by api.js, only from an insecure page; absent means no statement. */
     public const HEADER = 'X-ScoutMagic-Secure-Context';
 
     /** The same header, as PHP exposes it in `$_SERVER`. */
