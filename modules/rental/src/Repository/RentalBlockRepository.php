@@ -88,8 +88,7 @@ class RentalBlockRepository implements OccupancyProvider
      */
     public function replace(int $assetId, array $removeIds, array $periods, ?int $createdByMemberId): void
     {
-        $this->pdo->beginTransaction();
-        try {
+        $this->inTransaction(function () use ($assetId, $removeIds, $periods, $createdByMemberId): void {
             $delete = $this->pdo->prepare('DELETE FROM rental_blocks WHERE id = ? AND asset_id = ?');
             foreach ($removeIds as $id) {
                 $delete->execute([$id, $assetId]);
@@ -97,9 +96,61 @@ class RentalBlockRepository implements OccupancyProvider
             foreach ($periods as $period) {
                 $this->create($assetId, $period['start'], $period['end'], $period['reason'], $createdByMemberId);
             }
-            $this->pdo->commit();
+        });
+    }
+
+    /**
+     * Run $work with the asset's row locked, inside one transaction — so a
+     * gesture reads the blocks it plans against and writes its plan with
+     * no other gesture in between.
+     *
+     * Two clicks in quick succession are two requests planned from the
+     * same snapshot otherwise: the second one's DELETE matches nothing and
+     * its insert puts back what the first had just changed, while both
+     * report success. The lock is on the asset rather than on its blocks
+     * because an asset with no block yet has no row to lock. SQLite, the
+     * test engine, serialises writers on its own and has no FOR UPDATE.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withAssetLocked(int $assetId, callable $work): mixed
+    {
+        return $this->inTransaction(function () use ($assetId, $work): mixed {
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $lock = $this->pdo->prepare('SELECT id FROM rental_assets WHERE id = ? FOR UPDATE');
+                $lock->execute([$assetId]);
+                $lock->fetchAll();
+            }
+
+            return $work();
+        });
+    }
+
+    /**
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function inTransaction(callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            $result = $work();
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
         } catch (\Throwable $e) {
-            $this->pdo->rollBack();
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
             throw $e;
         }
     }

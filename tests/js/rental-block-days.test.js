@@ -108,7 +108,7 @@ describe('wireBlockCalendar', () => {
         cell('2027-07-11').click();
 
         expect(cell('2027-07-11').dataset.unitBlock).toBe('1');
-        expect(postJson).toHaveBeenCalledWith('/mes-locations/local/calendrier/jours', { mode: 'block', days: ['2027-07-11'] });
+        expect(postJson).toHaveBeenCalledWith('/mes-locations/local/calendrier/jours', { mode: 'block', days: ['2027-07-11'], month: '2027-07' });
         await vi.waitFor(() => expect(toast).toHaveBeenCalled());
         expect(toast.mock.calls[0][0]).toBe('1 jour bloqué');
         expect(toast.mock.calls[0][1].action.label).toBe('Annuler');
@@ -120,7 +120,7 @@ describe('wireBlockCalendar', () => {
         cell('2027-07-11').click();
 
         expect(cell('2027-07-11').dataset.unitBlock).toBeUndefined();
-        expect(postJson).toHaveBeenCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'] });
+        expect(postJson).toHaveBeenCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'], month: '2027-07' });
     });
 
     it('ignores past days and the next month', () => {
@@ -166,6 +166,7 @@ describe('wireBlockCalendar', () => {
         expect(postJson).toHaveBeenCalledWith(expect.any(String), {
             mode: 'block',
             days: ['2027-07-10', '2027-07-11', '2027-07-12'],
+            month: '2027-07',
         });
     });
 
@@ -180,6 +181,7 @@ describe('wireBlockCalendar', () => {
         expect(postJson).toHaveBeenCalledWith(expect.any(String), {
             mode: 'block',
             days: ['2027-07-10', '2027-07-11', '2027-07-12'],
+            month: '2027-07',
         });
         expect(root.classList.contains('is-selecting')).toBe(false);
         // Nothing to swallow: the next click on a day is its own.
@@ -214,7 +216,7 @@ describe('wireBlockCalendar', () => {
         cell('2027-07-11').click();
 
         expect(postJson).toHaveBeenCalledTimes(2);
-        expect(postJson).toHaveBeenLastCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'] });
+        expect(postJson).toHaveBeenLastCalledWith(expect.any(String), { mode: 'release', days: ['2027-07-11'], month: '2027-07' });
     });
 
     it('toggles once on a long press the finger never moved', () => {
@@ -229,7 +231,7 @@ describe('wireBlockCalendar', () => {
         cell('2027-07-10').click();
 
         expect(postJson).toHaveBeenCalledTimes(1);
-        expect(postJson).toHaveBeenCalledWith(expect.any(String), { mode: 'block', days: ['2027-07-10'] });
+        expect(postJson).toHaveBeenCalledWith(expect.any(String), { mode: 'block', days: ['2027-07-10'], month: '2027-07' });
     });
 
     it('lets the keyboard toggle a day right after a finger drag', () => {
@@ -283,6 +285,7 @@ describe('wireBlockCalendar', () => {
         expect(postJson).toHaveBeenCalledWith(expect.any(String), {
             mode: 'block',
             days: ['2027-07-10', '2027-07-11', '2027-07-12'],
+            month: '2027-07',
         });
     });
 
@@ -301,6 +304,7 @@ describe('wireBlockCalendar', () => {
         expect(postJson).toHaveBeenLastCalledWith(expect.any(String), {
             mode: 'block',
             days: ['2027-07-11'],
+            month: '2027-07',
             reasons: { '2027-07-11': 'Camp' },
         });
     });

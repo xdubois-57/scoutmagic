@@ -1629,6 +1629,30 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNull($blocks[0]->reason);
     }
 
+    /**
+     * The list under the grid is re-rendered after a gesture with the
+     * window the page drew it with — the month on screen, not today.
+     */
+    public function testTheListAfterAGestureKeepsTheWindowOfTheMonthOnScreen(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $month = (new \DateTimeImmutable('first day of +2 months'));
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$month->modify('+3 days')->format('Y-m-d')],
+            'month' => $month->format('Y-m'),
+        ])->getBody(), true);
+        $this->assertStringNotContainsString('Camp', $payload['list'], 'A block ended before that month stays out.');
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(20)],
+        ])->getBody(), true);
+        $this->assertStringContainsString('Camp', $payload['list'], 'With no month, the window is this one.');
+    }
+
     public function testReleasingTheMiddleOfAPeriodCutsItInTwoKeepingTheReason(): void
     {
         $this->loginAsManager();

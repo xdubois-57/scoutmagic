@@ -2922,9 +2922,19 @@ class RentalManagementController extends AbstractController
             'success' => true,
             // An object, even when empty: the page reads its keys.
             'changed' => (object) $changed,
+            // The month the page shows, so the list keeps the window the
+            // page rendered it with (calendar()).
             'list' => $this->renderToString('@rental/management/_block_list.html.twig', [
                 'asset' => $asset,
-                'blocks' => $this->blockService->upcomingFor($asset->id, $today->modify('-7 days')),
+                'blocks' => $this->blockService->upcomingFor(
+                    $asset->id,
+                    MonthWindow::resolve(
+                        is_string($data['month'] ?? null) ? $data['month'] : '',
+                        $today,
+                        self::MONTHS_BACK,
+                        self::MONTHS_AHEAD
+                    )->firstDay()->modify('-7 days')
+                ),
             ]),
         ]);
     }

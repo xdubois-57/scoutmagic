@@ -234,7 +234,9 @@ export function wireBlockCalendar(root) {
 
         mark(changing, mode === 'block');
 
-        const body = { mode: mode, days: changing };
+        // The month lets the server re-render the list under the grid with
+        // the window the page used.
+        const body = { mode: mode, days: changing, month: month };
         if (reasons) {
             body.reasons = reasons;
         }

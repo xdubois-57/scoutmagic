@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Modules\Rental\Availability\BlockDayPlan;
 use Modules\Rental\Availability\BlockDayPlanner;
 use Modules\Rental\Repository\RentalBlock;
 use Modules\Rental\Repository\RentalBlockRepository;
@@ -125,12 +126,22 @@ class RentalBlockService
             }
         }
 
-        $plan = $this->planner->plan($this->blockRepository->findAllForAsset($assetId), $days, $mode, $reasons);
+        // Read, plan and write under one lock: two gestures sent before the
+        // first answer must not both plan from the same snapshot.
+        $plan = $this->blockRepository->withAssetLocked(
+            $assetId,
+            function () use ($assetId, $days, $mode, $reasons, $actorMemberId): BlockDayPlan {
+                $plan = $this->planner->plan($this->blockRepository->findAllForAsset($assetId), $days, $mode, $reasons);
+                if (!$plan->isEmpty()) {
+                    $this->blockRepository->replace($assetId, $plan->replacedBlockIds, $plan->periods, $actorMemberId);
+                }
+
+                return $plan;
+            }
+        );
         if ($plan->isEmpty()) {
             return [];
         }
-
-        $this->blockRepository->replace($assetId, $plan->replacedBlockIds, $plan->periods, $actorMemberId);
 
         $changed = array_keys($plan->changed);
         $this->journal->log(
