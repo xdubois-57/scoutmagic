@@ -7,6 +7,15 @@
             subtitle: "Ce qui peut être anticipé, et ce que Desk signale. Le site ne stocke jamais l'état d'un CQA ou d'un extrait de casier judiciaire, et n'en affiche donc jamais un.",
         } only %}
 
+        {% include '@leadership/partials/_nav.html.twig' %}
+
+        <div class="d-flex justify-content-end mb-3">
+            <a href="/admin/leadership/obligations/export" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-file-earmark-excel" aria-hidden="true"></i>
+                Exporter (Excel)
+            </a>
+        </div>
+
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h6 mb-1">Anniversaires des {{ adult_age }} ans</h2>
@@ -19,6 +28,7 @@
                     lines: birthdays,
                     list_id: 'obligations-birthdays',
                     empty_message: 'Aucun anniversaire des ' ~ adult_age ~ ' ans dans les ' ~ alert_weeks ~ ' prochaines semaines.',
+                    draft_available: draft_available,
                 } only %}
                 {% if without_birth_date > 0 %}
                     {# Sans cette phrase, une liste vide se lit « personne
@@ -51,6 +61,7 @@
                     lines: candidates,
                     list_id: 'obligations-candidates',
                     empty_message: 'Aucun candidat signalé par Desk au dernier import.',
+                    draft_available: draft_available,
                 } only %}
             </div>
         </div>
@@ -62,7 +73,4 @@
             rules_verified_on: rules_verified_on,
         } only %}
     </div>
-{% endblock %}
-{% block scripts %}
-<script src="{{ asset('/assets/js/leadership-copy-emails.js') }}" defer></script>
 {% endblock %}

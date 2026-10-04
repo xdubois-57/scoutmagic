@@ -257,12 +257,6 @@ interface Window {
             members: Array<{ id: number, name: string }>
         ) => HTMLDataListElement;
     };
-    // public/assets/js/leadership-copy-emails.js — « Copier les adresses »
-    // on the Encadrement lists, present only on those three pages.
-    ScoutMagicLeadershipEmails?: {
-        collect: (list: ParentNode) => string[];
-        format: (addresses: string[]) => string;
-    };
     // public/assets/js/fees-copy.js — « Copier pour Desk » on Cotisations >
     // Justesse des tarifs, present only on that page.
     ScoutMagicFeesCopy?: {
