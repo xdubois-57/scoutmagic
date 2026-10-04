@@ -102,6 +102,46 @@ final class BootstrapAccessTest extends TestCase
         $this->assertArrayNotHasKey('token_attempts', \bootstrapReadAccess($this->docRoot), 'a success resets the count');
     }
 
+    /**
+     * Fail closed: an attempt that cannot be recorded is not compared. A
+     * folder refusing the access file would otherwise reset the count on
+     * every request, and the ladder would never engage.
+     */
+    public function testATokenIsNotEvenComparedWhenItsAttemptCannotBeRecorded(): void
+    {
+        \bootstrapEnsureTokenFile($this->docRoot);
+        $token = \bootstrapReadTokenValue($this->docRoot);
+        // A directory where the file should be: no write succeeds, root included.
+        mkdir($this->docRoot . '/' . \BOOTSTRAP_ACCESS_FILE);
+
+        $result = \bootstrapVerifyToken($this->docRoot, $token, self::NOW);
+
+        rmdir($this->docRoot . '/' . \BOOTSTRAP_ACCESS_FILE);
+        $this->assertFalse($result['ok']);
+        $this->assertArrayNotHasKey('cookie', $result);
+        $this->assertStringContainsString('écriture', (string) ($result['error'] ?? ''));
+    }
+
+    /** @return array<string, array{0: array<string, string>, 1: bool}> */
+    public static function requestSchemes(): array
+    {
+        return [
+            'plain http' => [['HTTP_HOST' => 'unite.example.org'], false],
+            'IIS saying off' => [['HTTPS' => 'off'], false],
+            'HTTPS on' => [['HTTPS' => 'on'], true],
+            'port 443' => [['SERVER_PORT' => '443'], true],
+            'TLS ended by a proxy' => [['HTTP_X_FORWARDED_PROTO' => 'https, http'], true],
+            'a proxy speaking http' => [['HTTP_X_FORWARDED_PROTO' => 'http'], false],
+        ];
+    }
+
+    /** @param array<string, string> $server */
+    #[\PHPUnit\Framework\Attributes\DataProvider('requestSchemes')]
+    public function testTheSchemeTheBrowserSpokeIsRecognised(array $server, bool $https): void
+    {
+        $this->assertSame($https, \bootstrapRequestIsHttps($server));
+    }
+
     // -------------------------------------------------------------------
     // HTTPS, blocking
     // -------------------------------------------------------------------
@@ -117,8 +157,8 @@ final class BootstrapAccessTest extends TestCase
         });
 
         $this->assertTrue($result['ok'], $result['detail']);
-        $this->assertStringStartsWith('https://unite.example.org/.bootstrap-https-', $asked[0]);
-        $this->assertSame([], glob($this->docRoot . '/.bootstrap-https-*') ?: [], 'the probe is removed');
+        $this->assertStringStartsWith('https://unite.example.org/bootstrap-https-', $asked[0]);
+        $this->assertSame([], glob($this->docRoot . '/bootstrap-https-*') ?: [], 'the probe is removed');
     }
 
     /** @return array<string, array{0: array{status: int, body: string}, 1: string}> */
@@ -299,20 +339,20 @@ final class BootstrapAccessTest extends TestCase
 
     public function testNothingIsAcceptedBeforeTheGateHasPassed(): void
     {
-        $this->assertFalse(\bootstrapArchiveBegin($this->docRoot, [], null, static fn (): array => [])['ok']);
+        $this->assertFalse(\bootstrapArchiveBegin($this->docRoot, [], null, static fn (): array => [], ['size' => 1])['ok']);
         $this->assertSame(409, \bootstrapArchiveAppend([], 0, 'x', false)['status']);
     }
 
     public function testChunksAreAppendedInSequenceAndTheArchiveLandsWhereTheWizardReadsIt(): void
     {
-        $state = $this->installedState();
-        $begin = \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => []);
-        $this->assertTrue($begin['ok']);
-        $this->assertSame(0, $begin['received']);
-        $this->assertSame("Require all denied\n", file_get_contents($state['install_target'] . '/' . \BOOTSTRAP_INCOMING_DIR . '/.htaccess'));
-
         $bytes = $this->archiveBytes();
         $half = intdiv(strlen($bytes), 2);
+        $file = ['size' => strlen($bytes), 'name' => 'unite.zip', 'modified' => 1_800_000_000];
+        $begin = \bootstrapArchiveBegin($this->docRoot, $this->installedState(), null, static fn (): array => [], $file);
+        $this->assertTrue($begin['ok']);
+        $this->assertSame(0, $begin['received']);
+        $state = $begin['state'];
+        $this->assertSame("Require all denied\n", file_get_contents($state['install_target'] . '/' . \BOOTSTRAP_INCOMING_DIR . '/.htaccess'));
 
         $first = \bootstrapArchiveAppend($state, 0, substr($bytes, 0, $half), false);
         $this->assertSame([200, $half], [$first['status'], $first['received']]);
@@ -320,7 +360,7 @@ final class BootstrapAccessTest extends TestCase
         // A replayed or skipped chunk is refused with what is held: resume from there.
         $again = \bootstrapArchiveAppend($state, 0, substr($bytes, 0, $half), false);
         $this->assertSame([409, $half], [$again['status'], $again['received']]);
-        $this->assertSame($half, \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => [])['received']);
+        $this->assertSame($half, \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => [], $file)['received']);
 
         $last = \bootstrapArchiveAppend($state, $half, substr($bytes, $half), true);
         $this->assertSame(200, $last['status'], (string) ($last['error'] ?? ''));
@@ -331,10 +371,16 @@ final class BootstrapAccessTest extends TestCase
 
     public function testAnArchiveFromAnotherVersionThanTheOneInstalledIsRefused(): void
     {
-        $state = $this->installedState();
-        \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => []);
+        $bytes = $this->archiveBytes('1.3.0');
+        $state = \bootstrapArchiveBegin(
+            $this->docRoot,
+            $this->installedState(),
+            null,
+            static fn (): array => [],
+            ['size' => strlen($bytes), 'name' => 'unite.zip', 'modified' => 1_800_000_000]
+        )['state'];
 
-        $result = \bootstrapArchiveAppend($state, 0, $this->archiveBytes('1.3.0'), true);
+        $result = \bootstrapArchiveAppend($state, 0, $bytes, true);
 
         $this->assertSame(422, $result['status']);
         $this->assertStringContainsString('1.3.0', (string) $result['error']);
@@ -343,10 +389,72 @@ final class BootstrapAccessTest extends TestCase
 
     public function testAFileThatIsNotAPortableArchiveIsRefused(): void
     {
-        $state = $this->installedState();
-        \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => []);
+        $bytes = 'pas une archive';
+        $state = \bootstrapArchiveBegin(
+            $this->docRoot,
+            $this->installedState(),
+            null,
+            static fn (): array => [],
+            ['size' => strlen($bytes), 'name' => 'unite.zip', 'modified' => 1_800_000_000]
+        )['state'];
 
-        $this->assertSame(422, \bootstrapArchiveAppend($state, 0, 'pas une archive', true)['status']);
+        $this->assertSame(422, \bootstrapArchiveAppend($state, 0, $bytes, true)['status']);
+    }
+
+    /**
+     * The resume offset belongs to one file: another one starts over rather
+     * than being spliced onto the first one's bytes, and a leftover as long
+     * as the file never reads as « already sent ».
+     */
+    public function testALeftoverResumesOnlyAShorterCopyOfTheSameFile(): void
+    {
+        $bytes = $this->archiveBytes();
+        $file = ['size' => strlen($bytes), 'name' => 'unite.zip', 'modified' => 1_800_000_000];
+        $state = \bootstrapArchiveBegin($this->docRoot, $this->installedState(), null, static fn (): array => [], $file)['state'];
+        \bootstrapArchiveAppend($state, 0, substr($bytes, 0, 100), false);
+        $part = $state['install_target'] . '/' . \BOOTSTRAP_INCOMING_DIR . '/' . \BOOTSTRAP_INCOMING_PART;
+
+        $same = \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => [], $file);
+        $this->assertSame(100, $same['received'], 'the same file resumes');
+
+        $other = \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => [], ['modified' => 1] + $file);
+        $this->assertSame(0, $other['received'], 'another file starts over');
+        $this->assertFileDoesNotExist($part);
+
+        file_put_contents($part, $bytes);
+        $complete = \bootstrapArchiveBegin($this->docRoot, $state, null, static fn (): array => [], $file);
+        $this->assertSame(0, $complete['received'], 'a full leftover is not « already sent »');
+    }
+
+    public function testChunksNeverGoPastTheAnnouncedSizeAndTheLastOneMustCompleteIt(): void
+    {
+        $file = ['size' => 10, 'name' => 'unite.zip', 'modified' => 1_800_000_000];
+        $state = \bootstrapArchiveBegin($this->docRoot, $this->installedState(), null, static fn (): array => [], $file)['state'];
+
+        $this->assertSame(413, \bootstrapArchiveAppend($state, 0, str_repeat('x', 11), false)['status']);
+        $this->assertSame(409, \bootstrapArchiveAppend($state, 0, str_repeat('x', 4), true)['status']);
+        $this->assertSame(200, \bootstrapArchiveAppend($state, 0, str_repeat('x', 4), false)['status']);
+    }
+
+    /** @return array<string, array{0: array<string, mixed>}> */
+    public static function invalidFiles(): array
+    {
+        return [
+            'no size' => [['name' => 'unite.zip']],
+            'empty' => [['size' => 0]],
+            'a size as text' => [['size' => '10']],
+            'over 2 GB' => [['size' => \BOOTSTRAP_ARCHIVE_MAX_BYTES + 1]],
+        ];
+    }
+
+    /** @param array<string, mixed> $file */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidFiles')]
+    public function testAnUnusableAnnouncedSizeIsRefused(array $file): void
+    {
+        $begin = \bootstrapArchiveBegin($this->docRoot, $this->installedState(), null, static fn (): array => [], $file);
+
+        $this->assertFalse($begin['ok']);
+        $this->assertArrayNotHasKey('archive_upload', $begin['state']);
     }
 
     /**
@@ -364,12 +472,17 @@ final class BootstrapAccessTest extends TestCase
             )];
         };
 
-        $refused = \bootstrapArchiveBegin($this->docRoot, $state, 'unite.example.org', $exposed);
+        $file = ['size' => 10, 'name' => 'unite.zip', 'modified' => 1_800_000_000];
+        $protected = \bootstrapArchiveBegin($this->docRoot, $state, 'unite.example.org', static fn (): array => ['status' => 403, 'body' => ''], $file);
+        $this->assertTrue($protected['ok']);
+
+        $refused = \bootstrapArchiveBegin($this->docRoot, $protected['state'], 'unite.example.org', $exposed, $file);
         $this->assertFalse($refused['ok']);
         $this->assertStringContainsString("l'assistant de configuration", (string) $refused['detail']);
 
-        $protected = \bootstrapArchiveBegin($this->docRoot, $state, 'unite.example.org', static fn (): array => ['status' => 403, 'body' => '']);
-        $this->assertTrue($protected['ok']);
+        // The refusal is the server's: a chunk sent anyway, past the
+        // browser, is refused too — even after an earlier check passed.
+        $this->assertSame(409, \bootstrapArchiveAppend($refused['state'], 0, 'x', false)['status']);
     }
 
     /**
@@ -393,7 +506,8 @@ final class BootstrapAccessTest extends TestCase
                 $this->docRoot,
                 $state,
                 'unite.example.org',
-                static fn (): array => ['status' => 404, 'body' => '']
+                static fn (): array => ['status' => 404, 'body' => ''],
+                ['size' => 10, 'name' => 'unite.zip', 'modified' => 1_800_000_000]
             );
         } finally {
             unlink($incoming); // the link, never what it points to

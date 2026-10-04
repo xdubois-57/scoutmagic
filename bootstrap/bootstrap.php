@@ -1109,10 +1109,11 @@ function bootstrapReadState(string $path): array
 /**
  * @param array<string, mixed> $state
  */
-function bootstrapWriteState(string $path, array $state): void
+function bootstrapWriteState(string $path, array $state): bool
 {
     $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    file_put_contents($path, "<?php\n/*\n{$json}\n*/\n");
+
+    return @file_put_contents($path, "<?php\n/*\n{$json}\n*/\n") !== false;
 }
 
 function bootstrapAcquireLock(string $path): bool
@@ -1867,9 +1868,9 @@ function bootstrapReadAccess(string $docRoot): array
 /**
  * @param array<string, mixed> $access
  */
-function bootstrapWriteAccess(string $docRoot, array $access): void
+function bootstrapWriteAccess(string $docRoot, array $access): bool
 {
-    bootstrapWriteState($docRoot . '/' . BOOTSTRAP_ACCESS_FILE, $access);
+    return bootstrapWriteState($docRoot . '/' . BOOTSTRAP_ACCESS_FILE, $access);
 }
 
 /** The token in token.php, or '' when there is none. */
@@ -1951,6 +1952,11 @@ function bootstrapTokenLockSeconds(int $attempts): int
  * attempt counted, or refused unread while locked. The token is never
  * echoed back, right or wrong.
  *
+ * The attempt is recorded **before** the token is compared, and an
+ * attempt that cannot be recorded is not compared at all: a folder that
+ * refuses `.bootstrap-access.php` would otherwise reset the counter on
+ * every request, and the lockout ladder would never engage.
+ *
  * @return array{ok: bool, cookie?: string, error?: string, locked_until?: int}
  */
 function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): array
@@ -1966,6 +1972,14 @@ function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): arr
         ];
     }
 
+    $attempts = (int) ($access['token_attempts'] ?? 0) + 1;
+    $access['token_attempts'] = $attempts;
+    if (!bootstrapWriteAccess($docRoot, $access)) {
+        return ['ok' => false, 'error' => "Ce dossier n'est pas accessible en écriture pour PHP : les tentatives ne "
+            . "peuvent pas être comptées, le jeton n'est donc pas vérifié. Donnez à PHP le droit d'écrire dans ce "
+            . 'dossier, puis rechargez la page.'];
+    }
+
     $token = bootstrapReadTokenValue($docRoot);
     $submitted = strtolower(trim($submitted));
     if ($token !== '' && $submitted !== '' && hash_equals($token, $submitted)) {
@@ -1975,8 +1989,6 @@ function bootstrapVerifyToken(string $docRoot, string $submitted, int $now): arr
         return ['ok' => true, 'cookie' => bootstrapProofValue($token, $now + BOOTSTRAP_PROOF_LIFETIME_SECONDS)];
     }
 
-    $attempts = (int) ($access['token_attempts'] ?? 0) + 1;
-    $access['token_attempts'] = $attempts;
     $lock = bootstrapTokenLockSeconds($attempts);
     if ($lock > 0) {
         $access['token_locked_until'] = $now + $lock;
@@ -2034,7 +2046,9 @@ function bootstrapCheckSiteHttps(string $docRoot, ?string $host, callable $httpG
             . "par l'adresse publique du site, puis relancez la vérification."];
     }
 
-    $name = '.bootstrap-https-' . bin2hex(random_bytes(8)) . '.txt';
+    // No leading dot: a host denying dotfiles — the posture the gate's
+    // own B7 probe wants — would answer 403 and block a sound site.
+    $name = 'bootstrap-https-' . bin2hex(random_bytes(8)) . '.txt';
     $content = 'scoutmagic-https-' . bin2hex(random_bytes(16));
     if (@file_put_contents($docRoot . '/' . $name, $content) === false) {
         return ['ok' => false, 'detail' => "Le fichier de vérification n'a pas pu être écrit dans ce dossier."];
@@ -2115,36 +2129,58 @@ function bootstrapParseArchiveComment(string $comment): ?array
  * fetching a canary through the site. Refused rather than guessed: the
  * caller falls back to sending the archive in the setup wizard.
  *
+ * **The verdict is the server's, not the browser's.** It is returned in
+ * `state` for the caller to persist: `archive_upload` exists only after a
+ * passed check, and {@see bootstrapArchiveAppend()} accepts nothing
+ * without it — a direct chunk request after a refusal is refused too.
+ *
+ * `archive_upload` also names the file being sent — its size, name and
+ * modification time, as the browser reports them. A leftover `.part`
+ * resumes only for that same file, and only while it is shorter than it:
+ * another file starts over, never spliced onto the first one's bytes.
+ *
  * @param array<string, mixed> $state
- * @return array{ok: bool, received?: int, detail?: string}
+ * @param array<string, mixed> $file  `{size, name, modified}` from the browser
+ * @return array{ok: bool, received?: int, detail?: string, state: array<string, mixed>}
  */
-function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, callable $httpGet): array
+function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, callable $httpGet, array $file): array
 {
+    $previous = $state['archive_upload'] ?? null;
+    unset($state['archive_upload']);
+    $refuse = static fn (string $detail): array => ['ok' => false, 'detail' => $detail, 'state' => $state];
+
     if (empty($state['gate_passed']) || empty($state['install_target'])) {
-        return [
-            'ok' => false,
-            'detail' => "L'installation n'est pas terminée : l'archive ne peut pas encore être envoyée.",
-        ];
+        return $refuse("L'installation n'est pas terminée : l'archive ne peut pas encore être envoyée.");
     }
+
+    $size = $file['size'] ?? null;
+    if (!is_int($size) || $size < 1 || $size > BOOTSTRAP_ARCHIVE_MAX_BYTES) {
+        return $refuse("La taille de l'archive choisie n'est pas valable (2 Go au plus).");
+    }
+    $id = hash('sha256', (string) json_encode([
+        is_string($file['name'] ?? null) ? $file['name'] : '',
+        $size,
+        is_int($file['modified'] ?? null) ? $file['modified'] : 0,
+    ]));
 
     $incoming = $state['install_target'] . '/' . BOOTSTRAP_INCOMING_DIR;
     if (!is_dir($incoming) && !@mkdir($incoming, 0700, true) && !is_dir($incoming)) {
-        return ['ok' => false, 'detail' => "Le dossier qui reçoit l'archive n'a pas pu être créé."];
+        return $refuse("Le dossier qui reçoit l'archive n'a pas pu être créé.");
     }
     @file_put_contents(dirname($incoming) . '/.htaccess', "Require all denied\n");
     @file_put_contents($incoming . '/.htaccess', "Require all denied\n");
 
     if (($state['layout'] ?? null) === 'B') {
         if ($host === null) {
-            return ['ok' => false, 'detail' => "La protection du dossier de réception n'a pas pu être vérifiée."];
+            return $refuse("La protection du dossier de réception n'a pas pu être vérifiée.");
         }
         $canary = 'canary-' . bin2hex(random_bytes(8)) . '.txt';
         $content = 'scoutmagic-restore-canary-' . bin2hex(random_bytes(16));
         // Fail closed: a canary that was never written answers 404, which
         // would read as « protected » without anything having been tested.
         if (@file_put_contents($incoming . '/' . $canary, $content) === false) {
-            return ['ok' => false, 'detail' => "Le témoin de protection n'a pas pu être écrit dans le dossier de "
-                . "réception : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration."];
+            return $refuse("Le témoin de protection n'a pas pu être écrit dans le dossier de "
+                . "réception : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration.");
         }
         try {
             $probe = $httpGet('https://' . $host . '/' . BOOTSTRAP_INCOMING_DIR . '/' . $canary);
@@ -2153,23 +2189,31 @@ function bootstrapArchiveBegin(string $docRoot, array $state, ?string $host, cal
         }
         $status = (int) ($probe['status'] ?? 0);
         if (!bootstrapEvaluateProtectionProbe($status, (string) ($probe['body'] ?? ''), $content)) {
-            return ['ok' => false, 'detail' => "Le dossier de réception de l'archive n'est pas prouvé "
-                . "inaccessible depuis "
-                . "le web : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration."];
+            return $refuse("Le dossier de réception de l'archive n'est pas prouvé inaccessible depuis "
+                . "le web : l'archive ne sera pas envoyée ici. Vous l'enverrez dans l'assistant de configuration.");
         }
     }
 
     $part = $incoming . '/' . BOOTSTRAP_INCOMING_PART;
+    $received = is_file($part) ? (int) filesize($part) : 0;
+    $sameFile = is_array($previous) && ($previous['id'] ?? null) === $id;
+    if (!$sameFile || $received >= $size) {
+        @unlink($part);
+        $received = 0;
+    }
+    $state['archive_upload'] = ['id' => $id, 'size' => $size];
 
-    return ['ok' => true, 'received' => is_file($part) ? (int) filesize($part) : 0];
+    return ['ok' => true, 'received' => $received, 'state' => $state];
 }
 
 /**
  * One chunk, appended strictly in sequence: a chunk for any other offset
  * is refused with the size actually held, so the browser resumes from
- * there. The last chunk checks the whole file — a zip whose comment names
- * the release just installed — and moves it to the address the wizard
- * reads ({@see BOOTSTRAP_ARCHIVE_PATH}).
+ * there. Only after {@see bootstrapArchiveBegin()} passed, and never past
+ * the size it announced. The last chunk must complete exactly that size;
+ * it then checks the whole file — a zip whose comment names the release
+ * just installed — and moves it to the address the wizard reads
+ * ({@see BOOTSTRAP_ARCHIVE_PATH}).
  *
  * @param array<string, mixed> $state
  * @return array{status: int, received: int, done?: bool, error?: string}
@@ -2181,10 +2225,12 @@ function bootstrapArchiveAppend(array $state, int $offset, string $data, bool $l
         return ['status' => 409, 'received' => 0, 'error' => "L'installation n'est pas terminée."];
     }
 
+    $upload = $state['archive_upload'] ?? null;
     $part = $target . '/' . BOOTSTRAP_INCOMING_DIR . '/' . BOOTSTRAP_INCOMING_PART;
-    if (!is_dir(dirname($part))) {
+    if (!is_array($upload) || !is_int($upload['size'] ?? null) || !is_dir(dirname($part))) {
         return ['status' => 409, 'received' => 0, 'error' => "L'envoi n'a pas été préparé."];
     }
+    $expected = $upload['size'];
 
     $handle = fopen($part, 'c+b');
     if ($handle === false || !flock($handle, LOCK_EX)) {
@@ -2196,8 +2242,13 @@ function bootstrapArchiveAppend(array $state, int $offset, string $data, bool $l
         if ($offset !== $size) {
             return ['status' => 409, 'received' => $size, 'error' => 'Fragment hors séquence.'];
         }
-        if ($size + strlen($data) > BOOTSTRAP_ARCHIVE_MAX_BYTES) {
-            return ['status' => 413, 'received' => $size, 'error' => "L'archive dépasse 2 Go."];
+        if ($size + strlen($data) > $expected) {
+            return ['status' => 413, 'received' => $size, 'error' => "Le fragment dépasse la taille de l'archive "
+                . 'choisie.'];
+        }
+        if ($last && $size + strlen($data) !== $expected) {
+            return ['status' => 409, 'received' => $size, 'error' => "Le dernier fragment ne complète pas l'archive "
+                . 'choisie.'];
         }
         fseek($handle, $size);
         if ($data !== '' && fwrite($handle, $data) !== strlen($data)) {
@@ -2634,11 +2685,74 @@ function bootstrapJsonInput(): array
     return is_array($input) ? $input : [];
 }
 
-/** @param array<string, mixed> $server */
+/**
+ * Whether the browser spoke HTTPS. `X-Forwarded-Proto` is believed here,
+ * unlike in the application: a host terminating TLS in front of PHP sets
+ * nothing else, and a client forging it only sends its own token in clear.
+ *
+ * @param array<string, mixed> $server
+ */
 function bootstrapRequestIsHttps(array $server): bool
 {
-    return strtolower((string) ($server['HTTPS'] ?? '')) === 'on'
-        || (string) ($server['SERVER_PORT'] ?? '') === '443';
+    $https = strtolower((string) ($server['HTTPS'] ?? ''));
+    $forwarded = strtolower(trim(explode(',', (string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+
+    return ($https !== '' && $https !== 'off')
+        || (string) ($server['SERVER_PORT'] ?? '') === '443'
+        || $forwarded === 'https';
+}
+
+/**
+ * The installer over plain http:// (#719, B3): nothing is asked, and the
+ * token is never typed — it would cross the network in clear, and the
+ * proof cookie with it. The operator is sent to the https:// address,
+ * with what to do when it does not open.
+ *
+ * @param array<string, mixed> $server
+ */
+function bootstrapRenderHttpsRequired(array $server): void
+{
+    header('Content-Type: text/html; charset=utf-8');
+    $host = bootstrapRequestHost($server);
+    $path = (string) ($server['SCRIPT_NAME'] ?? '');
+    if (preg_match('#^/[A-Za-z0-9._/-]{0,200}$#', $path) !== 1) {
+        $path = '/bootstrap.php';
+    }
+    $link = $host === null
+        ? '<p>Ouvrez cette page par l\'adresse publique du site, en commençant par <code>https://</code>.</p>'
+        : '<p><a href="' . bootstrapHtmlEscape('https://' . $host . $path) . '">'
+            . bootstrapHtmlEscape('https://' . $host . $path) . '</a></p>';
+
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScoutMagic — Installation</title>
+<style>
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5;
+  }
+  h1 { font-size: 1.4rem; }
+  .alert { border-radius: .5rem; padding: 1rem; margin: 1rem 0; background: #fdecea; color: #611a15; }
+</style>
+</head>
+<body>
+<h1>ScoutMagic — Installation</h1>
+<section id="screen-https-required">
+<div class="alert">Cette page est ouverte sans chiffrement (<code>http://</code>). Le jeton d'installation, les mots
+de passe et la sauvegarde ne doivent jamais circuler en clair : l'installation se fait uniquement en HTTPS.</div>
+<p>Ouvrez plutôt :</p>
+{$link}
+<p>Si cette adresse ne s'ouvre pas ou affiche un avertissement de sécurité, le certificat HTTPS n'est pas encore
+actif. Activez-le dans le panneau de votre hébergeur (souvent « Let's Encrypt »), attendez qu'il soit émis, puis
+réessayez.</p>
+</section>
+</body>
+</html>
+HTML;
 }
 
 /**
@@ -2749,11 +2863,20 @@ function bootstrapHandleArchiveBegin(string $docRoot, string $stateFile, callabl
     $buffering = ob_get_level();
     ob_start();
 
-    bootstrapSendJson(
-        bootstrapArchiveBegin($docRoot, bootstrapReadState($stateFile), bootstrapRequestHost($_SERVER), $httpGet)
-            + ['chunk_bytes' => BOOTSTRAP_CHUNK_BYTES],
-        $buffering
+    $result = bootstrapArchiveBegin(
+        $docRoot,
+        bootstrapReadState($stateFile),
+        bootstrapRequestHost($_SERVER),
+        $httpGet,
+        bootstrapJsonInput()
     );
+    // The verdict lives in the state, where the chunk requests read it.
+    if (!bootstrapWriteState($stateFile, $result['state'])) {
+        $result = ['ok' => false, 'detail' => "L'état de l'installation n'a pas pu être enregistré."];
+    }
+    unset($result['state']);
+
+    bootstrapSendJson($result + ['chunk_bytes' => BOOTSTRAP_CHUNK_BYTES], $buffering);
 }
 
 /**
@@ -2877,7 +3000,9 @@ function bootstrapRenderErrorPage(string $message): void
 /**
  * The first screen, before any other question (#719, B1): the token the
  * operator reads in token.php over FTP. Never the token itself — when the
- * file could not be written, the operator is told how to create one.
+ * file could not be written, the folder is not writable and nothing else
+ * can be installed there either: the operator is told to fix that, never
+ * to invent a token of their own.
  */
 function bootstrapRenderTokenScreen(string $docRoot): void
 {
@@ -2906,9 +3031,9 @@ aux fichiers de ce serveur : rien d'autre ne se fait avant.</p>
 <div id="token-result" class="alert" hidden></div>
 HTML
         : <<<HTML
-<div class="alert alert-error">Le fichier <code>{$tokenFile}</code> n'a pas pu être créé dans ce dossier. Créez-le
-vous-même par FTP, avec pour seul contenu <code>&lt;?php /* TOKEN: … */</code>, où « … » est une suite de
-64 caractères 0-9 et a-f de votre choix, puis rechargez cette page.</div>
+<div class="alert alert-error">Le fichier <code>{$tokenFile}</code> n'a pas pu être créé : ce dossier n'est pas
+accessible en écriture pour PHP, et l'installation ne peut rien y faire. Donnez à PHP le droit d'écrire dans ce
+dossier (dans le panneau de votre hébergeur, ou par FTP), puis rechargez cette page.</div>
 HTML;
 
     echo <<<HTML
@@ -3319,7 +3444,8 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
   function uploadArchive() {
     var file = chosenArchive.file;
     logLine("Préparation de l'envoi de la sauvegarde…");
-    return postJson('?action=archive-begin', {}).then(function (begin) {
+    var identity = { size: file.size, name: file.name, modified: file.lastModified };
+    return postJson('?action=archive-begin', identity).then(function (begin) {
       if (!begin.ok) {
         logLine(begin.detail || "L'archive ne peut pas être envoyée ici.", true);
         return;
@@ -3329,7 +3455,9 @@ function bootstrapRenderUi(string $docRoot, string $stateFile): void
       var retries = 0;
 
       function next(offset) {
-        if (offset >= file.size && file.size > 0) { return Promise.resolve(); }
+        // The server resumes only a shorter copy of this same file: an
+        // offset at or past its end is an error, never a silent success.
+        if (offset >= file.size) { return Promise.reject(new Error('reprise incohérente')); }
         var end = Math.min(offset + chunk, file.size);
         var last = end >= file.size ? 1 : 0;
         return fetch('?action=archive-chunk&offset=' + offset + '&last=' + last, {
@@ -3575,6 +3703,24 @@ function bootstrapMain(?string $docRoot = null): void
     $action = $_GET['action'] ?? ($_POST['action'] ?? '');
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $now = time();
+
+    // HTTPS before the token (#719, B3): over http:// the token would be
+    // typed in clear, and its proof cookie set without the Secure flag.
+    if (!bootstrapRequestIsHttps($_SERVER)) {
+        if ($action !== '') {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'ok' => false,
+                'done' => true,
+                'error' => 'Cette page doit être ouverte en HTTPS (https://).',
+            ]);
+            return;
+        }
+        bootstrapEnsureTokenFile($docRoot);
+        bootstrapRenderHttpsRequired($_SERVER);
+        return;
+    }
 
     // The token before anything else (#719, B1). These two are the only
     // actions open without it: typing it, and reporting it exposed.

@@ -758,7 +758,11 @@ class BootstrapRequestHandlersTest extends TestCase
         $target = $this->tempDir . '/site';
         mkdir($target . '/storage', 0755, true);
         $stateFile = $this->seedState(['gate_passed' => true, 'install_target' => $target, 'layout' => 'A', 'version' => '1.4.2']);
-        \bootstrapArchiveBegin($this->tempDir, \bootstrapReadState($stateFile), null, static fn (): array => []);
+        $this->withRequestBody(
+            ['size' => 100, 'name' => 'unite.zip', 'modified' => 1_800_000_000],
+            fn () => \bootstrapHandleArchiveBegin($this->tempDir, $stateFile, static fn (): array => [])
+        );
+        $this->assertSame(100, \bootstrapReadState($stateFile)['archive_upload']['size'] ?? null, 'the verdict is persisted');
 
         $_GET = ['offset' => '0', 'last' => '0'];
         $this->withRawRequestBody('premier-fragment', fn () => \bootstrapHandleArchiveChunk($stateFile));
@@ -796,13 +800,20 @@ class BootstrapRequestHandlersTest extends TestCase
     }
 
     /** @param array<string, mixed> $get */
-    private function main(array $get, string $method = 'GET', string $raw = '', array $cookies = []): string
-    {
+    private function main(
+        array $get,
+        string $method = 'GET',
+        string $raw = '',
+        array $cookies = [],
+        bool $https = true
+    ): string {
         $_GET = $get;
         $_POST = [];
         $_COOKIE = $cookies;
         $_SERVER['REQUEST_METHOD'] = $method;
         $_SERVER['HTTP_HOST'] = 'unite.example.org';
+        $_SERVER['SCRIPT_NAME'] = '/bootstrap.php';
+        $_SERVER['HTTPS'] = $https ? 'on' : '';
 
         return $this->outputOf($raw, fn () => \bootstrapMain($this->tempDir));
     }
@@ -828,6 +839,26 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->assertStringContainsString('id="token-form"', $html);
         $this->assertStringNotContainsString(\bootstrapReadTokenValue($this->tempDir), $html, 'never echoed');
         $this->assertStringNotContainsString('id="install-btn"', $html);
+    }
+
+    /**
+     * HTTPS before the token: over http:// it would be typed in clear, and
+     * its proof cookie set without the Secure flag.
+     */
+    #[RunInSeparateProcess]
+    public function testOverPlainHttpTheTokenIsNeverAskedNorAccepted(): void
+    {
+        $html = $this->main([], 'GET', '', [], false);
+        $this->assertStringContainsString('id="screen-https-required"', $html);
+        $this->assertStringContainsString('href="https://unite.example.org/bootstrap.php"', $html);
+        $this->assertStringNotContainsString('id="token-form"', $html);
+        $this->assertNotSame('', \bootstrapReadTokenValue($this->tempDir), 'token.php is still written first');
+
+        $token = \bootstrapReadTokenValue($this->tempDir);
+        $json = json_decode($this->main(['action' => 'verify-token'], 'POST', (string) json_encode(['token' => $token]), [], false), true);
+        $this->assertFalse($json['ok'] ?? true);
+        $this->assertStringContainsString('HTTPS', (string) ($json['error'] ?? ''));
+        $this->assertArrayNotHasKey('token_attempts', \bootstrapReadAccess($this->tempDir), 'nothing was compared');
     }
 
     #[RunInSeparateProcess]
@@ -868,7 +899,7 @@ class BootstrapRequestHandlersTest extends TestCase
         $this->main(['action' => 'choose-archive'], 'POST', '{"version":"1.4.2"}', $cookies);
         $this->assertSame('1.4.2', \bootstrapReadAccess($this->tempDir)['release_version'] ?? null);
 
-        $begin = json_decode($this->main(['action' => 'archive-begin'], 'POST', '{}', $cookies), true);
+        $begin = json_decode($this->main(['action' => 'archive-begin'], 'POST', '{"size":10}', $cookies), true);
         $this->assertFalse($begin['ok'] ?? true, 'nothing installed yet');
         $this->assertSame(\BOOTSTRAP_CHUNK_BYTES, $begin['chunk_bytes'] ?? null);
 
@@ -942,7 +973,11 @@ class BootstrapRequestHandlersTest extends TestCase
         $target = $this->tempDir . '/site';
         mkdir($target . '/storage', 0755, true);
         $stateFile = $this->seedState(['gate_passed' => true, 'install_target' => $target, 'layout' => 'A', 'version' => '1.4.2']);
-        \bootstrapArchiveBegin($this->tempDir, \bootstrapReadState($stateFile), null, static fn (): array => []);
+        $this->withRequestBody(
+            ['size' => 100, 'name' => 'unite.zip', 'modified' => 1_800_000_000],
+            fn () => \bootstrapHandleArchiveBegin($this->tempDir, $stateFile, static fn (): array => [])
+        );
+        $this->assertSame(100, \bootstrapReadState($stateFile)['archive_upload']['size'] ?? null, 'the verdict is persisted');
         $_GET = ['offset' => '0', 'last' => '0'];
 
         $json = json_decode($this->outputOf(
