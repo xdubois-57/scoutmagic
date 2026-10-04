@@ -134,6 +134,24 @@ La documentation détaillée est volontairement séparée de ce README :
 Les règles destinées aux contributeurs et aux agents de développement se
 trouvent également dans [AGENTS.md](AGENTS.md).
 
+### Analyse statique JavaScript
+
+La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#static-analysis) ;
+la version détaillée auparavant publiée ici reste dans
+[la référence de l'ancien README](docs/readme-reference.md#analyse-statique-javascript).
+
+### Tests de bout en bout
+
+La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#end-to-end--playwright) ;
+la description détaillée et l'ancien inventaire des scénarios restent dans
+[la référence de l'ancien README](docs/readme-reference.md#tests-de-bout-en-bout-e2e).
+
+### Analyse de sécurité dynamique
+
+La documentation active est dans le [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ;
+les explications détaillées auparavant publiées ici restent dans
+[la référence de l'ancien README](docs/readme-reference.md#analyse-de-securite-dynamique-dast-owasp-zap).
+
 ## Données, sécurité et responsabilité
 
 Chaque unité qui déploie ScoutMagic agit en tant que responsable de
