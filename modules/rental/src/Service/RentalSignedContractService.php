@@ -99,9 +99,17 @@ class RentalSignedContractService
         return $this->latest($bookingId, DocumentType::SIGNED_COPY, static fn(RentalDocument $d): bool => !$d->isRefused());
     }
 
-    /** The last copy refused, for the renter's page to say why. */
+    /**
+     * The last copy refused, for the renter's page to say why — while a
+     * copy can still be sent: once the contract is signed by both parties,
+     * « send another » is no longer true, on either side.
+     */
     public function lastRefusedCopy(int $bookingId): ?RentalDocument
     {
+        if ($this->finalContract($bookingId) !== null) {
+            return null;
+        }
+
         return $this->latest($bookingId, DocumentType::SIGNED_COPY, static fn(RentalDocument $d): bool => $d->isRefused());
     }
 
