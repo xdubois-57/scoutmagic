@@ -49,8 +49,14 @@ questions avant de vous lancer ? Contactez-nous à **info@scoutmagic.be**.
 
 ## Prérequis
 
-Les prérequis techniques sont décrits dans [ARCHITECTURE.md](ARCHITECTURE.md)
-et les prérequis de développement dans [CONTRIBUTING.md](CONTRIBUTING.md).
+L'hébergement doit fournir **PHP >= 8.4** et **MySQL >= 8.0** ; MariaDB 10.11
+est également pris en charge. Les extensions et contraintes techniques de
+référence sont détaillées dans la
+[base technique](docs/exigences-non-fonctionnelles.md#5-technical-baseline).
+Aucun shell, Composer ou Node.js n'est requis sur le serveur d'hébergement.
+Les prérequis propres au développement sont dans
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 L'installation standard vérifie elle-même que l'hébergement satisfait les
 conditions nécessaires avant de continuer.
 
@@ -128,6 +134,8 @@ La documentation détaillée est volontairement séparée de ce README :
   structurantes.
 - [Sécurité](SECURITY.md) — exigences de sécurité et signalement privé des
   vulnérabilités.
+- [Exigences non fonctionnelles](docs/exigences-non-fonctionnelles.md) — base
+  technique, compatibilité et exigences transversales.
 - [Pipeline de qualité](docs/quality-pipeline.md) — tests, analyse statique,
   intégration continue, contrôles de qualité et processus de release.
 - [Développement de modules](docs/module-development.md) — création et
@@ -144,45 +152,66 @@ trouvent également dans [AGENTS.md](AGENTS.md).
 
 ## Développement
 
-Les commandes et prérequis de développement sont documentés dans
+Pour préparer l'outillage JavaScript local, `npm ci` installe les dépendances
+de développement ; Node.js et npm ne sont pas nécessaires en production.
+`composer serve` lance le serveur PHP local avec des limites d'upload relevées,
+car le serveur PHP intégré n'applique pas `public/.user.ini`.
+
+Les commandes, valeurs et prérequis de développement sont documentés dans
 [CONTRIBUTING.md](CONTRIBUTING.md), et la carte des contrôles se trouve dans
 [docs/quality-pipeline.md](docs/quality-pipeline.md).
 
 ### Analyse statique JavaScript
 
-Voir [Analyse statique](docs/quality-pipeline.md#static-analysis).
+`npm run typecheck` vérifie statiquement le JavaScript de production. Les
+règles et le rôle de ce contrôle sont détaillés dans
+[Analyse statique](docs/quality-pipeline.md#static-analysis).
 
 ### Tests de bout en bout
 
-Voir [End-to-end / Playwright](docs/quality-pipeline.md#end-to-end--playwright).
+`npm run e2e` lance les scénarios Playwright sur une installation jetable ; le
+répertoire `tests/e2e/specs/` constitue l'inventaire courant des scénarios.
+Voir [End-to-end / Playwright](docs/quality-pipeline.md#end-to-end--playwright)
+pour les niveaux de couverture et le fonctionnement du harnais.
 
 ### Analyse de sécurité dynamique
 
 Voir [Dynamic scan / OWASP ZAP](docs/quality-pipeline.md#dynamic-scan--owasp-zap).
 
+## Intégration continue
+
+La carte détaillée des checks se trouve dans le
+[pipeline de qualité](docs/quality-pipeline.md#continuous-integration).
+
 La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles.
 Elle rejoue **toutes** les routes que l'application déclare et compare chaque
 réponse au rôle minimal annoncé.
 
-## Intégration continue
-
-La carte détaillée des checks se trouve dans le
-[pipeline de qualité](docs/quality-pipeline.md#continuous-integration). Les
-jobs bloquants sont :
+Les jobs bloquants sont :
 
 - **`test`** : PHPStan et PHPUnit sur MySQL 8.
 - **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
 - **`javascript-tests`** : analyse statique et tests JavaScript.
 - **`e2e-tests`** : scénarios navigateur Playwright.
-- **`authorization-matrix`** : toutes les routes rejouées sous les six rôles.
+- **`authorization-matrix`** : **toutes** les routes rejouées sous les six rôles, soit un couple (route, rôle) par combinaison.
 - **`dast-passive`** : analyse dynamique passive avec OWASP ZAP.
 - **`security`** : audit des dépendances Composer.
 - **`sonarqube`** : analyse SonarQube Cloud et Quality Gate.
 
 ### Créer une release
 
-Le processus et les verrous de release sont documentés dans
-[docs/quality-pipeline.md](docs/quality-pipeline.md).
+Le détail opérationnel est conservé dans la section
+[Releases du pipeline de qualité](docs/quality-pipeline.md#releases). Avant de
+créer un commit, un tag ou une release, le script exécute sept verrous, dans
+cet ordre :
+
+1. **Déploiement** : la release précédente doit être déployée.
+2. **Intégration continue** : les checks requis doivent être verts.
+3. **Sécurité** : les dépendances et alertes de sécurité sont contrôlées.
+4. **Fraîcheur des dépendances** : les dépendances directes sont vérifiées.
+5. **API navigateur dépréciée** : les API critiques sont contrôlées.
+6. **SonarQube Cloud** : l'analyse du commit et son Quality Gate sont vérifiés.
+7. **Sources externes** : les sources dont dépend le site sont vérifiées.
 
 ## Données, sécurité et responsabilité
 
