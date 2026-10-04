@@ -214,14 +214,47 @@
                     return;
                 }
 
-                // Another listener refused the submit — `data-confirm`,
-                // or a validation hook. Nothing is being sent, so
-                // nothing should look like it is.
+                // Something that ran BEFORE this listener refused the
+                // submit — a capture-phase hook, or a listener bound to
+                // this form earlier. Nothing is being sent, so nothing
+                // should look like it is.
                 if (event.defaultPrevented) {
                     return;
                 }
 
                 lock(form);
+
+                // And something that runs AFTER it may refuse too, which
+                // this listener cannot see at the line above: it is bound
+                // to the FORM, so it fires at the target, while
+                // `confirm.js` implements `data-confirm` on `document` in
+                // the bubble phase — strictly later. `defaultPrevented`
+                // is therefore always false up there when a confirmation
+                // is about to intercept.
+                //
+                // Measured through Chromium on a form carrying both
+                // attributes, before this check existed:
+                //
+                //   « Annuler » → no POST, form still locked, button
+                //                  stuck on « Envoi en cours… » for the
+                //                  life of the page (only `pageshow`
+                //                  unlocks, and the page never left)
+                //   « Publier » → NO POST EITHER: confirm.js replays the
+                //                  submit with requestSubmit(), this
+                //                  listener saw the marker and cancelled
+                //                  the replay. The form never sent
+                //                  anything at all.
+                //
+                // Read once the whole dispatch is over, the answer is
+                // knowable: the event object keeps `defaultPrevented`, so
+                // a refusal from any phase shows up here and the lock is
+                // undone. The marker still goes up synchronously above,
+                // so the second tap is refused in the meantime.
+                setTimeout(function () {
+                    if (event.defaultPrevented) {
+                        unlock(form);
+                    }
+                }, 0);
             });
         });
     }

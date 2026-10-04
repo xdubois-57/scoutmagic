@@ -809,6 +809,25 @@ the page. The one case that needs undoing is the back button restoring a
 locked page from the history cache, which `pageshow` handles; without it,
 going back shows a button nobody can ever press again.
 
+**A submit refused after the lock engaged releases it, and reading that
+one turn later is load-bearing too.** A form may carry both
+`data-submit-lock` and `data-confirm`, and `confirm.js` refuses on
+`document` without capture — the bubble phase, strictly after a listener
+bound to the form itself, which fires at the target. So
+`event.defaultPrevented` is always false when the lock reads it
+synchronously, however plainly the confirmation is about to intercept.
+Measured in Chromium on a form carrying both, when the lock only read it
+synchronously: « Annuler » left the button stuck on « Envoi en cours… »
+for the life of the page — `pageshow` is the only release and the page
+never left — and « Publier » **posted nothing at all**, because
+`confirm.js` replays the submit with `requestSubmit()` and the lock's own
+marker cancelled the replay. A confirmed form could not be sent. Read
+once the dispatch is over, the answer is knowable: the event keeps
+`defaultPrevented`, so a refusal from any phase undoes the lock, while
+the synchronous marker still refuses the second tap in between. The
+synchronous check stays as well, for a canceller that ran before the lock
+(the capture phase).
+
 `window.ScoutMagicSortable.bind(container, {itemSelector, axis,
 draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
 drag-and-drop reordering. It saves on `dragend`, never on the item's own

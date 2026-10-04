@@ -168,10 +168,11 @@ describe('form-submit-lock.js', () => {
         expect(form('plain-form').hasAttribute('aria-busy')).toBe(false);
     });
 
-    it('does not claim to be sending when another listener refused the submit', async () => {
-        // `data-confirm` answered « non », or a validation hook stopped
-        // it. Nothing is going anywhere, so nothing should look like it
-        // is — and the button has to stay usable for the next attempt.
+    it('does not claim to be sending when a listener refused the submit before it', async () => {
+        // A validation hook in the capture phase, or a listener bound to
+        // this form earlier. Nothing is going anywhere, so nothing should
+        // look like it is — and the button has to stay usable for the
+        // next attempt.
         await load();
         form('photo-form').addEventListener('submit', (event) => event.preventDefault(), true);
 
@@ -180,6 +181,55 @@ describe('form-submit-lock.js', () => {
         expect(button('photo-form').disabled).toBe(false);
         expect(button('photo-form').textContent).toBe('Envoyer');
         expect(form('photo-form').hasAttribute('aria-busy')).toBe(false);
+    });
+
+    it('releases the form when a listener refuses the submit after it', async () => {
+        // How `data-confirm` really refuses, and the case the check above
+        // is blind to: confirm.js binds to `document` WITHOUT capture
+        // (public/assets/js/confirm.js:438), so it runs in the bubble
+        // phase — after this listener, which is bound to the form and
+        // fires at the target. Nothing it does is visible to the
+        // synchronous check.
+        //
+        // Measured in Chromium before this was handled: answering
+        // « Annuler » left the button stuck on « Envoi en cours… » for
+        // the life of the page, and answering « Publier » posted nothing
+        // at all — confirm.js replays the submit, and the marker set
+        // here cancelled the replay. A confirmed form could not be sent.
+        await load();
+        // Removed before leaving: `document` outlives a test here, and a
+        // canceller left on it would refuse every later submit.
+        const refuse = (/** @type {Event} */ event) => event.preventDefault();
+        document.addEventListener('submit', refuse);
+
+        try {
+            submit('photo-form');
+            // The refusal is only knowable once the dispatch is over.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(button('photo-form').disabled).toBe(false);
+            expect(button('photo-form').textContent).toBe('Envoyer');
+            expect(form('photo-form').hasAttribute('aria-busy')).toBe(false);
+            expect(form('photo-form').hasAttribute('data-submit-lock-engaged')).toBe(false);
+        } finally {
+            document.removeEventListener('submit', refuse);
+        }
+
+        // The replay confirm.js sends next has to get through: with the
+        // refusal gone, nothing here may stand in its way.
+        expect(submit('photo-form')).toBe(true);
+    });
+
+    it('refuses a second tap while the first submit is still being dispatched', async () => {
+        // The deferred release must not reopen the double-submit the
+        // whole file exists to close: between the first submit and the
+        // end of its dispatch, the form is locked.
+        await load();
+
+        submit('photo-form');
+
+        expect(form('photo-form').hasAttribute('data-submit-lock-engaged')).toBe(true);
+        expect(submit('photo-form')).toBe(false);
     });
 
     it('restores the form when the back button brings a locked page into view', async () => {
