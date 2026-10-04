@@ -291,6 +291,92 @@
         }
     }
 
+    // ————— The secure-context signal (#751) —————
+    //
+    // Behind a host that terminates TLS in front of PHP, the server sees
+    // plain HTTP on a page every visitor loaded over HTTPS — so it cannot
+    // tell, and used to raise a false alarm. The page can. On a page
+    // loaded outside a secure context, every same-origin request says so
+    // in a header, and the server keeps the date of the last one
+    // (Core\Http\InsecureBrowserAccess). Done here,
+    // once, by wrapping fetch() itself: the thirty-odd scripts that call
+    // fetch() directly get it without a line of their own, and nothing is
+    // ever added to a request leaving for another origin.
+    //
+    // Only where there is something to say: the server renders the
+    // `secure-context-report` meta tag on an installation that requires
+    // HTTPS — for every visitor, since a page in clear has no session to
+    // sign in with — and a page loaded over HTTPS
+    // leaves fetch() exactly as the browser made it — no header, no
+    // wrapper, no extra request.
+    var SECURE_CONTEXT_HEADER = 'X-ScoutMagic-Secure-Context';
+    var reportMeta = /** @type {HTMLMetaElement|null} */ (document.querySelector('meta[name="secure-context-report"]'));
+    var insecurePage = window.location.protocol !== 'https:' || window.isSecureContext !== true;
+    var secureContextSignalled = false;
+
+    /**
+     * @param {RequestInfo|URL} input
+     * @returns {boolean}
+     */
+    function isSameOrigin(input) {
+        var url = '';
+        if (typeof input === 'string') {
+            url = input;
+        } else if (input instanceof URL) {
+            url = input.href;
+        } else if (typeof Request !== 'undefined' && input instanceof Request) {
+            url = input.url;
+        }
+        try {
+            return new URL(url, window.location.href).origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    if (reportMeta && insecurePage && typeof window.fetch === 'function') {
+        var originalFetch = window.fetch;
+        /**
+         * @param {RequestInfo|URL} input
+         * @param {RequestInit} [init]
+         * @returns {Promise<Response>}
+         */
+        window.fetch = function (input, init) {
+            if (!isSameOrigin(input)) {
+                return originalFetch.call(window, input, init);
+            }
+            var fromRequest = typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined;
+            var headers = new Headers(init?.headers ?? fromRequest);
+            headers.set(SECURE_CONTEXT_HEADER, '0');
+            secureContextSignalled = true;
+            return originalFetch.call(window, input, { ...init, headers: headers });
+        };
+    }
+
+    /**
+     * The fallback, for an insecure page that made no request of its own:
+     * one beacon (sendBeacon() cannot set a header, hence its own route),
+     * and only then. No CSRF token: on `http://` the `Secure` session
+     * cookie does not travel, so there is no session to bind one to — the
+     * server checks the beacon's Origin instead.
+     */
+    function reportInsecureContextIfSilent() {
+        if (!reportMeta || !insecurePage || secureContextSignalled || typeof navigator.sendBeacon !== 'function') {
+            return;
+        }
+        secureContextSignalled = navigator.sendBeacon(reportMeta.content);
+    }
+
+    if (reportMeta && insecurePage) {
+        // A few seconds after load gives the page's own requests the
+        // chance to carry the signal first; pagehide catches a page left
+        // sooner.
+        window.addEventListener('load', function () {
+            setTimeout(reportInsecureContextIfSilent, 5000);
+        });
+        window.addEventListener('pagehide', reportInsecureContextIfSilent);
+    }
+
     window.ScoutMagicApi = {
         csrfToken: csrfToken,
         postJson: postJson,
