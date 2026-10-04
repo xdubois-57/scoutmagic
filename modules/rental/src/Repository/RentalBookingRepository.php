@@ -48,6 +48,9 @@ class RentalBookingRepository
     private const CTX_BILLING_REFERENCE = 'rental_bookings.billing_reference';
     private const CTX_TRACKING_TOKEN = 'rental_bookings.tracking_token';
 
+    /** The retired « En cours d'examen » status — see storedValuesOf(). */
+    private const RETIRED_REVIEWING = 'reviewing';
+
     /**
      * Whether adoptLegacyCountryColumn() has already run in this process.
      * Static for the same reason as its counterpart in
@@ -318,7 +321,8 @@ class RentalBookingRepository
             BookingStatus::cases(),
             static fn(BookingStatus $status) => $status->occupiesTheAsset()
         ));
-        $placeholders = implode(',', array_fill(0, count($occupying), '?'));
+        $stored = self::storedValuesOf(...$occupying);
+        $placeholders = implode(',', array_fill(0, count($stored), '?'));
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM rental_bookings
@@ -330,7 +334,7 @@ class RentalBookingRepository
         );
         $stmt->execute(array_merge(
             [$assetId],
-            array_map(static fn(BookingStatus $s) => $s->value, $occupying),
+            $stored,
             [$to, $from]
         ));
 
@@ -389,8 +393,9 @@ class RentalBookingRepository
         $params = $assetIds;
 
         if ($status !== null) {
-            $sql .= ' AND status = ?';
-            $params[] = $status->value;
+            $stored = self::storedValuesOf($status);
+            $sql .= ' AND status IN (' . implode(',', array_fill(0, count($stored), '?')) . ')';
+            $params = [...$params, ...$stored];
         }
 
         $sql .= ' ORDER BY arrival_date DESC';
@@ -495,20 +500,18 @@ class RentalBookingRepository
         \DateTimeImmutable $now
     ): bool {
         $timestamp = $now->format('Y-m-d H:i:s');
-        // A row still carrying the retired `reviewing` status reads back as
-        // RECEIVED (#708, IT-11), so it must also match when RECEIVED is
-        // expected — otherwise the decision would be refused as a race.
+        $stored = self::storedValuesOf($expected);
+        $placeholders = implode(',', array_fill(0, count($stored), '?'));
         $stmt = $this->pdo->prepare(
             "UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
-             WHERE id = ? AND (status = ? OR (status = 'reviewing' AND ? = 'received'))"
+             WHERE id = ? AND status IN ({$placeholders})"
         );
         $stmt->execute([
             $status->value,
             $status->isFinal() ? $timestamp : null,
             $timestamp,
             $id,
-            $expected->value,
-            $expected->value,
+            ...$stored,
         ]);
 
         return $stmt->rowCount() > 0;
@@ -1189,6 +1192,31 @@ class RentalBookingRepository
         $decoded = json_decode($raw, true);
 
         return is_array($decoded) ? PriceQuote::fromArray($decoded) : null;
+    }
+
+    /**
+     * The values a column may hold for $statuses — what every SQL filter on
+     * `status` binds, never `->value` alone.
+     *
+     * `reviewing` is retired (#708, IT-11) and `hydrate()` reads a row still
+     * carrying it as RECEIVED. The schema is declarative, so nothing rewrites
+     * such a row: a filter on RECEIVED has to match it too, or the request
+     * would stop holding its dates and every decision on it would be refused
+     * as a race.
+     *
+     * @return list<string>
+     */
+    private static function storedValuesOf(BookingStatus ...$statuses): array
+    {
+        $values = [];
+        foreach ($statuses as $status) {
+            $values[] = $status->value;
+            if ($status === BookingStatus::RECEIVED) {
+                $values[] = self::RETIRED_REVIEWING;
+            }
+        }
+
+        return $values;
     }
 
     /**

@@ -1170,6 +1170,31 @@ class RentalBookingServiceTest extends TestCase
         );
     }
 
+    /**
+     * Read as RECEIVED, such a row must also hold its dates and come back
+     * from a RECEIVED filter: an SQL `status IN (...)` built from the enum
+     * alone would drop it before hydrate() ever saw it.
+     */
+    public function testARowStillCarryingTheRetiredReviewingStatusStillHoldsItsDates(): void
+    {
+        $booking = $this->submit()['booking'];
+        $this->pdo->prepare('UPDATE rental_bookings SET status = ? WHERE id = ?')->execute(['reviewing', $booking->id]);
+
+        $occupying = $this->repository->findOccupyingBetween(
+            $booking->assetId,
+            $booking->arrivalDate,
+            $booking->departureDate
+        );
+        $this->assertSame([$booking->id], array_map(static fn($b) => $b->id, $occupying));
+        $this->assertSame(
+            [$booking->id],
+            array_map(
+                static fn($b) => $b->id,
+                $this->repository->findAllForAssets([$booking->assetId], BookingStatus::RECEIVED)
+            )
+        );
+    }
+
     public function testStatusHelpersAgreeWithTheSpecsLifecycle(): void
     {
         $this->assertTrue(BookingStatus::RECEIVED->needsAttention());

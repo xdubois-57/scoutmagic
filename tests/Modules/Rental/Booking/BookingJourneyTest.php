@@ -698,6 +698,19 @@ class BookingJourneyTest extends TestCase
         }
     }
 
+    public function testALapsedManagerOptionSaysTheBookingWillExpire(): void
+    {
+        $booking = $this->booking(BookingStatus::PROPOSED, new \DateTimeImmutable('2027-01-09 14:00:00'));
+        $now = new \DateTimeImmutable('2027-01-10 12:00:00');
+        $line = $this->holdLine($booking, '2027-01-10 12:00:00');
+
+        $this->assertNull($booking->holdLapsedSince($now), 'An option is not an automatic hold.');
+        $this->assertTrue($line->isApplicable);
+        $this->assertStringContainsString("L'option est échue depuis le 09/01/2027", (string) $line->warning);
+        $this->assertStringNotContainsString('posez une option', (string) $line->warning);
+        $this->assertFalse($line->isOutstanding());
+    }
+
     public function testTheHoldExplanationDependsOnItsOrigin(): void
     {
         $automatic = $this->holdLine($this->automaticallyHeld(new \DateTimeImmutable('2027-01-29 14:00:00')), '2027-01-10 12:00:00');

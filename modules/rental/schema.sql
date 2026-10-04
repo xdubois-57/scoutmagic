@@ -406,7 +406,8 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- ── Lifecycle (§6.15) ────────────────────────────────────────────
     -- 'received' | 'info_requested' | 'proposed' | 'confirmed'
     -- | 'refused' | 'cancelled' | 'expired' | 'closed'. A row still carrying
-    -- the retired 'reviewing' reads back as 'received' (#708, IT-11).
+    -- the retired 'reviewing' reads back as 'received' (#708, IT-11), and
+    -- every repository filter on 'received' matches it too.
     -- "In progress" is deliberately NOT a stored status: it is derived from
     -- the dates, so it can never disagree with the calendar.
     status VARCHAR(30) NOT NULL DEFAULT 'received',

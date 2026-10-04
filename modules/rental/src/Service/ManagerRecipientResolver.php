@@ -55,8 +55,8 @@ final class ManagerRecipientResolver
     }
 
     /**
-     * The production fallback: the members of the Staff d'U section in the
-     * current scout year.
+     * The production fallback: the members of the Staff d'U section today,
+     * within the current scout year.
      *
      * @return \Closure(): list<int>
      */
@@ -71,9 +71,13 @@ final class ManagerRecipientResolver
                 return [];
             }
 
-            return array_values($memberships->findMemberIdsForSections(
+            // Dated, not year-wide: someone who left the Staff d'U mid-year
+            // has a closed period and must stop hearing about requests the
+            // day they leave, as they stop being able to act on them.
+            return array_values($memberships->findMemberIdsCoveringDate(
                 [(int) $section['id']],
-                (int) $scoutYears->getCurrentYear()['id']
+                (int) $scoutYears->getCurrentYear()['id'],
+                (new \DateTimeImmutable('today'))->format('Y-m-d')
             ));
         };
     }
