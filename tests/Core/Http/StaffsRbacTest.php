@@ -33,6 +33,8 @@ final class StaffsRbacTest extends TestCase
         ['POST', '/chefs/staffs/badge-toggle'],
         // A section's own text (#725).
         ['POST', '/chefs/staffs/text'],
+        // A section totem (#722).
+        ['POST', '/chefs/staffs/totem-de-section'],
     ];
 
     private Environment $twig;
