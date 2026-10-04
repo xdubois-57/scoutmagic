@@ -579,11 +579,13 @@ class RentalStayServiceTest extends TestCase
 
     // ── « Valider l'état des lieux » (#708, IT-17) ──────────────────────
 
-    private function validationService(?\Core\Pdf\DocumentPdfService $pdf = null): \Modules\Rental\Service\RentalInventoryValidationService
-    {
+    private function validationService(
+        ?\Core\Pdf\DocumentPdfService $pdf = null,
+        ?\Modules\Rental\Service\RentalDocumentService $documents = null
+    ): \Modules\Rental\Service\RentalInventoryValidationService {
         return new \Modules\Rental\Service\RentalInventoryValidationService(
             $this->service,
-            $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            $documents ?? $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
             $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class),
             $pdf ?? $this->createStub(\Core\Pdf\DocumentPdfService::class),
             $this->createStub(\Core\Config\SettingService::class),
@@ -617,6 +619,51 @@ class RentalStayServiceTest extends TestCase
                 $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
             );
             $this->fail('A validation without its PDF went through.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
+        }
+
+        $this->assertSame([], $this->service->inventoryValidations($booking->id));
+    }
+
+    /**
+     * A PDF already filed when the validation is taken back goes with it:
+     * left in Documents, it could still be sent to the renter as if the
+     * inventory had been validated.
+     */
+    public function testAValidationTakenBackAfterItsPdfWasFiledTakesThePdfAway(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        // The step after the filing fails: the validation row cannot take
+        // its document.
+        $this->pdo->exec(
+            "CREATE TRIGGER no_document BEFORE UPDATE OF document_id ON rental_inventory_validations
+             BEGIN SELECT RAISE(ABORT, 'disque plein'); END"
+        );
+        $filed = new \Modules\Rental\Document\RentalDocument(
+            id: 41,
+            bookingId: $booking->id,
+            fileId: 141,
+            type: \Modules\Rental\Document\DocumentType::INVENTORY,
+            version: 1,
+            isForRenter: true,
+            originalName: 'etat-des-lieux-entree.pdf',
+            sizeBytes: 1024,
+            sentAt: null,
+            createdByMemberId: 1,
+            createdAt: $this->now()
+        );
+        $documents = $this->createMock(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn($filed);
+        $documents->expects($this->once())->method('delete')->with($filed, 1);
+
+        try {
+            $this->validationService(null, $documents)->validate(
+                $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
+            );
+            $this->fail('A validation whose document could not be attached went through.');
         } catch (RentalException $e) {
             $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
         }

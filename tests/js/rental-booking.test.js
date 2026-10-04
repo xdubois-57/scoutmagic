@@ -179,6 +179,42 @@ describe('rental-booking.js: posting a form without leaving the page', () => {
         expect(document.getElementById('milestone').textContent).toBe('Fait');
     });
 
+    /**
+     * The render fetched for the refresh may predate a save still in
+     * flight on one line (rental-inventory.js): that line is kept as it
+     * is, its value and status with it; the rest of the panel moves on.
+     */
+    it('keeps an element still saving on its own, and re-renders everything around it', async () => {
+        const panel = (value, milestone) => `
+            <div class="page-medium" data-rental-booking>
+                <div data-booking-panel="milestones"><span id="milestone">${milestone}</span></div>
+                <div data-booking-panel="documents">
+                    <form method="post" action="/mes-locations/document-envoyer" id="send-form">
+                        <button type="submit">Envoyer</button>
+                    </form>
+                    <form id="line-1" data-async="off"><input name="value" value="${value}"><output></output></form>
+                    <form id="line-2" data-async="off"><input name="value" value="${value}"></form>
+                </div>
+            </div>`;
+        document.body.innerHTML = panel('', 'À faire');
+        global.fetch = actionThenRefresh({ success: true, message: 'Relevé enregistré.' }, panel('', 'Fait'));
+        await boot();
+        const saving = document.getElementById('line-1');
+        saving.setAttribute('data-booking-keep', '');
+        saving.querySelector('input').value = '1';
+        saving.querySelector('output').textContent = 'Enregistrement…';
+        const idle = document.getElementById('line-2');
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(document.getElementById('milestone').textContent).toBe('Fait'));
+        expect(document.getElementById('line-1')).toBe(saving);
+        expect(saving.querySelector('input').value).toBe('1');
+        expect(saving.querySelector('output').textContent).toBe('Enregistrement…');
+        expect(document.getElementById('line-2')).not.toBe(idle);
+        expect(document.querySelectorAll('#line-1')).toHaveLength(1);
+    });
+
     it('stops saying it is busy when the refresh itself fails', async () => {
         document.body.innerHTML = pageHtml('À faire');
         let call = 0;

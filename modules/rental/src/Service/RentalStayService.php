@@ -149,7 +149,7 @@ class RentalStayService
             throw new RentalException('Un index de compteur ne peut pas être négatif.');
         }
 
-        $this->stayRepository->saveReading(
+        $saved = $this->stayRepository->saveReading(
             $booking->id,
             $meterId,
             $phase,
@@ -159,6 +159,11 @@ class RentalStayService
             $comment,
             $actorMemberId
         );
+        if (!$saved) {
+            // Validated by someone else since the check above — the write
+            // itself refused it — or a correction that changed nothing.
+            $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+        }
 
         $this->bookingAudit->record(
             $booking->id,
@@ -380,7 +385,11 @@ class RentalStayService
             throw new RentalException($line['label'] . ' : ' . $e->getMessage());
         }
 
-        $this->stayRepository->setInventoryValue($inventoryId, $phase, $value, $note);
+        if (!$this->stayRepository->setInventoryValue($inventoryId, $phase, $value, $note)) {
+            // Validated by someone else since the check above — the write
+            // itself refused it — or a save that changed nothing.
+            $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+        }
     }
 
     /**

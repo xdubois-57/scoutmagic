@@ -48,7 +48,7 @@
                             <div class="list-group list-group-flush mb-3" data-inventory-lines>
                                 {% for line in inventory_lines %}
                                     {% set field_id = 'inventory-' ~ line.id ~ '-' ~ phase.value %}
-                                    <form method="post" action="/mes-locations/etat-des-lieux/ligne"
+                                    <form method="post" action="/mes-locations/etat-des-lieux/ligne" id="{{ field_id }}-line"
                                           class="list-group-item px-0 row g-2 align-items-end mx-0"
                                           data-async="off" data-inventory-line>
                                         {{ csrf_field()|raw }}

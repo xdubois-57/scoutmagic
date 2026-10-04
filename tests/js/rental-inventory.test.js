@@ -75,6 +75,43 @@ describe('the page', () => {
         await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     });
 
+    /**
+     * One request per line at a time: the note typed while the value is
+     * still saving waits, so the older answer can never be the one left
+     * on screen — and the line is kept from a panel re-render meanwhile.
+     */
+    it('queues a second save behind the one in flight and lets only the last one speak', async () => {
+        page();
+        /** @type {Array<(response: Response) => void>} */
+        const answers = [];
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+            () => new Promise((resolve) => { answers.push(resolve); })
+        );
+        const form = /** @type {HTMLFormElement} */ (document.querySelector('form[data-inventory-line]'));
+        const status = /** @type {HTMLOutputElement} */ (form.querySelector('[data-inventory-status]'));
+        const note = /** @type {HTMLInputElement} */ (form.querySelector('input[name="note"]'));
+
+        const first = saveLine(form);
+        note.value = 'Deux clés';
+        const second = saveLine(form);
+
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+        expect(form.hasAttribute('data-booking-keep')).toBe(true);
+
+        answers[0](new Response(JSON.stringify({ success: false, message: 'Refusé' })));
+        await first;
+        // The older answer is not said: the newer save is still on its way.
+        expect(status.textContent).toBe('Enregistrement…');
+        expect(form.hasAttribute('data-booking-keep')).toBe(true);
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        expect(/** @type {FormData} */ (fetchMock.mock.calls[1][1]?.body).get('note')).toBe('Deux clés');
+
+        answers[1](new Response(JSON.stringify({ success: true })));
+        await second;
+        expect(status.textContent).toBe('Enregistré');
+        expect(form.hasAttribute('data-booking-keep')).toBe(false);
+    });
+
     it('says a refusal beside the line', async () => {
         page();
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(

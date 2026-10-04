@@ -94,7 +94,18 @@
                 var name = /** @type {HTMLElement} */ (panel).dataset.bookingPanel;
                 var replacement = fresh.querySelector('[data-booking-panel="' + name + '"]');
                 if (replacement) {
+                    // An element still saving on its own — an inventory
+                    // line, rental-inventory.js — stays as it is: the
+                    // render fetched here may predate its save, and would
+                    // put the older value back and wipe its status.
+                    var kept = Array.prototype.slice.call(panel.querySelectorAll('[data-booking-keep][id]'));
                     panel.innerHTML = replacement.innerHTML;
+                    kept.forEach(function (live) {
+                        var twin = document.getElementById(live.id);
+                        if (twin && twin !== live) {
+                            twin.replaceWith(live);
+                        }
+                    });
                 }
             });
 

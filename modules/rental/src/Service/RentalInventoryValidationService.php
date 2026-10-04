@@ -96,8 +96,15 @@ class RentalInventoryValidationService
         if (!$this->stay->recordInventoryValidation($booking, $phase, $now, $actorMemberId)) {
             throw new RentalException('Cet état des lieux est déjà validé.');
         }
+        // Read again now that the phase is frozen: a line saved by another
+        // manager between the reads above and the validation is in, and
+        // none can land after this read (the writes refuse a validated
+        // phase), so the PDF holds exactly what stays stored.
+        $lines = $this->stay->inventoryFor($booking->id);
+        $meters = $this->stay->consumptionsFor($booking, $asset->id);
 
         $label = $phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie';
+        $document = null;
         try {
             $pdf = $this->pdf->generate(
                 $label . ' — ' . $booking->reference,
@@ -129,7 +136,18 @@ class RentalInventoryValidationService
             $this->stay->attachInventoryDocument($booking, $phase, $document->id);
         } catch (\Throwable $e) {
             // Taken back: an inventory validated with no PDF would be
-            // frozen with nothing to show for it.
+            // frozen with nothing to show for it. And a PDF filed for a
+            // validation that is taken back goes with it: left in
+            // Documents, it could still be sent to the renter as if the
+            // inventory had been validated.
+            if ($document !== null) {
+                try {
+                    $this->documents->delete($document, $actorMemberId);
+                } catch (\Throwable) {
+                    // The validation is taken back regardless; a stray
+                    // unsent PDF is the lesser fault.
+                }
+            }
             $this->stay->forgetInventoryValidation($booking, $phase);
             throw $e instanceof RentalException
                 ? $e

@@ -65,7 +65,40 @@ function refreshQuestion(doc) {
 }
 
 /**
+ * The save each line has in flight, if any.
+ *
+ * @type {WeakMap<HTMLFormElement, Promise<void>>}
+ */
+const inFlight = new WeakMap();
+
+/**
+ * Posts the line as it is NOW — read when the request leaves, not when it
+ * was queued, so a save queued behind another carries the latest value.
+ *
+ * @param {HTMLFormElement} form
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+function post(form) {
+    return fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then((response) => response.json().catch(() => null)).then((data) => {
+        const ok = data !== null && data.success === true;
+        return { ok, message: ok ? 'Enregistré' : ((data && (data.message || data.error)) || 'Non enregistré') };
+    }).catch(() => ({ ok: false, message: 'Erreur réseau : rien n\'a été enregistré.' }));
+}
+
+/**
  * Posts one line and says the answer beside it.
+ *
+ * One request per line at a time: a note typed while the value is still
+ * saving waits for it, so two answers can never arrive out of order and
+ * leave the older one on screen. Only the last save of a run speaks.
+ *
+ * While a save is in flight the line carries `data-booking-keep`:
+ * rental-booking.js keeps it as it is when it re-renders the panel, since
+ * the render it fetched may predate this save.
  *
  * @param {HTMLFormElement} form
  * @returns {Promise<void>}
@@ -76,25 +109,26 @@ export function saveLine(form) {
         status.textContent = 'Enregistrement…';
         status.className = 'small d-block text-body-secondary';
     }
+    form.setAttribute('data-booking-keep', '');
 
-    return fetch(form.action, {
-        method: 'POST',
-        body: new FormData(form),
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then((response) => response.json().catch(() => null)).then((data) => {
-        const ok = data !== null && data.success === true;
+    const previous = inFlight.get(form) || Promise.resolve();
+    /** @type {Promise<void>} */
+    const run = previous.then(() => post(form)).then(({ ok, message }) => {
+        if (inFlight.get(form) !== run) {
+            return;
+        }
+        inFlight.delete(form);
+        form.removeAttribute('data-booking-keep');
         if (status) {
-            status.textContent = ok ? 'Enregistré' : ((data && (data.message || data.error)) || 'Non enregistré');
+            status.textContent = message;
             status.className = 'small d-block ' + (ok ? 'text-success' : 'text-danger');
         }
         form.querySelector('[data-inventory-value]')?.classList.toggle('is-invalid', !ok);
         refreshQuestion(form.ownerDocument);
-    }).catch(() => {
-        if (status) {
-            status.textContent = 'Erreur réseau : rien n\'a été enregistré.';
-            status.className = 'small d-block text-danger';
-        }
     });
+    inFlight.set(form, run);
+
+    return run;
 }
 
 /**

@@ -145,6 +145,10 @@ class RentalStayRepository
      * Replacing rather than accumulating is the point: a second arrival
      * reading is a **correction**, and keeping both would make consumption
      * a guess about which pair to use.
+     *
+     * Never onto a validated phase, checked by the write itself — see
+     * setInventoryValue(). False when no row changed: the phase was
+     * validated in between, or the correction changed nothing.
      */
     public function saveReading(
         int $bookingId,
@@ -155,7 +159,7 @@ class RentalStayRepository
         ?int $fileId,
         ?string $comment,
         ?int $recordedByMemberId
-    ): void {
+    ): bool {
         $existing = $this->findReading($bookingId, $meterId, $phase);
         $timestamp = $readAt->format('Y-m-d H:i:s');
         $comment = $comment !== null && trim($comment) !== '' ? mb_substr(trim($comment), 0, 255) : null;
@@ -164,7 +168,9 @@ class RentalStayRepository
             $stmt = $this->pdo->prepare(
                 'UPDATE rental_meter_readings
                  SET value_milli = ?, read_at = ?, file_id = ?, comment = ?, recorded_by_member_id = ?
-                 WHERE id = ?'
+                 WHERE id = ?
+                   AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                    WHERE v.booking_id = ? AND v.phase = ?)'
             );
             $stmt->execute([
                 $valueMilli,
@@ -176,16 +182,22 @@ class RentalStayRepository
                 $comment,
                 $recordedByMemberId,
                 $existing->id,
+                $bookingId,
+                $phase->value,
             ]);
 
-            return;
+            return $stmt->rowCount() > 0;
         }
 
+        // `FROM (SELECT 1)` rather than MySQL's `FROM DUAL`, which SQLite
+        // does not know: the one-row source the NOT EXISTS filters.
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_meter_readings
                 (booking_id, meter_id, phase, value_milli, read_at, file_id, comment, recorded_by_member_id, '
                 . 'created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
+              WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = ? AND v.phase = ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -197,7 +209,11 @@ class RentalStayRepository
             $comment,
             $recordedByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+            $phase->value,
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function findReading(int $bookingId, int $meterId, ReadingPhase $phase): ?MeterReading
@@ -429,27 +445,41 @@ class RentalStayRepository
     /**
      * What was found on one line, for one phase (#708, IT-17): the value —
      * already parsed by its sort — and the note beside it.
+     *
+     * Never onto a validated phase, checked by the write itself and not
+     * only beforehand: a save that passed the check while another manager
+     * was validating would otherwise land after the PDF was made, and the
+     * frozen value would differ from the one the renter holds.
+     *
+     * False when no row changed — the phase was validated in between, or
+     * (MySQL counts changed rows, not matched ones) nothing was different.
      */
     public function setInventoryValue(
         int $inventoryId,
         ReadingPhase $phase,
         ?string $value,
         ?string $note
-    ): void {
+    ): bool {
         $valueColumn = $phase === ReadingPhase::ARRIVAL ? 'arrival_value' : 'departure_value';
         $noteColumn = $phase === ReadingPhase::ARRIVAL ? 'arrival_note' : 'departure_note';
 
         // The column names come from the enum above, never from a request:
         // a phase that is not one of the two cases cannot reach this line.
         $stmt = $this->pdo->prepare(
-            "UPDATE rental_booking_inventory SET {$valueColumn} = ?, {$noteColumn} = ?, updated_at = ? WHERE id = ?"
+            "UPDATE rental_booking_inventory SET {$valueColumn} = ?, {$noteColumn} = ?, updated_at = ?
+              WHERE id = ?
+                AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = rental_booking_inventory.booking_id AND v.phase = ?)"
         );
         $stmt->execute([
             $value,
             $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 255) : null,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $inventoryId,
+            $phase->value,
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /**

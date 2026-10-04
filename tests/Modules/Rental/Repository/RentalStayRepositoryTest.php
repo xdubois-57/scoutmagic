@@ -335,6 +335,61 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertNull($this->repository->findBookingInventory($this->bookingId)[0]['arrival_note']);
     }
 
+    /**
+     * The write itself refuses a validated phase, not only the check the
+     * service makes beforehand: a save that passed that check while another
+     * manager was validating would otherwise land after the PDF was made.
+     */
+    public function testAValueIsNeverWrittenOntoAValidatedPhase(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
+        $this->repository->snapshotInventory($this->bookingId, $this->assetId);
+        $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null));
+
+        $this->repository->recordInventoryValidation(
+            $this->bookingId, ReadingPhase::ARRIVAL, new \DateTimeImmutable('2027-07-17 18:00:00'), null
+        );
+
+        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '12', 'Trop tard'));
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::DEPARTURE, '38', null));
+        $line = $this->repository->findBookingInventory($this->bookingId)[0];
+        $this->assertSame('40', $line['arrival_value']);
+        $this->assertNull($line['arrival_note']);
+        $this->assertSame('38', $line['departure_value']);
+    }
+
+    public function testAReadingIsNeverWrittenOntoAValidatedPhase(): void
+    {
+        $meterId = $this->meter();
+        $now = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->assertTrue(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_000_000, $now, null, null, 7)
+        );
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $now, null);
+
+        // Neither a correction of the arrival reading nor a first one on
+        // another meter.
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_050_000, $now, null, null, 7)
+        );
+        $otherMeterId = $this->repository->createMeter($this->assetId, 'Eau', MeterKind::WATER, 'm³', null);
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL, 5_000, $now, null, null, 7)
+        );
+        $this->assertSame(
+            1_000_000,
+            $this->repository->findReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL)?->valueMilli
+        );
+        $this->assertNull($this->repository->findReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL));
+
+        // The departure is still open.
+        $this->assertTrue(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::DEPARTURE, 1_120_000, $now, null, null, 7)
+        );
+    }
+
     public function testAPhaseIsValidatedOnceAndCarriesItsDocument(): void
     {
         $at = new \DateTimeImmutable('2027-07-01 10:00:00');
