@@ -11570,6 +11570,19 @@ if ($isEnabled('rental')) {
             (string) ($settingService->get('asset_type_suggestions', 'rental') ?: '')
         )
     );
+    // Who hears about an asset — new requests and reminders alike (#708,
+    // IT-05): its managers with an account, the Staff d'U when none.
+    $rentalManagerRecipients = new \Modules\Rental\Service\ManagerRecipientResolver(
+        $rentalManagerRepository,
+        $memberYearRepo,
+        $userAccountRepo,
+        $journalService,
+        \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+            new \Core\Member\Repository\SectionRepository($connection),
+            $memberYearRepo,
+            $scoutYearService
+        )
+    );
     $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
         $rentalManagerRepository,
         $memberService,
@@ -11691,7 +11704,9 @@ if ($isEnabled('rental')) {
             $inboundMailForOthers,
             // Read-only here: flags the public assets nobody has priced yet,
             // so a chief learns it from this page rather than from a visitor.
-            $rentalPricingService
+            $rentalPricingService,
+            // Flags each manager who cannot be told about a request (#708, IT-05).
+            $rentalManagerRecipients
         )
     );
     // Every wording of an asset's conditions, archived (issue #494): the
@@ -11965,6 +11980,9 @@ if ($isEnabled('rental')) {
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
                 $rentalBookingAudit
             ),
+            // The overview warns when nobody on the asset can be told about
+            // a request (#708, IT-05).
+            $rentalManagerRecipients,
             // Dates the version of the conditions in force on the Gabarits
             // list, and links to it from their page (#708, IT-10).
             $rentalConditionsService
@@ -11980,7 +11998,6 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             $rentalBookingMailService,
             $rentalManagerService,
-            $memberService,
             $scoutYearService,
             $editableContentService,
             $humanCheckService,
@@ -11996,7 +12013,11 @@ if ($isEnabled('rental')) {
             $calendarIcsBuilderForOthers,
             $calendarIcsBuilderForOthers !== null
                 ? new \Modules\Rental\Calendar\RenterFeedBuilder((string) ($settingService->get('base_url') ?: ''))
-                : null
+                : null,
+            // « Nouvelle demande de location » (#708, IT-05): a notification
+            // to the asset's reachable managers, the Staff d'U when none.
+            $notificationService,
+            $rentalManagerRecipients
         )
     );
 

@@ -31,6 +31,7 @@ use Modules\Rental\Availability\AvailabilityCalculator;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
@@ -288,6 +289,13 @@ class RentalManagementControllerTest extends TestCase
             new \Modules\Rental\Service\RentalMilestoneMarkService(
                 new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
                 $bookingAudit
+            ),
+            // The overview warns when nobody on the asset can be told (#708, IT-05).
+            new \Modules\Rental\Service\ManagerRecipientResolver(
+                $this->managerRepository,
+                new \Core\Import\MemberYearRepository($this->pdo),
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+                $journal
             ),
             // Dates the conditions on the Gabarits list (#708, IT-10).
             new \Modules\Rental\Service\RentalConditionsService(
@@ -1164,7 +1172,7 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(1, 'nobody@test.be', 'identified');
 
         $actions = [
-            ['/mes-locations/statut', 'changeStatus', ['status' => 'reviewing']],
+            ['/mes-locations/statut', 'changeStatus', ['status' => 'info_requested']],
             ['/mes-locations/option', 'placeOption', ['until' => '2027-06-01T18:00']],
             ['/mes-locations/commentaire', 'addComment', ['body' => 'Interne']],
             ['/mes-locations/ligne', 'priceLine', ['line_action' => 'recalculate']],
@@ -1209,7 +1217,7 @@ class RentalManagementControllerTest extends TestCase
             '_csrf_token' => 'forged',
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
@@ -1243,7 +1251,7 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $foreign->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(404, $response->getStatusCode());
@@ -1280,11 +1288,11 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame(BookingStatus::REVIEWING, $this->bookingRepository->findById($booking->id)?->status);
+        $this->assertSame(BookingStatus::INFO_REQUESTED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /**
@@ -1346,7 +1354,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $this->assertStringNotContainsString(
@@ -1450,16 +1458,22 @@ class RentalManagementControllerTest extends TestCase
 
     public function testBookkeepingWritesToNobody(): void
     {
-        // A manager opening a request moves it to « en cours d'examen ».
+        // Putting a request back on hold is the unit's own bookkeeping.
         // That is not news, and an email saying so would train the renter
         // to ignore the ones that are.
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'info_requested',
+        ]);
+        $this->renterEmails = [];
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'received',
         ]);
 
         $this->assertSame([], $this->renterEmails);
@@ -1574,6 +1588,62 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNull($this->bookingRepository->findById($booking->id)?->holdUntil);
     }
 
+    /**
+     * The field says which hold runs (#708, IT-01): saving a date over the
+     * automatic one makes it an option, which ends differently.
+     */
+    public function testTheOptionFieldSaysTheAutomaticHoldRunsAndSavingMakesAnOption(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $until = new \DateTimeImmutable('+10 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $until, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+        $this->assertStringContainsString('value="' . $until->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringContainsString('Cette date est celle du <strong>blocage automatique</strong>', $body);
+
+        $this->post('/mes-locations/option', 'placeOption', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'until' => $until->format('Y-m-d\TH:i'),
+        ]);
+        $this->assertSame(HoldOrigin::MANAGER, $this->bookingRepository->findById($booking->id)?->holdOrigin);
+    }
+
+    /** A lapsed automatic hold warns, and the field shows no stale deadline. */
+    public function testALapsedAutomaticHoldWarnsOnTheBookingPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $lapsed = new \DateTimeImmutable('-2 days 14:00');
+        $this->bookingRepository->setHold($booking->id, $lapsed, HoldOrigin::AUTOMATIC);
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody());
+
+        $this->assertStringContainsString('Les dates ne sont plus bloquées depuis le ' . $lapsed->format('d/m/Y'), $body);
+        $this->assertStringNotContainsString('value="' . $lapsed->format('Y-m-d\TH:i') . '"', $body);
+        $this->assertStringNotContainsString("L'option sur les dates est échue", $body);
+    }
+
+    /**
+     * Nobody on the asset can be told about a request (#708, IT-05): the
+     * overview says the Staff d'U gets them, and how to fix it.
+     */
+    public function testTheOverviewWarnsWhenNoManagerCanBeTold(): void
+    {
+        $this->loginAsManager();
+        // loginAsManager()'s manager has no user account in this suite.
+        $this->assertStringContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
+
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')->execute([
+            $this->encryption->encrypt('manager@test.be', 'user_accounts.email'),
+            $this->encryption->blindIndex('manager@test.be', 'email'),
+        ]);
+
+        $this->assertStringNotContainsString('data-managers-unreachable', (string) $this->overview('local-saint-georges')->getBody());
+    }
+
     public function testAManagerEditsThePriceAndTheRenterSeesTheNewTotal(): void
     {
         $this->loginAsManager();
@@ -1645,7 +1715,7 @@ class RentalManagementControllerTest extends TestCase
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'status' => 'reviewing',
+            'status' => 'info_requested',
         ]);
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
@@ -1658,7 +1728,7 @@ class RentalManagementControllerTest extends TestCase
         // the status change is rendered under its French label, with the
         // move it made, by the same partial Camps uses.
         $this->assertStringContainsString('Statut', $body);
-        $this->assertStringContainsString('En cours d', $body);
+        $this->assertStringContainsString('Informations demand', $body);
         $this->assertStringContainsString('audit-rental_booking-' . $booking->id, $body);
     }
 

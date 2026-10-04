@@ -39,14 +39,6 @@ final class BookingTransition
      */
     private const ALLOWED = [
         BookingStatus::RECEIVED->value => [
-            BookingStatus::REVIEWING,
-            BookingStatus::INFO_REQUESTED,
-            BookingStatus::PROPOSED,
-            BookingStatus::CONFIRMED,
-            BookingStatus::REFUSED,
-            BookingStatus::CANCELLED,
-        ],
-        BookingStatus::REVIEWING->value => [
             BookingStatus::INFO_REQUESTED,
             BookingStatus::PROPOSED,
             BookingStatus::CONFIRMED,
@@ -54,14 +46,17 @@ final class BookingTransition
             BookingStatus::CANCELLED,
         ],
         BookingStatus::INFO_REQUESTED->value => [
-            BookingStatus::REVIEWING,
+            // « Remettre en attente »: back to waiting on the unit's
+            // decision, where the « sans réponse » reminder applies again
+            // (#708, IT-11 — this used to lead to « En cours d'examen »).
+            BookingStatus::RECEIVED,
             BookingStatus::PROPOSED,
             BookingStatus::CONFIRMED,
             BookingStatus::REFUSED,
             BookingStatus::CANCELLED,
         ],
         BookingStatus::PROPOSED->value => [
-            BookingStatus::REVIEWING,
+            BookingStatus::RECEIVED,
             BookingStatus::INFO_REQUESTED,
             BookingStatus::CONFIRMED,
             BookingStatus::REFUSED,
@@ -137,7 +132,6 @@ final class BookingTransition
 
         return match ($to) {
             BookingStatus::RECEIVED => 'Remettre en attente',
-            BookingStatus::REVIEWING => 'Mettre en examen',
             BookingStatus::INFO_REQUESTED => 'Demander une précision',
             BookingStatus::PROPOSED => 'Faire une proposition',
             BookingStatus::CONFIRMED => 'Confirmer la réservation',

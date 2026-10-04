@@ -376,16 +376,6 @@ final class RentalBookingMailServiceTest extends TestCase
         }
     }
 
-    /** The managers' notification is not addressed to the renter, and says nothing of it. */
-    public function testTheManagersNotificationCarriesNoConditionsLink(): void
-    {
-        [$service, $accepted] = $this->serviceWithAcceptedConditions();
-
-        $service->sendManagerNotification($this->booking(accepted: $accepted), $this->asset(), ['chef@unite.test']);
-
-        $this->assertStringNotContainsString('Conditions de location acceptées', $this->onlyMail()['html']);
-    }
-
     /**
      * A booking whose version is not in the archive — conditions
      * overwritten before the archive existed — gets no link at all rather
@@ -582,11 +572,6 @@ final class RentalBookingMailServiceTest extends TestCase
                 RenterDecision::CONFIRMED,
                 str_repeat('a', 64),
                 null
-            ),
-            'manager_notification' => fn () => $this->service->sendManagerNotification(
-                $this->booking(),
-                $this->asset(),
-                ['gestion@example.test']
             ),
             'document' => fn () => $this->service->sendDocument(
                 $this->booking(),

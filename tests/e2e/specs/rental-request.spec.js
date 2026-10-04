@@ -247,8 +247,12 @@ test.describe('Rentals', () => {
         // Still signed in: nothing dropped this session in the meantime.
         await page.goto('/mes-locations');
 
-        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
-        await expect(page.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+        // Scoped to the page body: the request has also raised a « Nouvelle
+        // demande de location — {bien} » notification (#708, IT-05), and the
+        // closed notification menu would otherwise answer first, hidden.
+        const content = page.locator('#main-content');
+        await expect(content.getByText(ASSET_NAME).first()).toBeVisible();
+        await expect(content.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
 
         // --- What the renter never sees of it. ---
         // A manager's internal comment is the one thing §6.6 is most

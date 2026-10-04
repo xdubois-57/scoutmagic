@@ -160,6 +160,7 @@ class RentalTestHelper
             final_at TEXT,
             hold_until TEXT,
             hold_origin TEXT,
+            hold_lapsed_at TEXT,
             estimated_price_snapshot TEXT,
             estimated_total_cents INTEGER,
             agreed_price_snapshot TEXT,

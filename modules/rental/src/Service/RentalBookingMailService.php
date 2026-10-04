@@ -252,69 +252,6 @@ class RentalBookingMailService
     }
 
     /**
-     * The managers' notification.
-     *
-     * Deliberately **minimal** (§15 of the conventions): it says a request
-     * arrived and links to the secured page. It carries no renter identity,
-     * because an inbox is not a place to scatter copies of personal data —
-     * and because a manager who needs the detail is one click from the page
-     * that shows it behind a real permission check.
-     *
-     * @param string[] $recipientEmails
-     * @return string The Message-ID.
-     */
-    public function sendManagerNotification(
-        RentalBooking $booking,
-        RentalAsset $asset,
-        array $recipientEmails
-    ): string {
-        $messageId = $this->messageIdFor($booking);
-        $context = [
-            // The booking itself, not the module's front door. A manager
-            // opening this mail on a phone was landing on a list and
-            // having to find the request again — and the link is safe to
-            // deep-link precisely because the page behind it is behind a
-            // real permission check, which is also why the mail carries no
-            // renter identity of its own.
-            'manage_url' => rtrim($this->baseUrl(), '/')
-                . '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id,
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ];
-
-        // Rendered once, sent many times: every manager receives the same
-        // message, and rendering it per recipient would be six identical
-        // renders and one more chance for them to differ.
-        $email = $this->renderFor($booking, $asset, 'rental.manager_notification', $context);
-
-        foreach (array_unique(array_filter($recipientEmails)) as $recipient) {
-            // One message each rather than a shared To/BCC: a manager's
-            // address must not be disclosed to the other managers by the
-            // header, and a single bad address must not sink the whole batch.
-            $this->mailService->send(
-                $recipient,
-                $email->subject,
-                $email->bodyHtml,
-                $email->bodyText,
-                $this->replyAddressFor($booking),
-                [],
-                null,
-                null,
-                ['Message-ID' => $messageId]
-            );
-        }
-
-        $this->journal->log(
-            'rental',
-            'rental_manager_notification_sent',
-            'info',
-            'Gestionnaires notifiés pour ' . $booking->reference,
-            ['booking_id' => $booking->id, 'recipient_count' => count(array_unique(array_filter($recipientEmails)))]
-        );
-
-        return $messageId;
-    }
-
-    /**
      * Sends a generated document to the renter (§6.24, §6.26).
      *
      * **This is the only way a renter ever receives their contract or their
