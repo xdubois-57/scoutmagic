@@ -208,7 +208,7 @@ class ReenrollmentSavePlanner
 
         return [
             'key' => $key,
-            'label' => $this->campaign->targetLabelOf($key),
+            'label' => $this->campaign->targetLabelOf($key, $state['open_at']),
             'opens' => ReenrollmentCampaignService::openingDateOf($key, (string) $state['open_at'])?->format('Y-m-d'),
             'closes' => $key,
             'reminders' => $reminders,

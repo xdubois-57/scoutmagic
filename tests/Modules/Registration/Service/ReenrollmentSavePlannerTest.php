@@ -389,6 +389,21 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
     }
 
+    public function testTheCampaignLabelFollowsTheDatesBeingSavedNotTheStoredOnes(): void
+    {
+        // Stored 03-01 → 05-15; saved as 10-01 → 12-15 with the switch on.
+        // The campaign for 2027-2028 is the one of autumn 2026, and the
+        // label the chief confirms says so.
+        $plan = $this->plan(
+            ['is_open' => true, 'open_at' => '10-01', 'close_at' => '12-15'],
+            '2026-10-02 10:00'
+        );
+
+        $this->assertSame('2026-12-15', $plan->campaign['key'] ?? null);
+        $this->assertSame('2027-2028', $plan->campaign['label'] ?? null);
+        $this->assertSame('2026-10-01', $plan->campaign['opens'] ?? null);
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();
