@@ -11,20 +11,24 @@ namespace Modules\TestTools\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Security\AuthSession;
+use Modules\TestTools\Telephony\SimulatedTelephony;
 use Twig\Environment;
 
 /**
  * `/test-tools` (`role_min: superadmin`) — the toolbox's index
  * (ARCHITECTURE.md §8.63).
  *
- * Two tools today (the mail sandbox, and the provoked error below); the
- * page exists so the next one has somewhere to go, rather than the menu
- * growing an entry per tool.
+ * Three tools today (the mail sandbox, simulated telephony, and the
+ * provoked error below); the page exists so the next one has somewhere to
+ * go, rather than the menu growing an entry per tool.
  */
 class TestToolsController extends AbstractController
 {
-    public function __construct(protected Environment $twig)
-    {
+    public function __construct(
+        protected Environment $twig,
+        private SimulatedTelephony $simulatedTelephony
+    ) {
     }
 
     /**
@@ -32,7 +36,30 @@ class TestToolsController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        return $this->render('@test_tools/index.html.twig');
+        return $this->render('@test_tools/index.html.twig', [
+            'simulated_telephony_armed' => $this->simulatedTelephony->armed(),
+        ]);
+    }
+
+    /**
+     * `POST /test-tools/simulated-telephony` — arm or disarm the simulated
+     * line the SOS Staff d'U module talks to instead of its real provider.
+     * Set to the submitted state, never flipped blind.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleSimulatedTelephony(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/test-tools')) !== null) {
+            return $guard;
+        }
+
+        $this->simulatedTelephony->setArmed(
+            (string) $request->getBody('armed', '0') === '1',
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->redirect('/test-tools');
     }
 
     /**

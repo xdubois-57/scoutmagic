@@ -6,7 +6,10 @@ namespace Tests\Modules\TestTools;
 
 use Core\Http\Request;
 use Core\Module\ModuleManifest;
+use Core\Config\SettingService;
+use Core\Journal\JournalService;
 use Modules\TestTools\Controller\TestToolsController;
+use Modules\TestTools\Telephony\SimulatedTelephony;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
@@ -83,7 +86,10 @@ class UncaughtErrorRouteTest extends TestCase
 
     public function testTheActionThrows(): void
     {
-        $controller = new TestToolsController(new Environment(new ArrayLoader([])));
+        $controller = new TestToolsController(
+            new Environment(new ArrayLoader([])),
+            new SimulatedTelephony($this->createStub(SettingService::class), $this->createStub(JournalService::class))
+        );
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Erreur provoquée volontairement depuis les outils de test.');

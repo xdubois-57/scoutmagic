@@ -5,12 +5,15 @@
   asks, the derived sentence, and — by its nature (issue #462, D6) — a
   button, a box to tick, or nothing at all.
 
-  **The nature decides the control, and only one nature gets a box.** A
-  derived line shows its sentence and nothing to press; a line waiting on
-  the renter shows its sentence too; a line done here offers its action; a
-  line done outside the site — the one thing nobody here could guess —
-  offers « Marquer comme fait », which records who and when. A box beside a
-  derived line would be a second truth (D5).
+  **The numbered disc is the control for completing a step by hand**
+  (#708, IT-14). Any step still to do can be marked done there, after an
+  explicit confirmation — things happen away from the site, a contract
+  accepted by e-mail, a deposit paid in cash — and a step marked by hand
+  reopens the same way. A step the site completed itself does not reopen;
+  « Demande reçue » and « Dates bloquées » have an inert disc; the disc of
+  « Réservation confirmée » and « Location clôturée » runs the transition
+  itself, with its usual confirmation. Every actionable disc is a real
+  button, a 44 px target, with a name that says what it does.
 
   **A stretch the booking has not reached is inert** (`future`): its steps
   are visible, never actionable — no button, a disabled box.
@@ -38,17 +41,68 @@
 <li class="step-item d-flex gap-3 pb-3 {{ state == 'done' ? 'step-item--done' : (future or state == 'na' or state == 'warning' ? 'step-item--upcoming' : 'step-item--current') }}"
     data-milestone="{{ milestone.key }}" data-kind="{{ milestone.kind.value }}">
     <div class="step-item__marker flex-shrink-0">
-        <span class="step-circle {{ state == 'done' ? 'step-circle--done' : 'step-circle--pending' }}" aria-hidden="true">
-            {% if state == 'done' %}
-                <i class="bi bi-check-lg"></i>
-            {% elseif state == 'warning' %}
-                <i class="bi bi-exclamation-lg"></i>
-            {% elseif state == 'na' %}
-                <i class="bi bi-dash"></i>
-            {% else %}
-                {{ number }}
-            {% endif %}
-        </span>
+        {% set disc %}
+            <span class="step-circle {{ state == 'done' ? 'step-circle--done' : 'step-circle--pending' }}" aria-hidden="true">
+                {% if state == 'done' %}
+                    <i class="bi bi-check-lg"></i>
+                {% elseif state == 'warning' %}
+                    <i class="bi bi-exclamation-lg"></i>
+                {% elseif state == 'na' %}
+                    <i class="bi bi-dash"></i>
+                {% else %}
+                    {{ number }}
+                {% endif %}
+            </span>
+        {% endset %}
+        {% set can_tick = not future and milestone.canBeCompletedByHand %}
+        {% set can_reopen = not future and milestone.canBeReopened %}
+        {% set runs_transition = not future and state == 'todo' and milestone.key in ['confirmed', 'closed']
+            and milestone.action and milestone.action.transition %}
+        {% if can_tick or can_reopen %}
+            <form method="post" action="/mes-locations/etape" class="d-inline" data-step-disc
+                  data-confirm="{{ can_tick
+                      ? 'Marquer « ' ~ milestone.label ~ ' » comme fait sans que le site ait pu le vérifier ? À ne faire que si c\'est réglé ailleurs — par e-mail, en liquide… Le site ne le vérifiera plus.'
+                      : 'Rouvrir « ' ~ milestone.label ~ ' » ? L\'étape redeviendra à faire.' }}"
+                  data-confirm-label="{{ can_tick ? 'Marquer comme fait' : 'Rouvrir' }}">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="milestone_key" value="{{ milestone.key }}">
+                <input type="hidden" name="done" value="{{ can_tick ? '1' : '0' }}">
+                {% set disc_name = can_tick
+                    ? 'Marquer « ' ~ milestone.label ~ ' » comme fait'
+                    : 'Rouvrir « ' ~ milestone.label ~ ' »' %}
+                {# The name is the button's own text, hidden but read, rather
+                   than an aria-label the visible disc would not contain. #}
+                <button type="submit" class="step-disc-button" title="{{ disc_name }}">
+                    {{ disc }}<span class="visually-hidden">{{ disc_name }}</span>
+                </button>
+            </form>
+        {% elseif runs_transition %}
+            {# A status, not a fact to tick: the disc runs the transition,
+               with the same confirmation as its button. #}
+            {% set decision = renter_decisions[milestone.action.transition.value]|default(null) %}
+            <form method="post" action="/mes-locations/statut" class="d-inline" data-step-disc
+                  {% if decision %}
+                      data-confirm="{{ decision.question }}"
+                      data-confirm-label="{{ milestone.action.label }}"
+                      data-confirm-note="{{ decision.note_label }}"
+                      data-confirm-note-name="message"
+                  {% else %}
+                      data-confirm="{{ milestone.action.label }} ?"
+                      data-confirm-label="{{ milestone.action.label }}"
+                  {% endif %}>
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="status" value="{{ milestone.action.transition.value }}">
+                <button type="submit" class="step-disc-button" title="{{ milestone.action.label }}">
+                    {{ disc }}<span class="visually-hidden">{{ milestone.action.label }}</span>
+                </button>
+            </form>
+        {% else %}
+            {{ disc }}
+        {% endif %}
     </div>
     <div class="flex-grow-1 {{ state == 'na' ? 'text-body-secondary opacity-50' : '' }}">
         <div class="d-flex flex-wrap align-items-baseline gap-2">
@@ -95,30 +149,6 @@
             </div>
         {% endif %}
 
-        {% if milestone.kind.isMarkable and state != 'na' %}
-            <form method="post" action="/mes-locations/etape" class="mt-2">
-                {{ csrf_field()|raw }}
-                <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                <input type="hidden" name="milestone_key" value="{{ milestone.key }}">
-                <input type="hidden" name="done" value="{{ milestone.isDone ? '0' : '1' }}">
-                {# The box carries no name: the hidden `done` says which way,
-                   and rental-booking.js submits the form when it changes. #}
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" data-mark-step
-                           id="mark-{{ milestone.key }}"
-                           {{ milestone.isDone ? 'checked' : '' }} {{ future ? 'disabled' : '' }}>
-                    <label class="form-check-label small" for="mark-{{ milestone.key }}">
-                        {{ milestone.isDone ? 'Fait' : 'Marquer comme fait' }}
-                    </label>
-                </div>
-                <noscript>
-                    <button type="submit" class="btn btn-sm btn-outline-secondary mt-1" {{ future ? 'disabled' : '' }}>
-                        {{ milestone.isDone ? 'Remettre à faire' : 'Marquer comme fait' }}
-                    </button>
-                </noscript>
-            </form>
-        {% endif %}
     </div>
 </li>
 {% endfor %}

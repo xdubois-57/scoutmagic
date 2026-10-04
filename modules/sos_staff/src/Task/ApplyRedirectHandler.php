@@ -18,6 +18,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\View\TwigFactory;
 use Modules\SosStaff\Repository\ExcludedSectionRepository;
+use Modules\SosStaff\Api\PhoneProviderInterface;
 use Modules\SosStaff\Repository\ProviderCredentialRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
 use Modules\SosStaff\Service\ProviderConfigService;
@@ -64,10 +65,14 @@ class ApplyRedirectHandler implements TaskHandlerInterface
             $context->settings
         );
 
-        $providerConfigService = new ProviderConfigService(new ProviderCredentialRepository(
-            $pdo,
-            $context->encryption
-        ));
+        // A simulated line where test_tools offers one (ARCHITECTURE.md
+        // §8.63) — the same one the page talks to — null everywhere else.
+        $simulatedProvider = $context->getOptional(PhoneProviderInterface::class);
+        $providerConfigService = new ProviderConfigService(
+            new ProviderCredentialRepository($pdo, $context->encryption),
+            null,
+            $simulatedProvider instanceof PhoneProviderInterface ? $simulatedProvider : null
+        );
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',

@@ -7481,7 +7481,19 @@ if ($isEnabled('sos_staff')) {
     $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
     $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
 
-    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
+    // Simulated telephony (ARCHITECTURE.md §8.63): where test_tools is on,
+    // the installation is a reference or local one, AND the switch is
+    // armed, a simulated line stands in for the configured provider so an
+    // end-to-end run can drive this module. Null everywhere else.
+    $sosSimulatedProvider = $isEnabled('test_tools')
+        && \Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)
+        ? new \Modules\TestTools\Telephony\SimulatedPhoneProvider($settingService)
+        : null;
+    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService(
+        $sosProviderCredentialRepo,
+        null,
+        $sosSimulatedProvider
+    );
     // The responsable hook resolves at CONSTRUCTION here, which is
     // order-sensitive by design: trombinoscope's block (the registrant)
     // runs before this one, exactly as it had to when the hook travelled
@@ -10194,7 +10206,10 @@ if ($isEnabled('test_tools')) {
 
     $frontController->registerController(
         \Modules\TestTools\Controller\TestToolsController::class,
-        new \Modules\TestTools\Controller\TestToolsController($twig)
+        new \Modules\TestTools\Controller\TestToolsController(
+            $twig,
+            new \Modules\TestTools\Telephony\SimulatedTelephony($settingService, $journalService)
+        )
     );
 
     $frontController->registerController(
@@ -10733,15 +10748,14 @@ if ($isEnabled('covoiturage')) {
 }
 
 // Social networks (ARCHITECTURE.md §8.122): the unit's own Facebook Page
-// and Instagram account. The Api is built for the modules that will
-// publish through it (news and gallery, docs/chantiers/
-// CHANTIER-partage-social.md) — null when the module is disabled, per
-// §7.5, and nothing consumes it yet.
+// and Instagram account, its discussion groups, and the one composer they
+// are all published from. The Api is consumed by the gallery's album form
+// and the news editor, which ask it whether to offer « Partager » — null
+// when the module is disabled, per §7.5.
 $socialSharingForOthers = null;
 if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
-    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService($socialConnectionRepo);
 
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
@@ -10777,16 +10791,31 @@ if ($isEnabled('social')) {
         $settingService,
         $journalService
     );
+    // The discussion groups as a destination, or null with the groups
+    // module off: one instance, shared by what offers the destinations and
+    // by the Api that answers « is there anywhere to publish ».
+    $socialGroupPublishing = $groupsPublisherForOthers === null
+        ? null
+        : new \Modules\Social\Service\GroupPublishingService(
+            $groupsPublisherForOthers,
+            $socialPublicationRepo,
+            $journalService
+        );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,
         $socialPublicationRepo,
         $socialConnectionRepo,
         $settingService,
-        $groupsPublisherForOthers === null ? null : new \Modules\Social\Service\GroupPublishingService(
-            $groupsPublisherForOthers,
-            $socialPublicationRepo,
-            $journalService
-        )
+        $socialGroupPublishing
+    );
+    // The Api the gallery and the news module ask « is there anywhere to
+    // publish »: the unit's Meta accounts, AND this person's discussion
+    // groups, so a unit with no Meta account still gets a « Partager »
+    // button (IT-01). Built here rather than above because the groups
+    // destination is what it needs.
+    $socialSharingForOthers = new \Modules\Social\Service\SocialSharingService(
+        $socialConnectionRepo,
+        $socialGroupPublishing
     );
     $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
@@ -10798,17 +10827,10 @@ if ($isEnabled('social')) {
         $galleryPhotoPickerForOthers,
         $linkedMemberIds
     );
-    $frontController->registerController(
-        \Modules\Social\Controller\ShareController::class,
-        new \Modules\Social\Controller\ShareController(
-            $twig,
-            $socialShareSources,
-            $socialDestinationStates,
-            $socialCardService
-        )
-    );
-    // « Communications »: a free communication, and the history of
-    // everything that left (§8.122).
+    // « Médias sociaux »: the one composer everything is published
+    // through, and the history of everything that left (§8.122). The two
+    // dedicated share pages it replaces are gone
+    // (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01).
     $frontController->registerController(
         \Modules\Social\Controller\CommunicationController::class,
         new \Modules\Social\Controller\CommunicationController(
@@ -10825,8 +10847,21 @@ if ($isEnabled('social')) {
             $linkedMemberIds
         )
     );
-    $galleryAlbumActions?->register(new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers));
-    $newsArticleActions?->register(new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers));
+    // « Partager » on an album and in an article's editor (§7.6). The
+    // viewer travels with the provider: actionsFor() is handed an id and
+    // nothing else, by design, and whether there is anywhere to publish
+    // depends on the person.
+    $socialShareViewer = new \Modules\Social\Service\ShareViewer(
+        \Core\Security\AuthSession::getEmail(),
+        \Core\Security\AuthSession::getRole(),
+        \Core\Security\AuthSession::getUserAccountId()
+    );
+    $galleryAlbumActions?->register(
+        new \Modules\Social\Service\AlbumShareAction($socialSharingForOthers, $socialShareViewer)
+    );
+    $newsArticleActions?->register(
+        new \Modules\Social\Service\ArticleShareAction($socialSharingForOthers, $socialShareViewer)
+    );
     $schedulerService->seed(
         'social',
         \Modules\Social\Task\PurgeCardsHandler::TASK_KEY,
@@ -12183,13 +12218,18 @@ if ($isEnabled('leadership')) {
             $leadershipObligationsService,
             new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
             $scoutYearResolver,
-            $editableContentService
+            $editableContentService,
+            $journalService,
+            // Null when mass_mail is off: the lists then offer no draft.
+            $massMailDraftForOthers
         )
     );
 
     $attentionProviders[] = new \Modules\Leadership\Service\LeadershipAttentionProvider(
         $leadershipRepository,
-        new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService)
+        new \Modules\Leadership\Service\StewardService($leadershipRepository, $leadershipObligationsService),
+        $leadershipMappingRepository,
+        $leadershipResolver
     );
 
     $frontController->registerController(

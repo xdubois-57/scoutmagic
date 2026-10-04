@@ -240,15 +240,14 @@ describe('rental-booking.js: the confirmation still comes first', () => {
     });
 });
 
-describe('rental-booking.js: a step ticked by hand', () => {
+describe('rental-booking.js: a step ticked by hand from its disc (#708, IT-14)', () => {
     const stepHtml = `
         <div class="page-medium" data-rental-booking>
             <div data-booking-panel="milestones">
-                <form method="post" action="/mes-locations/etape" id="step-form">
+                <form method="post" action="/mes-locations/etape" id="step-form" data-step-disc>
                     <input type="hidden" name="milestone_key" value="arrival_inventory">
                     <input type="hidden" name="done" value="1">
-                    <input type="checkbox" data-mark-step id="step-box">
-                    <input type="checkbox" id="unrelated-box">
+                    <button type="submit" class="step-disc-button"><span class="visually-hidden">Marquer « État des lieux d'entrée » comme fait</span></button>
                 </form>
             </div>
         </div>`;
@@ -257,31 +256,17 @@ describe('rental-booking.js: a step ticked by hand', () => {
         document.body.innerHTML = stepHtml;
     });
 
-    it('posts the step the moment its box is ticked, the ordinary asynchronous way', async () => {
+    it('posts the step the ordinary asynchronous way once confirmed', async () => {
         global.fetch = actionThenRefresh({ success: true, type: 'success', message: 'Marqué.' }, stepHtml);
         await boot();
         allowReplay('step-form');
 
-        const box = document.getElementById('step-box');
-        box.checked = true;
-        box.dispatchEvent(new Event('change', { bubbles: true }));
+        document.getElementById('step-form').requestSubmit();
         await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
 
         const [url, init] = global.fetch.mock.calls[0];
         expect(url).toContain('/mes-locations/etape');
         expect(init.headers['X-Requested-With']).toBe('XMLHttpRequest');
-        // The value that travels is the hidden field's, never the box's own.
         expect(init.body.get('done')).toBe('1');
-    });
-
-    it('ignores any other box on the page', async () => {
-        global.fetch = vi.fn();
-        await boot();
-        allowReplay('step-form');
-
-        document.getElementById('unrelated-box').dispatchEvent(new Event('change', { bubbles: true }));
-        await Promise.resolve();
-
-        expect(global.fetch).not.toHaveBeenCalled();
     });
 });

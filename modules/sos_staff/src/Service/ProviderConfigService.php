@@ -12,9 +12,9 @@ use Core\Exception\UserFacingMessage;
 use Modules\SosStaff\Provider\Ovh\OvhApiClient;
 use Modules\SosStaff\Provider\Ovh\OvhApiException;
 use Modules\SosStaff\Provider\Ovh\OvhTelephonyProvider;
-use Modules\SosStaff\Provider\PhoneLine;
-use Modules\SosStaff\Provider\PhoneProviderInterface;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\PhoneLine;
+use Modules\SosStaff\Api\PhoneProviderInterface;
+use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\ProviderCredential;
 use Modules\SosStaff\Repository\ProviderCredentialRepository;
 
@@ -48,10 +48,17 @@ class ProviderConfigService
      *        builds — null in production (real cURL, see
      *        OvhApiClient::defaultTransport()); tests substitute a fake so
      *        the OVH config flow is verifiable without a network call.
+     * @param PhoneProviderInterface|null $simulatedProvider A stand-in line
+     *        that takes the place of whatever is configured — handed over
+     *        by the composition roots only where test_tools' simulated
+     *        telephony is armed on a reference or local installation
+     *        (ARCHITECTURE.md §8.63), so an end-to-end run can drive this
+     *        module without a real provider. Null everywhere else.
      */
     public function __construct(
         private ProviderCredentialRepository $repository,
-        private ?\Closure $ovhTransport = null
+        private ?\Closure $ovhTransport = null,
+        private ?PhoneProviderInterface $simulatedProvider = null
     ) {
     }
 
@@ -220,6 +227,13 @@ class ProviderConfigService
      */
     public function getSosNumber(): ?string
     {
+        if ($this->simulatedProvider !== null) {
+            try {
+                return ($this->simulatedProvider->listLines()[0] ?? null)?->number;
+            } catch (ProviderException) {
+                return null;
+            }
+        }
         $active = $this->repository->findActive();
         if ($active === null) {
             return null;
@@ -237,6 +251,9 @@ class ProviderConfigService
      */
     public function getActiveProvider(): ?PhoneProviderInterface
     {
+        if ($this->simulatedProvider !== null) {
+            return $this->simulatedProvider;
+        }
         $active = $this->repository->findActive();
         if ($active === null) {
             return null;

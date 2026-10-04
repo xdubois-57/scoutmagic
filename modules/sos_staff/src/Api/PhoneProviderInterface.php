@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\SosStaff\Provider;
+namespace Modules\SosStaff\Api;
 
 /**
  * A telephony provider capable of managing unconditional call forwarding on

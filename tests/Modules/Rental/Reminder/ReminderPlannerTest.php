@@ -310,6 +310,17 @@ class ReminderPlannerTest extends TestCase
         );
     }
 
+    /** The unit has answered with its contract: no « sans réponse » chase (#708, IT-13). */
+    public function testAContractSentIsNotChasedAsUnanswered(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, receivedAt: '2027-01-01 10:00:00');
+
+        $this->assertNotContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-02-01'))
+        );
+    }
+
     public function testAHoldAboutToLapseIsMentioned(): void
     {
         // The dates are about to become free for everybody again, which is

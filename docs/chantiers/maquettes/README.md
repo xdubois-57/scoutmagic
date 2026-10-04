@@ -32,6 +32,7 @@ trouve être exécutable ailleurs.
 | `rgpd-acceptations.html` | Acceptation de la politique de protection des données (#626) | `/config/rgpd` — superadmin, les deux sous-pages (Acceptations, Contenu de la politique) ; la carte de `/admin/members/{id}` — admin ; le réglage du délai ; l'e-mail de rappel ; la case de `/login` ; une version archivée à `/rgpd/{version}` | IT-01 à IT-05 |
 | `medias-sociaux.html` | Médias sociaux : composeur unique, carte dans le navigateur, page publique | `/medias-sociaux` — chef : la nouvelle communication, le même composeur ouvert depuis « Partager » sur un album, la confirmation destination par destination, l'historique « Ce qui est parti » ; la page publique à jeton — visiteur anonyme | IT-01, IT-02, IT-04, IT-05 |
 | `maquette-telephone.jsx` | Numéros de téléphone cliquables (#757) | La feuille d'actions d'un numéro — liste, tableau, page d'un membre, et la table de normalisation de l'affichage | IT-02 |
+| `maquette-reinscriptions.jsx` | Réinscriptions : campagne par année visée, sous-pages, dates prévues et confirmation (#796) | `/config/reinscription` (tableau de bord) et `/config/reinscription/reglages` — Chef d'Unité : les cinq états d'étape, les huit situations de l'année et les dialogues de confirmation | IT-03, IT-04 |
 
 ## Le cas du trombinoscope imprimable
 

@@ -133,7 +133,10 @@ test('the duty grid cycles a cell through its three states, saving the month on 
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
-        await expect(saveStatus).toHaveText('Enregistré.');
+        // The outcome is a toast (issue #739); the line under the grid only
+        // says a save is under way, and empties once it has answered.
+        await expect(saveStatus).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // ---------------------------------------------------------------
@@ -244,7 +247,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     // practice, and they used to occupy the first two screens.
     // ---------------------------------------------------------------
     const firstRow = dayList.locator('.sos-day-row').first();
-    await expect(firstRow, 'the current month opens on today').toHaveClass(/list-group-item-warning/);
+    await expect(firstRow, 'the current month opens on today').toHaveClass(/table-warning/);
     await expect(main.getByRole('link', { name: "Aller à aujourd'hui" })).toBeVisible();
 
     // ---------------------------------------------------------------
@@ -261,7 +264,7 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
     await waitForSosJsReady(page);
     await expect(dayList).toBeVisible();
     await expect(
-        dayList.locator('.sos-day-row.list-group-item-warning'),
+        dayList.locator('.sos-day-row.table-warning'),
         'another month has no today to highlight',
     ).toHaveCount(0);
 
@@ -293,7 +296,8 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await memberBlock.getByRole('button', { name: label, exact: true }).click();
         expect((await saved).ok()).toBe(true);
-        await expect(page.locator('#sos-day-sheet-status')).toHaveText('Enregistré.');
+        await expect(page.locator('#sos-day-sheet-status')).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // ---------------------------------------------------------------
@@ -378,32 +382,23 @@ test('the default-number warning shows only when today has no on-call', async ({
     const today = await todayCell.getAttribute('data-date');
     const cellAgain = () => page.locator(`tr.is-today td.sos-oncall-cell[data-date="${today}"]`).first();
 
+    // The settings sit in plain sight at the bottom of the page since
+    // #750 — no accordion to open first.
     const warning = page.locator('#default-number-immediate-warning');
-
-    /**
-     * The settings block is collapsed at the bottom of the page, and it
-     * has to be re-opened after every reload.
-     *
-     * Scoped to <main>: « Réglages » is also the name of a Configuration
-     * page (design.md §7.1), which the navigation renders at three widths
-     * at once — a page-wide lookup is one nav change away from matching
-     * several nodes and failing strict mode.
-     */
-    async function openSettings() {
-        await page.getByRole('main').getByRole('button', { name: 'Réglages' }).click();
-    }
 
     /** Click today's cell once and wait for the full-month save to answer. */
     async function cycleToday() {
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
-        await expect(page.locator('#oncall-save-status')).toHaveText('Enregistré.');
+        // The outcome is a toast (issue #739); the line under the grid only
+        // says a save is under way, and empties once it has answered.
+        await expect(page.locator('#oncall-save-status')).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // As provisioned, nobody is on call today — so the save really would
     // re-route the line, and the warning is there to say so.
-    await openSettings();
     await expect(warning).toBeVisible();
     await expect(warning).toContainText("Aujourd'hui n'a pas de garde attribuée");
 
@@ -412,7 +407,6 @@ test('the default-number warning shows only when today has no on-call', async ({
     await cycleToday();
     await page.reload({ waitUntil: 'load' });
     await waitForSosJsReady(page);
-    await openSettings();
     await expect(warning, 'a day with an explicit duty is not re-routed by the default number').toHaveCount(0);
 
     // Back through « indisponible » to blank — which also leaves the shared
@@ -421,8 +415,32 @@ test('the default-number warning shows only when today has no on-call', async ({
     await cycleToday();
     await page.reload({ waitUntil: 'load' });
     await waitForSosJsReady(page);
-    await openSettings();
     await expect(warning).toBeVisible();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
+});
+
+// ============================================================================
+// Where the calls go RIGHT NOW comes from the provider, not from the planning.
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// Issue #750 put the provider's own reading at the top of the page, apart
+// from the planning, because the two can disagree and the reader has to
+// know which is the fact. The harness arms test_tools' simulated telephony
+// (scripts/e2e-support.php, ARCHITECTURE.md §8.63), so this reading is a
+// real round trip through Api\PhoneProviderInterface — a line whose number
+// no real provider uses — rather than the « no provider » warning, which
+// is all a hermetic suite would otherwise ever see.
+// ============================================================================
+test('the page says where the calls go, as read from the provider', async ({ page }) => {
+    await loginAsAdmin(page);
+    await answerCookieBanner(page);
+    await page.goto('/admin/sos', { waitUntil: 'load' });
+
+    const banner = page.locator('#sos-status-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner.getByRole('heading', { level: 2 })).toContainText('chez le fournisseur');
+    await expect(banner, 'the SOS number is the simulated line').toContainText('+3220000000');
+    await expect(page.getByText('Aucun fournisseur de téléphonie', { exact: false })).toHaveCount(0);
 });

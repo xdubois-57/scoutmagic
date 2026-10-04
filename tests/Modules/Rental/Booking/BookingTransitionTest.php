@@ -60,7 +60,7 @@ class BookingTransitionTest extends TestCase
         }
 
         sort($reachable);
-        $this->assertSame(['info_requested', 'proposed', 'received'], $reachable);
+        $this->assertSame(['contract_sent', 'info_requested', 'proposed', 'received'], $reachable);
     }
 
     /**
@@ -83,6 +83,22 @@ class BookingTransitionTest extends TestCase
             foreach (BookingTransition::allowedFrom($from) as $to) {
                 $this->assertNotSame('Mettre en examen', BookingTransition::actionLabel($from, $to));
             }
+        }
+    }
+
+    /**
+     * Out of « Contrat envoyé »: confirm, cancel, or back on hold — never
+     * refused, the unit having said yes by sending its contract; and it is
+     * reached by sending, never offered as a decision (#708, IT-13).
+     */
+    public function testAContractSentCanBeConfirmedCancelledOrPutBackOnHold(): void
+    {
+        $this->assertSame(
+            [BookingStatus::CONFIRMED, BookingStatus::CANCELLED, BookingStatus::RECEIVED],
+            BookingTransition::allowedFrom(BookingStatus::CONTRACT_SENT)
+        );
+        foreach (BookingStatus::cases() as $from) {
+            $this->assertFalse(BookingTransition::isAllowed($from, BookingStatus::CONTRACT_SENT), $from->value);
         }
     }
 

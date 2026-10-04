@@ -56,7 +56,19 @@ const ASSET_NAME = 'Ferme de la Hulpe';
 const ASSET_SLUG = 'ferme-de-la-hulpe';
 
 const BLOCK_START = isoDaysFromNow(120);
-const BLOCK_END = isoDaysFromNow(122);
+
+/**
+ * The day after `day`, `YYYY-MM-DD`.
+ *
+ * @param {string} day
+ * @returns {string}
+ */
+function nextDay(day) {
+    const date = new Date(day + 'T12:00:00Z');
+    date.setUTCDate(date.getUTCDate() + 1);
+
+    return date.toISOString().slice(0, 10);
+}
 
 const ARRIVAL = isoDaysFromNow(200);
 const DEPARTURE = isoDaysFromNow(203);
@@ -136,14 +148,20 @@ test.describe('Rentals — running an asset', () => {
         await expect(page.getByRole('heading', { name: `Calendrier — ${ASSET_NAME}` })).toBeVisible();
         await expectRendersAsACalendar(page.locator('.daygrid').first());
 
-        // ── A week taken off the market ─────────────────────────────────
-        const blocking = page.locator('form[action="/mes-locations/blocage"]');
-        await blocking.locator('input[name="start"]').fill(BLOCK_START);
-        await blocking.locator('input[name="end"]').fill(BLOCK_END);
-        await blocking.locator('input[name="reason"]').fill('Chantier toiture');
-        await blocking.getByRole('button', { name: 'Réserver' }).click();
+        // ── A day taken off the market, straight on the calendar (#708,
+        //    IT-07): a tap blocks it, the list under the grid gives it its
+        //    reason. ─────────────────────────────────────────────────────
+        await page.goto(`/mes-locations/${ASSET_SLUG}/calendrier?month=${BLOCK_START.slice(0, 7)}`);
+        const blockDay = page.locator(`#rental-block-calendar [data-date="${BLOCK_START}"]`);
+        await blockDay.click();
+        await expect(blockDay).toHaveAttribute('data-unit-block', '1');
+        await expect(page.locator('.toast')).toContainText('1 jour bloqué');
 
-        await expect(page.getByText('Chantier toiture')).toBeVisible();
+        const reasonForm = page.locator('#rental-block-list form[action="/mes-locations/blocage-motif"]').first();
+        await reasonForm.locator('input[name="reason"]').fill('Chantier toiture');
+        await reasonForm.getByRole('button', { name: 'Enregistrer' }).click();
+
+        await expect(page.locator('#rental-block-list input[name="reason"]').first()).toHaveValue('Chantier toiture');
 
         // ── What the public sees of it: that the days are taken, and not
         //    one word about why (specifications.md §22.2). ───────────────────────────────────
@@ -245,7 +263,20 @@ test.describe('Rentals — running an asset', () => {
         // page navigates, and the dialog answerConfirmation() waits for is
         // never built. See waitForConfirmReady()'s own comment.
         await waitForConfirmReady(page);
-        await page.getByRole('button', { name: 'Confirmer la réservation' }).click();
+
+        // The unit answers with its contract, and confirms at the end of
+        // the agreement (#708, IT-13). Here the contract went by e-mail and
+        // came back signed, so both steps are ticked by hand from their
+        // disc (#708, IT-14) — each asks first, saying it is not the
+        // practice the site prefers.
+        for (const step of ['Contrat envoyé', 'Conditions et contrat acceptés']) {
+            await page.getByRole('button', { name: `Marquer « ${step} » comme fait` }).click();
+            const warning = await answerConfirmation(page);
+            expect(warning).toContain('sans que le site ait pu le vérifier');
+            await expect(page.getByRole('button', { name: `Rouvrir « ${step} »` })).toBeVisible();
+        }
+
+        await page.getByRole('button', { name: 'Confirmer la réservation' }).first().click();
 
         // Confirming now asks first, and the dialog is where the manager
         // writes the word that travels with the decision — the field
@@ -267,8 +298,13 @@ test.describe('Rentals — running an asset', () => {
         await page.context().clearCookies();
         await page.goto(`/locations/${ASSET_SLUG}?month=${ARRIVAL.slice(0, 7)}`);
 
+        // The arrival day itself is free in the morning (#708, IT-08); the
+        // night after it is the one the stay holds outright.
         await expect(
             page.locator(`#rental-calendar [data-date="${ARRIVAL}"]`),
+        ).toHaveClass(/daygrid-day--arriving/);
+        await expect(
+            page.locator(`#rental-calendar [data-date="${nextDay(ARRIVAL)}"]`),
         ).toHaveClass(/daygrid-day--occupied/);
         await expect(page.locator('#rental-calendar')).not.toContainText('Lambert');
     });

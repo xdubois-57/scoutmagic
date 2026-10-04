@@ -92,13 +92,22 @@ final class DestinationStates
      *     date: ?\DateTimeImmutable, reason: ?string
      * }>
      */
-    public function groupsFor(?ShareSource $source, ?string $email, string $role, ?int $userId): array
-    {
+    public function groupsFor(
+        ?ShareSource $source,
+        ?string $email,
+        string $role,
+        ?int $userId,
+        bool $hasOwnHistory = true
+    ): array {
         if ($this->groups === null) {
             return [];
         }
 
-        $done = $source === null ? [] : $this->publications->forSource($source->kind, $source->id);
+        // Same reason as forSource(): before the row exists, the prefill's
+        // own key would hand back an older share's publications.
+        $done = ($source === null || !$hasOwnHistory)
+            ? []
+            : $this->publications->forSource($source->kind, $source->id);
         $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
         $rows = [];
         foreach ($this->groups->postableGroups($email, $role, $userId) as $group) {
@@ -130,16 +139,30 @@ final class DestinationStates
      * Each connected destination: available, already published (with its
      * date), failed (with Meta's reason), in progress, or blocked and why.
      *
+     * **`$hasOwnHistory` is false for a composer that has not saved yet**,
+     * and the publications are then not read at all. A communication that
+     * does not exist cannot have published anything, so there is nothing
+     * true to find — but the source it is PREFILLED from is keyed
+     * `('album'|'article', <id>)`, and the retired `/partage/album/{id}`
+     * route recorded its publications under exactly that pair. Read on a
+     * site upgraded from it, those rows belong to an older share of the
+     * same album and would show here as this brand-new communication's
+     * own — Facebook and Instagram ticked and greyed out, and no way to
+     * share that album again. Raised in review on the pull request for
+     * issue #706, IT-01. Showing a source's earlier shares is a separate
+     * promise, kept as history and a warning rather than as state, and it
+     * belongs to IT-05.
+     *
      * @return list<array{
      *     value: string, label: string, account: string, state: string,
      *     date: ?\DateTimeImmutable, reason: ?string
      * }>
      */
-    public function forSource(ShareSource $source): array
+    public function forSource(ShareSource $source, bool $hasOwnHistory = true): array
     {
         $now = new \DateTimeImmutable();
         $base = rtrim((string) ($this->settings->get('base_url') ?: ''), '/');
-        $done = $this->publications->forSource($source->kind, $source->id);
+        $done = $hasOwnHistory ? $this->publications->forSource($source->kind, $source->id) : [];
         $staleBefore = $now->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
         $rows = [];
 

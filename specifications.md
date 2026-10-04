@@ -182,7 +182,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 | Camps (module) | chief | Camp sites and the stays made there. Search over places (name, address, postal code, city); "À venir" and "Lieux" lists; a collapsed map of the places that have coordinates. A place sheet shows its stays, the rating of its most recent RATED stay (never an average), an optional AI summary, and — for a chef d'unité only — merge and archive. A stay carries its sections, price, participant count, contacts, links, documents, photos, a free-text note, a review and its own change history. A "Courrier des camps" screen lists what the module attached to a stay, what it proposes attaching, and — on a mailbox declared dedicated to camps — everything else that mailbox holds; a message that concerns no stay can be set aside from that list, reversibly, without being deleted and without escaping the retention. |
 | Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; a mail-merge mode sending one personalized email per row of an uploaded Excel file (see §24); when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rédiger les actualités (module news) | chief | Article list with each one's visibility, editor (rich text, mandatory summary and image, form builder, A4 poster with QR code, optional AI keywords/summary), responses and their payment state, Excel export and « Écrire aux répondants » — see §32. An article belongs to its author: only they and the Staff d'U may edit it |
-| Communications (module social) | chief | A free communication — an image from the gallery (always blurred) or uploaded, a title written on it, a text — published on the unit's Facebook Page and Instagram account, and « Ce qui est parti », every publication destination by destination with its retry — see §47.7. A communication belongs to its author: only they and the Staff d'U may change or publish it |
+| Médias sociaux (module social) | chief | The one composer everything the unit publishes outside goes through — an album, an article, or a communication written from nothing: one image (from the gallery, always blurred, or uploaded), a title written on it, a text — published on the unit's Facebook Page, Instagram account and discussion groups, and « Ce qui est parti », every publication destination by destination with its retry — see §47.6 and §47.7. « Partager » on an album or an article opens it prefilled. A communication belongs to its author: only they and the Staff d'U may change or publish it |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards (§37) |
 | Gérer les photos (module gallery) | chief | Manage photo/video albums |
 | Départs de l'unité (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
@@ -1062,13 +1062,13 @@ The renter's acknowledgement email carries a link to their own tracking page. **
 
 **What the visitor agreed to is provable afterwards.** Each tick-box on the request form is recorded with the version *and* a hash of the exact text that was on screen, so re-wording the conditions later never changes what a past renter accepted.
 
-**« À traiter » asks whether somebody is waiting, not what the status says.** Three things make that true: the booking's own status asks for a decision, the renter asked for a change and is waiting on the unit, or the unit proposed something the renter has not answered. Only the first is visible in a status — so a confirmed booking carrying a change request received yesterday used to appear on no list at all, which is exactly a thing to deal with. A proposal counts too: it waits on somebody, and the unit is the one who has to know it is still waiting. **Every row says which of the three put it there**, because a list that grew without saying why reads as a list that has broken. The figure above the list, the same page's filter and the per-asset badge on « Gérer mes locations » all count that one definition; four copies of it is four chances for a tile to disagree with the list under it.
+**« À traiter » asks whether the unit has something to do, not what the status says.** Five things make that true: the booking's own status asks for a decision, the renter asked for a change and is waiting on the unit, the unit proposed something the renter has not answered, **the step the booking's page puts forward is the unit's** — a contract to send, an inventory, a settlement —, or **that step is the renter's and the renter is late**. Late means the day the matching reminder would go out (contract, deposit, balance, security deposit), counted even when that reminder is switched off for the asset; a renter's step with no deadline never puts a booking there on its own. Every step says explicitly who has to act. A confirmed booking therefore stays on the list until its closing as long as the unit has steps left, where it used to vanish the moment it was confirmed; a final booking never appears. A proposal counts too: it waits on somebody, and the unit is the one who has to know it is still waiting. **Every row says which of the three put it there**, because a list that grew without saying why reads as a list that has broken. The figure above the list, the same page's filter and the per-asset badge on « Gérer mes locations » all count that one definition; four copies of it is four chances for a tile to disagree with the list under it.
 
 **A booking moves through one lifecycle, and every step is on the booking.** Change requests and proposals are the same object seen from two ends — the renter asks for other dates, or the unit offers them — and either side's answer applies or closes it, never silently. Cancellation is available from every live state, confirmed included, and **computes no refund**: what is owed after a cancellation is a conversation, not an arithmetic rule the module could get right.
 
-**The milestone checklist is derived, never stored — except what happens away from the site.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. A step the site cannot see — an inventory taken on paper because the asset keeps none here, or the stay module is off — is ticked by hand (« Marquer comme fait »), and the tick records who and when in the booking's history. A step the site can derive is never ticked by hand: a checkbox beside a fact the site already knows would be a second answer that can contradict the first. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
+**The milestone checklist is derived — and any step can be completed by hand.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. But things happen away from the site — a contract accepted by e-mail, a deposit paid in cash — so **any step still to do can be marked done by hand** from its numbered disc, after an explicit confirmation that this is not good practice. The tick counts exactly like the site's own answer — for the step put forward, for « À traiter », and for the reminders, which stop chasing it — and the line says who ticked it and when; the booking's history keeps it. A tick reopens from the same disc; a step the site completed itself does not, and **the site's answer wins** the moment it has one. The discs of « Réservation confirmée » and « Location clôturée » run the transition itself, with its usual confirmation and conditions; those of « Demande reçue » and « Dates bloquées » are inert. « Contrat envoyé » ticked by hand has the effects of a real send; reopened, it puts a booking still « Contrat envoyé » back to « Demande reçue ». Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
 
-**A booking is four pages: « Tableau de bord », « Finances », « Documents », « Courrier ».** A rail under the booking's name moves between them, and the reference, the renter and the dates are stated once, above it, on all four; where the booking stands is said by the dashboard. The dashboard leads with where the booking stands and the one step that moves it on, with the status's other decisions beside it — each decision is offered **once** on the page, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below come the steps of the journey, phase by phase, each saying what kind of step it is: one the site ticks by itself, one to do on one of the booking's pages (its link opens the right box on the right page), one waiting on the renter, or one that happens away from the site. Until the booking is confirmed, a phase it has not reached is shown as ahead and offers nothing; once confirmed, every phase is open. Change requests, comments and history stay on the dashboard; the price and the payments are on « Finances »; the contract, the invoice and the files on « Documents »; the booking's mail on « Courrier » (§22.9). The stay keeps its own page. A page that does not exist for this booking answers « page introuvable », never an empty page. The decision on a request is itself a milestone, because « Demande reçue » ticks when the request arrives and says nothing about whether anybody has answered it.
+**A booking is four pages: « Tableau de bord », « Finances », « Documents », « Courrier ».** A rail under the booking's name moves between them, and the reference, the renter and the dates are stated once, above it, on all four; where the booking stands is said by the dashboard. The dashboard leads with where the booking stands and the one step that moves it on, with the status's other decisions beside it — each decision is offered **once** on the page, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below come the steps of the journey, phase by phase, each saying what kind of step it is: one the site ticks by itself, one to do on one of the booking's pages (its link opens the right box on the right page), one waiting on the renter, or one that happens away from the site. Until the booking is confirmed, a phase it has not reached is shown as ahead and offers nothing; once confirmed, every phase is open. Change requests, comments and history stay on the dashboard; the price and the payments are on « Finances »; the contract, the invoice and the files on « Documents »; the booking's mail on « Courrier » (§22.9). The stay keeps its own page. A page that does not exist for this booking answers « page introuvable », never an empty page. **The unit's answer to a request is its contract.** Sending it sets the status « Contrat envoyé » from any state still waiting on the unit — never backwards from a confirmed or final one, and without a decision email: the one carrying the contract says it all — and keeps the dates held at least 15 days from that send (`contract_hold_min_days`), capped at the start of the stay, a longer hold untouched. « Réservation confirmée » is the **last** line of the agreement, and confirming is refused, server-side, while an applicable line before it is not done; « sans objet » lines block nothing. Confirming is therefore never one decision among others: the other answers — a proposal, a question, a refusal, a cancellation — stay behind « Autres décisions ». From « Contrat envoyé » a booking is confirmed, cancelled or put back on hold.
 
 **A renter's change request is checked when it is made, not when it is answered.** The same rules as the public form — the asset's minimum stay, its allowed arrival days, its capacity, and the periods already taken — and the same French sentences. The rules about the dates are asked of the dates that changed: a request that only extends the departure is not asked whether the stay may *begin* on a day it began on already, and one that only changes the head count is asked about the group and nothing else. A manager's proposal is held to what is physical — the capacity, and the availability at acceptance — and not to the rules that shape what a visitor may ask for. A request that cannot be accepted is not a request a manager should have to read, and refusing it weeks later tells the wrong person at the wrong moment. The check at acceptance stays, because it answers a different question: between a request and an answer the dates can be taken by somebody else, and only the check inside the lock sees that. What the renter no longer does is **choose a type of request**: the form is their own booking, pre-filled, and what they changed is what they are asking for — which is also what finally lets one request move the dates *and* the head count, as the row always could. Cancelling is a button of its own with a confirmation, never one line of the same menu.
 
@@ -1103,6 +1103,8 @@ Occupancy can be published onto the unit's own calendar. Nothing is copied: it i
 A cancelled booking is published as cancelled rather than removed, so a subscriber's calendar drops it instead of keeping it forever.
 
 **A manual block over an already-booked period is accepted.** It neither fails nor overwrites the booking: a caretaker away during a letting is a real thing to record, and the two simply coexist. The public calendar shows the day as taken either way, which is all it ever says.
+
+**Managers block and release dates straight on the asset's calendar** (#708, IT-07). A tap toggles one day; a long press then a slide (or a mouse drag) treats every day between the first and the last together, the first day deciding whether the gesture blocks or releases. Past days do not react, and a gesture stops at the edge of the month shown. One request per gesture, at release; the days are turned back into periods — extended, cut in two, removed, merged only when their reasons match — and « Annuler » undoes the gesture exactly. A period always takes the whole asset, whatever its number of units: there is no quantity. Its reason is given and changed in the list under the grid; a day held by both a booking and the unit shows both.
 
 ### 22.9 Correspondence
 
@@ -3279,11 +3281,13 @@ membres ne voient jamais l'historique.
 
 ## 47. Réseaux sociaux (module social)
 
-Chantier « Partage vers Facebook et Instagram » (issue #528,
-`docs/chantiers/CHANTIER-partage-social.md`). Cette section décrit les
-cinq itérations : le **connecteur**, **l'image publiée**, **le partage
-depuis un album ou une actualité**, **l'écran Communications** et **le
-groupe de discussion comme destination**.
+Chantiers « Partage vers Facebook et Instagram » (issue #528,
+`docs/chantiers/CHANTIER-partage-social.md`) puis « Médias sociaux »
+(issue #706, `docs/chantiers/CHANTIER-medias-sociaux.md`), qui en remplace
+plusieurs décisions et fait foi là où les deux divergent. Cette section
+décrit : le **connecteur**, **l'image publiée**, **le partage depuis un
+album ou une actualité**, **l'écran Médias sociaux** et **le groupe de
+discussion comme destination**.
 
 ### 47.1 Ce que le module relie
 
@@ -3366,17 +3370,33 @@ parce qu'Instagram ne publie pas de lien.
 ### 47.6 Partager un album ou une actualité
 
 **Le bouton.** « Partager » apparaît sur la page de modification d'un
-album et dans l'éditeur d'une actualité, **seulement quand au moins un
-compte est connecté** et en état de marche. Il mène à une page de
-confirmation, `/partage/album/{id}` ou `/partage/actualite/{id}`.
+album et dans l'éditeur d'une actualité, **dès qu'une destination est
+possible pour la personne qui regarde** : un compte Meta relié et en état
+de marche, **ou** un groupe de discussion où elle a le droit de publier.
+C'est l'icône de partage seule, avec « Partager » pour nom accessible et
+pour infobulle, sur une cible tactile de 44 × 44 pixels.
+
+Quand aucune destination n'est possible, le bouton est **absent** et la
+page le dit en une ligne — un bouton qui disparaît sans un mot ressemble
+à une panne — avec un lien vers la configuration des médias sociaux pour
+qui peut l'ouvrir, et sans lien pour les autres : un lien qui mène à un
+refus est pire que pas de lien.
+
+Il ouvre **le composeur**, déjà rempli, à `/medias-sociaux/nouvelle/album/{id}`
+ou `/medias-sociaux/nouvelle/article/{id}`. Il n'y a plus de page de
+partage dédiée.
 
 **Qui.** Un animateur (`chief`) ou plus, et seulement sur ce qu'il peut
 déjà modifier : un album qu'il gère, une actualité qu'il peut modifier.
 Pour tout autre album ou actualité, la page répond « introuvable ». Un
 album délégué (à un camp, par exemple) ou en cours de déplacement ne se
-partage pas.
+partage pas. La même question est posée **à chaque usage** : à l'ouverture
+du composeur, à l'enregistrement, à chaque aperçu et à chaque publication.
 
-**La page de confirmation** montre, dans cet ordre :
+**Ce que le composeur montre**, dans cet ordre :
+
+- **une ligne qui dit ce qu'on partage** : « Partage de l'album *titre* » ;
+- **aucun champ d'adresse**, jamais : le lien est celui de la source ;
 
 - **l'image exacte qui sera publiée** — pour un album, sa photo de
   couverture floutée (§ 47.5) avec son titre et l'adresse du site ; pour
@@ -3396,8 +3416,27 @@ partage pas.
   vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
   l'adresse est écrite sur l'image — elle n'est pas cliquable sur
   Instagram ;
-- « Annuler », qui revient à l'album ou à l'actualité, et « Publier »,
-  avec son mot et son icône.
+- « Voir l'historique » et « Publier », avec son mot et son icône. Il n'y
+  a pas de « Enregistrer » : « Publier » enregistre tout, et ramène à
+  l'historique.
+
+**Le titre et l'image venus d'une source sont verrouillés** — ils se
+changent sur l'album ou l'actualité — et « Téléverser » comme
+« Galerie » disparaissent : la couverture d'un album appartient à l'album.
+**Les adresses derrière ces deux boutons refusent aussi**, et pas
+seulement les boutons : cacher un bouton ne cache rien à une adresse
+tapée, et un choix de photo accepté là n'aurait aucun effet visible —
+la carte continuerait de lire l'image de la source — pour qui vient de
+choisir une photo.
+Le texte reste libre. Rien de la source n'est recopié dans la
+communication, qui la nomme seulement : il n'y a donc jamais deux réponses
+possibles à « qu'y a-t-il sur cette carte ». Si la source disparaît, la
+page ne répond pas « introuvable » : elle s'ouvre en disant que ce qui
+était partagé n'existe plus et qu'elle ne peut plus être publiée.
+
+**Un clic sur « Partager » ne crée rien.** Ce n'est pas une décision de
+publier : la source voyage dans le formulaire, et le serveur la redécrit,
+par le module propriétaire, avant d'écrire quoi que ce soit.
 
 **Ce qui part.** Un album part en publication d'image sur la Page et sur
 Instagram. Une actualité part **en lien** sur la Page — Facebook en
@@ -3417,13 +3456,17 @@ et ce qui a échoué.
 **Le journal** inscrit chaque publication réussie ou échouée : l'album ou
 l'actualité, la plateforme, qui a publié — ni la légende, ni aucun jeton.
 
-### 47.7 L'écran Communications
+### 47.7 L'écran Médias sociaux
 
-« Communications », dans l'espace animateurs (`chief` et plus), a deux
-pages.
+« Médias sociaux », dans l'espace animateurs (`chief` et plus), à
+`/medias-sociaux`, est la page d'où part tout ce que l'unité publie au
+dehors. Son titre est « Médias sociaux » et la liste en dessous
+« Ce qui est parti ».
 
-**« Nouvelle communication »** publie ce qui n'est ni un album ni une
-actualité. Une vraie page, dans cet ordre :
+**Un seul composeur**, et deux façons d'y arriver : « Nouvelle
+communication », pour ce qui n'est ni un album ni une actualité, ou le
+bouton « Partager » du § 47.6, qui l'ouvre pré-rempli. Une vraie page,
+dans cet ordre :
 
 1. **l'image en grand**, telle qu'elle sera publiée, titre et adresse
    compris ; sans image, la page dit qu'aucune publication ne part sans
@@ -3436,6 +3479,12 @@ actualité. Une vraie page, dans cet ordre :
 4. **le texte de la publication** (2 200 caractères) ;
 5. **les destinations**, avec leur état comme au § 47.6, l'avertissement
    que c'est public et hors du site, puis « Publier ».
+
+Les points 2 et 3 n'apparaissent pas quand l'image vient d'une source
+(§ 47.6). **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
+tout, un aller-retour vers la galerie ou un téléversement garde le
+brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
+« Publier ». Après « Publier », retour à l'historique.
 
 Une communication appartient à son auteur et aux administrateurs ; pour
 tout autre animateur, elle est « introuvable ». **Dès qu'une destination

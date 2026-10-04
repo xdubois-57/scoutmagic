@@ -68,24 +68,34 @@ const PAGE_DOM = `
     <input type="time" id="transition-hour" value="18:00">
     <input class="form-check-input" type="checkbox" id="email-notifications-toggle" checked>
 
-    <div class="list-group" id="sos-day-list" data-default-target="Par défaut — Alice D.">
-        <button type="button" class="list-group-item list-group-item-action sos-day-row"
-                data-date="2026-03-01" data-date-label="dimanche 1 mars 2026" data-activity="Fête des Baladins">
-            <span>dim 1</span>
-            <span data-day-target>Alice D.</span>
-            <i class="bi bi-people d-none" data-day-multiple></i>
-        </button>
-        <button type="button" class="list-group-item list-group-item-action sos-day-row"
-                data-date="2026-03-02" data-date-label="lundi 2 mars 2026" data-activity="">
-            <span>lun 2</span>
-            <span class="text-body-secondary" data-day-target>Par défaut — Alice D.</span>
-            <i class="bi bi-people d-none" data-day-multiple></i>
-        </button>
-    </div>
+    <table id="sos-day-list" data-default-target="Par défaut — Alice D." data-default-has-member="1">
+        <tbody>
+            <tr class="sos-day-row" data-date="2026-03-01" data-date-label="dimanche 1 mars 2026"
+                data-activity='["Baladins — Fête des Baladins","Louveteaux — Réunion"]'>
+                <th scope="row">dim 1</th>
+                <td><button type="button">
+                    <i class="bi bi-circle-fill text-success" data-day-dot></i>
+                    <span data-day-target>Alice D.</span>
+                    <i class="bi bi-people d-none" data-day-multiple></i>
+                </button></td>
+            </tr>
+            <tr class="sos-day-row" data-date="2026-03-02" data-date-label="lundi 2 mars 2026" data-activity="[]">
+                <th scope="row">lun 2</th>
+                <td><button type="button">
+                    <i class="bi bi-circle-fill text-body-secondary" data-day-dot></i>
+                    <span class="text-body-secondary" data-day-target>Par défaut — Alice D.</span>
+                    <i class="bi bi-people d-none" data-day-multiple></i>
+                </button></td>
+            </tr>
+        </tbody>
+    </table>
 
     <div class="offcanvas offcanvas-bottom" id="sos-day-sheet" data-date="">
         <h2 id="sos-day-sheet-title">Journée</h2>
-        <p class="d-none" id="sos-day-sheet-activity"></p>
+        <div class="d-none" id="sos-day-sheet-activity">
+            <h3>Événements ce jour-là</h3>
+            <ul id="sos-day-sheet-activity-list"></ul>
+        </div>
         <div data-sheet-member-id="4">
             <div data-member-name>Alice D.</div>
             <div class="btn-group">
@@ -494,24 +504,109 @@ describe('sos-admin.js', () => {
             expect(desktop.classList.contains('state-unavailable')).toBe(false);
         });
 
-        it('says « Enregistré. » only on a business success', async () => {
+        it('confirms a business success with a toast, and clears the progress line', async () => {
             await boot();
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistré.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
             });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
         });
 
-        it('reports a {success:false} save as an error and toasts it', async () => {
+        it('reports a {success:false} save as an error toast, never inline', async () => {
             global.fetch = mockFetch({ '/oncall': { success: false, error: 'Mois invalide.' } });
             await boot();
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent).toBe('Erreur : Mois invalide.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
             });
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
+        });
+
+        it('PUTS THE CELL BACK when the month could not be saved', async () => {
+            global.fetch = mockFetch({ '/oncall': { success: false, error: 'Mois invalide.' } });
+            await boot();
+            const cell = document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+            const before = { text: cell.textContent, className: cell.className };
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Mois invalide.', { variant: 'error' });
+            });
+            expect(cell.textContent).toBe(before.text);
+            expect(cell.className).toBe(before.className);
+        });
+
+        it('never lets an older answer arriving late roll the saved month back', async () => {
+            // Two clicks in flight: the second answers first, then the first.
+            // A third, refused, save must put back the SECOND click's month —
+            // the newest the server confirmed — not the first's.
+            const pending = [];
+            global.fetch = vi.fn((url) => {
+                if (String(url).includes('/admin/sos/transitions')) {
+                    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') });
+                }
+                return new Promise((resolve) => pending.push(resolve));
+            });
+            await boot();
+            const answer = (index, body) =>
+                pending[index]({ ok: true, status: 200, json: () => Promise.resolve(body) });
+            const cell = () => document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+            const afterSecond = { text: cell().textContent, className: cell().className };
+
+            answer(1, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            answer(0, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(3));
+            answer(2, { success: false, error: 'Non.' });
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            expect(cell().textContent).toBe(afterSecond.text);
+            expect(cell().className).toBe(afterSecond.className);
+        });
+
+        it('shows an older save confirmed AFTER the newest one was refused', async () => {
+            // Tap A, tap B; B is refused first (the grid goes back), then A
+            // is accepted: the grid must show A's month, which the server
+            // now holds — not the month from before both taps.
+            const pending = [];
+            global.fetch = vi.fn((url) => {
+                if (String(url).includes('/admin/sos/transitions')) {
+                    return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') });
+                }
+                return new Promise((resolve) => pending.push(resolve));
+            });
+            await boot();
+            const answer = (index, body) =>
+                pending[index]({ ok: true, status: 200, json: () => Promise.resolve(body) });
+            const cell = () => document.querySelector('td.sos-oncall-cell[data-member-id="7"]');
+
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(1));
+            const afterFirst = { text: cell().textContent, className: cell().className };
+            clickCell('td.sos-oncall-cell[data-member-id="7"]');
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+            answer(1, { success: false, error: 'Non.' });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' }));
+            answer(0, { success: true });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(cell().textContent).toBe(afterFirst.text);
+            expect(cell().className).toBe(afterFirst.className);
+            // The chief just read an error: the grid changing again says why.
+            expect(window.ScoutMagicToast.show).toHaveBeenLastCalledWith('Enregistré.', { variant: 'success' });
         });
 
         it('reports an HTTP 500 error page instead of reading it as saved', async () => {
@@ -520,11 +615,10 @@ describe('sos-admin.js', () => {
 
             clickCell('td.sos-oncall-cell[data-member-id="7"]');
             await vi.waitFor(() => {
-                expect(document.getElementById('oncall-save-status').textContent)
-                    .toBe('Erreur : Erreur : réponse serveur invalide.');
+                expect(window.ScoutMagicToast.show)
+                    .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
             });
-            expect(window.ScoutMagicToast.show)
-                .toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' });
+            expect(document.getElementById('oncall-save-status').textContent).toBe('');
         });
     });
 
@@ -542,17 +636,28 @@ describe('sos-admin.js', () => {
             });
         });
 
-        it('shows the day\'s activity, and hides the line when there is none', async () => {
+        it('lists the sections\' events of the day, one per line, and hides the block when there are none', async () => {
             await boot();
             const activity = document.getElementById('sos-day-sheet-activity');
+            const items = () => [...document.querySelectorAll('#sos-day-sheet-activity-list li')].map((li) => li.textContent);
 
             openDay('2026-03-01');
-            expect(activity.textContent).toBe('Fête des Baladins');
+            expect(items()).toEqual(['Baladins — Fête des Baladins', 'Louveteaux — Réunion']);
             expect(activity.classList.contains('d-none')).toBe(false);
 
             openDay('2026-03-02');
-            expect(activity.textContent).toBe('');
+            expect(items()).toEqual([]);
             expect(activity.classList.contains('d-none')).toBe(true);
+        });
+
+        it('renders an event title as text, never as markup', async () => {
+            dayRow('2026-03-02').dataset.activity = JSON.stringify(['<img src=x onerror=alert(1)>']);
+            await boot();
+
+            openDay('2026-03-02');
+
+            expect(document.querySelector('#sos-day-sheet-activity-list img')).toBeNull();
+            expect(document.querySelector('#sos-day-sheet-activity-list li').textContent).toBe('<img src=x onerror=alert(1)>');
         });
 
         it('shows each member\'s state for the day it was opened on', async () => {
@@ -630,19 +735,63 @@ describe('sos-admin.js', () => {
             expect(desktop.textContent).toBe('✗');
         });
 
-        it('reports the save in the sheet as well as under the grid', async () => {
+        it('shows the save under way in the sheet as well as under the grid, then a toast', async () => {
             await boot();
             openDay('2026-03-01');
 
             pressStateButton('7', 'oncall');
+            expect(document.getElementById('sos-day-sheet-status').textContent).toBe('Enregistrement…');
+            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistrement…');
             await vi.waitFor(() => {
-                expect(document.getElementById('sos-day-sheet-status').textContent).toBe('Enregistré.');
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
             });
-            expect(document.getElementById('oncall-save-status').textContent).toBe('Enregistré.');
+            expect(document.getElementById('sos-day-sheet-status').textContent).toBe('');
+        });
+
+        it('puts the sheet\'s buttons back too when the save is refused', async () => {
+            global.fetch = mockFetch({ '/oncall': { success: false, error: 'Non.' } });
+            await boot();
+            openDay('2026-03-01');
+            const button = document.querySelector('.sos-state-button[data-member-id="7"][data-state="unavailable"]');
+            const before = button.getAttribute('aria-pressed');
+
+            pressStateButton('7', 'unavailable');
+            expect(button.getAttribute('aria-pressed')).toBe('true');
+            await vi.waitFor(() => {
+                expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Non.', { variant: 'error' });
+            });
+            expect(button.getAttribute('aria-pressed')).toBe(before);
         });
     });
 
     describe('a day row keeps naming who really receives the calls', () => {
+        it('turns the dot green when someone goes on call, and grey again on the default number', async () => {
+            await boot();
+            const dot = dayRow('2026-03-02').querySelector('[data-day-dot]');
+
+            openDay('2026-03-02');
+            pressStateButton('7', 'oncall');
+            expect(dot.classList.contains('text-success')).toBe(true);
+            expect(dot.classList.contains('text-body-secondary')).toBe(false);
+
+            pressStateButton('7', '');
+            expect(dot.classList.contains('text-success')).toBe(false);
+            expect(dot.classList.contains('text-body-secondary')).toBe(true);
+        });
+
+        it('turns the dot red when there is no default number either — the words say « Aucun »', async () => {
+            document.getElementById('sos-day-list').dataset.defaultTarget = 'Aucun';
+            document.getElementById('sos-day-list').dataset.defaultHasMember = '0';
+            await boot();
+
+            openDay('2026-03-01');
+            pressStateButton('4', '');
+
+            const row = dayRow('2026-03-01');
+            expect(row.querySelector('[data-day-target]').textContent).toBe('Aucun');
+            expect(row.querySelector('[data-day-dot]').classList.contains('text-danger')).toBe(true);
+        });
+
         it('names the first roster member marked on call, not the first one clicked', async () => {
             // Roster order is [4, 7]. Marking Bruno (7) on a day Alice (4)
             // already holds must not rename the row: module spec §2.6 uses

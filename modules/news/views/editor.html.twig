@@ -173,16 +173,32 @@
                         {% else %}
                             <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>
                         {% endif %}
-                        {# Contributed by other modules (Service\ArticleActionRegistry). #}
+                        {# Contributed by other modules (Service\ArticleActionRegistry).
+                           An icon-only action carries its label as its accessible
+                           name and its tooltip, at design.md §7.2's touch target. #}
                         {% if article_actions|default([]) %}
                             <div class="d-flex flex-wrap gap-2 mt-2" data-article-actions>
                                 {% for action in article_actions %}
-                                    <a class="btn btn-outline-secondary" href="{{ action.url }}">
-                                        <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
-                                    </a>
+                                    {% if action.iconOnly %}
+                                        <a class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center contributed-action-icon"
+                                           href="{{ action.url }}" aria-label="{{ action.label }}" title="{{ action.label }}">
+                                            <i class="bi {{ action.icon }}" aria-hidden="true"></i>
+                                        </a>
+                                    {% else %}
+                                        <a class="btn btn-outline-secondary" href="{{ action.url }}">
+                                            <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
+                                        </a>
+                                    {% endif %}
                                 {% endfor %}
                             </div>
                         {% endif %}
+                        {# Why a module is offering nothing (Api\ArticleNote). #}
+                        {% for note in article_notes|default([]) %}
+                            <p class="small text-body-secondary mt-2 mb-0" data-article-note>
+                                {{ note.text }}
+                                {% if note.linkUrl %}<a href="{{ note.linkUrl }}">{{ note.linkLabel }}</a>{% endif %}
+                            </p>
+                        {% endfor %}
                     </div>
                 </div>
             {% endif %}

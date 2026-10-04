@@ -7,8 +7,8 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
-related: locations, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+related: locations, locations-calendrier, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
 ---
 
 « Gérer mes locations » est l'espace des gestionnaires : les personnes
@@ -18,13 +18,14 @@ confondus.
 
 ## « À traiter »
 
-Une seule question : **quelqu'un attend-il ?** Soit le dossier en est à
-une étape où vous devez décider, soit le locataire a demandé une
-modification, soit votre proposition attend sa réponse. Chaque ligne dit
-laquelle — les deux dernières ne se lisent pas dans le statut, et une
-réservation confirmée portant une demande reçue hier n'apparaissait donc
-nulle part. Le chiffre en haut de page et le filtre de la liste des
-réservations comptent la même chose.
+Une seule question : **l'unité a-t-elle quelque chose à faire ?** Une
+décision à prendre, une modification demandée par le locataire, votre
+proposition sans réponse, l'étape suivante de la réservation quand elle
+est la vôtre (« À faire : envoyer le contrat »), ou celle du locataire
+quand il est en retard (« En retard : acompte attendu depuis le … »).
+Une réservation confirmée reste donc là tant qu'il vous reste une étape.
+Le chiffre en haut de page et le filtre de la liste des réservations
+comptent la même chose.
 
 ## Traiter une demande
 

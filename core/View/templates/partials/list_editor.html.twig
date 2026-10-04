@@ -84,7 +84,16 @@
      data-add-mode="{{ add_mode|default('default') }}"
      data-empty-label="{{ empty_label|default('Aucun élément.') }}"
      {%- if not is_sortable %} data-sortable="false"{% endif %}
-     {%- if in_place is defined and in_place %} data-in-place="true"{% endif %}>
+     {%- if in_place is defined and in_place %} data-in-place="true"{% endif %}
+     {#- Opt-in connected lists (issue #752): lists sharing a
+         `sortable_group` accept each other's items, and post their
+         `group_key` with their order. Both or neither: a group without a
+         key would post an empty group, which the server reads as « no
+         move » and answers with success — a drop shown, never saved.
+         Absent, the list is on its own. #}
+     {%- if sortable_group is defined and sortable_group and (group_key|default('')) ~ '' != '' %}
+     data-sortable-group="{{ sortable_group }}" data-group-key="{{ group_key }}"
+     {%- endif %}>
     <div class="list-editor-items d-flex flex-column gap-2 mb-3">
         {% for item in items %}
             {% set can_delete = item.can_delete is not defined or item.can_delete %}
@@ -135,9 +144,11 @@
                     {% endif %}
                 </div>
             </div>
-        {% else %}
-            <p class="list-editor-empty text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>
         {% endfor %}
+        {# Always rendered, hidden while there are items: a connected list
+           that is emptied by a drag must be able to say so, and one that
+           receives a drop must be able to stop saying it. #}
+        <p class="text-body-secondary fst-italic mb-0 list-editor-empty{{ items is empty ? '' : ' d-none' }}">{{ empty_label|default('Aucun élément.') }}</p>
     </div>
     {% if in_place is defined and in_place %}
         <div class="list-editor-add-form-slot">{% block add_form %}{% endblock %}</div>

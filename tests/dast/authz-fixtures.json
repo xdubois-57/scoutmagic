@@ -150,19 +150,17 @@
     "/config/pages-de-texte/{id}": {
       "id": "1"
     },
-    "/communications/{id}": {
+    "/medias-sociaux/{id}": {
       "id": "1"
     },
-    "/communications/reessayer/{kind}": {
+    "/medias-sociaux/nouvelle/{kind}": {
+      "kind": "album",
+      "id": "1"
+    },
+    "/medias-sociaux/reessayer/{kind}": {
       "kind": "album",
       "id": "1",
       "platform": "facebook"
-    },
-    "/partage/album/{id}": {
-      "id": "1"
-    },
-    "/partage/actualite/{id}": {
-      "id": "1"
     },
     "/partage/carte/{token}": {
       "token": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -357,6 +355,9 @@
     },
     "/test-tools/mail-sandbox/{id}": {
       "id": "1"
+    },
+    "/admin/leadership/{page}": {
+      "page": "training"
     }
   }
 }

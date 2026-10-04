@@ -465,9 +465,11 @@ describe('sos-config.js', () => {
             expect(url).toBe('/config/sos/excluded-sections');
             // 2 is unchecked, 3 is unchecked but disabled (Staff d'U).
             expect(body).toEqual({ section_ids: [1, 2], _csrf_token: 'tok-123' });
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
         });
 
-        it('toasts a refused change instead of leaving the box looking saved', async () => {
+        it('toasts a refused change and puts the box back instead of leaving it looking saved', async () => {
             global.fetch = mockFetch({ '/excluded-sections': { success: false, error: 'Section inconnue.' } });
             await boot();
 
@@ -477,6 +479,9 @@ describe('sos-config.js', () => {
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
 
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Section inconnue.', { variant: 'error' });
+            expect(checkbox.checked).toBe(false);
+            // A plain checkbox, not a switch: no aria-checked to go stale.
+            expect(checkbox.hasAttribute('aria-checked')).toBe(false);
         });
     });
 });

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.35.0",
+  "version": "1.36.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -261,10 +261,19 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/blocage",
+      "path": "/mes-locations/{slug}/calendrier/jours",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "createBlock",
+      "action": "calendarDays",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/blocage-motif",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "blockReason",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -1053,6 +1062,13 @@
       "type": "number",
       "label": "Blocage automatique des dates (jours)",
       "description": "Nombre de jours pendant lesquels les dates d'une demande reçue sont retenues, le temps que les gestionnaires y répondent — jamais au-delà du début du séjour. Pendant ce délai les dates n'apparaissent plus libres pour les autres visiteurs. À l'échéance, elles se libèrent seules et la demande reste en attente : rien n'est refusé automatiquement, et la page de la réservation avertit que les dates ne sont plus bloquées. 0 désactive le blocage automatique : les dates restent alors proposées à tout le monde jusqu'à la confirmation."
+    },
+    {
+      "key": "contract_hold_min_days",
+      "default_value": "15",
+      "type": "number",
+      "label": "Blocage des dates après l'envoi du contrat (jours)",
+      "description": "À chaque envoi du contrat, les dates restent bloquées au moins ce nombre de jours, le temps que le locataire le signe — jamais au-delà du début du séjour. Un blocage qui court déjà plus longtemps n'est pas raccourci. 0 ne prolonge rien."
     },
     {
       "key": "compliance_label_suggestions",

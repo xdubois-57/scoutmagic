@@ -1116,7 +1116,12 @@ class RentalManagementControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
     }
 
-    public function testAConfirmedBookingWithNothingPendingStaysOffTheList(): void
+    /**
+     * A confirmed booking with a step of the unit's left — here the
+     * contract to send — stays on « À traiter », and the line names the step
+     * (#708, IT-12). It used to vanish the moment it was confirmed.
+     */
+    public function testAConfirmedBookingWithAUnitStepLeftIsOnTheList(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
         AuthSession::login(1, 'manager@test.be', 'identified');
@@ -1124,9 +1129,22 @@ class RentalManagementControllerTest extends TestCase
         $booking = $this->createBooking();
         $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
 
-        $body = (string) $this->overview('local-saint-georges')->getBody();
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
 
-        $this->assertStringContainsString('Aucune demande en attente.', $body);
+        $this->assertStringContainsString('À faire : envoyer le contrat', $body);
+        $this->assertStringNotContainsString('Aucune demande en attente.', $body);
+    }
+
+    /** A final booking is never on the list, whatever its steps say. */
+    public function testAClosedBookingStaysOffTheList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CLOSED, new \DateTimeImmutable());
+
+        $this->assertStringContainsString('Aucune demande en attente.', (string) $this->overview('local-saint-georges')->getBody());
     }
 
     public function testAManagerOfOneAssetCannotReachAnother(): void
@@ -1199,12 +1217,21 @@ class RentalManagementControllerTest extends TestCase
             $this->assertSame(404, $response->getStatusCode(), $path . ' must be refused.');
         }
 
-        $this->assertSame(404, $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-09-01',
-            'end' => '2027-09-05',
+        $this->assertSame(404, $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10)],
         ])->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
         $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+
+        // A period's reason too: an id in a POST is no authorisation.
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $this->assertSame(404, $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => 'Pris',
+        ])->getStatusCode());
+        $this->assertSame('Camp', $this->blockRepository->findById($blockId)?->reason);
     }
 
     public function testAWriteWithoutAValidCsrfTokenIsRefused(): void
@@ -1261,7 +1288,7 @@ class RentalManagementControllerTest extends TestCase
     public function testABlockCannotBeDeletedThroughAnAssetTheManagerDoesControl(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', 1, null, null);
+        $foreignBlockId = $this->blockRepository->create($this->otherAssetId, '2027-09-01', '2027-09-05', null, null);
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $this->post('/mes-locations/blocage-supprimer', 'deleteBlock', [
@@ -1405,6 +1432,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
@@ -1663,32 +1691,220 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(31000, $fresh?->effectiveTotalCents());
     }
 
-    public function testABlockIsAcceptedOverABookedPeriodAndTheManagerIsWarned(): void
+    // ── Blocking dates on the calendar (#708, IT-07) ────────────────────
+
+    public function testDaysBlockedOnTheCalendarBecomeOnePeriodWithoutAReason(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(10), $this->futureDay(11), $this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertSame(
+            [$this->futureDay(10) => null, $this->futureDay(11) => null, $this->futureDay(12) => null],
+            $payload['changed']
+        );
+        $this->assertStringContainsString('Motif', $payload['list']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame($this->futureDay(10), $blocks[0]->startDate);
+        $this->assertSame($this->futureDay(12), $blocks[0]->endDate);
+        $this->assertNull($blocks[0]->reason);
+    }
+
+    /**
+     * The list under the grid is re-rendered after a gesture with the
+     * window the page drew it with — the month on screen, not today.
+     */
+    public function testTheListAfterAGestureKeepsTheWindowOfTheMonthOnScreen(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), 'Camp', null);
+        $month = (new \DateTimeImmutable('first day of +2 months'));
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$month->modify('+3 days')->format('Y-m-d')],
+            'month' => $month->format('Y-m'),
+        ])->getBody(), true);
+        $this->assertStringNotContainsString('Camp', $payload['list'], 'A block ended before that month stays out.');
+
+        $payload = json_decode((string) $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(20)],
+        ])->getBody(), true);
+        $this->assertStringContainsString('Camp', $payload['list'], 'With no month, the window is this one.');
+    }
+
+    public function testReleasingTheMiddleOfAPeriodCutsItInTwoKeepingTheReason(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'release',
+            'days' => [$this->futureDay(12)],
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $payload = json_decode((string) $response->getBody(), true);
+        $this->assertSame([$this->futureDay(12) => 'Camp'], $payload['changed']);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertSame(
+            [[$this->futureDay(10), $this->futureDay(11), 'Camp'], [$this->futureDay(13), $this->futureDay(14), 'Camp']],
+            array_map(static fn($b) => [$b->startDate, $b->endDate, $b->reason], $blocks)
+        );
+    }
+
+    public function testUndoingAReleaseWithItsReasonsRebuildsThePeriod(): void
+    {
+        $this->loginAsManager();
+        $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(14), 'Camp', null);
+        $this->postCalendarDays('local-saint-georges', ['mode' => 'release', 'days' => [$this->futureDay(12)]]);
+
+        $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(12)],
+            'reasons' => [$this->futureDay(12) => 'Camp'],
+        ]);
+
+        $blocks = $this->blockRepository->findAllForAsset($this->assetId);
+        $this->assertCount(1, $blocks);
+        $this->assertSame([$this->futureDay(10), $this->futureDay(14), 'Camp'], [$blocks[0]->startDate, $blocks[0]->endDate, $blocks[0]->reason]);
+    }
+
+    public function testAPastDayIsRefusedAndNothingIsWritten(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [(new \DateTimeImmutable('yesterday'))->format('Y-m-d'), $this->futureDay(3)],
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testAGestureWithoutAValidCsrfTokenIsRefused(): void
+    {
+        $this->loginAsManager();
+
+        $response = $this->postCalendarDays('local-saint-georges', [
+            'mode' => 'block',
+            'days' => [$this->futureDay(3)],
+            '_csrf_token' => 'forged',
+        ]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->blockRepository->findAllForAsset($this->assetId));
+    }
+
+    public function testABlockOverABookedPeriodIsAcceptedAndBothStayOnTheCalendar(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
-        $this->post('/mes-locations/statut', 'changeStatus', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'status' => 'confirmed',
-        ]);
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->blockRepository->create($this->assetId, '2027-07-02', '2027-07-02', 'Concierge absent', null);
 
-        $response = $this->post('/mes-locations/blocage', 'createBlock', [
-            'asset_id' => (string) $this->assetId,
-            'start' => '2027-07-01',
-            'end' => '2027-07-04',
-            'reason' => 'Chantier toiture',
-        ]);
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar',
+            ['month' => '2027-07']
+        )->getBody();
 
-        $this->assertSame(302, $response->getStatusCode());
-        // Neither failed nor overwrote the booking (§6.18).
-        $this->assertCount(1, $this->blockRepository->findUpcoming($this->assetId, '2027-01-01'));
+        // Neither failed nor overwrote the booking (§6.18): the day carries
+        // the booking's state AND the unit's marker.
         $this->assertSame(BookingStatus::CONFIRMED, $this->bookingRepository->findById($booking->id)?->status);
-        // Accepted, but said out loud, so an accidental overlap is visible
-        // rather than silent.
-        $flash = \Core\Http\FlashMessage::get();
-        $this->assertSame('warning', $flash['type'] ?? null);
-        $this->assertStringContainsString('coexistent', $flash['message'] ?? '');
+        $this->assertMatchesRegularExpression(
+            '/data-date="2027-07-02"\s+data-state="occupied"\s+data-unit-block="1"/',
+            $body
+        );
+        $this->assertStringContainsString('Occupé — et réservé par l&#039;unité', $body);
+    }
+
+    public function testTheCalendarOffersNoDateFormNorQuantityAnyMore(): void
+    {
+        $this->loginAsManager();
+
+        $body = (string) $this->get(
+            '/mes-locations/{slug}/calendrier',
+            '/mes-locations/local-saint-georges/calendrier',
+            'calendar'
+        )->getBody();
+
+        $this->assertStringContainsString('id="rental-block-calendar"', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/blocage"', $body);
+        $this->assertStringNotContainsString('name="units"', $body);
+        $this->assertStringContainsString('rental-block-days.js', $body);
+    }
+
+    public function testAPeriodsReasonIsGivenFromTheList(): void
+    {
+        $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $blockId,
+            'reason' => '  Chantier toiture ',
+        ]);
+
+        $this->assertSame('Chantier toiture', $this->blockRepository->findById($blockId)?->reason);
+    }
+
+    public function testAnotherAssetsPeriodsReasonCannotBeChanged(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->blockRepository->create($this->otherAssetId, $this->futureDay(10), $this->futureDay(12), 'X', null);
+
+        $this->post('/mes-locations/blocage-motif', 'blockReason', [
+            'asset_id' => (string) $this->assetId,
+            'block_id' => (string) $foreign,
+            'reason' => 'Pris',
+        ]);
+
+        $this->assertSame('X', $this->blockRepository->findById($foreign)?->reason);
+    }
+
+    private function futureDay(int $days): string
+    {
+        return (new \DateTimeImmutable('today'))->modify('+' . $days . ' days')->format('Y-m-d');
+    }
+
+    /**
+     * The calendar's own fetch: a JSON body, the token inside it.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function postCalendarDays(string $slug, array $body): Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $path = '/mes-locations/{slug}/calendrier/jours';
+
+        $router = new Router();
+        $router->addRoute('POST', $path, RentalManagementController::class, 'calendarDays', 'identified');
+
+        return $this->dispatch(
+            $router,
+            new \Tests\RequestWithInput(
+                'POST',
+                '/mes-locations/' . $slug . '/calendrier/jours',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode($body)
+            )
+        );
     }
 
     // ── Internal comments never cross the boundary ──────────────────────
@@ -1824,7 +2040,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->createBooking();
-        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier toiture', null);
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 'Chantier toiture', null);
 
         $body = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -1961,6 +2177,13 @@ class RentalManagementControllerTest extends TestCase
 
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_sent'));
+
+        // The unit's answer (#708, IT-13): « Contrat envoyé », and the dates
+        // held while the renter signs — no decision email on top of it.
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $fresh?->status);
+        $this->assertNotNull($fresh?->holdUntil);
+        $this->assertSame([], $this->renterEmails);
     }
 
     /**
@@ -2099,7 +2322,12 @@ class RentalManagementControllerTest extends TestCase
      * request for a contract, which is where the checklist alone used to
      * point.
      */
-    public function testAnUndecidedRequestLeadsWithItsDecision(): void
+    /**
+     * The unit's answer is its contract (#708, IT-13): a received request
+     * leads with sending it, the other answers stay behind « Autres
+     * décisions », and confirming is not among them.
+     */
+    public function testAReceivedRequestLeadsWithTheContract(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2107,9 +2335,28 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre décision.', $nextStep);
-        $this->assertStringContainsString('value="confirmed"', $nextStep);
+        $this->assertStringContainsString('Cette demande attend votre réponse : envoyez le contrat.', $nextStep);
+        $this->assertStringContainsString('Préparer le contrat', $nextStep);
         $this->assertStringContainsString('value="refused"', $nextStep);
+        $this->assertStringNotContainsString('value="confirmed"', $nextStep);
+    }
+
+    /** Confirming is refused while the agreement is not complete, and says what is missing. */
+    public function testAConfirmationWaitsForTheAgreement(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->post('/mes-locations/statut', 'changeStatus', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Contrat envoyé »', $flash['message'] ?? '');
     }
 
     /**
@@ -2121,12 +2368,13 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
         $this->assertSame(
             1,
-            substr_count($body, 'name="status" value="confirmed"'),
+            substr_count(self::withoutStepDiscs($body), 'name="status" value="confirmed"'),
             'the « Confirmée » button is rendered twice'
         );
     }
@@ -2617,11 +2865,122 @@ class RentalManagementControllerTest extends TestCase
 
     private function confirm(RentalBooking $booking): void
     {
+        $this->completeTheAgreement($booking);
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'status' => 'confirmed',
         ]);
+    }
+
+    /**
+     * The agreement complete, as the site derives it: the contract sent and
+     * its signed copy back (#708, IT-13) — what a confirmation now waits for.
+     */
+    // ── Completing a step by hand (#708, IT-14) ─────────────────────────
+
+    /**
+     * « Contrat envoyé » ticked by hand — the contract went by e-mail —
+     * has the effects of a real send; reopened, the request is back to
+     * « Demande reçue », the hold not shortened.
+     */
+    public function testTickingTheContractByHandSendsItAndReopeningPutsItBack(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->assertSame(302, $this->markStep($booking, 'contract_sent')->getStatusCode());
+        $sent = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $sent?->status);
+        $this->assertNotNull($sent?->holdUntil);
+
+        $this->markStep($booking, 'contract_sent', false);
+        $reopened = $this->bookingRepository->findById($booking->id);
+        $this->assertSame(BookingStatus::RECEIVED, $reopened?->status);
+        $this->assertEquals($sent?->holdUntil, $reopened?->holdUntil);
+    }
+
+    /** A step ticked by hand moves the journey on, like the site's own answer. */
+    public function testAHandTickMovesTheNextStepOn(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->markStep($booking, 'contract_sent');
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($body, 'contract_sent'));
+        $this->assertStringNotContainsString('envoyez le contrat', self::panel($body, 'next-step'));
+    }
+
+    /** A step the site completed itself never reopens. */
+    public function testAStepTheSiteCompletedCannotBeReopened(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
+
+        $this->markStep($booking, 'contract_sent', false);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Seule une étape cochée à la main', $flash['message'] ?? '');
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Rouvrir', self::step($body, 'contract_sent'));
+    }
+
+    /** « Réservation confirmée » is run from its disc once the agreement is complete, never ticked. */
+    public function testTheConfirmationDiscRunsTheTransition(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
+
+        $step = self::step((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'confirmed');
+
+        $this->assertStringContainsString('action="/mes-locations/statut"', $step);
+        $this->assertStringContainsString('name="status" value="confirmed"', $step);
+        $this->assertStringContainsString('<span class="visually-hidden">Confirmer la réservation</span>', $step);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $step);
+        $this->assertSame(302, $this->markStep($booking, 'confirmed')->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testAStepOfAnotherAssetsBookingCannotBeTicked(): void
+    {
+        $this->loginAsManager();
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+
+        $response = $this->post('/mes-locations/etape', 'markMilestone', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $foreign->id,
+            'milestone_key' => 'contract_sent',
+            'done' => '1',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($foreign->id)?->status);
+    }
+
+    /**
+     * The page without its step discs: the disc of « Réservation
+     * confirmée » or « Location clôturée » runs the transition too (#708,
+     * IT-14), a second way into the same decision rather than a second
+     * decision.
+     */
+    private static function withoutStepDiscs(string $body): string
+    {
+        return (string) preg_replace('#<form[^>]*data-step-disc[^>]*>.*?</form>#s', '', $body);
+    }
+
+    private function completeTheAgreement(RentalBooking $booking): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO rental_documents (booking_id, file_id, document_type, version, is_for_renter, sent_at)
+             VALUES (?, 1, ?, 1, 1, ?)'
+        );
+        $insert->execute([$booking->id, 'contract', '2027-01-02 10:00:00']);
+        $insert->execute([$booking->id, 'signed_contract', null]);
     }
 
     private function markStep(RentalBooking $booking, string $key, bool $done = true): Response
@@ -2635,11 +2994,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * **A derived step never has a box to tick** (D5, D6). Only a step the
-     * site cannot derive — here, the walk-throughs of an asset that keeps
-     * no inventory — carries one, and every step says its nature.
+     * **Any step still to do is completed by hand from its disc** (#708,
+     * IT-14), never « Demande reçue » nor « Dates bloquées », and every
+     * disc that does something is a named button.
      */
-    public function testOnlyAStepDoneOutsideTheSiteHasABoxToTick(): void
+    public function testEveryStepToDoCanBeTickedFromItsDisc(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2647,16 +3006,24 @@ class RentalManagementControllerTest extends TestCase
 
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         preg_match_all('#<li class="step-item[^"]*"\s+data-milestone="([a-z_]+)" data-kind="([a-z]+)".*?</li>#s', $body, $steps, PREG_SET_ORDER);
-        $this->assertGreaterThanOrEqual(15, count($steps), 'the journey renders every step');
+        $this->assertGreaterThanOrEqual(14, count($steps), 'the journey renders every step');
 
-        $marked = [];
-        foreach ($steps as [$markup, $key, $kind]) {
-            if (str_contains($markup, 'data-mark-step')) {
-                $marked[] = $key;
-                $this->assertSame('offsite', $kind, "{$key} offers a box and is not done outside the site");
+        $tickable = [];
+        foreach ($steps as [$markup, $key]) {
+            if (str_contains($markup, 'action="/mes-locations/etape"')) {
+                $tickable[] = $key;
+                $this->assertStringContainsString('<input type="hidden" name="done" value="1">', $markup, $key);
+                $this->assertMatchesRegularExpression(
+                    '#<span class="visually-hidden">Marquer « [^»]+ » comme fait</span>#',
+                    $markup,
+                    $key
+                );
             }
         }
-        $this->assertSame(['arrival_inventory', 'departure_inventory'], $marked);
+        $this->assertContains('arrival_inventory', $tickable);
+        $this->assertNotContains('request_received', $tickable);
+        $this->assertNotContains('hold', $tickable);
+        $this->assertNotContains('closed', $tickable, 'a status is run, never ticked');
     }
 
     /**
@@ -2691,10 +3058,11 @@ class RentalManagementControllerTest extends TestCase
         // No action at all: neither a transition nor a link to a box.
         $this->assertStringNotContainsString('action="/mes-locations/statut"', $stay[0]);
         $this->assertStringNotContainsString('<a class="btn', $stay[0]);
-        // The box is there — a step that vanished would read as skipped —
-        // but cannot be ticked, and neither can its no-JavaScript twin.
-        $this->assertMatchesRegularExpression('#data-mark-step[^>]*disabled#', $stay[0]);
-        $this->assertDoesNotMatchRegularExpression('#data-mark-step(?![^>]*disabled)[^>]*>#', $stay[0]);
+        // The steps are there — a step that vanished would read as skipped
+        // — but their discs are inert: nothing to tick before the stretch
+        // is reached.
+        $this->assertStringContainsString('data-milestone="arrival_inventory"', $stay[0]);
+        $this->assertStringNotContainsString('action="/mes-locations/etape"', $stay[0]);
         $this->assertDoesNotMatchRegularExpression('#<button type="submit"(?![^>]*disabled)[^>]*>#', $stay[0]);
     }
 
@@ -2714,8 +3082,11 @@ class RentalManagementControllerTest extends TestCase
         $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $step = self::step($body, 'arrival_inventory');
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', $step);
-        $this->assertStringContainsString('fait le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
-        $this->assertStringContainsString('Étape hors du site', self::panel($body, 'history'));
+        $this->assertStringContainsString('Coché à la main', $step);
+        $this->assertStringContainsString(' le ' . (new \DateTimeImmutable())->format('d/m/Y'), $step);
+        // Reopened from the same disc.
+        $this->assertStringContainsString('<span class="visually-hidden">Rouvrir « État des lieux d&#039;entrée »</span>', $step);
+        $this->assertStringContainsString('Étape cochée à la main', self::panel($body, 'history'));
 
         $this->markStep($booking, 'arrival_inventory', false);
         $again = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
@@ -2742,9 +3113,14 @@ class RentalManagementControllerTest extends TestCase
             $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
 
             foreach (\Modules\Rental\Booking\BookingTransition::allowedFrom($booking->status) as $to) {
+                // Confirming is offered by its own line once the agreement
+                // is complete, never as one decision among others (#708, IT-13).
+                if ($to === BookingStatus::CONFIRMED) {
+                    continue;
+                }
                 $this->assertSame(
                     1,
-                    substr_count($body, 'name="status" value="' . $to->value . '"'),
+                    substr_count(self::withoutStepDiscs($body), 'name="status" value="' . $to->value . '"'),
                     "{$booking->status->value}: « {$to->value} » is not offered exactly once"
                 );
             }
@@ -3312,6 +3688,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
+        $this->completeTheAgreement($booking);
 
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
@@ -3683,16 +4060,17 @@ class RentalManagementControllerTest extends TestCase
     // ── Fields the site renders the same way everywhere ─────────────────
 
     /**
-     * The calendar's blocking form and the compliance register were the
+     * The calendar's period list and the compliance register were the
      * last two hand-written control stacks in the managed space: labels
      * whose classes did not match the rest of the site, and help texts no
      * screen reader ever announced because nothing pointed at them. The
      * `form_field` partial renders label, control, help text and required
      * marker as one unit with `aria-describedby` wired (design.md §7.9).
      */
-    public function testTheBlockingFormIsRenderedThroughTheSharedField(): void
+    public function testAPeriodsReasonFieldIsRenderedThroughTheSharedField(): void
     {
         $this->loginAsManager();
+        $blockId = $this->blockRepository->create($this->assetId, $this->futureDay(10), $this->futureDay(12), null, null);
 
         $html = (string) $this->get(
             '/mes-locations/{slug}/calendrier',
@@ -3700,14 +4078,8 @@ class RentalManagementControllerTest extends TestCase
             'calendar'
         )->getBody();
 
-        // The required marker comes from the partial, not from a « * »
-        // somebody typed into the label.
         $this->assertMatchesRegularExpression(
-            '#<label class="form-label small" for="block-start">\s*Du\s*<span class="text-danger" aria-hidden="true">\*</span>#',
-            $html
-        );
-        $this->assertMatchesRegularExpression(
-            '#<input type="date" class="form-control form-control-sm" id="block-end"\s+name="end"\s+value=""\s+required#',
+            '#<label class="form-label small" for="block-reason-' . $blockId . '">\s*Motif#',
             $html
         );
     }

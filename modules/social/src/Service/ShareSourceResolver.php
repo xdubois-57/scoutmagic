@@ -41,30 +41,152 @@ final class ShareSourceResolver
     }
 
     /**
-     * A free communication, to its author or an administrator. A gallery
-     * photo is read through the gallery's Api at every use — its
-     * visibility is asked again then — and published blurred; an uploaded
-     * image goes as it is.
+     * A communication, to its author or an administrator.
+     *
+     * Two shapes, and the difference is where the card's image and title
+     * come from (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01):
+     *
+     * - written from nothing: its OWN image — a gallery photo read through
+     *   the gallery's Api at every use, so its visibility is asked again
+     *   then, and published blurred; or an uploaded file, which goes as it
+     *   is — and its own title;
+     * - opened from a source: the SOURCE's image, title and link, asked of
+     *   the owning module's own rule at every use. Nothing of the source is
+     *   copied into this row, which is why there is one answer to « what
+     *   is on this card » rather than two that can disagree.
+     *
+     * A source that has since been deleted does not 404 the page: the
+     * communication is returned BLOCKED, with the reason, because a chief
+     * who opens it is owed an explanation rather than a missing page.
      */
-    public function communication(int $communicationId, string $role, int $accountId): ?ShareSource
-    {
+    public function communication(
+        int $communicationId,
+        string $role,
+        int $accountId,
+        ?string $email = null
+    ): ?ShareSource {
         $communication = $this->editableCommunication($communicationId, $role, $accountId);
         if ($communication === null) {
             return null;
         }
 
+        return $communication->hasSource()
+            ? $this->sourceBackedCommunication($communication, $role, $accountId, $email)
+            : new ShareSource(
+                ShareSource::KIND_COMMUNICATION,
+                $communication->id,
+                $communication->title,
+                $this->communicationImage($communication, $role),
+                $communication->galleryMediaId !== null,
+                null,
+                $this->address(''),
+                $communication->body,
+                self::path($communication->id),
+                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+            );
+    }
+
+    /**
+     * The communication's own identity — so its publications are recorded
+     * against it, and « the same communication twice to the same
+     * destination » keeps meaning what it says — carrying the source's
+     * image, title and link.
+     */
+    private function sourceBackedCommunication(
+        Communication $communication,
+        string $role,
+        int $accountId,
+        ?string $email
+    ): ShareSource {
+        $source = $this->describeSource(
+            (string) $communication->sourceKind,
+            (int) $communication->sourceId,
+            $role,
+            $accountId,
+            $email
+        );
+
+        if ($source === null) {
+            return new ShareSource(
+                ShareSource::KIND_COMMUNICATION,
+                $communication->id,
+                '',
+                null,
+                false,
+                null,
+                $this->address(''),
+                $communication->body,
+                self::path($communication->id),
+                self::vanishedSourceReason((string) $communication->sourceKind)
+            );
+        }
+
         return new ShareSource(
             ShareSource::KIND_COMMUNICATION,
             $communication->id,
-            $communication->title,
-            $this->communicationImage($communication, $role),
-            $communication->galleryMediaId !== null,
-            null,
-            $this->address(''),
+            $source->title,
+            $source->image,
+            $source->imageFromGallery,
+            $source->link,
+            $source->address,
             $communication->body,
-            '/communications/' . $communication->id,
-            trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+            self::path($communication->id),
+            $source->blockedReason,
+            $source->pageUrl,
+            // What it IS, beside the `communication` identity its
+            // publications are recorded under — so a message about a
+            // missing image can name the album instead of telling the
+            // chief to choose one here, where there is no button to.
+            $source->kind
         );
+    }
+
+    /**
+     * An album or an article, by kind — the one place that turns the two
+     * stored strings back into the owning module's answer, so a new kind is
+     * added here and nowhere else.
+     */
+    public function describeSource(
+        string $kind,
+        int $id,
+        string $role,
+        int $accountId,
+        ?string $email
+    ): ?ShareSource {
+        return match ($kind) {
+            ShareSource::KIND_ALBUM => $this->album($id, $role, $email ?? ''),
+            ShareSource::KIND_ARTICLE => $this->article($id, $role, $accountId),
+            default => null,
+        };
+    }
+
+    /**
+     * What a composer says it is sharing, for the one line above the card:
+     * « Partage de l'album Week-end de rentrée ».
+     */
+    public static function sourceLabel(string $kind): ?string
+    {
+        return match ($kind) {
+            ShareSource::KIND_ALBUM => 'l\'album',
+            ShareSource::KIND_ARTICLE => 'l\'actualité',
+            default => null,
+        };
+    }
+
+    private static function vanishedSourceReason(string $kind): string
+    {
+        return match ($kind) {
+            ShareSource::KIND_ALBUM => 'L\'album partagé n\'existe plus, ou n\'est plus à vous : cette'
+                . ' communication ne peut plus être publiée.',
+            ShareSource::KIND_ARTICLE => 'L\'actualité partagée n\'existe plus, ou n\'est plus à vous : cette'
+                . ' communication ne peut plus être publiée.',
+            default => 'Ce que cette communication partageait n\'existe plus : elle ne peut plus être publiée.',
+        };
+    }
+
+    public static function path(int $communicationId): string
+    {
+        return '/medias-sociaux/' . $communicationId;
     }
 
     /**

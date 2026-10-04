@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
+use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Reminder\DueReminder;
 use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Reminder\ReminderKind;
@@ -84,7 +85,13 @@ class RentalReminderService
          * Who hears about an asset — the rule a new request uses too
          * (#708, IT-05). Null builds one with no Staff d'U fallback.
          */
-        private ?ManagerRecipientResolver $recipientResolver = null
+        private ?ManagerRecipientResolver $recipientResolver = null,
+        /**
+         * The steps ticked by hand (#708, IT-14): a deposit paid in cash
+         * must not go on being chased as « acompte non reçu ». Null reads
+         * as no tick at all.
+         */
+        private ?\Modules\Rental\Repository\RentalMilestoneMarkRepository $markRepository = null
     ) {
     }
 
@@ -185,13 +192,28 @@ class RentalReminderService
                 continue;
             }
 
+            // A step ticked by hand counts exactly like the site's own
+            // answer (#708, IT-14): the reminder that chases it stops.
+            $marks = $this->markRepository?->findForBooking($booking->id) ?? [];
+            $ticked = array_keys($marks);
+            $inventory = $this->inventoryState($booking);
+            $inventory['arrival'] = $inventory['arrival']
+                || in_array(BookingMilestones::ARRIVAL_INVENTORY, $ticked, true);
+            $inventory['departure'] = $inventory['departure']
+                || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
+
             $due = $this->planner->forBooking(
                 $booking,
                 $asset,
-                $this->paymentStatus($booking, $asset),
-                $this->inventoryState($booking),
-                $this->documentService?->latest($booking->id, \Modules\Rental\Document\DocumentType::CONTRACT) !== null,
-                ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
+                self::withHandTicks($this->paymentStatus($booking, $asset), $marks),
+                $inventory,
+                in_array(BookingMilestones::CONTRACT_SENT, $ticked, true)
+                    || $this->documentService?->latest(
+                        $booking->id,
+                        \Modules\Rental\Document\DocumentType::CONTRACT
+                    ) !== null,
+                in_array(BookingMilestones::FINAL_SETTLEMENT, $ticked, true)
+                    || ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
                 $today,
                 $schedule = $this->scheduleFor($asset->id)
             );
@@ -392,6 +414,40 @@ class RentalReminderService
         }
 
         return ['arrival' => $arrival, 'departure' => $departure];
+    }
+
+    /**
+     * The payment status as the reminders read it, with the money steps a
+     * manager ticked by hand counted as settled (#708, IT-14).
+     *
+     * @param array<string, mixed> $payment
+     * @param array<string, array{marked_at: \DateTimeImmutable, marked_by_member_id: ?int}> $marks
+     * @return array<string, mixed>
+     */
+    private static function withHandTicks(array $payment, array $marks): array
+    {
+        $ticked = array_keys($marks);
+        if (in_array(BookingMilestones::DEPOSIT_RECEIVED, $ticked, true)) {
+            $payment['deposit_received'] = true;
+        }
+        if (in_array(BookingMilestones::BALANCE_RECEIVED, $ticked, true)) {
+            $payment['fully_paid'] = true;
+        }
+
+        $security = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
+        if (in_array(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $ticked, true)) {
+            $security['received_cents'] = max(
+                (int) ($security['received_cents'] ?? 0),
+                (int) ($security['amount_cents'] ?? 0)
+            );
+        }
+        $returned = $marks[BookingMilestones::SECURITY_DEPOSIT_RETURNED] ?? null;
+        if ($returned !== null) {
+            $security['returned_at'] ??= $returned['marked_at']->format('Y-m-d');
+        }
+        $payment['security_deposit'] = $security;
+
+        return $payment;
     }
 
     /**

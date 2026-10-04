@@ -22,4 +22,15 @@ interface ArticleActionProviderInterface
      * @return list<ArticleAction>
      */
     public function actionsFor(int $articleId): array;
+
+    /**
+     * One line explaining why this provider offers no action right now, or
+     * null when it has nothing to explain — either because it is offering
+     * an action, or because its absence needs no words.
+     *
+     * Asked alongside actionsFor() rather than instead of it: a provider
+     * that answers both is contributing a button AND a caveat, which is
+     * its own business, not this page's.
+     */
+    public function noteFor(int $articleId): ?ArticleNote;
 }

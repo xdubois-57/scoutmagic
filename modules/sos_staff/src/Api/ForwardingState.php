@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\SosStaff\Provider;
+namespace Modules\SosStaff\Api;
 
 /**
  * The live state of unconditional call forwarding on the configured line,

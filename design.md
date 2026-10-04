@@ -757,6 +757,110 @@ separately, and only one of the three remembered that `dragover` must
 call `preventDefault()` — without it the browser refuses the drop and
 opens the file in a new tab, so the zone looks alive and does nothing.
 
+**Picking a file says which one, and sending it says so too** (issue
+#756). Both halves are opt-in on the shared zone, because most of these
+zones take a document rather than a photograph and a change neither asked
+for is a change that surprises them.
+
+`data-drop-zone-preview="image"` on the zone adds a **thumbnail** of each
+picked image above its name (`public/assets/js/upload-drop-zone.js`). The
+name stays — the picture says which photo, the name says which file, and
+a screen reader gets the second one. It is deliberately not derived from
+`accept`: a rental document and a receipt take a PDF or a photograph of
+one indifferently, and a zone that guessed would draw a broken frame for
+every PDF. The File is **decoded in the browser** — `createImageBitmap`
+with `imageOrientation: 'from-image'`, so a phone photo is not drawn on
+its side — and its pixels drawn into a `<canvas>`, which stays hidden
+until it has them. A declared image whose bytes are not one, or an engine
+without `createImageBitmap`, leaves the name standing rather than a broken
+frame. Picking a file uploads nothing.
+
+Deliberately **not** `img.src = URL.createObjectURL(file)`, which is what
+the generic uploader does and what this zone was written with first: here
+the File is reached through an element looked up from a DOM attribute
+(`data-drop-zone-for` names the input), so the object URL derived from it
+is DOM-derived text and CodeQL rates the `src` assignment a HIGH « DOM
+text reinterpreted as HTML ». Validating the string at the sink does not
+change that — decoded pixels leave no string to assign, none to give back,
+and no sink to guard.
+
+`data-submit-lock` on the **form** says « Envoi en cours… » on the first
+submit and disables its submit buttons one turn later (`data-submit-lock-label` for
+another wording) beside a spinner, sets `aria-busy`, and locks the file
+inputs — `public/assets/js/form-submit-lock.js`. A 4 MB photo on a phone
+takes several seconds to leave, during which the page used to look exactly
+as it did before, so the visitor pressed the button again and the unit got
+the photo twice. The words carry the state, never the spinner alone: a
+spinner is invisible to a screen reader and reads as decoration to anybody
+who did not see it start. **The disabling is deferred by a turn, and that
+is load-bearing**: the browser builds the form's entry list after the
+`submit` event finishes dispatching and skips every control disabled at
+that moment, so disabling anything inline drops it from the very request
+the lock protects — the file input loses its file, and a NAMED submit
+button (`name="action"`, the multi-action shape used elsewhere here)
+loses its own field, leaving the server with no action to read. Both
+measured in Chromium. The second tap is still refused in between, by the
+marker attribute the lock sets synchronously; the button's `disabled` is
+the visible half of that guard, never the whole of it. `submit-once.js`
+defers the same thing for the same reason. There is no timeout that
+unlocks it, because
+these forms post and navigate — success and server refusal both replace
+the page. The one case that needs undoing is the back button restoring a
+locked page from the history cache, which `pageshow` handles; without it,
+going back shows a button nobody can ever press again.
+
+**A submit has a third ending, and the page says so rather than guessing.**
+The visitor can abort the navigation while it is still in flight —
+Escape, the browser's stop button. The document is never left, so
+`pageshow` never fires and nothing releases the form: the button reads
+« Envoi en cours… » and the file input is disabled too, so the file
+cannot even be picked again. Only a reload recovers. So after a minute of
+a lock that is still standing, the form reveals one line — « L'envoi est
+plus long que prévu. S'il ne se termine pas, rechargez la page pour
+réessayer. » — as a `role="status"`, taken away again by any release.
+**It deliberately does not unlock**, and a timer that did would hand the
+bug back: nothing distinguishes « aborted » from « still uploading » for
+a form that posts and navigates, there being no event for an abort and no
+reply to await, so an unlock on a timer would fire in the middle of
+exactly the slow uploads this mechanism was written for and let the unit
+receive the photo twice. A state a reload fixes is better than a
+duplicate nobody can undo. The delay is long so the sentence never
+appears over a merely slow upload, and it is true in both cases: it
+reports the wait and offers the reload, it does not claim a failure.
+
+**A submit refused after the lock engaged releases it, and reading that
+one turn later is load-bearing too.** A form may carry both
+`data-submit-lock` and `data-confirm`, and `confirm.js` refuses on
+`document` without capture — the bubble phase, strictly after a listener
+bound to the form itself, which fires at the target. So
+`event.defaultPrevented` is always false when the lock reads it
+synchronously, however plainly the confirmation is about to intercept.
+Measured in Chromium on a form carrying both, when the lock only read it
+synchronously: « Annuler » left the button stuck on « Envoi en cours… »
+for the life of the page — `pageshow` is the only release and the page
+never left — and « Publier » **posted nothing at all**, because
+`confirm.js` replays the submit with `requestSubmit()` and the lock's own
+marker cancelled the replay. A confirmed form could not be sent. Read
+once the dispatch is over, the answer is knowable: the event keeps
+`defaultPrevented`, so a refusal from any phase undoes the lock, while
+the synchronous marker still refuses the second tap in between. The
+synchronous check stays as well, for a canceller that ran before the lock
+(the capture phase).
+
+**That same reading is why a form sent with `fetch` never opts in.**
+`defaultPrevented` means « the browser was stopped from sending this »,
+which covers a refusal and a request somebody else has already started
+alike; from inside the lock the two are indistinguishable. Reading it as
+a refusal there would release the button in the middle of an upload,
+which is the double submit this whole mechanism exists to close. Every
+form under `[data-rental-booking]` is intercepted by `rental-booking.js`
+and sent with `fetch`, so none of them carries the attribute: they are
+guarded by `api.withDisabled`, which holds the submit button for exactly
+as long as the request lasts.
+`UxConventionsTest::testNoAsyncFormOptsIntoTheSubmitLock` keeps the two
+kinds of form apart, because the mistake is invisible on the page — the
+button looks right, and only a second tap during the upload shows it.
+
 `window.ScoutMagicSortable.bind(container, {itemSelector, axis,
 draggingClass, onReorder})` (`public/assets/js/sortable.js`) is the one
 drag-and-drop reordering. It saves on `dragend`, never on the item's own
@@ -765,6 +869,17 @@ release just outside the list left two of the three previous
 implementations visually reordered and the server none the wiser. Every
 sortable list also offers up/down buttons — dragging is not available to
 a finger or a keyboard (§7.2).
+
+Lists are independent unless they opt in: lists bound with the same
+`group` (`partials/list_editor.html.twig`: `sortable_group` and
+`group_key`) accept each other's items, are all marked as drop zones while
+one is dragged — an empty one included — and the receiving list posts its
+whole content with its key as `group`. Only Configuration › Pages de texte
+does this (issue #752), because there the list a page sits in IS its menu
+section, and so who may read it: the server validates the section, gives
+the page that menu's default column, and journals the move. The touch and
+keyboard path for that move is the page's own form, whose section picker
+does the same.
 
 **Dans l'application installée, une navigation n'aboutit jamais à un
 fichier : le serveur la transforme en visionneuse. Rien à faire dans les

@@ -619,6 +619,13 @@ CREATE TABLE IF NOT EXISTS rental_reference_sequences (
 --
 -- To the public it is indistinguishable from a booking, because
 -- Availability\Occupancy has no discriminator to tell them apart by.
+--
+-- **A block always takes the whole asset**, however many units it has —
+-- no quantity is stored (#708, IT-07). A stored count would leave two
+-- tents bookable on a period meant to be closed the day the asset grew
+-- from 10 to 12; a unit member who wants a few units makes a request like
+-- any renter. Managers block and release days straight on the calendar,
+-- and the days are turned back into periods (Availability\BlockDayPlanner).
 CREATE TABLE IF NOT EXISTS rental_blocks (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
@@ -628,10 +635,6 @@ CREATE TABLE IF NOT EXISTS rental_blocks (
     -- block and a booking would disagree about the same two dates.
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-
-    -- How much of a stock asset the block takes. A hall is one unit; five
-    -- tents out of twelve leave seven bookable.
-    units INT UNSIGNED NOT NULL DEFAULT 1,
 
     -- Internal only, and never rendered publicly. Free text a manager
     -- writes for other managers ("chantier toiture"), so it is not
@@ -694,12 +697,14 @@ CREATE TABLE IF NOT EXISTS rental_booking_comments (
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- The steps of a booking a manager ticked by hand (issue #462, D5): the
--- walk-throughs, on an asset whose inventory the site does not keep. Only
--- those — a step the site can derive is never stored, so a hand tick can
--- never sit beside the real answer. Who and when, because a tick nobody
--- can attribute is a claim nobody can check; the history carries the same
--- fact through Core\Audit.
+-- The steps of a booking a manager ticked by hand. Any step since #708
+-- (IT-14), deliberately: things happen away from the site — a contract
+-- accepted by e-mail, a deposit paid in cash — and the manager has to be
+-- able to say so. A tick counts exactly like the site's own answer (next
+-- action, « À traiter », reminders), and the site's answer wins the moment
+-- it has one: a step the site verifies is no longer a hand tick. Who and
+-- when, because a tick nobody can attribute is a claim nobody can check;
+-- the history carries the same fact through Core\Audit.
 CREATE TABLE IF NOT EXISTS rental_booking_milestone_marks (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,

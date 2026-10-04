@@ -28,6 +28,7 @@ use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Availability\ManagedCalendarDays;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
@@ -238,7 +239,7 @@ class RentalManagementController extends AbstractController
          */
         private ?RentalAssetReminderRepository $assetReminderRepository = null,
         private ?SettingService $settingService = null,
-        /** « Marquer comme fait » on the steps the site cannot derive (issue #462). */
+        /** A step completed by hand, from its disc (issue #462, #708 IT-14). */
         private ?RentalMilestoneMarkService $milestoneMarkService = null,
         /**
          * Whether anybody on the asset can be told about a request (#708,
@@ -649,12 +650,15 @@ class RentalManagementController extends AbstractController
         // per booking: this page legitimately shows every asset a manager
         // runs, and « À traiter » now asks a question about each of them
         // (§22.5).
+        $now = new \DateTimeImmutable();
         $attention = BookingAttention::from(
             $bookings,
             $this->changeRequestRepository->findPendingForBookings(array_map(
                 static fn(RentalBooking $booking) => $booking->id,
                 $bookings
-            ))
+            )),
+            $this->nextSteps($bookings, $assets, $now),
+            $now
         );
 
         $countsByAsset = [];
@@ -692,6 +696,15 @@ class RentalManagementController extends AbstractController
             $bookings
         ));
 
+        // The step each booking's page puts forward (#708, IT-12): « À
+        // traiter » and its figure read it, so the list and the page agree.
+        $attention = BookingAttention::from(
+            $bookings,
+            $pendingChangeRequests,
+            $this->nextSteps($bookings, [$asset], $now),
+            $now
+        );
+
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             // A public asset with no rate at all answers every visitor
@@ -708,7 +721,7 @@ class RentalManagementController extends AbstractController
             // carrying a change request nobody has answered is exactly a
             // thing to deal with, and used to appear on no list at all
             // (Booking\BookingAttention).
-            'needs_attention' => BookingAttention::from($bookings, $pendingChangeRequests),
+            'needs_attention' => $attention,
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
@@ -717,7 +730,7 @@ class RentalManagementController extends AbstractController
             // The three figures of §6.34, read from the live bookings AND
             // the anonymous aggregates a purge left behind — otherwise the
             // year's revenue drops to zero the morning the purge runs.
-            'statistics' => $this->statisticsService?->forAsset($asset->id, $now),
+            'statistics' => $this->statisticsService?->forAsset($asset->id, $now, count($attention)),
             // Requests and reminders go to the Staff d'U when nobody on the
             // asset can be told (#708, IT-05): said where it can be fixed.
             'managers_unreachable' => $this->recipientResolver !== null
@@ -758,20 +771,29 @@ class RentalManagementController extends AbstractController
         // means the same thing here as on the overview, which is the whole
         // reason Booking\BookingAttention exists rather than four copies of
         // one condition.
-        $pendingChangeRequests = $filter === 'a_traiter'
-            ? $this->changeRequestRepository->findPendingForBookings(array_map(
-                static fn(RentalBooking $b) => $b->id,
-                $all
-            ))
-            : [];
+        $toDeal = [];
+        if ($filter === 'a_traiter') {
+            $now = new \DateTimeImmutable();
+            foreach (BookingAttention::from(
+                $all,
+                $this->changeRequestRepository->findPendingForBookings(array_map(
+                    static fn(RentalBooking $b) => $b->id,
+                    $all
+                )),
+                $this->nextSteps($all, [$asset], $now),
+                $now
+            ) as $one) {
+                $toDeal[$one->booking->id] = true;
+            }
+        }
         $matching = array_values(array_filter($all, static function (RentalBooking $b) use (
             $filter,
             $status,
             $year,
             $search,
-            $pendingChangeRequests
+            $toDeal
         ): bool {
-            if ($filter === 'a_traiter' && BookingAttention::of($b, $pendingChangeRequests[$b->id] ?? []) === null) {
+            if ($filter === 'a_traiter' && !isset($toDeal[$b->id])) {
                 return false;
             }
             if ($status !== null && $b->status !== $status) {
@@ -926,17 +948,97 @@ class RentalManagementController extends AbstractController
             $now
         );
 
-        return BookingMilestones::for($booking, $now, $evidence->done, $evidence->details, $evidence->offsite);
+        return BookingMilestones::for(
+            $booking,
+            $now,
+            $evidence->done,
+            $evidence->details,
+            $evidence->offsite,
+            $evidence->manual
+        );
     }
 
     /**
-     * POST /mes-locations/etape — « Marquer comme fait » on a step the site
-     * cannot derive (issue #462, D5), or « Remettre à faire ».
+     * The step each live booking's page puts forward, and — when it is the
+     * renter's — the deadline its reminder runs on (#708, IT-12): what « À
+     * traiter » reads, from the very derivation the booking's page shows.
+     * Final bookings are skipped: they are never on the list.
      *
-     * The journey decides whether the step may be ticked here, not the
-     * form: the step must be ticked by hand ON THIS BOOKING — an inventory
-     * the stay page records is never ticked beside it — and in a stretch the
-     * booking has reached. A hand-made POST for anything else is refused.
+     * @param RentalBooking[] $bookings
+     * @param RentalAsset[] $assets the assets they belong to
+     * @return array<int, array{
+     *     next: ?\Modules\Rental\Booking\BookingMilestone,
+     *     deadline: ?\Modules\Rental\Reminder\RenterDeadline
+     * }>
+     */
+    private function nextSteps(array $bookings, array $assets, \DateTimeImmutable $now): array
+    {
+        $assetsById = [];
+        foreach ($assets as $asset) {
+            $assetsById[$asset->id] = $asset;
+        }
+
+        $schedules = [];
+        $steps = [];
+        foreach ($bookings as $booking) {
+            $asset = $assetsById[$booking->assetId] ?? null;
+            if ($asset === null || $booking->status->isFinal()) {
+                continue;
+            }
+
+            $payment = $this->paymentStatus($booking, $asset);
+            $next = BookingJourney::of(
+                $this->milestonesOf(
+                    $booking,
+                    $asset,
+                    $this->documentService?->forBooking($booking->id),
+                    $payment,
+                    $now
+                ),
+                $booking->status
+            )->next();
+
+            $deadline = null;
+            if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+                $schedules[$asset->id] ??= ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                );
+                $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                    $next->key,
+                    $booking,
+                    $payment,
+                    $schedules[$asset->id]
+                );
+            }
+
+            $steps[$booking->id] = ['next' => $next, 'deadline' => $deadline];
+        }
+
+        return $steps;
+    }
+
+    /**
+     * POST /mes-locations/etape — complete a step by hand, or reopen one
+     * completed by hand (#708, IT-14).
+     *
+     * Not good practice, and the page's confirmation says so: things happen
+     * away from the site — a contract accepted by e-mail, a deposit paid in
+     * cash — and the manager has to be able to say so. The tick counts
+     * exactly like the site's own answer: next action, « À traiter », and
+     * the reminders, which stop chasing it.
+     *
+     * The journey decides, not the form: the step must be one this booking
+     * shows, in a stretch it has reached, still to do (to tick) or ticked
+     * by hand (to reopen) — a step the site completed itself never reopens,
+     * and a status step (« Réservation confirmée », « Location clôturée »)
+     * is never ticked: its disc runs the transition. A hand-made POST for
+     * anything else is refused.
+     *
+     * « Contrat envoyé » ticked by hand has the effects of a real send:
+     * the status, and the dates held while the renter signs. Reopened, it
+     * puts the booking back to « Demande reçue » if it still is « Contrat
+     * envoyé »; the hold is not shortened.
      *
      * @param array<string, string> $params
      */
@@ -944,10 +1046,11 @@ class RentalManagementController extends AbstractController
     {
         $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->milestoneMarkService === null) {
-                throw new RentalException("Cette étape ne peut pas être marquée ici.");
+                throw new RentalException('Cette étape ne peut pas être marquée ici.');
             }
 
             $key = (string) $request->getBody('milestone_key', '');
+            $done = (string) $request->getBody('done', '') === '1';
             $now = new \DateTimeImmutable();
             $milestones = $this->milestonesOf(
                 $booking,
@@ -962,11 +1065,11 @@ class RentalManagementController extends AbstractController
                     if ($milestone->key !== $key) {
                         continue;
                     }
-                    if (!$milestone->kind->isMarkable() || !$milestone->isApplicable || $phase->isFuture) {
+                    $allowed = $done ? $milestone->canBeCompletedByHand() : $milestone->canBeReopened();
+                    if (!$allowed || $phase->isFuture) {
                         break 2;
                     }
 
-                    $done = (string) $request->getBody('done', '') === '1';
                     $this->milestoneMarkService->set(
                         $booking,
                         $key,
@@ -975,18 +1078,39 @@ class RentalManagementController extends AbstractController
                         $this->actorMemberId(),
                         $now
                     );
+
+                    if ($key === BookingMilestones::CONTRACT_SENT) {
+                        if ($done) {
+                            $this->operationsService->contractSent(
+                                $booking,
+                                $this->actorMemberId(),
+                                $now,
+                                $this->contractHoldMinDays()
+                            );
+                        } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
+                            $this->operationsService->changeStatus(
+                                $booking,
+                                BookingStatus::RECEIVED,
+                                $this->actorMemberId(),
+                                $now
+                            );
+                        }
+                    }
+
                     FlashMessage::set(
                         'success',
                         $done
                             ? '« ' . $milestone->label . ' » est marqué comme fait.'
-                            : '« ' . $milestone->label . ' » est remis à faire.'
+                            : '« ' . $milestone->label . ' » est rouvert : l\'étape est de nouveau à faire.'
                     );
 
                     return;
                 }
             }
 
-            throw new RentalException('Cette étape ne se marque pas à la main sur cette réservation.');
+            throw new RentalException($done
+                ? 'Cette étape ne peut pas être cochée à la main sur cette réservation.'
+                : 'Seule une étape cochée à la main peut être rouverte.');
         };
 
         return $this->bookingAction($request, $work);
@@ -1622,7 +1746,19 @@ class RentalManagementController extends AbstractController
                 $document->originalName ?? 'document.pdf',
                 $document->hasBeenSent()
             );
-            $this->documentService->markSent($document->id, new \DateTimeImmutable());
+            $now = new \DateTimeImmutable();
+            $this->documentService->markSent($document->id, $now);
+
+            // The contract is the unit's answer (#708, IT-13): « Contrat
+            // envoyé », and the dates held while the renter signs.
+            if ($document->type === DocumentType::CONTRACT) {
+                $this->operationsService->contractSent(
+                    $booking,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->contractHoldMinDays()
+                );
+            }
 
             FlashMessage::set('success', $document->label() . ' envoyé au locataire par email.');
         });
@@ -1824,11 +1960,22 @@ class RentalManagementController extends AbstractController
             // "Date passée" — hiding the very bookings the calendar exists
             // to show. Same for a day inside the notice period, which is not
             // in the past at all.
-            discloseOccupancy: true
+            discloseOccupancy: true,
+            // The unit's own blocks are laid over the bookings rather than
+            // merged into them, so a day shows both and a gesture can tell
+            // which days the unit holds (#708, IT-07).
+            withoutUnitBlocks: true
         );
 
         $from = $window->firstDay()->modify('-7 days');
         $to = $window->lastDay()->modify('+7 days');
+        $states = (new ManagedCalendarDays())->decorate(
+            $states,
+            $this->blockService->between($asset->id, $from, $to),
+            $window->year,
+            $window->month,
+            $today
+        );
 
         return $this->render('@rental/management/calendar.html.twig', [
             'asset' => $asset,
@@ -1845,6 +1992,8 @@ class RentalManagementController extends AbstractController
                 $today
             ),
             'calendar_label' => $window->label(),
+            'calendar_month' => sprintf('%04d-%02d', $window->year, $window->month),
+            'today' => $today->format('Y-m-d'),
             'previous_month' => $window->previous(),
             'next_month' => $window->next(),
             // The three are listed separately rather than merged into one
@@ -2598,7 +2747,21 @@ class RentalManagementController extends AbstractController
             $word = Support::optionalString($request->getBody('message'));
 
             if ($target === BookingStatus::CONFIRMED) {
-                $this->operationsService->confirm($booking, $asset, $this->actorMemberId(), $now);
+                // The journey the page shows: confirming waits for the
+                // agreement to be complete (#708, IT-13).
+                $this->operationsService->confirm(
+                    $booking,
+                    $asset,
+                    $this->actorMemberId(),
+                    $now,
+                    $this->milestonesOf(
+                        $booking,
+                        $asset,
+                        $this->documentService?->forBooking($booking->id),
+                        $this->paymentStatus($booking, $asset),
+                        $now
+                    )
+                );
                 FlashMessage::set(
                     'success',
                     'Réservation confirmée.'
@@ -2859,11 +3022,89 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/blocage — a manual block (§6.18).
+     * POST /mes-locations/{slug}/calendrier/jours — block or release days
+     * straight on the calendar (#708, IT-07), as JSON.
+     *
+     * One request per gesture, at release: the days and the mode. The
+     * service turns them back into periods and answers with what actually
+     * changed — each day with its reason, which is what « Annuler » sends
+     * back — and the list under the grid is re-rendered from the same
+     * partial the page uses.
      *
      * @param array<string, string> $params
      */
-    public function createBlock(Request $request, array $params): Response
+    public function calendarDays(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+
+        $days = array_values(array_filter(
+            is_array($data['days'] ?? null) ? $data['days'] : [],
+            'is_string'
+        ));
+        $reasons = [];
+        if (is_array($data['reasons'] ?? null)) {
+            foreach ($data['reasons'] as $day => $reason) {
+                if (is_string($day) && (is_string($reason) || $reason === null)) {
+                    $reasons[$day] = $reason;
+                }
+            }
+        }
+
+        $today = new \DateTimeImmutable('today');
+        try {
+            $changed = $this->blockService->applyDays(
+                $asset->id,
+                $days,
+                (string) ($data['mode'] ?? ''),
+                $reasons,
+                $today,
+                $this->actorMemberId()
+            );
+        } catch (RentalException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            // An object, even when empty: the page reads its keys.
+            'changed' => (object) $changed,
+            // The month the page shows, so the list keeps the window the
+            // page rendered it with (calendar()).
+            'list' => $this->renderToString('@rental/management/_block_list.html.twig', [
+                'asset' => $asset,
+                'blocks' => $this->blockService->upcomingFor(
+                    $asset->id,
+                    MonthWindow::resolve(
+                        is_string($data['month'] ?? null) ? $data['month'] : '',
+                        $today,
+                        self::MONTHS_BACK,
+                        self::MONTHS_AHEAD
+                    )->firstDay()->modify('-7 days')
+                ),
+            ]),
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/blocage-motif — give or change a period's reason,
+     * from the list under the calendar: a period blocked by a gesture is
+     * created without one.
+     *
+     * @param array<string, string> $params
+     */
+    public function blockReason(Request $request, array $params): Response
     {
         if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
             return $guard;
@@ -2875,32 +3116,12 @@ class RentalManagementController extends AbstractController
         }
 
         try {
-            $this->blockService->create(
+            $this->blockService->setReason(
                 $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', ''),
-                max(1, (int) $request->getBody('units', 1)),
-                Support::optionalString($request->getBody('reason')),
-                $this->actorMemberId()
+                (int) $request->getBody('block_id', 0),
+                Support::optionalString($request->getBody('reason'))
             );
-
-            // Accepted, never refused, even over a booked period (§6.18) —
-            // but said out loud, so an accidental overlap is visible rather
-            // than silent.
-            $overlapping = $this->bookingRepository->findOccupyingBetween(
-                $asset->id,
-                (string) $request->getBody('start', ''),
-                (string) $request->getBody('end', '')
-            );
-
-            FlashMessage::set(
-                $overlapping === [] ? 'success' : 'warning',
-                $overlapping === []
-                    ? 'Blocage enregistré.'
-                    : 'Blocage enregistré. Attention : ' . count($overlapping)
-                        . ' réservation(s) occupent déjà tout ou partie de cette période. '
-                        . 'Les deux coexistent — traitez chaque réservation individuellement.'
-            );
+            FlashMessage::set('success', 'Motif enregistré.');
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
@@ -3174,6 +3395,19 @@ class RentalManagementController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /**
+     * How long, at least, the dates stay held once the contract is out
+     * (#708, IT-13): the `contract_hold_min_days` setting, 15 by default.
+     */
+    private function contractHoldMinDays(): int
+    {
+        $stored = $this->settingService?->get('contract_hold_min_days', 'rental');
+
+        return is_string($stored) && is_numeric(trim($stored))
+            ? max(0, (int) trim($stored))
+            : RentalOperationsService::DEFAULT_CONTRACT_HOLD_MIN_DAYS;
     }
 
     /**

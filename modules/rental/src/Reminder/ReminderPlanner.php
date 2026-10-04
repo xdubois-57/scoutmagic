@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Reminder;
 
 use Core\Service\DateInput;
+use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Compliance\ComplianceItem;
@@ -116,9 +117,7 @@ class ReminderPlanner
         // ── Paperwork and the stay itself ────────────────────────────
         if (!$hasContract
             && $schedule->isActive(ReminderKind::CONTRACT_MISSING)
-            && $arrival <= $midnight->modify(
-                '+' . $schedule->daysFor(ReminderKind::CONTRACT_MISSING) . ' days'
-            )
+            && self::contractLateFrom($arrival, $schedule) <= $midnight
             && $arrival >= $midnight
         ) {
             $due[] = $this->booking(
@@ -229,7 +228,7 @@ class ReminderPlanner
         if ($depositDue !== null
             && $stillWorthAsking
             && $schedule->isActive(ReminderKind::DEPOSIT_MISSING)
-            && $depositDue->modify('+' . $schedule->daysFor(ReminderKind::DEPOSIT_MISSING) . ' days') < $midnight
+            && self::paymentLateFrom($depositDue, ReminderKind::DEPOSIT_MISSING, $schedule) <= $midnight
             && ($payment['deposit_received'] ?? false) !== true
         ) {
             $due[] = $this->booking(
@@ -247,7 +246,7 @@ class ReminderPlanner
         if ($balanceDue !== null
             && $stillWorthAsking
             && $schedule->isActive(ReminderKind::BALANCE_MISSING)
-            && $balanceDue->modify('+' . $schedule->daysFor(ReminderKind::BALANCE_MISSING) . ' days') < $midnight
+            && self::paymentLateFrom($balanceDue, ReminderKind::BALANCE_MISSING, $schedule) <= $midnight
             && ($payment['fully_paid'] ?? false) !== true
         ) {
             $due[] = $this->booking(
@@ -269,9 +268,7 @@ class ReminderPlanner
         if ($securityDue !== null
             && $stillWorthAsking
             && $schedule->isActive(ReminderKind::SECURITY_DEPOSIT_MISSING)
-            && $securityDue->modify(
-                '+' . $schedule->daysFor(ReminderKind::SECURITY_DEPOSIT_MISSING) . ' days'
-            ) < $midnight
+            && self::paymentLateFrom($securityDue, ReminderKind::SECURITY_DEPOSIT_MISSING, $schedule) <= $midnight
             && $securityAmount !== null
             && $securityReceived < (int) $securityAmount
         ) {
@@ -383,6 +380,74 @@ class ReminderPlanner
             url: '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id,
             assetId: $asset->id
         );
+    }
+
+    /**
+     * When a step waiting on the renter counts as late (#708, IT-12) —
+     * **the very day its reminder would go out**, so « À traiter » and the
+     * reminders never disagree. Counted **even when that reminder is
+     * switched off** for the asset: muting a notification must not make a
+     * booking vanish from the list. Null for a step with no deadline, which
+     * on its own never puts a booking on the list.
+     *
+     * @param array<string, mixed> $payment the shape RentalPaymentService::statusFor() returns
+     */
+    public static function renterDeadline(
+        string $stepKey,
+        RentalBooking $booking,
+        array $payment,
+        ReminderSchedule $schedule
+    ): ?RenterDeadline {
+        if ($stepKey === BookingMilestones::CONTRACT_ACCEPTED) {
+            $lateFrom = self::contractLateFrom(
+                DateInput::requireFromStorage($booking->arrivalDate, 'rental_bookings.arrival_date'),
+                $schedule
+            );
+
+            return new RenterDeadline($lateFrom, $lateFrom);
+        }
+
+        if (($payment['enabled'] ?? false) !== true) {
+            return null;
+        }
+
+        $security = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
+        [$due, $kind] = match ($stepKey) {
+            BookingMilestones::DEPOSIT_RECEIVED => [
+                self::dateOrNull($payment['deposit_due_date'] ?? null),
+                ReminderKind::DEPOSIT_MISSING,
+            ],
+            BookingMilestones::BALANCE_RECEIVED => [
+                self::dateOrNull($payment['balance_due_date'] ?? null),
+                ReminderKind::BALANCE_MISSING,
+            ],
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => [
+                self::dateOrNull($security['due_date'] ?? null),
+                ReminderKind::SECURITY_DEPOSIT_MISSING,
+            ],
+            default => [null, null],
+        };
+
+        return $due !== null && $kind !== null
+            ? new RenterDeadline($due, self::paymentLateFrom($due, $kind, $schedule))
+            : null;
+    }
+
+    /** The contract is chased that many days before the stay. */
+    private static function contractLateFrom(
+        \DateTimeImmutable $arrival,
+        ReminderSchedule $schedule
+    ): \DateTimeImmutable {
+        return $arrival->setTime(0, 0)->modify('-' . $schedule->daysFor(ReminderKind::CONTRACT_MISSING) . ' days');
+    }
+
+    /** A payment is chased the day after its due date plus the delay. */
+    private static function paymentLateFrom(
+        \DateTimeImmutable $due,
+        ReminderKind $kind,
+        ReminderSchedule $schedule
+    ): \DateTimeImmutable {
+        return $due->setTime(0, 0)->modify('+' . ($schedule->daysFor($kind) + 1) . ' days');
     }
 
     private static function dateOrNull(mixed $value): ?\DateTimeImmutable

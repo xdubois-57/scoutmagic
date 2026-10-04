@@ -87,6 +87,8 @@
                     });
                 }).then(function (res) {
                     if (isSuccess(res)) {
+                        // An autosave confirms itself (design.md §7.13).
+                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
                         return;
                     }
                     toastError(res);
