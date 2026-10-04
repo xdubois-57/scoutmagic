@@ -264,7 +264,14 @@ class RentalRequestControllerTest extends TestCase
             ),
             $this->signedContractService,
             $this->documentService,
-            new \Core\File\UploadHandler($fileRepository, $this->storagePath)
+            new \Core\File\UploadHandler($fileRepository, $this->storagePath),
+            // A contract the booking has outgrown is voided (#708, IT-20).
+            new \Modules\Rental\Service\RentalContractValidityService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->bookingRepository,
+                \Tests\Modules\Rental\RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -1662,6 +1669,30 @@ class RentalRequestControllerTest extends TestCase
         $filled = (string) $this->track($bookingId, $token)->getBody();
         $this->assertStringContainsString('Enregistrées', $filled);
         $this->assertStringNotContainsString('À compléter', $filled);
+    }
+
+    /**
+     * The address is part of what the contract states (#708, IT-20): the
+     * renter correcting it voids the contract they hold — now, and they are
+     * told — rather than at some later manager gesture.
+     */
+    public function testCorrectingTheBillingAddressVoidsTheContractAndSaysSo(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        \Core\Http\FlashMessage::get();
+
+        $this->postToTracking('saveBillingIdentity', $bookingId, $token, [
+            'billing_name' => 'Les Amis du Sart ASBL',
+            'billing_address' => 'Rue du Moulin 3, 5000 Namur',
+            'billing_country' => 'be',
+        ]);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertStringContainsString('ne vaut plus', $flash['message'] ?? '');
+        $contract = $this->documentService->forBooking($bookingId)[0];
+        $this->assertTrue($contract->isSuperseded());
     }
 
     /**

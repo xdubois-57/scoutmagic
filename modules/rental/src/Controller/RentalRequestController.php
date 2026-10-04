@@ -728,7 +728,24 @@ class RentalRequestController extends AbstractController
             return $this->backToTracking($params);
         }
 
-        FlashMessage::set('success', 'Vos coordonnées de facturation ont été enregistrées.');
+        // The address and the VAT number are part of what the contract
+        // states (#708, IT-20): a correction voids it now, attributed to the
+        // edit that caused it, and the renter is told.
+        $asset = $this->assetRepository->findById($booking->assetId);
+        $fresh = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        ) ?? $booking;
+        $voided = $asset !== null
+            && ($this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false);
+
+        FlashMessage::set(
+            'success',
+            'Vos coordonnées de facturation ont été enregistrées.'
+            . ($voided
+                ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
+                : '')
+        );
 
         return $this->backToTracking($params);
     }
