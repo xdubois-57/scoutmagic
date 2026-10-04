@@ -1544,7 +1544,10 @@ class RentalManagementController extends AbstractController
 
         $latest = null;
         foreach ($documents as $document) {
-            if ($document->type === DocumentType::CONTRACT && ($latest === null || $document->version > $latest->version)) {
+            if ($document->type !== DocumentType::CONTRACT) {
+                continue;
+            }
+            if ($latest === null || $document->version > $latest->version) {
                 $latest = $document;
             }
         }

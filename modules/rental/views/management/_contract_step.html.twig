@@ -12,8 +12,8 @@
   has been sent, because the text is locked from then on and a new
   version would only repeat the old one.
 
-  Requires `contract_step`, `asset`, `booking` and `state` (the step's
-  'done' / 'todo').
+  Requires `contract_step`, `asset`, `booking` and `state` (whether the
+  step is done or still to do, as the journey's step states name it).
 #}
 {% if contract_step %}
     {% set contract = contract_step.latest %}
