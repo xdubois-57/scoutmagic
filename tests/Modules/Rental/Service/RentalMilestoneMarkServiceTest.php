@@ -114,7 +114,8 @@ class RentalMilestoneMarkServiceTest extends TestCase
     /**
      * Reopening a signature that a retired « Conditions et contrat
      * acceptés » mark stands for removes that mark — it is what ticks the
-     * step, so leaving it would leave the step done.
+     * step — and only that step reopens: the other signature, which the
+     * same mark ticked, keeps a mark of its own with the same date.
      */
     public function testReopeningASignatureRemovesTheRetiredAgreementMark(): void
     {
@@ -132,7 +133,9 @@ class RentalMilestoneMarkServiceTest extends TestCase
 
         $this->assertTrue($reopened);
 
-        $this->assertSame([], $this->service->marksFor(5));
+        $marks = $this->service->marksFor(5);
+        $this->assertSame(['contract_countersigned'], array_keys($marks));
+        $this->assertEquals($at, $marks['contract_countersigned']['marked_at']);
     }
 
     /**
