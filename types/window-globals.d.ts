@@ -64,6 +64,44 @@ interface Window {
             isRunning: () => boolean;
         };
     };
+    // public/assets/js/social-card.js — the card that is published,
+    // drawn in the browser (issue #706, IT-02), loaded by the social
+    // composer. `wrapTitle` and `fitLine` take their measure function as
+    // an argument rather than reaching for a 2D context, which is what
+    // makes the title's line breaking unit-testable: jsdom has no context
+    // at all.
+    ScoutMagicCard?: {
+        wrapTitle: (text: string, measure: (text: string) => number, maxWidth: number) => string[];
+        fitLine: (
+            line: string,
+            measure: (text: string) => number,
+            maxWidth: number,
+            forceEllipsis?: boolean
+        ) => string;
+        drawCard: (canvas: HTMLCanvasElement | null, card: {
+            image: HTMLImageElement | ImageBitmap | HTMLCanvasElement | null;
+            title: string;
+            address: string;
+            blurRatio: number;
+        }) => boolean;
+        toJpeg: (canvas: HTMLCanvasElement) => Promise<Blob | null>;
+        // CardRenderer's geometry, so a test can state the
+        // correspondence instead of restating the numbers.
+        cardConstants: () => {
+            size: number;
+            margin: number;
+            maxTextWidth: number;
+            titleSize: number;
+            titleMaxLines: number;
+            titleLineHeight: number;
+            addressSize: number;
+            addressToTitle: number;
+            veilStartY: number;
+            veilFootAlpha: number;
+            backdrop: string;
+            jpegQuality: number;
+        };
+    };
     // public/assets/js/map.js — every map's tiles and first view, loaded
     // after the vendored Leaflet by the pages that draw a map.
     ScoutMagicMap?: {
