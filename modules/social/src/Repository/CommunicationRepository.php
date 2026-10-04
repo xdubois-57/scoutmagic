@@ -49,6 +49,56 @@ class CommunicationRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * The id of a communication this very POST appears to have created
+     * already, or null.
+     *
+     * **Why this exists.** Publishing a source-backed share creates the
+     * row and publishes it in one request, and publications are recorded
+     * against the COMMUNICATION's own id — so a replayed POST creates a
+     * second row with a second id, whose
+     * `(source_kind, source_id, destination)` key differs from the
+     * first's and therefore passes the unique constraint. The album went
+     * out publicly twice. The retired `/partage/album/{id}` route
+     * published against the album's own stable key, so a replay hit that
+     * constraint and did nothing; routing through `store()` lost the
+     * protection (raised in review on the pull request for IT-01).
+     *
+     * **Why the body is part of the match.** Sharing the same album again
+     * with a DIFFERENT message is deliberate and allowed. A replay
+     * carries byte-identical fields, so comparing the text tells the two
+     * apart without a token. The window keeps it to a replay rather than
+     * a decision taken later.
+     */
+    public function recentTwin(
+        string $sourceKind,
+        int $sourceId,
+        string $body,
+        ?int $createdBy,
+        \DateTimeImmutable $since
+    ): ?int {
+        // The author is compared with an explicit IS NULL branch rather
+        // than MySQL's `<=>`, which SQLite — what the suite runs on
+        // outside the `database` group — does not know.
+        $author = $createdBy === null ? 'created_by IS NULL' : 'created_by = ?';
+        $parameters = [$sourceKind, $sourceId, $body];
+        if ($createdBy !== null) {
+            $parameters[] = $createdBy;
+        }
+        $parameters[] = $since->format('Y-m-d H:i:s');
+
+        $statement = $this->pdo->prepare(
+            'SELECT id FROM social_communications'
+            . ' WHERE source_kind = ? AND source_id = ? AND body = ?'
+            . ' AND ' . $author . ' AND created_at >= ?'
+            . ' ORDER BY id DESC LIMIT 1'
+        );
+        $statement->execute($parameters);
+        $id = $statement->fetchColumn();
+
+        return $id === false ? null : (int) $id;
+    }
+
     public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): void
     {
         $this->pdo->prepare('UPDATE social_communications SET title = ?, body = ?, updated_at = ? WHERE id = ?')

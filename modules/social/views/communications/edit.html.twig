@@ -7,7 +7,13 @@
 {% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
-<form method="post" action="{{ form_action }}" enctype="multipart/form-data">
+{# `data-submit-lock` (issue #756): publishing waits on Meta, several
+   seconds of a page that would otherwise look untouched, and the second
+   tap would be a second public post. The server refuses a replay too
+   (CommunicationController::REPLAY_WINDOW_SECONDS) — this stops the tap,
+   that stops the request. #}
+<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-submit-lock
+      data-submit-lock-label="Publication en cours…">
     {{ csrf_field()|raw }}
 
     {# What is being shared, when this was opened from « Partager ». The
@@ -32,8 +38,14 @@
                 Voici exactement ce qui sera publié.
                 {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
             </p>
-        {% elseif source and source.blockedReason %}
-            {# The source itself has gone — deleted, or no longer this
+        {% elseif from_source and source and source.blockedReason %}
+            {# `from_source` AND the reason, not the reason alone:
+               `blockedReason` also carries « Donnez d'abord un titre à
+               l'image. » for a plain communication, and this branch then
+               swallowed its « Choisissez une image » prompt — the image
+               box rendered nothing at all (raised in review).
+
+               The source itself has gone — deleted, or no longer this
                chief's. Deliberately silent HERE: the reason is said once,
                in the alert before the destinations, and the branch below
                would send the visitor to an album that no longer exists to
@@ -162,4 +174,12 @@
     </div>
 </form>
 </div></div>
+{% endblock %}
+
+{% block scripts %}
+    {# The lock the form above asks for. `base.html.twig` loads nothing
+       globally, so the attribute without this script would be inert —
+       exactly the dead pairing that cost `booking_documents.html.twig` a
+       review remark on the pull request for issue #756. #}
+    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
 {% endblock %}

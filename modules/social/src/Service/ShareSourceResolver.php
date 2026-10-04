@@ -132,7 +132,12 @@ final class ShareSourceResolver
             $communication->body,
             self::path($communication->id),
             $source->blockedReason,
-            $source->pageUrl
+            $source->pageUrl,
+            // What it IS, beside the `communication` identity its
+            // publications are recorded under — so a message about a
+            // missing image can name the album instead of telling the
+            // chief to choose one here, where there is no button to.
+            $source->kind
         );
     }
 

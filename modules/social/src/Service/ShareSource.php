@@ -43,6 +43,31 @@ final class ShareSource
          * communication).
          */
         public readonly ?string $pageUrl = null,
+        /**
+         * What the content ORIGINALLY is — `KIND_ALBUM` or
+         * `KIND_ARTICLE` — when `kind` above says `KIND_COMMUNICATION`
+         * because that is where the publications are recorded. Null when
+         * the two would say the same thing.
+         *
+         * A saved source-backed share always carries
+         * `kind = KIND_COMMUNICATION`, so anything deciding by `kind`
+         * alone cannot tell an album's share from a free one. That is how
+         * `PublishingService::refusal()` came to answer « Choisissez
+         * d'abord une image » for an album without a cover — advice with
+         * no button to obey it, the composer hiding both for a
+         * source-backed share (raised in review on the pull request for
+         * IT-01).
+         */
+        public readonly ?string $originKind = null,
     ) {
+    }
+
+    /**
+     * The kind to speak about: what it originally is when that differs
+     * from where its publications are recorded.
+     */
+    public function spokenKind(): string
+    {
+        return $this->originKind ?? $this->kind;
     }
 }

@@ -69,6 +69,14 @@ use Twig\Environment;
 final class CommunicationController extends AbstractController
 {
     public const HISTORY_PATH = '/medias-sociaux';
+
+    /**
+     * How long a second, byte-identical share of the same source counts
+     * as the same POST arriving twice rather than a decision taken again.
+     * Generous enough to cover a slow Meta round trip and the tap that
+     * follows it; short enough that a share meant later is still a share.
+     */
+    private const REPLAY_WINDOW_SECONDS = 120;
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
@@ -172,6 +180,29 @@ final class CommunicationController extends AbstractController
         $sourceId = $kind === null ? null : (int) $request->getBody('source_id', 0);
         if ($kind !== null && $this->describedSource($kind, (int) $sourceId) === null) {
             return new Response('Not Found', 404);
+        }
+
+        // **A replayed POST must not publish the album twice.** Creating
+        // the row and publishing it happen in one request, and the
+        // publication is keyed on the new row's own id, so a second
+        // identical POST would make a second row with a second key and
+        // sail past the unique constraint that used to stop it when the
+        // retired route published against the album's own id. Measured
+        // before this guard: two rows, two publications, two Facebook
+        // posts. Sharing the same source again with a DIFFERENT message
+        // stays allowed — that is why the text is part of the match
+        // (CommunicationRepository::recentTwin()).
+        if ($kind !== null) {
+            $twin = $this->communications->recentTwin(
+                $kind,
+                (int) $sourceId,
+                self::body($request),
+                AuthSession::getUserAccountId(),
+                (new \DateTimeImmutable())->modify('-' . self::REPLAY_WINDOW_SECONDS . ' seconds')
+            );
+            if ($twin !== null) {
+                return $this->redirect(ShareSourceResolver::path($twin));
+            }
         }
 
         $id = $this->communications->create(

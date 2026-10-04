@@ -387,6 +387,117 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * A replayed POST must not publish the album twice.
+     *
+     * `store()` creates the row and publishes it in one request, and the
+     * publication is keyed on the NEW row's own id — so a second
+     * identical POST made a second row with a second key and sailed past
+     * the unique constraint that stopped this when the retired route
+     * published against the album's own id. Measured before the guard:
+     * two rows, two publications, two Facebook posts. Raised in review on
+     * the pull request for IT-01.
+     */
+    public function testAReplayedShareDoesNotPublishTheAlbumTwice(): void
+    {
+        $this->loginAuthor();
+        $body = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => 'Les photos sont en ligne',
+            'action' => 'publish',
+            'destinations' => ['facebook'],
+        ];
+
+        $this->controller()->store($this->post($body), []);
+        $this->controller()->store($this->post($body), []);
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'the replay made a second communication'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_publications')->fetchColumn(),
+            'the album went out twice'
+        );
+    }
+
+    /**
+     * The other side: the same album with a DIFFERENT message is a new
+     * share and stays allowed — which is why the text is part of what
+     * tells a replay from a decision.
+     */
+    public function testTheSameAlbumWithAnotherMessageIsStillANewShare(): void
+    {
+        $this->loginAuthor();
+        $base = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'action' => 'publish',
+            'destinations' => ['facebook'],
+        ];
+
+        $this->controller()->store($this->post($base + ['body' => 'Les photos sont en ligne']), []);
+        $this->controller()->store($this->post($base + ['body' => 'Il en reste à voir !']), []);
+
+        $this->assertSame(
+            2,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'a second message about the same album was refused'
+        );
+    }
+
+    /**
+     * A saved album share names the ALBUM when its image is missing.
+     *
+     * Publications are recorded against the communication, so a saved
+     * source-backed share carries `kind = communication` — and
+     * `refusal()`, deciding by that alone, answered « Choisissez d'abord
+     * une image » beside every destination. The composer hides both
+     * image buttons for a source-backed share, so that is advice with no
+     * button to obey it. Raised in review on the pull request for IT-01.
+     */
+    public function testASavedAlbumShareNamesTheAlbumWhenItsImageIsMissing(): void
+    {
+        self::$albumHasCover = false;
+        $this->loginAuthor();
+        $id = $this->sourceBackedCommunication();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('photo de couverture', $html);
+        $this->assertStringNotContainsString(
+            'Choisissez d&#039;abord une image',
+            $html,
+            'the destinations tell the chief to choose an image on a page with no button to'
+        );
+    }
+
+    /**
+     * A plain communication with no title keeps its « choose an image »
+     * prompt.
+     *
+     * `blockedReason` also carries « Donnez d'abord un titre à l'image. »
+     * for a communication of its own, so a branch keyed on the reason
+     * alone swallowed the prompt and rendered an empty image box — no
+     * card, no placeholder, nothing. Raised in review on the pull request
+     * for IT-01.
+     */
+    public function testABlankTitleDoesNotSwallowTheChooseAnImagePrompt(): void
+    {
+        $id = $this->communication('', 'Texte', null);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('Choisissez une image', $html);
+        // And the blank-title warning still has its own place.
+        $this->assertStringContainsString('Donnez d&#039;abord un titre', $html);
+    }
+
+    /**
+     * A frozen source-backed share must not promise what it cannot keep.    /**
      * A frozen source-backed share must not promise what it cannot keep.
      *
      * The notice said « l'image et le texte ne changent plus » for every
