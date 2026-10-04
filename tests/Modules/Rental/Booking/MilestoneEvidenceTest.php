@@ -208,6 +208,36 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertStringEndsWith(' — conditions acceptées, version du 12/09/2026', (string) $line->detail);
     }
 
+    /**
+     * A version archived after the renter accepted it — a wording older
+     * than the archive, archived on the first read after the upgrade — is
+     * dated by that read: naming it would post-date the acceptance, so the
+     * acceptance date is said instead.
+     */
+    public function testAVersionArchivedAfterTheAcceptanceIsNotDatedByItsArchive(): void
+    {
+        $booking = $this->booking(new \DateTimeImmutable('2027-01-01 10:00:00'));
+        $version = new ConditionsVersion(
+            3,
+            'a1b2c3d4e5f6',
+            str_repeat('a', 64),
+            '<p>…</p>',
+            new \DateTimeImmutable('2027-03-15')
+        );
+
+        $evidence = MilestoneEvidence::collect(
+            $booking,
+            [],
+            $this->payment(),
+            null,
+            null,
+            null,
+            acceptedConditions: $version
+        );
+
+        $this->assertSame('conditions acceptées le 01/01/2027', $evidence->details['request_received']);
+    }
+
     /** The renter's copy alone is half the agreement: the unit still signs. */
     public function testTheRentersSignedCopyTicksItsLineAndLeavesTheCountersignature(): void
     {

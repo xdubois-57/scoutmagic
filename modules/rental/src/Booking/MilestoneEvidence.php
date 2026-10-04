@@ -109,8 +109,9 @@ final class MilestoneEvidence
         // contract (#708, IT-16): a fact of « Demande reçue », with the
         // version the renter actually saw.
         if ($booking->conditionsAcceptedAt !== null) {
-            $details['request_received'] = $acceptedConditions !== null
-                ? 'conditions acceptées, version du ' . $acceptedConditions->createdAt->format('d/m/Y')
+            $versionDate = $acceptedConditions?->dateKnownAt($booking->conditionsAcceptedAt);
+            $details['request_received'] = $versionDate !== null
+                ? 'conditions acceptées, version du ' . $versionDate->format('d/m/Y')
                 : 'conditions acceptées le ' . $booking->conditionsAcceptedAt->format('d/m/Y');
         }
 
