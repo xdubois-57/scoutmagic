@@ -69,6 +69,33 @@ class CommunicationRepository
      * carries byte-identical fields, so comparing the text tells the two
      * apart without a token. The window keeps it to a replay rather than
      * a decision taken later.
+     *
+     * **WHAT THIS DOES NOT CLOSE, and it matters.** This is a SELECT read
+     * before an INSERT, with no unique constraint behind the matched
+     * columns and no transaction around the pair — a check-then-insert.
+     * Two genuinely simultaneous POSTs can both pass this read before
+     * either row commits, and both then publish. `session_write_close()`
+     * runs before routing (`public/index.php`), so PHP's session lock
+     * does not serialise two requests from the same chief either.
+     *
+     * So the sequential replay — the tap after a slow Meta round trip,
+     * the resubmitted form — is closed, and the simultaneous one is not.
+     * `data-submit-lock` on the composer covers the double tap in the
+     * browser, which is where that case comes from in practice, and
+     * nothing covers two tabs or a retried request landing together.
+     *
+     * Closing it for good needs the database to say so: a UNIQUE index
+     * over the matched columns, taking the duplicate-key error as the
+     * replay signal. Not done here, and not a detail to wave through —
+     * `body` is TEXT, which MySQL indexes only by prefix, and a 255-char
+     * prefix of a caption that may run to
+     * {@see \Modules\Social\Service\PublishingService::CAPTION_MAX_LENGTH}
+     * 2200 would collide on two genuinely different long texts and refuse
+     * a share that should be allowed. A separate hashed key column with a
+     * unique index would work, and would make the refusal permanent
+     * rather than a window — which is a rule the chantier gives to
+     * IT-05, with its « permis, avec avertissement », not to this
+     * iteration. Raised in review on the pull request for IT-01.
      */
     public function recentTwin(
         string $sourceKind,
