@@ -1222,7 +1222,18 @@ class RentalManagementController extends AbstractController
                     'payment' => $this->paymentStatus($booking, $asset),
                 ],
                 BookingPage::DOCUMENTS => [
-                    'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+                    'documents' => $documents = $this->documentService?->forBooking($booking->id) ?? [],
+                    // A contract whose stored PDF is gone cannot be sent
+                    // again, and the error says « Régénérez-le »: the page
+                    // must offer the way to (#708, IT-20).
+                    'contracts_without_file' => array_values(array_map(
+                        static fn(\Modules\Rental\Document\RentalDocument $d): int => $d->id,
+                        array_filter(
+                            $documents,
+                            fn(\Modules\Rental\Document\RentalDocument $d): bool => $d->type === DocumentType::CONTRACT
+                                && $this->documentService?->absolutePath($d) === null
+                        )
+                    )),
                     'uploadable_types' => DocumentType::uploadable(),
                     'billing' => $this->operationsService->billingIdentity($booking->id),
                     // So the page can say, BEFORE a contract goes out, that

@@ -77,10 +77,12 @@
               A contract sent before contracts carried a fingerprint can
               never be voided (#708, IT-20): nothing says what it stated, so
               its steps never reopen and the dashboard never offers a new
-              version. For that contract alone, the new version is still
-              generated here, and sent from the list below.
+              version. Nor does it for a sent contract whose stored PDF is
+              gone. For those alone, the new version is still generated here,
+              and sent from the list below.
             #}
-            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent and not d.isSuperseded and d.fingerprint is null) is not empty %}
+            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent and not d.isSuperseded
+                and (d.fingerprint is null or d.id in (contracts_without_file|default([])))) is not empty %}
                 <form method="post" action="/mes-locations/document-generer" class="d-inline">
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="asset_id" value="{{ asset.id }}">

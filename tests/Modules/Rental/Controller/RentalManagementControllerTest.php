@@ -2589,6 +2589,37 @@ class RentalManagementControllerTest extends TestCase
         $this->assertCount(2, $this->documentService->forBooking($booking->id), 'v2 beside v1');
     }
 
+    /**
+     * A sent contract whose stored PDF is gone cannot be sent again — the
+     * error says « Régénérez-le » — so the Documents page offers its new
+     * version, as it does for a contract older than fingerprints.
+     */
+    public function testAContractWhoseFileIsGoneCanBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents);
+
+        unlink((string) $this->documentService->absolutePath($contract));
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+    }
+
     /** What the contract does not state — an internal comment — voids nothing. */
     public function testAnInternalCommentVoidsNothing(): void
     {
