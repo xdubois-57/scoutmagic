@@ -902,6 +902,42 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * A retry on a LEGACY album publication is source-backed too.
+     *
+     * `/medias-sociaux/reessayer/album/{albumId}/{platform}` is still
+     * reachable — the retired route's rows survive under
+     * `('album', <albumId>)` and `history()` lists them — and on that
+     * path `$params['id']` is an ALBUM key, not a communication one.
+     * Deriving the flag from `communications->find($id)` therefore read
+     * an unrelated or missing row and promised « la même image » for a
+     * retry that re-reads the album. Caught in review on the pull
+     * request for IT-01, in the very code the previous commit added.
+     */
+    public function testALegacyAlbumRetrySaysTheImageIsReadAgain(): void
+    {
+        $at = new \DateTimeImmutable('-1 hour');
+        $this->publications->claim(
+            'album',
+            self::ALBUM_ID,
+            'instagram',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            self::ALBUM_TITLE,
+            'Les photos sont en ligne'
+        );
+        $this->publications->markFailed('album', self::ALBUM_ID, 'instagram', 'Proportions refusées.', $at);
+        $this->loginAuthor();
+        $params = ['kind' => 'album', 'id' => (string) self::ALBUM_ID, 'platform' => 'instagram'];
+
+        $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
+
+        $this->assertStringContainsString('relus à la source', $html);
+        $this->assertStringNotContainsString('La même image et le même texte', $html);
+    }
+
+    /**
      * And a communication that owns its image keeps the plain promise.
      */
     public function testTheRetryPageStillPromisesTheSameImageForAnOwnShare(): void

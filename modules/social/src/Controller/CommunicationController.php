@@ -704,7 +704,15 @@ final class CommunicationController extends AbstractController
             // than kept from the first publication. The page says so
             // instead of promising « the same image » — see the frozen
             // notice in edit.html.twig for the whole reason.
-            'from_source' => $this->communications->find($id)?->hasSource() ?? false,
+            //
+            // Read from the KIND, not from `$id`: on this route `$id` is a
+            // communication key only when the kind says so, which is why
+            // `$source` above branches the same way. A legacy
+            // `…/reessayer/album/{albumId}/…` carries an album key, so
+            // looking a communication up by it read an unrelated or
+            // missing row. Any kind but `communication` IS the source.
+            'from_source' => (string) ($params['kind'] ?? '') !== ShareSource::KIND_COMMUNICATION
+                || ($this->communications->find($id)?->hasSource() ?? false),
             'published' => array_values(array_filter(
                 $publications,
                 static fn (Publication $p): bool => $p->isPublished()
