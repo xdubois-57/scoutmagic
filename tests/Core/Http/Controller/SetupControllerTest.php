@@ -303,6 +303,130 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('db_host', $indexResponse->getBody());
     }
 
+    /**
+     * The bootstrap's proof (#719, B): the operator typed the token in the
+     * installer, which set a cookie the wizard recomputes from token.php on
+     * disk — the wizard opens without asking for the token again.
+     */
+    public function testABootstrapProofOpensTheWizardWithoutTypingTheToken(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        $token = str_repeat('c', 64);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: {$token} */\n");
+        $_COOKIE[\Core\Security\BootstrapHandoff::PROOF_COOKIE] = \Core\Security\BootstrapHandoff::proofValue($token, time() + 600);
+
+        try {
+            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+            $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+        } finally {
+            unset($_COOKIE[\Core\Security\BootstrapHandoff::PROOF_COOKIE]);
+        }
+
+        $this->assertStringContainsString('db_host', $body);
+        $this->assertTrue($_SESSION['setup_token_verified'] ?? false);
+    }
+
+    public function testAProofForAnotherTokenLeavesTheGateClosed(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('c', 64) . " */\n");
+        $_COOKIE[\Core\Security\BootstrapHandoff::PROOF_COOKIE] = \Core\Security\BootstrapHandoff::proofValue(
+            str_repeat('d', 64),
+            time() + 600
+        );
+
+        try {
+            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+            $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+        } finally {
+            unset($_COOKIE[\Core\Security\BootstrapHandoff::PROOF_COOKIE]);
+        }
+
+        $this->assertStringContainsString('name="token"', $body);
+        $this->assertStringNotContainsString('db_host', $body);
+        $this->assertArrayNotHasKey('setup_token_verified', $_SESSION);
+    }
+
+    /**
+     * The restore mode (#719, C): with an archive waiting, the page shows it
+     * first, what it announces as plain text, then the database — and none
+     * of the cards a restore would overwrite.
+     */
+    public function testADepositedArchiveTurnsTheWizardIntoItsRestoreMode(): void
+    {
+        $this->depositArchiveWithComment([
+            'format' => \Core\Maintenance\Portable\PortableManifest::FORMAT,
+            'format_version' => \Core\Maintenance\Portable\PortableManifest::FORMAT_VERSION,
+            'scoutmagic_version' => '1.4.2',
+            'site_url' => '<a href="https://piege.example">https://ancien.example</a>',
+            'created_at' => '2026-09-30T21:15:00Z',
+            'kind' => 'remote',
+            'passphrase_generation' => 3,
+        ]);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="deposited-archive-card"', $body);
+        $this->assertStringContainsString('id="deposited-restore-card"', $body);
+        $this->assertStringContainsString('data-restore-mode="1"', $body);
+        $this->assertStringContainsString('db_host', $body);
+        // What the archive announces, as plain text — never markup.
+        $this->assertStringContainsString('1.4.2', $body);
+        $this->assertStringContainsString('Automatique, hors site', $body);
+        $this->assertStringContainsString('&lt;a href=&quot;https://piege.example&quot;&gt;', $body);
+        $this->assertStringNotContainsString('<a href="https://piege.example">', $body);
+        // Left out, not greyed.
+        $this->assertStringNotContainsString('id="portable-restore-card"', $body);
+        $this->assertStringNotContainsString('id="btn-save"', $body);
+        $this->assertStringNotContainsString('id="site_name"', $body);
+        $this->assertStringNotContainsString('id="admin_email"', $body);
+    }
+
+    public function testWithoutADepositedArchiveTheWizardIsUnchanged(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('id="deposited-archive-card"', $body);
+        $this->assertStringContainsString('data-restore-mode="0"', $body);
+        $this->assertStringContainsString('id="portable-restore-card"', $body);
+        $this->assertStringContainsString('id="btn-save"', $body);
+        // The plain-HTTP warning is in the page, hidden until setup.js
+        // sees an insecure context.
+        $this->assertMatchesRegularExpression('~class="alert alert-warning d-none" id="setup-insecure-warning"~', $body);
+    }
+
+    /** A week untouched is abandoned: purged before the page ever offers it. */
+    public function testAnAbandonedDepositIsPurgedBeforeTheWizardShowsIt(): void
+    {
+        $path = $this->depositArchiveWithComment(['format' => \Core\Maintenance\Portable\PortableManifest::FORMAT]);
+        touch($path, time() - \Core\Security\BootstrapHandoff::ABANDONED_AFTER_SECONDS - 60);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+
+        $this->assertFileDoesNotExist($path);
+        $this->assertStringNotContainsString('id="deposited-archive-card"', $body);
+    }
+
+    /**
+     * A zip deposited where the bootstrap puts it, carrying a comment.
+     *
+     * @param array<string, mixed> $comment
+     */
+    private function depositArchiveWithComment(array $comment): string
+    {
+        $zipPath = $this->tempDir . '/deposit-' . uniqid() . '.zip';
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::CREATE);
+        $zip->addFromString('manifest.json', '{}');
+        $zip->setArchiveComment((string) json_encode($comment));
+        $zip->close();
+
+        return (new \Core\Maintenance\Portable\DepositedArchive($this->tempDir))->adopt($zipPath);
+    }
+
     public function testVerifyTokenRejectsWrongTokenAndIncrementsAttempts(): void
     {
         unset($_SESSION['setup_token_verified'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_attempts']);
@@ -1211,6 +1335,9 @@ class SetupControllerTest extends TestCase
             ['checkDns'],
             ['generateDkimKey'],
             ['testEmail'],
+            // The deposited archive's two actions (#719).
+            ['checkDepositedArchive'],
+            ['discardDepositedArchive'],
         ];
     }
 
@@ -1333,6 +1460,11 @@ class SetupControllerTest extends TestCase
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->publicDir());
         $this->writeCronHeartbeat();
+        // An archive left waiting for a restore nobody did (#719): a site
+        // configured from scratch abandons it.
+        $deposit = new \Core\Maintenance\Portable\DepositedArchive($this->tempDir);
+        file_put_contents($this->tempDir . '/abandoned.zip', 'PK');
+        $deposit->adopt($this->tempDir . '/abandoned.zip');
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => $token,
             ...$databaseFields,
@@ -1360,6 +1492,7 @@ class SetupControllerTest extends TestCase
         // Check files created
         $this->assertFileExists($this->tempDir . '/keys/master.key');
         $this->assertSame(32, strlen(file_get_contents($this->tempDir . '/keys/master.key')));
+        $this->assertFalse($deposit->exists(), 'the abandoned archive went with the fresh install');
         $this->assertFileExists($this->tempDir . '/config/secrets.enc');
         $this->assertFileExists($this->tempDir . '/keys/dkim/private.pem');
 

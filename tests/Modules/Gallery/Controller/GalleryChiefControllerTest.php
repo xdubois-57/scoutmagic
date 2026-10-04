@@ -340,7 +340,17 @@ class GalleryChiefControllerTest extends TestCase
         $registry->register(new class implements \Modules\Gallery\Api\AlbumActionProviderInterface {
             public function actionsFor(int $albumId): array
             {
-                return [new \Modules\Gallery\Api\AlbumAction('Partager', '/partage/album/' . $albumId, 'bi-share')];
+                return [new \Modules\Gallery\Api\AlbumAction(
+                    'Partager',
+                    '/medias-sociaux/nouvelle/album/' . $albumId,
+                    'bi-share',
+                    true
+                )];
+            }
+
+            public function noteFor(int $albumId): ?\Modules\Gallery\Api\AlbumNote
+            {
+                return null;
             }
         });
         $withActions = new GalleryChiefController(
@@ -353,7 +363,12 @@ class GalleryChiefControllerTest extends TestCase
         $html = $withActions->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
             ->getBody();
         $this->assertStringContainsString('data-album-actions', $html);
-        $this->assertStringContainsString('href="/partage/album/' . $id . '"', $html);
+        $this->assertStringContainsString('href="/medias-sociaux/nouvelle/album/' . $id . '"', $html);
+        // An icon-only action keeps its label where a screen reader and a
+        // hovering pointer can both find it, and nowhere else.
+        $this->assertStringContainsString('aria-label="Partager"', $html);
+        $this->assertStringContainsString('title="Partager"', $html);
+        $this->assertStringNotContainsString('</i> Partager', $html);
 
         $plain = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
             ->getBody();

@@ -240,7 +240,12 @@ class PublishingService
             return 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.';
         }
         if ($this->needsImage($source, $platform) && ($source->image === null || $source->image === '')) {
-            return match ($source->kind) {
+            // `spokenKind()`, not `kind`: a saved source-backed share is
+            // recorded as a `communication`, and deciding by that alone
+            // answered « Choisissez d'abord une image » beside every
+            // destination — advice with no button to obey, the composer
+            // hiding both for a source-backed share.
+            return match ($source->spokenKind()) {
                 ShareSource::KIND_ALBUM => 'Cet album n\'a pas encore de photo de couverture.',
                 ShareSource::KIND_ARTICLE
                     => 'Cette actualité n\'a pas d\'image : Instagram n\'accepte que des images.',

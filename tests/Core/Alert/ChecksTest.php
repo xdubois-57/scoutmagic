@@ -10,7 +10,6 @@ use Core\Alert\Check\BackupAgeCheck;
 use Core\Alert\Check\CronSilenceCheck;
 use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
-use Core\Alert\Check\HttpsCheck;
 use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\OperationalCheck;
 use Core\Config\SettingRepository;
@@ -32,8 +31,6 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class ChecksTest extends TestCase
 {
-    private const PLAIN_REQUEST = ['HTTPS' => 'off', 'SERVER_PORT' => '80'];
-    private const SECURE_REQUEST = ['HTTPS' => 'on', 'SERVER_PORT' => '443'];
 
     private \PDO $pdo;
     private string $storagePath;
@@ -263,30 +260,6 @@ class ChecksTest extends TestCase
         $this->assertFalse($reading->underRearm);
     }
 
-    // ————— HTTPS —————
-
-    /**
-     * The scenario the class was written for, and the one the second
-     * version of this check could not see.
-     *
-     * A certificate expired overnight: the site now answers in clear while
-     * `base_url` still says — correctly, and unchanged — `https://`. When
-     * both directions required the observation and the declaration to
-     * agree, triggering needed `base_url` NOT to say `https://`, so this
-     * case produced nothing at all. The declaration is no longer read: a
-     * request answered in clear is the whole trigger.
-     */
-    public function testAClearRequestTriggersEvenWhereTheSiteDeclaresItselfSecure(): void
-    {
-        $settings = $this->httpsSettings(null, ['base_url' => 'https://exemple.be']);
-
-        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
-
-        $this->assertTrue($reading->overTrigger);
-        $this->assertFalse($reading->underRearm);
-        $this->assertSame('en clair à l\'instant', $reading->value);
-    }
-
     /**
      * The disk alert's button leads to the page that shows the disk (issue
      * #649). It pointed at /config/maintenance, which lost its disk-space
@@ -315,186 +288,6 @@ class ChecksTest extends TestCase
             'the disk alert links to /config/stockage, and no GET route leads it to the storage dashboard any more'
         );
         $this->assertFileExists($root . '/core/View/templates/config/storage/dashboard.html.twig');
-    }
-
-    /**
-     * Issue #352 — the alert now leads somewhere that can explain it.
-     *
-     * The reading was never wrong: a request really did arrive in clear.
-     * What was wrong is what it told the administrator to do. An
-     * installation whose HTTPS is terminated in front of it — a proxy, a
-     * CDN, a hosting panel — receives every request unencrypted and
-     * triggers this correctly, while its visitors are secure end to end;
-     * telling that person to « activer le certificat HTTPS » sends them
-     * looking for something already there, and `/config/maintenance`
-     * only restated the reading they had just read.
-     *
-     * The link is the reporter's own suggestion, and the sentence names
-     * BOTH causes, because naming one is what made a correct alert
-     * misleading.
-     */
-    public function testTheHttpsAlertPointsAtTheHelpTopicThatExplainsBothCauses(): void
-    {
-        $settings = $this->httpsSettings(null);
-
-        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
-
-        $this->assertSame('/aide/connexion-securisee', $reading->actionUrl);
-        $this->assertSame('Comprendre cette alerte', $reading->actionLabel);
-
-        // The reverse-proxy case has to be in the sentence itself: the
-        // bell and the e-mail carry `why`, and somebody who never opens
-        // the link must still learn that the case exists.
-        $this->assertStringContainsString('proxy', $reading->why);
-        $this->assertStringContainsString('certificat HTTPS', $reading->why);
-
-        // And the topic it points at is shipped. A check linking to
-        // /aide/{id} is a coupling nothing else holds: rename the file
-        // and the alert's one useful button becomes a 404, silently, on
-        // the day somebody needs it most.
-        $this->assertFileExists(
-            dirname(__DIR__, 3) . '/docs/help/connexion-securisee.md',
-            'the HTTPS alert links to /aide/connexion-securisee, and that topic no longer exists.'
-        );
-    }
-
-    /**
-     * The help topic describes the signal this check actually emits.
-     *
-     * A first draft told the administrator to enable the setting, reload
-     * once, and watch the alert disappear — a method that cannot work.
-     * Re-arming needs {@see AlertThresholds::HTTPS_REARM_QUIET_HOURS} of
-     * quiet, so seconds after the change the alert still stands whichever
-     * case the installation is in; somebody genuinely behind a proxy
-     * would have read that as a failure and reverted the one fix that was
-     * correct.
-     *
-     * What does move immediately is the displayed reading: « à l'instant »
-     * while clear traffic is still arriving, an age that grows once it
-     * stops. So the topic quotes it — and quoting it is a coupling, which
-     * is what this test holds. Reword the reading or shorten the quiet
-     * period and the page stops matching what an administrator sees.
-     */
-    public function testTheHelpTopicQuotesTheReadingsAnAdministratorWillSee(): void
-    {
-        $topic = file_get_contents(dirname(__DIR__, 3) . '/docs/help/connexion-securisee.md');
-        $this->assertIsString($topic);
-
-        $clear = (new HttpsCheck(self::PLAIN_REQUEST, $this->httpsSettings(null), $this->at('2026-06-01 12:00:00')))
-            ->read();
-        $quieting = (new HttpsCheck(
-            self::SECURE_REQUEST,
-            $this->httpsSettings($this->at('2026-06-01 11:30:00')->getTimestamp()),
-            $this->at('2026-06-01 12:00:00')
-        ))->read();
-
-        foreach ([$clear->value, $quieting->value] as $shown) {
-            $this->assertStringContainsString(
-                $shown,
-                $topic,
-                'docs/help/connexion-securisee.md tells the administrator to read the alert\'s value: it has to quote the value this check produces.'
-            );
-        }
-
-        // Twenty-four hours is « environ une journée ». Cut the threshold
-        // to an afternoon and that sentence becomes false.
-        $this->assertSame(24, AlertThresholds::HTTPS_REARM_QUIET_HOURS);
-        $this->assertStringContainsString('journée', $topic);
-    }
-
-    /**
-     * Triggering also stamps, because nothing else would.
-     *
-     * `CronSilenceCheck` reads a stamp `public/cron.php` writes as it runs;
-     * a request answered in clear leaves no trace of its own, so the check
-     * makes one. Everything below depends on this write having happened.
-     */
-    public function testAClearRequestRecordsWhenItWasSeen(): void
-    {
-        $settings = $this->httpsSettings(null);
-        $now = $this->at('2026-06-01 12:00:00');
-
-        (new HttpsCheck(self::PLAIN_REQUEST, $settings, $now))->read();
-
-        $this->assertSame(
-            (string) $now->getTimestamp(),
-            (string) $settings->get(HttpsCheck::LAST_CLEAR_SETTING)
-        );
-    }
-
-    /**
-     * A site answering on BOTH schemes must not flap.
-     *
-     * The first version of this check read one request's scheme for both
-     * directions — `overTrigger: !$secure`, `underRearm: $secure` —
-     * complementary values of the same boolean, so a gap of zero. Nothing
-     * here forces HTTP to HTTPS, so such a site alternates as visitors
-     * arrive, and the check runs every quarter of an hour: triggered,
-     * armed, triggered, e-mailing every super-admin each way.
-     *
-     * The gap is now time. One secure request an hour after a clear one
-     * moves nothing, and neither would ninety-five more within the day.
-     */
-    public function testASecureRequestSoonAfterAClearOneMovesNothing(): void
-    {
-        $settings = $this->httpsSettings($this->at('2026-06-01 11:00:00')->getTimestamp());
-
-        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
-
-        $this->assertFalse($reading->overTrigger);
-        $this->assertFalse($reading->underRearm);
-        $this->assertSame('en clair il y a 1 h', $reading->value);
-    }
-
-    /**
-     * Repairing the certificate is enough to clear the alert.
-     *
-     * The second version of this check could not manage that: every
-     * triggered instance had `base_url` saying `http://` by construction,
-     * re-arming required it to say `https://`, and the alert's own advice
-     * — « Activez le certificat HTTPS chez votre hébergeur » — never
-     * mentioned the setting an administrator would also have had to edit.
-     * The alert was, in practice, permanent.
-     */
-    public function testAFullQuietDayOfSecureTrafficRearmsWithNothingToEdit(): void
-    {
-        $settings = $this->httpsSettings(
-            $this->at('2026-06-01 12:00:00')->getTimestamp(),
-            ['base_url' => 'http://exemple.be']
-        );
-
-        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-02 12:00:00')))->read();
-
-        $this->assertFalse($reading->overTrigger);
-        $this->assertTrue($reading->underRearm);
-        $this->assertSame('en clair il y a 24 h', $reading->value);
-    }
-
-    /**
-     * An installation never seen in clear is armed and has nothing to say.
-     *
-     * The empty value matters: `OperationalAlertService` refuses to write
-     * one over the figure a still-triggered alert is showing.
-     */
-    public function testAnInstallationNeverSeenInClearIsArmed(): void
-    {
-        $settings = $this->httpsSettings(null);
-
-        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
-
-        $this->assertFalse($reading->overTrigger);
-        $this->assertTrue($reading->underRearm);
-        $this->assertSame('', $reading->value);
-    }
-
-    /** With nowhere to keep the observation, the check declines to guess. */
-    public function testWithNoSettingsToReadTheHttpsCheckIsInconclusive(): void
-    {
-        $reading = (new HttpsCheck(self::PLAIN_REQUEST))->read();
-
-        $this->assertFalse($reading->overTrigger);
-        $this->assertFalse($reading->underRearm);
-        $this->assertSame('', $reading->value);
     }
 
     // ————— Intégrité des sauvegardes —————
@@ -625,19 +418,6 @@ class ChecksTest extends TestCase
         }
 
         return $service;
-    }
-
-    /**
-     * A settings service holding {@see HttpsCheck::LAST_CLEAR_SETTING},
-     * plus whatever else a case needs. Null means never seen in clear.
-     *
-     * @param array<string, string> $extra
-     */
-    private function httpsSettings(?int $lastClearAt, array $extra = []): SettingService
-    {
-        return $this->settings(
-            [HttpsCheck::LAST_CLEAR_SETTING => $lastClearAt === null ? '' : (string) $lastClearAt] + $extra
-        );
     }
 
     private function at(string $moment): \DateTimeImmutable

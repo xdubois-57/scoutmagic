@@ -1,18 +1,27 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Ce qui est parti — {{ site_name }}{% endblock %}
+{% block title %}Médias sociaux — {{ site_name }}{% endblock %}
 
 {% block content %}
+{# The page is « Médias sociaux » and the list under it is « Ce qui est
+   parti » — the mockup's own hierarchy
+   (docs/chantiers/maquettes/medias-sociaux.html). #}
 {% include 'partials/page_header.html.twig' with {
-    title: 'Ce qui est parti',
+    title: 'Médias sociaux',
     action_label: 'Nouvelle communication',
-    action_url: '/communications/nouvelle',
+    action_url: '/medias-sociaux/nouvelle',
 } only %}
+
+<h2 class="h5 mb-3">Ce qui est parti</h2>
 
 {% for entry in entries %}
     <div class="card mb-3" data-history-entry="{{ entry.kind }}">
         <div class="card-body">
-            <h2 class="h6 mb-1">{{ entry.title }}</h2>
+            {# h3: these sit INSIDE « Ce qui est parti » above, and a
+               screen reader's heading list is how one skims this page.
+               At h2 they read as siblings of the section rather than its
+               contents. The visual size stays `h6`. #}
+            <h3 class="h6 mb-1">{{ entry.title }}</h3>
             {% if entry.caption %}
                 <p class="small text-body-secondary mb-1">{{ entry.caption }}</p>
             {% endif %}

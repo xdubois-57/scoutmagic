@@ -155,7 +155,10 @@ class RunOperationalChecksHandlerTest extends TestCase
      */
     public function testTheHttpsAlertSendsTheAttentionPageToItsHelpTopicToo(): void
     {
-        (new OperationalAlertRepository($this->pdo))->markTriggered(HttpsCheck::KEY, 'en clair à l\'instant');
+        (new OperationalAlertRepository($this->pdo))->markTriggered(
+            HttpsCheck::KEY,
+            'dernier accès non sécurisé il y a moins d\'une heure'
+        );
 
         $points = (new OperationalAttentionProvider(
             new OperationalAlertRepository($this->pdo),
@@ -164,13 +167,15 @@ class RunOperationalChecksHandlerTest extends TestCase
         ))->collect(1);
 
         $this->assertCount(1, $points);
-        $this->assertSame('Connexion sécurisée : en clair à l\'instant', $points[0]->title);
+        $this->assertSame(
+            'Connexion sécurisée : dernier accès non sécurisé il y a moins d\'une heure',
+            $points[0]->title
+        );
         $this->assertSame(HttpsCheck::HELP_PATH, $points[0]->actionUrl);
         $this->assertSame(HttpsCheck::HELP_LABEL, $points[0]->actionLabel);
 
-        // And it says why the maintenance page would not have helped:
-        // two causes, opposite gestures.
-        $this->assertStringContainsString('Deux causes', $points[0]->why);
+        // And it says what to check and how it clears (#751).
+        $this->assertStringContainsString('24 heures', $points[0]->why);
         $this->assertStringNotContainsString('La page Maintenance', $points[0]->why);
     }
 
@@ -185,7 +190,7 @@ class RunOperationalChecksHandlerTest extends TestCase
     public function testBothSurfacesSendTheHttpsAlertToTheSamePlace(): void
     {
         $settings = new SettingService(new SettingRepository($this->pdo));
-        $reading = (new HttpsCheck(['HTTPS' => 'off', 'SERVER_PORT' => '80'], $settings))->read();
+        $reading = (new HttpsCheck(new \Core\Http\InsecureBrowserAccess($settings)))->read();
 
         $destination = AlertSurfaces::destinations()[HttpsCheck::KEY];
 

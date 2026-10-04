@@ -22,8 +22,12 @@ découvres qu'ils décrivent une réalité que le code contredit, **mets-les à 
   l'itération : tu corriges, tu ne contournes pas, tu ne désactives rien.
 - Tests obligatoires : PHPUnit, PHPStan, et `npm run typecheck` + Vitest dès que tu touches
   `public/assets/js/`. Couverture RBAC explicite sur toute route nouvelle ou modifiée.
-- Toute modification de `schema.sql` impose de **relever la `version` dans `module.json`** : c'est
-  ce relèvement qui applique le schéma sur une installation existante.
+- Toute modification de `schema.sql` impose de **relever la `version` dans `module.json`**. Ce
+  n'est pas ce relèvement qui applique le schéma — `Core\Database\SchemaFiles` migre tous les
+  schémas déclarés en une passe au déploiement, justement parce qu'un relèvement oublié rendait
+  autrefois la modification invisible jusqu'à la première requête sur une colonne absente. La
+  `version` est la version annoncée du module, et c'est elle qui déclenche l'élagage des réglages
+  que le nouveau manifeste ne déclare plus.
 - Code, commentaires, identifiants et noms de colonnes en anglais ; interface en français.
 - Chaque écran modifié ship son sujet d'aide dans la même PR ; `tests/Core/Help/` échoue sinon.
 - Aucune donnée personnelle, aucun jeton, aucun secret dans le journal ni dans un message d'erreur.

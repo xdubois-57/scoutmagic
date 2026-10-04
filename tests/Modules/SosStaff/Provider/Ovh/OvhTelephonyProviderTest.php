@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Modules\SosStaff\Provider\Ovh;
 
-use Modules\SosStaff\Provider\ForwardingState;
+use Modules\SosStaff\Api\ForwardingState;
 use Modules\SosStaff\Provider\Ovh\OvhApiClient;
 use Modules\SosStaff\Provider\Ovh\OvhApiException;
 use Modules\SosStaff\Provider\Ovh\OvhTelephonyProvider;
-use Modules\SosStaff\Provider\PhoneLine;
-use Modules\SosStaff\Provider\ProviderException;
+use Modules\SosStaff\Api\PhoneLine;
+use Modules\SosStaff\Api\ProviderException;
 use PHPUnit\Framework\TestCase;
 
 class OvhTelephonyProviderTest extends TestCase

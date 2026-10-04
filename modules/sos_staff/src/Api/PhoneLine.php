@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\SosStaff\Provider;
+namespace Modules\SosStaff\Api;
 
 /**
  * A phone line available on the provider account, for the configuration
