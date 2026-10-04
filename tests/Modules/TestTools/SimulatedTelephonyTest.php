@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Modules\TestTools;
 
+use Core\Config\SettingException;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\InstallationProfile;
 use Modules\SosStaff\Api\PhoneProviderInterface;
+use Modules\SosStaff\Api\ProviderException;
 use Modules\TestTools\Service\MailSandboxService;
 use Modules\TestTools\Telephony\SimulatedPhoneProvider;
 use Modules\TestTools\Telephony\SimulatedTelephony;
@@ -86,6 +88,15 @@ class SimulatedTelephonyTest extends TestCase
         $after = (new SimulatedPhoneProvider($this->settingService))->readForwardingState();
         $this->assertTrue($after->active);
         $this->assertSame('+32470112233', $after->number);
+    }
+
+    public function testAForwardingThatCannotBeStoredIsAProviderFailure(): void
+    {
+        $settings = $this->createStub(SettingService::class);
+        $settings->method('setInternal')->willThrowException(new SettingException('introuvable'));
+
+        $this->expectException(ProviderException::class);
+        (new SimulatedPhoneProvider($settings))->setForwarding('+32470112233');
     }
 
     public function testTheLineAlwaysAnswersAndOffersOneNumber(): void
