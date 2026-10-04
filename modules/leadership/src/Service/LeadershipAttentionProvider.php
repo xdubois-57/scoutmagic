@@ -11,7 +11,9 @@ namespace Modules\Leadership\Service;
 use Core\Attention\AttentionPoint;
 use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
+use Modules\Leadership\FormationStep;
 use Modules\Leadership\LeadershipRules;
+use Modules\Leadership\Repository\FormationLevelMappingRepository;
 use Modules\Leadership\Repository\LeadershipRepository;
 
 /**
@@ -37,12 +39,19 @@ use Modules\Leadership\Repository\LeadershipRepository;
  * `SupervisionCalculator` still computes the standard and
  * `/admin/leadership/training` still states it to whoever opens that page,
  * which is where that question is asked — this provider does not repeat it.
+ *
+ * **A Desk formation wording the site does not recognise is one point
+ * (#727)**, aggregated: such a person never counts as breveted, so the
+ * count the ratio reads may be short, and the fix is one configuration
+ * screen away. The point goes when every wording met this year is known.
  */
 class LeadershipAttentionProvider implements AttentionPointProvider
 {
     public function __construct(
         private LeadershipRepository $repository,
-        private StewardService $stewardService
+        private StewardService $stewardService,
+        private ?FormationLevelMappingRepository $mappingRepository = null,
+        private ?FormationLevelResolver $resolver = null
     ) {
     }
 
@@ -55,7 +64,40 @@ class LeadershipAttentionProvider implements AttentionPointProvider
     {
         $staff = $this->repository->findStaffFunctions($scoutYearId);
 
-        return $this->stewardsRunningOut($staff, $scoutYearId);
+        return array_merge(
+            $this->unrecognisedFormationLevels($scoutYearId),
+            $this->stewardsRunningOut($staff, $scoutYearId)
+        );
+    }
+
+    /**
+     * @return AttentionPoint[]
+     */
+    private function unrecognisedFormationLevels(int $scoutYearId): array
+    {
+        if ($this->mappingRepository === null || $this->resolver === null) {
+            return [];
+        }
+
+        $resolver = $this->resolver->withMapping($this->mappingRepository->findAll());
+        $unrecognised = 0;
+        foreach (array_keys($this->repository->countFormationLevels($scoutYearId)) as $rawValue) {
+            if ($resolver->resolve((string) $rawValue) === FormationStep::UNKNOWN) {
+                $unrecognised++;
+            }
+        }
+        if ($unrecognised === 0) {
+            return [];
+        }
+
+        return [new AttentionPoint(
+            title: $unrecognised === 1
+                ? '1 niveau de formation Desk doit être configuré'
+                : $unrecognised . ' niveaux de formation Desk doivent être configurés',
+            why: 'Tant qu\'ils ne sont pas reconnus, le calcul du nombre de brevetés peut être incomplet.',
+            actionLabel: 'Configurer les niveaux de formation',
+            actionUrl: '/admin/leadership/configuration',
+        )];
     }
 
     /**

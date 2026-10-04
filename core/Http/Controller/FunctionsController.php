@@ -95,17 +95,17 @@ class FunctionsController extends AbstractController
         $unconfirmed = $this->functionRepo->findUnconfirmed();
         $groupedByRole = $this->functionRepo->findAllGroupedByRole();
 
-        // Build confirmed groups with labels and badge classes
+        // One zone per role, EVERY role, in rank order (issue #741): a
+        // function is assigned by being dropped into a role, so a role with
+        // no function yet still has to be somewhere to drop it.
         $confirmedByRole = [];
         foreach (self::ROLE_DEFINITIONS as $roleDef) {
             $roleValue = $roleDef['value'];
-            if (isset($groupedByRole[$roleValue])) {
-                $confirmedByRole[$roleValue] = [
-                    'label' => $roleDef['label'],
-                    'badge_class' => $roleDef['badge_class'],
-                    'functions' => $groupedByRole[$roleValue],
-                ];
-            }
+            $confirmedByRole[$roleValue] = [
+                'label' => $roleDef['label'],
+                'badge_class' => $roleDef['badge_class'],
+                'functions' => $groupedByRole[$roleValue] ?? [],
+            ];
         }
 
         // Optional module hook: per-function flag (e.g. trombinoscope
@@ -152,6 +152,7 @@ class FunctionsController extends AbstractController
             'mapping_gaps' => $this->mappingGapsForView(),
             'unconfirmed' => $unconfirmed,
             'confirmed_by_role' => $confirmedByRole,
+            'has_functions' => $unconfirmed !== [] || $groupedByRole !== [],
             'roles' => self::ROLE_DEFINITIONS,
             'function_flags' => $functionFlags,
             'section_groups' => array_values($sectionGroups),

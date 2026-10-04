@@ -14,6 +14,12 @@
 // it replaces the local parseJsonResponse() debug helper: a non-JSON body
 // (e.g. an HTML error page) now comes back as data:null instead of an
 // opaque parse exception.
+//
+// A mode switch that records the mode answers with a toast, success and
+// failure alike (design.md §7.13, issue #739); a refused one puts the
+// radio, and the text it had replaced, back as the server still has them.
+// Switching to AI records nothing by itself — the generation that follows
+// keeps its own progress line, being a long operation.
 (function () {
     var aiPromptCard = document.getElementById('ai-prompt-card');
     var generateBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('generate-btn'));
@@ -78,6 +84,9 @@
         }
     }
 
+    // The mode the server last recorded — what a refused switch goes back to.
+    var savedMode = getMode();
+
     /**
      * @param {string} mode
      * @param {string} content
@@ -87,7 +96,11 @@
     function saveMode(mode, content, prompt, callback) {
         api.postJson('/config/rgpd/save', { mode: mode, content: content, prompt: prompt })
             .then(function (res) {
-                if (callback) callback(!!(res.data?.success), res.data);
+                var ok = !!(res.data?.success);
+                // Every recorded save moves it, whichever control sent it
+                // (a switch, the editor, the reset).
+                if (ok) savedMode = mode;
+                if (callback) callback(ok, res.data);
             });
     }
 
@@ -127,6 +140,10 @@
             generateBtn.disabled = false;
 
             if (data.status === 'done') {
+                // A finished generation records the AI mode server-side
+                // (RgpdGenerationRunner): from now on a refused switch
+                // goes back to it.
+                savedMode = 'ai';
                 if (typeof data.content === 'string') {
                     preview.innerHTML = data.content;
                 }
@@ -184,40 +201,70 @@
         pollGeneration('Contenu généré et enregistré.');
     }
 
+    /**
+     * @param {any} data the refused answer's body, null when there was none
+     */
+    function refuseModeSwitch(data) {
+        modeRadios.forEach(function (radio) {
+            radio.checked = radio.value === savedMode;
+        });
+        updateUI();
+        window.ScoutMagicToast.show(data?.error || "Erreur lors de l'enregistrement.", { variant: 'error' });
+    }
+
+    /**
+     * Records a mode and the text that goes with it, and says how it went.
+     *
+     * @param {string} mode
+     * @param {string} content
+     * @param {string} previousContent what the preview showed before the switch
+     */
+    function recordModeSwitch(mode, content, previousContent) {
+        saveMode(mode, content, '', function (ok, data) {
+            if (ok) {
+                window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
+                return;
+            }
+            preview.innerHTML = previousContent;
+            refuseModeSwitch(data);
+        });
+    }
+
     // Auto-save on mode change
     modeRadios.forEach(function (radio) {
         radio.addEventListener('change', function () {
             var mode = getMode();
+            var previousContent = preview.innerHTML;
             updateUI();
 
             if (mode === 'default') {
                 // Reset to default content, then persist mode + content
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
-                    if (res.data?.success) {
-                        preview.innerHTML = res.data.content;
-                        saveMode('default', res.data.content, '', function () {
-                            // Silent save
-                        });
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                    if (!res.data?.success) {
+                        refuseModeSwitch(res.data);
+                        return;
                     }
+                    preview.innerHTML = res.data.content;
+                    recordModeSwitch('default', res.data.content, previousContent);
                 });
             } else if (mode === 'ai') {
                 // Reset to default first, then auto-generate if prompt exists
-                api.postJson('/config/rgpd/reset', {}).then(function (res) {
-                    if (res.data?.success) {
-                        preview.innerHTML = res.data.content;
+                void api.postJson('/config/rgpd/reset', {}).then(function (res) {
+                    if (!res.data?.success) {
+                        refuseModeSwitch(res.data);
+                        return;
+                    }
+                    preview.innerHTML = res.data.content;
 
-                        // Auto-generate if prompt exists
-                        var prompt = aiPromptTextarea.value.trim();
-                        if (prompt) {
-                            runGeneration(prompt, 'Génération automatique en cours…', 'Contenu généré automatiquement');
-                        }
+                    // Auto-generate if prompt exists
+                    var prompt = aiPromptTextarea.value.trim();
+                    if (prompt) {
+                        runGeneration(prompt, 'Génération automatique en cours…', 'Contenu généré automatiquement');
                     }
                 });
             } else if (mode === 'custom') {
                 // Keep current version, save mode
-                saveMode(mode, preview.innerHTML, '', function () {
-                    // Silent save
-                });
+                recordModeSwitch(mode, preview.innerHTML, previousContent);
             }
         });
     });
