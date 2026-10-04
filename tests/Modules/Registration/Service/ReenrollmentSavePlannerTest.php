@@ -232,6 +232,20 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_ALREADY_SENT, $plan->noEmailReason);
     }
 
+    public function testTurningEmailsOnADayAReminderIsDueAnnouncesIt(): void
+    {
+        $this->campaign->open();
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '25', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+
+        $plan = $this->plan(['is_open' => true, 'emails_enabled' => true], '2027-04-20 10:00');
+
+        $this->assertSame(
+            [['type' => 'reminder_1', 'campaign' => '2027-05-15', 'families' => 27, 'deferred' => true]],
+            $plan->emails
+        );
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();

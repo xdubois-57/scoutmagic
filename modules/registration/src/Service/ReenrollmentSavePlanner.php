@@ -134,7 +134,9 @@ class ReenrollmentSavePlanner
 
         // ── what the save makes due at the next hourly pass ───────────
         $dueAfter = $this->dueToday($after, $now);
-        $dueBefore = $this->dueToday($before, $now);
+        // With the e-mails off, nothing was going to leave: a save that turns
+        // them on is what makes today's reminder or closing go out.
+        $dueBefore = $before['emails_enabled'] ? $this->dueToday($before, $now) : [];
         foreach ($dueAfter as $type => $key) {
             if (isset($dueBefore[$type]) && $dueBefore[$type] === $key) {
                 // Already due before this save: it leaves either way, and
