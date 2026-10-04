@@ -51,6 +51,13 @@ du contrat se rouvrent, et un nouveau contrat doit partir. Une demande
 qui attendait la signature revient à « Demande reçue » ; une réservation
 confirmée le reste.
 
+Compléter un renseignement que le contrat laissait vide — l'adresse de
+facturation que le locataire remplit après l'envoi, par exemple — ne
+change rien à ce qu'il a signé, et le contrat reste valable. Modifier les
+réglages du bien (son nom, ses heures, son acompte, sa caution) ne rend
+pas non plus les contrats déjà générés caducs. Une réservation clôturée
+garde son contrat.
+
 ## Ma signature
 
 Vous l'enregistrez une fois, depuis « Gérer mes locations » › « Ma

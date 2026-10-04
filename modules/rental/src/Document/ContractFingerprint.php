@@ -15,9 +15,9 @@ use Modules\Rental\Pricing\PriceQuote;
  *
  * **Generic rather than a list of cases.** A contract is void the moment
  * the booking stops saying what it says — new dates, another head count, a
- * price or one of its lines changed, the renter's details corrected, the
- * asset renamed — whichever screen the change came from: an accepted
- * request, an accepted proposal, a correction a manager made elsewhere. So
+ * price or one of its lines changed, the renter's details corrected —
+ * whichever screen the change came from: an accepted request, an accepted
+ * proposal, a correction a manager made elsewhere. So
  * nothing lists the gestures that void a contract; the hash taken at
  * generation is compared with the booking's own, and a difference is the
  * answer.
@@ -27,23 +27,30 @@ use Modules\Rental\Pricing\PriceQuote;
  * and change nothing here; nor does the date of the day the PDF was made,
  * which `date_du_jour` would otherwise turn into a contract voided every
  * midnight.
+ *
+ * **The booking, not the asset.** The asset's name, its arrival and
+ * departure hours, its deposit rate and its security deposit follow the
+ * asset's settings: editing those is not the booking changing, and would
+ * otherwise void every contract of the asset at whatever later, unrelated
+ * gesture happened to look.
+ *
+ * **Filling a blank is not contradicting.** A detail the contract left
+ * empty — the renter's billing address, asked for only once the contract
+ * is out — says nothing the renter could have signed against: filling it
+ * in later voids nothing. Only a value the contract printed, changed, does
+ * (`against()`).
  */
 final class ContractFingerprint
 {
     /** The keywords that describe the booking, in a fixed order. */
     private const KEYS = [
         'reference',
-        'bien',
         'date_arrivee',
         'date_depart',
-        'heure_arrivee',
-        'heure_depart',
         'nuits',
         'participants',
         'quantite',
         'prix_total',
-        'acompte',
-        'caution',
         'locataire_nom',
         'locataire_organisation',
         'locataire_email',
@@ -72,5 +79,24 @@ final class ContractFingerprint
         $said['lignes'] = $lines;
 
         return hash('sha256', (string) json_encode($said, JSON_UNESCAPED_UNICODE));
+    }
+
+    /**
+     * The booking's fingerprint as a contract generated from `$generated`
+     * would read it: every value the contract left blank stays blank, so a
+     * detail filled in since is not a difference.
+     *
+     * @param array<string, string|null> $current `RentalDocumentService::valuesFor()` now
+     * @param array<string, string|null> $generated the values the contract was rendered from
+     */
+    public static function against(array $current, array $generated, ?PriceQuote $price): string
+    {
+        foreach (self::KEYS as $key) {
+            if (trim((string) ($generated[$key] ?? '')) === '') {
+                $current[$key] = $generated[$key] ?? null;
+            }
+        }
+
+        return self::of($current, $price);
     }
 }

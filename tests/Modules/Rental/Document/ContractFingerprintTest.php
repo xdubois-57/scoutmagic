@@ -77,7 +77,7 @@ class ContractFingerprintTest extends TestCase
             'les participants' => [['participants' => '25']],
             'le prix' => [['prix_total' => '400,00 €']],
             'le locataire' => [['locataire_email' => 'autre@example.be']],
-            'le bien' => [['bien' => 'Grande salle']],
+            'son adresse' => [['locataire_adresse' => 'Rue du Moulin 3, 5000 Namur']],
         ];
     }
 
@@ -90,6 +90,47 @@ class ContractFingerprintTest extends TestCase
         $this->assertNotSame(
             ContractFingerprint::of(self::values(), self::price(36000)),
             ContractFingerprint::of(self::values($change), self::price(36000))
+        );
+    }
+
+    /**
+     * What follows the asset's settings — its name, its hours, its deposit
+     * rate and security deposit — is not the booking changing.
+     */
+    public function testTheAssetsOwnSettingsDoNotCount(): void
+    {
+        $this->assertSame(
+            ContractFingerprint::of(self::values(), self::price(36000)),
+            ContractFingerprint::of(self::values([
+                'bien' => 'Grande salle',
+                'heure_arrivee' => '17:00',
+                'heure_depart' => '10:00',
+                'acompte' => '100,00 €',
+                'caution' => '300,00 €',
+            ]), self::price(36000))
+        );
+    }
+
+    /**
+     * A detail the contract left blank, filled in since, voids nothing; a
+     * value it printed, changed, still does.
+     */
+    public function testFillingABlankIsNotAChangeButCorrectingAValueIs(): void
+    {
+        $generated = self::values(['locataire_adresse' => null]);
+        $fingerprint = ContractFingerprint::of($generated, self::price(36000));
+        $filled = self::values(['locataire_adresse' => 'Rue du Moulin 3, 5000 Namur']);
+
+        $this->assertSame($fingerprint, ContractFingerprint::against($filled, $generated, self::price(36000)));
+
+        $printed = self::values(['locataire_adresse' => 'Rue du Moulin 3, 5000 Namur']);
+        $this->assertNotSame(
+            ContractFingerprint::of($printed, self::price(36000)),
+            ContractFingerprint::against(
+                self::values(['locataire_adresse' => 'Place Saint-Aubain 1, 5000 Namur']),
+                $printed,
+                self::price(36000)
+            )
         );
     }
 

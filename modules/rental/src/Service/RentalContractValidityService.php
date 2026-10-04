@@ -105,18 +105,22 @@ class RentalContractValidityService
             return false;
         }
 
-        $current = ContractFingerprint::of(
-            $this->documents->valuesFor(
-                $booking,
-                $asset,
-                $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings()
-            ),
-            $booking->effectivePrice()
+        $values = $this->documents->valuesFor(
+            $booking,
+            $asset,
+            $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings()
         );
+        $price = $booking->effectivePrice();
 
+        // Each contract read against what it printed: a detail it left
+        // blank, filled in since, is not a change (ContractFingerprint).
         $stale = array_values(array_filter(
             $contracts,
-            static fn(RentalDocument $d): bool => $d->fingerprint !== $current
+            fn(RentalDocument $d): bool => $d->fingerprint !== ContractFingerprint::against(
+                $values,
+                $this->documentRepository->findSnapshot($d->id) ?? $values,
+                $price
+            )
         ));
         if ($stale === []) {
             return false;

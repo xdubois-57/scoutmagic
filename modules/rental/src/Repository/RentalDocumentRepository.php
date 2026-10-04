@@ -251,6 +251,22 @@ class RentalDocumentRepository implements AttachedFileRepository
     }
 
     /** What a contract says, hashed at generation (#708, IT-20). */
+    /**
+     * The values a generated document was rendered from (§6.25), or null
+     * for one that kept none.
+     *
+     * @return array<string, string|null>|null
+     */
+    public function findSnapshot(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT generated_snapshot FROM rental_documents WHERE id = ?');
+        $stmt->execute([$id]);
+        $json = $stmt->fetchColumn();
+        $values = is_string($json) && $json !== '' ? json_decode($json, true) : null;
+
+        return is_array($values) ? $values : null;
+    }
+
     public function setFingerprint(int $id, string $fingerprint): void
     {
         $this->pdo->prepare('UPDATE rental_documents SET fingerprint = ? WHERE id = ?')->execute([$fingerprint, $id]);
