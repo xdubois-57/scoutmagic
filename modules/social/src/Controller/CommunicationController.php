@@ -189,9 +189,19 @@ final class CommunicationController extends AbstractController
         // sail past the unique constraint that used to stop it when the
         // retired route published against the album's own id. Measured
         // before this guard: two rows, two publications, two Facebook
-        // posts. Sharing the same source again with a DIFFERENT message
-        // stays allowed — that is why the text is part of the match
-        // (CommunicationRepository::recentTwin()).
+        // posts.
+        //
+        // **So the guard stops the duplicate ROW, and nothing else.** The
+        // request is then carried out against the row that already
+        // exists, exactly as a second « Publier » on a saved
+        // communication is: a destination already sent is refused by the
+        // unique key, with the sentence that says so, and a destination
+        // this click asks for and that one did not — the chief who shared
+        // to Facebook and then, straight away, to a discussion group —
+        // goes out. A twin never means « drop this »: deciding that from
+        // the text alone would have thrown the second share away in
+        // silence, since the caption the composer prefills is the same
+        // both times (raised in review on the pull request for IT-01).
         if ($kind !== null) {
             $twin = $this->communications->recentTwin(
                 $kind,
@@ -200,8 +210,9 @@ final class CommunicationController extends AbstractController
                 AuthSession::getUserAccountId(),
                 (new \DateTimeImmutable())->modify('-' . self::REPLAY_WINDOW_SECONDS . ' seconds')
             );
-            if ($twin !== null) {
-                return $this->redirect(ShareSourceResolver::path($twin));
+            $existing = $twin === null ? null : $this->communications->find($twin);
+            if ($existing !== null) {
+                return $this->act($request, $existing);
             }
         }
 

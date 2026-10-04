@@ -65,10 +65,22 @@ class CommunicationRepository
      * protection (raised in review on the pull request for IT-01).
      *
      * **Why the body is part of the match.** Sharing the same album again
-     * with a DIFFERENT message is deliberate and allowed. A replay
-     * carries byte-identical fields, so comparing the text tells the two
-     * apart without a token. The window keeps it to a replay rather than
-     * a decision taken later.
+     * with a DIFFERENT message is a different content, and gets a row of
+     * its own. The window keeps the match to a resubmission rather than a
+     * decision taken later.
+     *
+     * **What a match does NOT mean is « drop this ».** Byte-identical
+     * fields do not tell a replay from a second, deliberate share: the
+     * composer prefills the caption from the source, so a chief who
+     * shares an album to Facebook and then, straight away, to a
+     * discussion group sends exactly the same text both times. The caller
+     * therefore carries the request out against the row this hands back
+     * instead of answering it — the unique
+     * `(source_kind, source_id, destination)` key refuses what has
+     * already gone, and only that (see
+     * {@see \Modules\Social\Controller\CommunicationController::store()}).
+     * Deciding it here, from the text, threw the second share away in
+     * silence. Raised in review on the pull request for IT-01.
      *
      * **WHAT THIS DOES NOT CLOSE, and it matters.** This is a SELECT read
      * before an INSERT, with no unique constraint behind the matched

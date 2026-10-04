@@ -424,6 +424,59 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **A second share to another destination is not a replay, and the
+     * replay guard must not swallow it.**
+     *
+     * The guard matches on the source, the text and the author — not on
+     * the destinations — and the composer prefills the caption from the
+     * source, so a chief who shares an album to Facebook and then,
+     * straight away, to a discussion group sends byte-identical fields
+     * both times. Answering that match with a redirect dropped the second
+     * share in silence: nothing in the group, and no message saying why.
+     * The request is carried out against the existing row instead, where
+     * the unique destination key refuses only Facebook. Raised in review
+     * on the pull request for IT-01.
+     */
+    public function testASecondShareToAnotherDestinationStillGoesOut(): void
+    {
+        $this->groups = new FakeGroupPublisher();
+        $this->loginAuthor();
+        $base = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => 'Les photos sont en ligne',
+            'action' => 'publish',
+        ];
+
+        $this->controller()->store($this->post($base + ['destinations' => ['facebook']]), []);
+        $this->controller()->store(
+            $this->post($base + ['destinations' => ['groups'], 'groups' => ['3']]),
+            []
+        );
+
+        $this->assertSame(
+            [3],
+            array_column($this->groups->posts, 'group'),
+            'the deliberate second share to a group was dropped as if it were a replay'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'the second destination made a second communication instead of using the first'
+        );
+        $this->assertSame(
+            ['facebook', 'group:3'],
+            array_map(
+                static fn (array $row): string => (string) $row['destination'],
+                $this->pdo->query(
+                    'SELECT destination FROM social_publications ORDER BY destination'
+                )->fetchAll(\PDO::FETCH_ASSOC)
+            ),
+            'both destinations should be recorded, once each, under the one communication'
+        );
+    }
+
+    /**
      * The other side: the same album with a DIFFERENT message is a new
      * share and stays allowed — which is why the text is part of what
      * tells a replay from a decision.
@@ -602,9 +655,15 @@ final class CommunicationControllerTest extends TestCase
             ->getBody();
 
         // Nothing has been published by this communication, because there
-        // is no communication yet.
+        // is no communication yet. Asserted on the attribute pair the
+        // partial really renders (`_destinations.html.twig`) as well as on
+        // the sentence: the state also decides whether the box is
+        // `disabled`, which is what makes the album unshareable, and a
+        // page that stopped rendering the row at all would satisfy the
+        // negative on its own — hence the positive beside it.
+        $this->assertStringContainsString('data-destination="facebook" data-state="available"', $html);
+        $this->assertStringNotContainsString('data-state="published"', $html);
         $this->assertStringNotContainsString('Déjà publié', $html);
-        $this->assertStringNotContainsString('data-destination-state="published"', $html);
     }
 
     /**

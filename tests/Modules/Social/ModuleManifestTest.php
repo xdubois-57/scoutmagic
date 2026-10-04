@@ -65,10 +65,21 @@ final class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The schema gained `source_kind` / `source_id` for IT-01, and a module
-     * schema only reaches an existing installation when the manifest's
-     * version goes up with it (docs/chantiers/CHANTIER-medias-sociaux.md).
-     * This pin is meant to break: raise it when the schema changes again.
+     * The schema gained `source_kind` / `source_id` for IT-01, and the
+     * chantier asks for the manifest version to go up with it.
+     *
+     * **Not because the bump is what ships the columns** — it is not, and
+     * believing it is would be the dangerous reading of this pin.
+     * `Core\Database\SchemaFiles` migrates every declared schema in one
+     * pass at deploy time, precisely because the old per-module behaviour
+     * applied a schema change only if somebody remembered the bump, and a
+     * forgotten one stayed invisible until a query failed against a
+     * column nobody had added ({@see \Core\Module\ModuleManager}, where
+     * the comparison that remains drives the pruning of settings the new
+     * manifest stopped declaring). The version is the module's stated
+     * version, shown in the registry; this pin is meant to break, so a
+     * schema change is a deliberate decision about it rather than a
+     * silent omission. Raised in review on the pull request for IT-01.
      */
     public function testTheVersionRisesWithTheSchema(): void
     {
