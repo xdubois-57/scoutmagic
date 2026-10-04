@@ -246,6 +246,20 @@ class ReenrollmentSavePlannerTest extends TestCase
         );
     }
 
+    public function testClosingACampaignOpenedEarlyByHandWritesToItsFamilies(): void
+    {
+        // Opened by hand on 2027-02-01, a month before its date: keyed to
+        // the coming close, 2027-05-15 — and so is its closing.
+        $this->campaign->open();
+
+        $plan = $this->plan(['is_open' => false], '2027-02-05 10:00');
+
+        $this->assertSame(
+            [['type' => 'closing', 'campaign' => '2027-05-15', 'families' => 27, 'deferred' => false]],
+            $plan->emails
+        );
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();

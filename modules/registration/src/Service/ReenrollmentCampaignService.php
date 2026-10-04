@@ -211,6 +211,28 @@ class ReenrollmentCampaignService
         return $openAt !== null && $closeAt !== null ? self::keyAt($now, $openAt, $closeAt) : null;
     }
 
+    /**
+     * The campaign a save that closes the switch closes: the window in
+     * progress, or — when the switch had opened the next one early — that
+     * next window, the one the opening was keyed to.
+     */
+    public static function campaignKeyToClose(\DateTimeImmutable $now, ?string $openAt, ?string $closeAt): ?string
+    {
+        $openAt = self::validMonthDay($openAt);
+        $closeAt = self::validMonthDay($closeAt);
+        if ($openAt === null || $closeAt === null) {
+            return null;
+        }
+
+        $today = $now->setTime(0, 0);
+        $current = self::keyAt($today, $openAt, $closeAt);
+        if ($current !== null && $current >= $today->format('Y-m-d')) {
+            return $current;
+        }
+
+        return self::keyForManualOpening($today, $openAt, $closeAt) ?? $current;
+    }
+
     private static function keyAt(\DateTimeImmutable $now, string $openAt, string $closeAt): ?string
     {
         $year = (int) $now->format('Y');
