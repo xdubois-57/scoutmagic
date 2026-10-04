@@ -8,10 +8,12 @@ declare(strict_types=1);
 
 namespace Modules\TestTools\Telephony;
 
+use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Modules\SosStaff\Api\ForwardingState;
 use Modules\SosStaff\Api\PhoneLine;
 use Modules\SosStaff\Api\PhoneProviderInterface;
+use Modules\SosStaff\Api\ProviderException;
 use Modules\TestTools\Service\MailSandboxService;
 
 /**
@@ -40,13 +42,26 @@ final class SimulatedPhoneProvider implements PhoneProviderInterface
         return new ForwardingState($number !== '', $number !== '' ? $number : null);
     }
 
+    /**
+     * A setting that cannot be written is a provider failure to the SOS
+     * module: RedirectService catches ProviderException only, and that is
+     * what journals the failure and alerts the super-admin.
+     */
     public function setForwarding(string $number): void
     {
-        $this->settingService->setInternal(
-            SimulatedTelephony::SETTING_FORWARDING,
-            $number,
-            MailSandboxService::MODULE_ID
-        );
+        try {
+            $this->settingService->setInternal(
+                SimulatedTelephony::SETTING_FORWARDING,
+                $number,
+                MailSandboxService::MODULE_ID
+            );
+        } catch (SettingException $e) {
+            throw new ProviderException(
+                'Impossible d\'enregistrer la redirection de la téléphonie simulée.',
+                0,
+                $e
+            );
+        }
     }
 
     public function testConnection(): bool

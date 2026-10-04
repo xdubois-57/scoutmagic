@@ -289,7 +289,9 @@ class LeadershipController extends AbstractController
     {
         $listId = (string) $request->getBody('list', '');
         $list = self::LISTS[$listId] ?? null;
-        $back = '/admin/leadership/' . ($list['page'] ?? '');
+        // An unknown list goes back to the dashboard: '/admin/leadership/'
+        // with a trailing slash is a route of nothing.
+        $back = $list === null ? '/admin/leadership' : '/admin/leadership/' . $list['page'];
         if (($guard = $this->guardCsrf($request, $back)) !== null) {
             return $guard;
         }

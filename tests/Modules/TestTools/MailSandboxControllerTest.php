@@ -443,13 +443,18 @@ class MailSandboxControllerTest extends TestCase
         AuthSession::login(1, 'superadmin@test.com', 'superadmin');
         CsrfGuard::generateToken();
 
-        $this->frontController(
+        $response = $this->frontController(
             '/test-tools/simulated-telephony',
             TestToolsController::class,
             'toggleSimulatedTelephony',
             'POST'
         )->handle(new Request('POST', '/test-tools/simulated-telephony', [], ['armed' => '1', '_csrf_token' => 'faux'], [], []));
 
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
         $this->assertFalse($this->simulatedTelephony->armed());
     }
 
