@@ -214,7 +214,9 @@ class RetroConfigController extends AbstractController
         // whoever was Staff d'U in 2019-2020 could preview that year and
         // get this page back (ARCHITECTURE.md §4 « Scout year »).
         $scoutYearId = $this->scoutYearService->getAuthorizationYear()->id;
-        if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
+        // A superadmin passes without a member behind the account (#743).
+        $role = \Core\Security\Role::fromString(AuthSession::getRole());
+        if (!$this->memberService->hasUnitChiefAuthority($role, $email, $scoutYearId)) {
             return $this->forbidden(self::UNIT_CHIEF_ONLY_MESSAGE, $request);
         }
 

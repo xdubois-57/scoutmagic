@@ -81,11 +81,13 @@ class HttpsDetectionConvergenceTest extends TestCase
         $repoRoot = dirname(__DIR__, 2);
 
         $expected = [
-            'core/Security/SessionManager.php' => 'RequestScheme::isHttps(',
-            'core/Security/LastLoginMethodCookie.php' => 'RequestScheme::isHttps(',
-            'core/Cookie/CookieConsentService.php' => 'RequestScheme::isHttps(',
+            // The protections go through the https_required policy
+            // (#751), which itself falls back to the same detection.
+            'core/Security/SessionManager.php' => 'RequestScheme::enforcesHttps(',
+            'core/Security/LastLoginMethodCookie.php' => 'RequestScheme::enforcesHttps(',
+            'core/Cookie/CookieConsentService.php' => 'RequestScheme::enforcesHttps(',
             'core/Http/Response.php' => 'RequestScheme::isHttps(',
-            'core/Http/Controller/SetupController.php' => '$request->isHttps()',
+            'core/Http/Controller/SetupController.php' => '$request->enforcesHttps()',
             'modules/support_dashboard/src/Controller/StatisticsIntakeController.php' => '$request->isHttps()',
         ];
 

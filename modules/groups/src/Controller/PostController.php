@@ -30,7 +30,6 @@ use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PollService;
-use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
@@ -67,7 +66,6 @@ class PostController extends AbstractController
         private ?GroupNotificationService $notificationService = null,
         private ?SeenByService $seenByService = null,
         private ?MentionService $mentionService = null,
-        private ?PostEventService $eventService = null,
         private ?PollService $pollService = null,
         // Optional and trailing, like every other collaborator here: with
         // no identity service the member-scoped poll picker still works,
@@ -316,18 +314,6 @@ class PostController extends AbstractController
             // Not nullsafe: $poll is itself the result of a call on
             // $this->pollService, so reaching here proves it is there.
             $this->pollService->attachTo($postId, $poll);
-        }
-
-        // The submitted id is re-resolved against the calendar's own
-        // visibility rules before anything is stored — never trusted, and
-        // never joined to. An id naming an event this member may not see
-        // resolves to null and the post simply carries no event.
-        $eventId = $this->eventService?->resolveSubmitted(
-            (int) $request->getBody('calendar_event_id', 0) ?: null,
-            $context->role
-        );
-        if ($eventId !== null) {
-            $this->postRepository->setCalendarEventId($postId, $eventId);
         }
 
         // Last, and only once the post is complete: notifying about a

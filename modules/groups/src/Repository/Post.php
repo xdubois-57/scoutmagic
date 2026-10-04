@@ -30,13 +30,7 @@ class Post
         // discipline as DiscussionGroup::$galleryAlbumId.
         public readonly ?string $hiddenAt = null,
         public readonly bool $moderationCleared = false,
-        // Appended last for the same reason as the two above. Null is the
-        // ordinary case: most posts link no event, and a post whose event
-        // was deleted (or whose calendar module is switched off) keeps
-        // the id and simply resolves to nothing — schema.sql says why
-        // there is no foreign key.
-        public readonly ?int $calendarEventId = null,
-        // Appended last, same reason as the three above. When the pin
+        // Appended last, same reason as the two above. When the pin
         // lapses on its own; null on an unpinned post, and on one pinned
         // "until a moderator takes it down". Never read to decide whether
         // the post is pinned — that is $isPinned, kept truthful by

@@ -1,0 +1,87 @@
+{#
+  The asset's meters on the shared list editor (#708, IT-10):
+  added and retired without reloading the page, not reorderable — their
+  order means nothing.
+
+  Rendered by the Gabarits page, and by RentalManagementController::addMeter()
+  with the one meter just added: the list inserts that row in place.
+
+  Requires `asset`, `meters`, `meter_kinds` and `meter_fees`.
+#}
+{% set meter_items = [] %}
+{% for meter in meters %}
+    {% set meter_items = meter_items|merge([{
+        id: meter.id,
+        meter: meter,
+        delete_confirm: 'Retirer « ' ~ meter.label ~ ' » ? Les relevés déjà pris sont conservés.',
+    }]) %}
+{% endfor %}
+{% embed 'partials/list_editor.html.twig' with {
+    list_id: 'meter-list',
+    items: meter_items,
+    sortable: false,
+    in_place: true,
+    add_url: '/mes-locations/' ~ asset.slug ~ '/gabarits/compteurs',
+    delete_url: '/mes-locations/' ~ asset.slug ~ '/gabarits/compteurs/retirer',
+    empty_label: 'Aucun compteur.',
+    meter_kinds: meter_kinds,
+    meter_fees: meter_fees,
+    asset: asset,
+} only %}
+    {% block item_content %}
+        <span class="fw-semibold">{{ item.meter.label }}</span>
+        <span class="text-body-secondary small d-block">
+            {{ item.meter.kind.label }}
+            {% if item.meter.displayUnit %}· {{ item.meter.displayUnit }}{% endif %}
+            {% if item.meter.feeId is null %}· non facturé{% endif %}
+        </span>
+    {% endblock %}
+    {% block add_form %}
+        {#
+          Two rows on a wide screen, so both lists have room to show their
+          value in full (« Électricité », « Relevé seul, non facturé »), and
+          the price's help is ONE line under the row rather than six under a
+          narrow field (design.md §7.6): with a meter fee, the first option
+          already says what happens without one, so there is none at all.
+        #}
+        <form class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <label class="form-label" for="meter-label">Nom</label>
+                <input type="text" class="form-control form-control-sm" id="meter-label" name="label"
+                       placeholder="Électricité" maxlength="120" required>
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label" for="meter-kind">Type</label>
+                <select class="form-select form-select-sm" id="meter-kind" name="kind">
+                    {% for kind in meter_kinds %}
+                        <option value="{{ kind.value }}">{{ kind.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="meter-unit">Unité</label>
+                <input type="text" class="form-control form-control-sm" id="meter-unit" name="unit"
+                       placeholder="kWh">
+            </div>
+            <div class="col-8 col-md-6">
+                <label class="form-label" for="meter-fee">Prix unitaire</label>
+                <select class="form-select form-select-sm" id="meter-fee" name="fee_id"
+                        {{ meter_fees is empty ? 'disabled' : '' }}>
+                    <option value="">Relevé seul, non facturé</option>
+                    {% for fee in meter_fees %}
+                        <option value="{{ fee.id }}">{{ fee.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-4 col-md-3">
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
+            </div>
+            {% if meter_fees is empty %}
+                <div class="col-12 form-text mt-1">
+                    Pour facturer la consommation, ajoutez un frais « relevé de compteur » dans
+                    <a href="/mes-locations/{{ asset.slug }}/reglages#tarification">la tarification</a>.
+                </div>
+            {% endif %}
+        </form>
+    {% endblock %}
+{% endembed %}

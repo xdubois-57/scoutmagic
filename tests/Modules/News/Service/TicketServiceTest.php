@@ -45,7 +45,7 @@ class TicketServiceTest extends TestCase
         $articleId = (new ArticleRepository($this->pdo))->create('Souper spaghetti', Article::VISIBILITY_PUBLIC, true, null, null, $accountId);
         $this->formId = (new FormRepository($this->pdo))->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, true, '2026-03-14', 'Salle paroissiale'
+            null, null, false, 'chief', null, null, true, '2026-03-14', 'Salle paroissiale'
         );
     }
 

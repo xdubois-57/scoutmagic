@@ -58,6 +58,17 @@ require_once __DIR__ . '/../vendor/autoload.php';
 \Core\Config\AppClock::apply();
 
 /**
+ * The suite runs as an HTTP-only environment, and says so explicitly.
+ *
+ * Core\Http\RequestScheme defaults to the production policy — HTTPS
+ * required, so every cookie is Secure and every response carries HSTS
+ * (#751). Tests reason about what PHP detects, so they get the same
+ * explicit `https_required = false` a development config/app.php sets;
+ * a test that needs the production policy turns it on and restores this.
+ */
+\Core\Http\RequestScheme::setHttpsRequired(false);
+
+/**
  * When this bootstrap ran. Tests\Bootstrap\TwigCacheFreshnessTest asserts
  * that every compiled template the suite has produced is newer than this,
  * which is what keeps the drop below from being quietly reverted.

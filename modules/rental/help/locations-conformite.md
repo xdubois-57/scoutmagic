@@ -7,7 +7,7 @@ role_min: identified
 discovery: 3
 question: Où noter les contrôles obligatoires d'un bâtiment ?
 question: Quand le contrôle des extincteurs est-il à refaire ?
-paths: /mes-locations/*/conformite
+paths: /mes-locations/*/conformite, /mes-locations/*/conformite/nouvelle, /mes-locations/*/conformite/*/modifier
 related: gerer-les-locations, locations-reglages
 ---
 
@@ -18,12 +18,17 @@ leur rythme.
 
 ## Ce que la page fait
 
-Vous inscrivez un intitulé et une date d'échéance ; le site vous prévient
+« Ajouter une entrée », en haut de la page, ouvre une page où vous
+inscrivez un intitulé et une date d'échéance ; le site vous prévient
 quand elle approche. Le document lui-même peut être joint, et il reste
-attaché — de sorte qu'on le retrouve le jour où quelqu'un le demande.
+attaché — de sorte qu'on le retrouve le jour où quelqu'un le demande. Le
+crayon d'une ligne rouvre cette page pour la modifier ou remplacer le
+document ; la corbeille la supprime. Les entrées restent triées par
+échéance, la plus proche en premier, celles sans date à la fin.
 
 Une entrée sans document vaut déjà mieux que rien : c'est l'échéance qui
-déclenche le rappel, pas le scan.
+déclenche le rappel, pas le scan. Une entrée sans échéance, elle, ne
+déclenche aucun rappel.
 
 ## Ce que la page ne fait pas
 
