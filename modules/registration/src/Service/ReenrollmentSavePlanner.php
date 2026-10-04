@@ -134,7 +134,11 @@ class ReenrollmentSavePlanner
         if ($before['is_open'] && !$after['is_open']) {
             $key = $this->campaign->campaignKeyFor($now, $after['open_at'], $after['close_at']);
             $closing = ['campaign' => $key];
-            if ($key !== null && !$this->campaign->hasStarted($key, $now) && !$this->openingInFlight($key)) {
+            if (
+                $key !== null
+                && !$this->campaign->hasStarted($key, $now, $after['open_at'])
+                && !$this->openingInFlight($key)
+            ) {
                 // A switch left on before its campaign began — closing it
                 // tells nobody « it is over »: nobody was told it began.
                 $reasons[] = ReenrollmentSavePlan::REASON_NOT_STARTED;

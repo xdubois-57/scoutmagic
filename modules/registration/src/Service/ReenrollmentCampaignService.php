@@ -161,11 +161,11 @@ class ReenrollmentCampaignService
      * The key is still the close date, so every marker written before this
      * rule keeps its meaning (D5).
      *
-     * **The day the public year changes.** Moving to the next public year
-     * moves the target, and would replace the campaign in silence. A
-     * campaign that is still running — its close date not reached, and
-     * opened, by hand or by the clock — keeps being the current one until
-     * it closes; only then does the next one take over.
+     * **The day the public year changes.** The target year moves, and the
+     * campaign moves with it: the families' answers, the menu, the counts
+     * and the e-mails all read the same target year, so a campaign cannot
+     * outlive its own year. One still running at that moment ends without
+     * a closing e-mail, and the next year's campaign takes over.
      */
     public function currentCampaignKey(?\DateTimeImmutable $now = null): ?string
     {
@@ -192,12 +192,6 @@ class ReenrollmentCampaignService
         $targetStart = (int) explode('-', $this->years()['target_label'])[0];
         $key = self::dateIn(self::closeYearFor($targetStart, $openAt, $closeAt), $closeAt)?->format('Y-m-d');
 
-        $previous = self::dateIn(self::closeYearFor($targetStart - 1, $openAt, $closeAt), $closeAt)
-            ?->format('Y-m-d');
-        if ($previous !== null && $previous >= $now->format('Y-m-d') && $this->stillRunning($previous)) {
-            return $previous;
-        }
-
         return $key;
     }
 
@@ -206,10 +200,15 @@ class ReenrollmentCampaignService
      * or it was opened before it — by the clock or by the switch with its
      * opening e-mail. A campaign that has not begun has nobody to tell it
      * is over (issue #796): closing it writes to nobody.
+     *
+     * `$openAt` is the opening date the campaign is judged by — the one
+     * being saved when a save is planned, not the stored one the save is
+     * about to replace.
      */
-    public function hasStarted(string $key, \DateTimeImmutable $now): bool
+    public function hasStarted(string $key, \DateTimeImmutable $now, ?string $openAt = null): bool
     {
-        $openOn = self::openingDateOf($key, (string) $this->monthDay(self::SETTING_OPEN_AT));
+        $openAt = self::validMonthDay($openAt ?? $this->monthDay(self::SETTING_OPEN_AT));
+        $openOn = $openAt !== null ? self::openingDateOf($key, $openAt) : null;
         if ($openOn !== null && $openOn->format('Y-m-d') <= $now->format('Y-m-d')) {
             return true;
         }
@@ -218,9 +217,8 @@ class ReenrollmentCampaignService
     }
 
     /**
-     * Whether the campaign `$key` has been opened and has written to
-     * families or opened by the clock — the campaigns a change of public
-     * year must not replace before they close.
+     * Whether the campaign `$key` was opened: by the clock, or by the
+     * switch with an e-mail that has gone out.
      */
     private function stillRunning(string $key): bool
     {

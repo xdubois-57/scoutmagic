@@ -349,6 +349,23 @@ class ReenrollmentSavePlannerTest extends TestCase
         $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
     }
 
+    public function testClosingWhileSavingAnOpeningDateThatPutsTheCampaignInTheFutureWritesToNobody(): void
+    {
+        // Stored 10-01: that campaign opened on 2026-10-01. The save moves
+        // the window to 03-01 → 05-15 and closes the switch: by the dates
+        // being saved the campaign has not begun, so nobody is told it is over.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $this->campaign->open();
+
+        $plan = $this->plan(
+            ['is_open' => false, 'open_at' => '03-01', 'close_at' => '05-15'],
+            '2027-01-10 10:00'
+        );
+
+        $this->assertSame([], $plan->emails);
+        $this->assertSame(ReenrollmentSavePlan::REASON_NOT_STARTED, $plan->noEmailReason);
+    }
+
     public function testAReminderAlreadyDueBeforeTheSaveIsNotThisSavesDoing(): void
     {
         $this->campaign->open();

@@ -82,8 +82,11 @@ enregistrement relève d'IT-03 ; le choix de la campagne courante, d'IT-02.
 
 - `currentCampaignKey()` rend la campagne de l'**année visée** (D3).
   - L'année visée est l'année scoute qui suit l'année publique (`years()`).
-  - Sa campagne se ferme à la date de fermeture de l'année civile où cette
-    année visée commence : 2027-2028 se ferme le 2027-05-15.
+  - Sa campagne est la dernière fenêtre qui s'ouvre avant le 1er septembre
+    de cette année visée : 2027-2028 se ferme le 2027-05-15 (ouverture et
+    fermeture au printemps 2027), mais une fenêtre entièrement en automne
+    (10-01 → 12-15) s'ouvre et se ferme l'automne 2026. Une fenêtre à cheval
+    sur le nouvel an (11-01 → 02-15) se ferme en 2027.
   - La clé reste la date de clôture (D5). Les marqueurs écrits avant ce
     chantier gardent donc leur sens.
   - Elle ne dépend plus du jour : c'est « la campagne pour 2027-2028 »
@@ -97,13 +100,16 @@ enregistrement relève d'IT-03 ; le choix de la campagne courante, d'IT-02.
   interrupteur resté allumé en octobre : la campagne courante est désormais
   celle de mai prochain. Une campagne « a commencé » dans deux cas
   (`hasStarted()`) :
-  - sa date d'ouverture est passée ;
-  - elle a été ouverte avant, par l'horloge ou à la main avec son e-mail.
+  - sa date d'ouverture est passée, celle de l'enregistrement en cours
+    quand on planifie un enregistrement, pas celle qu'il remplace ;
+  - elle a été ouverte avant, par l'horloge ou à la main avec son e-mail,
+    parti ou encore en file.
 - **Le libellé d'un e-mail vient de sa campagne.**
   - `SendReenrollmentEmailsHandler` lit l'année de
     `ReenrollmentCampaignService::targetLabelOf($campaignKey)` : l'année qui
-    commence l'année civile de la clôture. Il ne lit plus l'année publique
-    du moment de l'envoi.
+    commence après l'ouverture de la campagne (la clé donne la fermeture,
+    le réglage l'ouverture). Il ne lit plus l'année publique du moment de
+    l'envoi.
   - Un e-mail de clôture de la campagne du 15/05/2026 dit « 2026-2027 », en
     mai comme en octobre.
 - **Fenêtre à cheval sur le nouvel an.** `openingDateOf()` place
@@ -120,19 +126,11 @@ chef lance « Changer d'année ». Non configuré, il retombe sur l'année
 calculée à la date (`ScoutYearService::getCurrentYear()`, label du jour).
 C'est ce changement qui déplace la campagne courante vers l'année suivante.
 
-**Le jour du changement.** Si la campagne de l'ancienne année visée tourne
-encore, elle reste courante jusqu'à sa clôture. « Tourner encore » veut
-dire deux choses :
-- sa clôture n'est pas atteinte ;
-- elle a été ouverte par l'horloge, ou un de ses e-mails d'ouverture ou de
-  rappel est parti.
-
-Elle n'est donc pas remplacée en silence par la suivante. Une campagne qui
-n'avait pas commencé est, elle, remplacée tout de suite.
-
-**Écart / limite notée.** Ce jour de changement, le suivi (`tracking()`)
-compte déjà les réponses pour la nouvelle année visée, alors que la campagne
-courante est encore l'ancienne. C'est un cas de quelques jours, sans
-e-mail : aucune donnée n'est faussée, mais les chiffres affichés changent
-d'année avant la campagne. À regarder en IT-04, avec l'affichage de la
-boîte.
+**Le jour du changement.** La campagne change avec l'année visée, même
+quand elle tourne : les réponses des familles, le menu, les compteurs et
+les e-mails lisent tous la même année visée. Une campagne qui survivrait au
+changement d'année ferait lire à l'envoi une année et aux réponses une autre :
+une famille qui a répondu après le changement recevrait un rappel. Une
+campagne en cours à ce moment-là se termine donc sans e-mail de clôture, et
+celle de l'année suivante prend la relève. La revue de la PR a fait renoncer
+à une première version qui la maintenait jusqu'à sa clôture.

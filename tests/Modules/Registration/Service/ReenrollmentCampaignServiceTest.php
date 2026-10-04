@@ -316,24 +316,27 @@ class ReenrollmentCampaignServiceTest extends TestCase
     }
 
     /**
-     * **The day the public year changes** must not replace in silence a
-     * campaign that is still running: it stays current until it closes.
+     * **The day the public year changes** moves the campaign with it, even a
+     * running one: everything that reads the families' answers follows the
+     * same target year, so the campaign cannot outlive its own.
      */
-    public function testAPublicYearChangedMidCampaignKeepsTheRunningOneUntilItCloses(): void
+    public function testAPublicYearChangedMidCampaignMovesOnToTheNextCampaign(): void
     {
         $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
         $this->usePublicYear('2027-2028');
 
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-15')));
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
         $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-16')));
     }
 
-    public function testAPublicYearChangedBeforeTheCampaignBeganMovesOnAtOnce(): void
+    public function testACampaignIsJudgedStartedByTheOpeningDateBeingSaved(): void
     {
-        $this->usePublicYear('2027-2028');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $now = new \DateTimeImmutable('2027-01-10');
 
-        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
+        // Stored 10-01: opened since 2026-10-01. Being saved as 03-01: not yet.
+        $this->assertTrue($this->campaign->hasStarted('2027-05-15', $now));
+        $this->assertFalse($this->campaign->hasStarted('2027-05-15', $now, '03-01'));
     }
 
     /**
