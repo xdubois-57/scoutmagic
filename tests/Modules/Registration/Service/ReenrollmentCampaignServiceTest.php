@@ -307,6 +307,19 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertSame('2027-02-15', $key('2027-02-16'));
     }
 
+    public function testAReminderOfAWindowStraddlingNewYearIsNotSkipped(): void
+    {
+        $close = new \DateTimeImmutable('2027-02-15');
+
+        // Open 2026-11-01, close 2027-02-15: 14 days before is 2027-02-01.
+        $due = ReenrollmentCampaignService::reminderDueOn($close, '11-01', '14');
+        $this->assertSame('2027-02-01', $due?->format('Y-m-d'));
+
+        // 120 days before the close falls on 2026-10-18, before the opening:
+        // skipped, never sent late.
+        $this->assertNull(ReenrollmentCampaignService::reminderDueOn($close, '11-01', '120'));
+    }
+
     public function testTheManualSwitchWorksBothWaysAndTouchesNoMarker(): void
     {
         $this->campaign->open();

@@ -314,7 +314,11 @@ class ReenrollmentCampaignService
 
         $due = $close->modify('-' . max(0, (int) $daysBeforeClose) . ' days');
 
-        $openOn = $openAt !== null ? self::dateIn((int) $close->format('Y'), $openAt) : null;
+        // The window opened the calendar year before it closes when it
+        // straddles New Year (open 11-01, close 02-15).
+        $openOn = $openAt !== null
+            ? self::dateIn((int) $close->format('Y') - ($close->format('m-d') < $openAt ? 1 : 0), $openAt)
+            : null;
         if ($openOn !== null && $due < $openOn) {
             return null;
         }
