@@ -62,6 +62,13 @@ final class CommunicationControllerTest extends TestCase
      */
     private static bool $albumHasCover = true;
 
+    /**
+     * The title `albumSource()` answers for that album. Mutable because a
+     * gallery album can be renamed between two destinations, and this
+     * composer neither owns nor freezes it. Reset in setUp.
+     */
+    private static string $albumTitle = self::ALBUM_TITLE;
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -77,6 +84,7 @@ final class CommunicationControllerTest extends TestCase
     protected function setUp(): void
     {
         self::$albumHasCover = true;
+        self::$albumTitle = self::ALBUM_TITLE;
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -473,6 +481,71 @@ final class CommunicationControllerTest extends TestCase
                 )->fetchAll(\PDO::FETCH_ASSOC)
             ),
             'both destinations should be recorded, once each, under the one communication'
+        );
+    }
+
+    /**
+     * **Only the TEXT is frozen for a source-backed share, and a later
+     * destination really does receive a renamed album's new title.**
+     *
+     * `ARCHITECTURE.md`, `SECURITY.md` and this controller's own docblock
+     * all claimed « the image, title and text no longer change » once one
+     * destination had been tried. That is true of a communication with an
+     * image of its own, whose image and title are its own columns, and
+     * false of a source-backed one: `frozenCaption()` freezes the caption
+     * only, and `ShareSourceResolver::sourceBackedCommunication()` reads
+     * the title and image from the album at every use. Three documents
+     * promising a guarantee the code does not give, with none of them
+     * covered — raised in review on the pull request for IT-01.
+     *
+     * So this pins the behaviour the corrected documents describe. If
+     * someone later decides the divergence is the bug and freezes the
+     * title, this test fails and says which documents to change with it,
+     * rather than letting them drift apart again.
+     */
+    public function testARenamedAlbumReachesALaterDestinationWithItsNewTitle(): void
+    {
+        $this->loginAuthor();
+        $body = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => 'Les photos sont en ligne',
+            'action' => 'publish',
+        ];
+
+        // Facebook leaves under the album's title of the day.
+        $this->controller()->store($this->post($body + ['destinations' => ['facebook']]), []);
+        $id = (int) $this->pdo->query('SELECT id FROM social_communications')->fetchColumn();
+
+        // The album is renamed in the gallery — which this composer does
+        // not own, and cannot freeze.
+        self::$albumTitle = 'Week-end de rentrée, deuxième édition';
+
+        $this->controller()->update(
+            $this->post($body + ['destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $titles = $this->pdo->query(
+            'SELECT destination, source_title FROM social_publications ORDER BY destination'
+        )->fetchAll(\PDO::FETCH_KEY_PAIR);
+
+        self::assertSame(
+            'Week-end de rentrée, deuxième édition',
+            $titles['instagram'] ?? null,
+            'a source-backed share reads its title at the source on every publication, so the'
+            . ' second destination sends the new one — this is what the documents must say.'
+        );
+        self::assertSame(
+            self::ALBUM_TITLE,
+            $titles['facebook'] ?? null,
+            'the first destination keeps the title it was sent with'
+        );
+        self::assertSame(
+            'Les photos sont en ligne',
+            $this->pdo->query('SELECT caption FROM social_publications WHERE destination = \'instagram\'')
+                ->fetchColumn(),
+            'the TEXT is what freezes: both destinations receive the same caption'
         );
     }
 
@@ -1301,9 +1374,10 @@ final class CommunicationControllerTest extends TestCase
         // anonymous class is its own scope, so `self::` here would mean
         // this class and not the enclosing one.
         $cover = self::$albumHasCover ? \Tests\Modules\Social\SocialTestHelper::groupPhoto() : null;
+        $title = self::$albumTitle;
 
-        return new class ($cover) implements \Modules\Gallery\Api\AlbumShareSourceInterface {
-            public function __construct(private readonly ?string $cover)
+        return new class ($cover, $title) implements \Modules\Gallery\Api\AlbumShareSourceInterface {
+            public function __construct(private readonly ?string $cover, private readonly string $title)
             {
             }
 
@@ -1312,7 +1386,7 @@ final class CommunicationControllerTest extends TestCase
                 return $albumId === CommunicationControllerTest::ALBUM_ID
                     ? new \Modules\Gallery\Api\SharedAlbum(
                         CommunicationControllerTest::ALBUM_ID,
-                        CommunicationControllerTest::ALBUM_TITLE,
+                        $this->title,
                         $this->cover,
                         '/gallery/' . CommunicationControllerTest::ALBUM_ID
                     )

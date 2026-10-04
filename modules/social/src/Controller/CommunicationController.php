@@ -57,9 +57,20 @@ use Twig\Environment;
  * before « Publier » (IT-01). Publishing then returns to the history,
  * which is where what you just did is visible.
  *
- * **What was sent is frozen once it left.** As soon as one destination has
- * been tried, the image, title and text no longer change: a retry, and a
- * destination published later, receive exactly what the first one did.
+ * **The TEXT is frozen once it left.** As soon as one destination has been
+ * tried, the text no longer changes: a retry, and a destination published
+ * later, receive the caption the first one did ({@see self::frozenCaption()}).
+ * A communication with an image of its OWN freezes with it — `isFrozen()`
+ * closes the gallery and upload buttons, and its image and title are its own
+ * columns.
+ *
+ * **A source-backed one freezes nothing else, and that is visible to the
+ * public.** Its title and image are the source's, read again at every use
+ * ({@see ShareSourceResolver}), so an album renamed or its cover swapped
+ * between two destinations sends the new title and image to the later one
+ * while the first keeps what it got. The composer says so rather than
+ * promising otherwise, and issue #706 closes it in IT-02, where the browser
+ * sends the image at « Publier » and the image received is what is frozen.
  *
  * A communication is its author's, or an administrator's
  * (ShareSourceResolver::editableCommunication()); anyone else gets a 404.
