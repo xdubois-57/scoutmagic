@@ -79,6 +79,26 @@
         <p class="small text-body-secondary mb-4">
             Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
         </p>
+    {% elseif frozen and from_source %}
+        {# What is true for a source-backed share, which is less than the
+           message below promises: the TEXT is frozen — every later
+           destination receives the caption the first one got — but the
+           title and the image are read from the album or the article at
+           each publication, including a retry. Rename the album between a
+           successful Facebook post and an Instagram retry and the two
+           destinations get different cards. Promising otherwise here also
+           contradicted the title field's own help a few lines below,
+           which says the title is changed at the source. Raised in review
+           on the pull request for IT-01. The image half is what IT-02
+           settles, by storing the image the browser composed and serving
+           that one to every later attempt; the title stays the source's
+           by design — nothing of the source is copied into the
+           communication (specifications.md §4). #}
+        <div class="alert alert-info small mb-4">
+            Cette communication est déjà partie vers une destination : le texte ne change plus, pour que
+            chaque destination reçoive le même message. Le titre et l'image restent ceux de
+            {{ source_label }} : s'ils y changent, une nouvelle tentative partira avec les nouveaux.
+        </div>
     {% elseif frozen %}
         <div class="alert alert-info small mb-4">
             Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,

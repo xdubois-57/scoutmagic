@@ -387,6 +387,73 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * A frozen source-backed share must not promise what it cannot keep.
+     *
+     * The notice said « l'image et le texte ne changent plus » for every
+     * frozen communication, but `sourceBackedCommunication()` re-reads
+     * the title and the image from the album at every publication, a
+     * retry included: rename the album between a Facebook success and an
+     * Instagram retry and the two destinations get different cards. Only
+     * the caption is really frozen. The page even contradicted itself,
+     * the title field's own help saying the title is changed at the
+     * source. Raised in review on the pull request for IT-01; IT-02 is
+     * what makes the image genuinely fixed, by storing the one the
+     * browser composed.
+     */
+    public function testAFrozenSourceBackedShareSaysOnlyTheTextIsFixed(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $at = new \DateTimeImmutable('-1 day');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'facebook',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            '',
+            'Les photos sont en ligne'
+        );
+        $this->publications->markPublished('communication', $id, 'facebook', '42_9', $at, $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('le texte ne change plus', $html);
+        $this->assertStringNotContainsString('l\'image et le texte ne changent plus', $html);
+        // And it says where the title and image really come from.
+        $this->assertStringContainsString('restent ceux de', $html);
+    }
+
+    /**
+     * The other side: a communication that owns its image really does
+     * freeze both, so it keeps the stronger sentence.
+     */
+    public function testAFrozenOwnShareStillPromisesBoth(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $at = new \DateTimeImmutable('-1 day');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'facebook',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            'Week-end',
+            'Texte'
+        );
+        $this->publications->markPublished('communication', $id, 'facebook', '42_9', $at, $at);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('l\'image et le texte ne changent plus', $html);
+    }
+
+    /**
      * A share recorded by the RETIRED route must not look like this new
      * communication's own.
      *
@@ -812,6 +879,42 @@ final class CommunicationControllerTest extends TestCase
         $this->controller()->update($this->post(['action' => 'publish', 'title' => 'Week-end', 'body' => 'Texte', 'destinations' => ['instagram']]), ['id' => (string) $id]);
 
         $this->assertSame('https://www.instagram.com/p/abc/', $this->publications->forSource('communication', $id)['instagram']->remoteUrl);
+    }
+
+    /**
+     * The retry page made the same promise unconditionally — « la même
+     * image et le même texte repartiront » — and for a source-backed
+     * communication the title and image are read again from the album at
+     * that very retry. It now says so. Raised in review on the pull
+     * request for IT-01, alongside the frozen notice in the composer.
+     */
+    public function testTheRetryPageSaysASourcesImageIsReadAgain(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->failedInstagram($id);
+        $this->loginAuthor();
+        $params = ['kind' => 'communication', 'id' => (string) $id, 'platform' => 'instagram'];
+
+        $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
+
+        $this->assertStringContainsString('relus à la source', $html);
+        $this->assertStringNotContainsString('La même image et le même texte', $html);
+    }
+
+    /**
+     * And a communication that owns its image keeps the plain promise.
+     */
+    public function testTheRetryPageStillPromisesTheSameImageForAnOwnShare(): void
+    {
+        $id = $this->communication('Hike', 'Texte', self::PHOTO);
+        $this->failedInstagram($id);
+        $this->loginAuthor();
+        $params = ['kind' => 'communication', 'id' => (string) $id, 'platform' => 'instagram'];
+
+        $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
+
+        $this->assertStringContainsString('La même image et le même texte', $html);
+        $this->assertStringNotContainsString('relus à la source', $html);
     }
 
     public function testARetryIsConfirmedThenResendsTheSameText(): void

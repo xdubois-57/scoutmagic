@@ -13,7 +13,12 @@
 </div>
 
 <p>
-    La même image et le même texte repartiront vers {{ label }}.
+    {% if from_source|default(false) %}
+        Le même texte repartira vers {{ label }}. Le titre et l'image sont relus à la source : s'ils
+        ont changé depuis le premier envoi, cette tentative partira avec les nouveaux.
+    {% else %}
+        La même image et le même texte repartiront vers {{ label }}.
+    {% endif %}
     {% for p in published %}
         {{ p.destination == 'facebook' ? 'La Page Facebook' : (p.destination == 'instagram' ? 'Instagram' : '« ' ~ p.destinationLabel|default('Groupe') ~ ' »') }}, déjà publié le {{ p.publishedAt|french_date }}
         à {{ p.publishedAt|time_fr }}, ne sera pas touché — il n'y aura donc pas de doublon.

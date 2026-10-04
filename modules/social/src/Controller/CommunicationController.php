@@ -699,6 +699,12 @@ final class CommunicationController extends AbstractController
             'platform' => $platform,
             'label' => $platform?->label() ?? ($failed->destinationLabel ?? 'le groupe'),
             'failed' => $failed,
+            // Whether the title and image come from an album or an
+            // article, and are therefore read again at this retry rather
+            // than kept from the first publication. The page says so
+            // instead of promising « the same image » — see the frozen
+            // notice in edit.html.twig for the whole reason.
+            'from_source' => $this->communications->find($id)?->hasSource() ?? false,
             'published' => array_values(array_filter(
                 $publications,
                 static fn (Publication $p): bool => $p->isPublished()
