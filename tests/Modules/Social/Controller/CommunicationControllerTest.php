@@ -217,7 +217,7 @@ final class CommunicationControllerTest extends TestCase
             'the canvas has no background to draw, so it would paint the veil over a grey square.'
         );
         $this->assertStringContainsString(
-            'data-card-blur="0.05"',
+            'data-card-blur="0.025"',
             $html,
             'a gallery photo must carry its blur to the browser, or the card drawn there is sharper'
             . ' than the one that leaves.'
@@ -464,7 +464,13 @@ final class CommunicationControllerTest extends TestCase
             ->getBody();
 
         $this->assertStringContainsString('Cette photo vient de la galerie', $html);
-        $this->assertStringContainsString('floutée, sans exception', $html);
+        // The promise is no longer « sans exception » — the floor is gone
+        // and the slider decides, « Net » included (issue #706, IT-02).
+        // What has to be there is the slider itself, for exactly the
+        // shares that get blurred.
+        $this->assertStringNotContainsString('sans exception', $html);
+        $this->assertStringContainsString('data-card-blur-input', $html);
+        $this->assertStringContainsString('Très flou', $html);
     }
 
     /**
@@ -1145,10 +1151,13 @@ final class CommunicationControllerTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         $this->assertSame($sorted, $positions, 'In the mockup\'s order.');
-        $this->assertStringContainsString(
-            'Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.',
-            $html
-        );
+        // The floor is gone, so the sentence can no longer say « toujours »
+        // (issue #706, IT-02): a gallery photo leaves at the strength the
+        // slider was left on, « Net » included, and the same strength to
+        // every destination now that groups receive the card too.
+        $this->assertStringContainsString('Une image téléversée part telle quelle.', $html);
+        $this->assertStringContainsString('au flou que vous choisissez', $html);
+        $this->assertStringNotContainsString('toujours floutée', $html);
     }
 
     public function testGalleryButtonSavesTheTextAndOpensThePicker(): void
@@ -1407,7 +1416,31 @@ final class CommunicationControllerTest extends TestCase
         );
 
         $this->assertSame('warning', FlashMessage::get()['type'] ?? null);
-        $this->assertSame(H::groupPhoto(), $this->groups->posts[0]['image'], 'Never blurred for a group.');
+        // **The card, not the raw photo** (issue #706, IT-02). A group used
+        // to receive the photo exactly as it was, on the reasoning that
+        // the group is private and its members already see the gallery.
+        // That reasoning held while the blur was a fixed rule; it stopped
+        // holding when the blur became the chief's choice, because « the
+        // same card everywhere » is what the composer now shows.
+        //
+        // Compared by SHARPNESS and size rather than by bytes: a byte
+        // comparison of two JPEGs dumps one of them into the failure
+        // message, which is how this assertion came to print a kilobyte
+        // of binary when it first went red.
+        $sent = (string) $this->groups->posts[0]['image'];
+        $this->assertNotSame(H::groupPhoto(), $sent, 'the group still receives the untouched photo');
+        $size = getimagesizefromstring($sent);
+        $this->assertIsArray($size);
+        $this->assertSame(
+            [\Modules\Social\Card\CardRenderer::SIZE, \Modules\Social\Card\CardRenderer::SIZE],
+            [$size[0], $size[1]],
+            'what reached the group is not a card: it has the wrong dimensions'
+        );
+        $this->assertLessThan(
+            H::sharpness(H::groupPhoto()),
+            H::sharpness($sent),
+            'the card reached the group unblurred, while the composer promised the slider decides'
+        );
         $this->assertNull($this->groups->posts[0]['link'], 'A free communication has no page of its own.');
         $html = $this->controller()->history($this->get(), [])->getBody();
         $this->assertStringContainsString('data-platform="group:3" data-state="published"', $html);
@@ -1436,12 +1469,15 @@ final class CommunicationControllerTest extends TestCase
         $this->loginAuthor();
 
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
-        $this->assertStringContainsString('floutée, sans exception, sur Facebook et Instagram.', $html);
         $this->assertStringNotContainsString('groupe de discussion', $html, 'No group offered, none mentioned.');
 
         $this->groups = new FakeGroupPublisher();
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
-        $this->assertStringContainsString('dans un groupe de discussion, elle part nette', $html);
+        // **What differs for a group is no longer the IMAGE** (issue #706,
+        // IT-02): it receives the same card as every other destination, at
+        // the strength the slider was left on. What still differs is where
+        // the publication lives, and the page keeps saying that.
+        $this->assertStringNotContainsString('elle part nette', $html);
         $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
     }
 
@@ -1606,7 +1642,7 @@ final class CommunicationControllerTest extends TestCase
                 $this->publications,
                 $this->connections,
                 $settings,
-                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal)
+                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal, $cards)
             ),
             $this->publications,
             $this->connections,

@@ -106,6 +106,13 @@ CREATE TABLE IF NOT EXISTS social_communications (
     file_id INT UNSIGNED NULL,
     source_kind VARCHAR(20) NULL,
     source_id INT UNSIGNED NULL,
+    -- How blurred this card's photo leaves, chosen with the composer's
+    -- slider and frozen with the rest once one destination has been tried
+    -- (issue #706, IT-02). NULL is « never chosen »: the site's own
+    -- starting position applies, which is what every row written before
+    -- the slider existed carries. 0 is a real answer — « Net » — and the
+    -- floor that used to forbid it is gone.
+    blur_ratio DECIMAL(4,3) NULL,
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,

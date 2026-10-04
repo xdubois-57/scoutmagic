@@ -416,7 +416,15 @@ final class CommunicationController extends AbstractController
         }
 
         try {
-            $jpeg = $this->cards->preview($source->image, $source->title, $source->address, $source->imageFromGallery);
+            $jpeg = $this->cards->compose(
+                $source->image,
+                $source->title,
+                $source->address,
+                $source->imageFromGallery,
+                // So the fallback preview and the card the browser draws
+                // agree about the slider's position (issue #706, IT-02).
+                $source->blurRatio
+            );
         } catch (CardException) {
             return new Response('Not Found', 404);
         }
@@ -530,6 +538,25 @@ final class CommunicationController extends AbstractController
     {
         $action = (string) $request->getBody('action', '');
         $self = self::path($communication);
+
+        // **The slider's position is part of the draft**, so it survives a
+        // trip to the gallery or an upload exactly as the text does, and
+        // it is saved by « Publier » like everything else — there is no
+        // « Enregistrer » on this page (issue #706, IT-02).
+        //
+        // Only when the form actually carried the field: the retry page
+        // posts to this controller too, and it has no slider, so reading
+        // an absent field as zero would silently turn a blurred share
+        // sharp on its second attempt. And never once something has left,
+        // where the card is frozen with the rest.
+        if (!$this->isFrozen($communication) && $request->getBody('blur_ratio') !== null) {
+            $this->communications->updateBlurRatio(
+                $communication->id,
+                $this->blurRatio($request),
+                new \DateTimeImmutable()
+            );
+            $communication = $this->communications->find($communication->id) ?? $communication;
+        }
 
         if ($action === 'gallery' && $this->photos !== null && $this->mayChangeImage($communication)) {
             return $this->redirect($self . '/photo');
@@ -709,7 +736,18 @@ final class CommunicationController extends AbstractController
             // that are not on the form. Taken from the SOURCE, like the
             // card the server composes from the same pair.
             'card_address' => $source->address ?? '',
-            'blur_ratio' => ($source->imageFromGallery ?? false) ? $this->cards->blurRatio() : 0.0,
+            // The strength the card is drawn with: the one this share
+            // kept, or this site's starting position when the slider was
+            // never moved. Zero for an image that is not the gallery's —
+            // an upload leaves as it is, so there is nothing to blur and
+            // no slider offered for it.
+            'blur_ratio' => ($source->imageFromGallery ?? false)
+                ? ($source->blurRatio ?? $this->cards->blurRatio())
+                : 0.0,
+            // The slider exists only where a blur does.
+            'blur_adjustable' => ($source->imageFromGallery ?? false)
+                && !($communication !== null && $this->isFrozen($communication)),
+            'blur_max' => CardService::MAX_BLUR_RATIO,
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -968,6 +1006,23 @@ final class CommunicationController extends AbstractController
     private static function path(?Communication $communication): string
     {
         return $communication === null ? self::HISTORY_PATH : ShareSourceResolver::path($communication->id);
+    }
+
+    /**
+     * The blur the composer's slider was left on, brought into the range
+     * the slider can express.
+     *
+     * Anything unreadable answers the site's own starting position rather
+     * than zero: a posted value nobody could parse is not a chief asking
+     * for « Net ».
+     */
+    private function blurRatio(Request $request): float
+    {
+        $posted = $request->getBody('blur_ratio');
+
+        return is_numeric($posted)
+            ? CardService::clampBlurRatio((float) $posted)
+            : $this->cards->blurRatio();
     }
 
     private static function title(Request $request): string

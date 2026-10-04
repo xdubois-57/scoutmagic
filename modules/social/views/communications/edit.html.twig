@@ -53,7 +53,7 @@
                     aria-label="Carte qui sera publiée : {{ source.title }}"></canvas>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
-                {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
+                {% if from_gallery %}Cette photo vient de la galerie : le curseur ci-dessous décide de son flou, partout où elle part.{% endif %}
             </p>
         {% elseif from_source and source and source.blockedReason %}
             {# `from_source` AND the reason, not the reason alone:
@@ -83,6 +83,49 @@
         {% endif %}
     </div>
 
+    {# 1b. The blur, as a slider (issue #706, IT-02).
+
+       **Plain words, not a ratio**: « Net » to « Très flou ». The number
+       behind it is a proportion of the image's short side, which is the
+       right unit for the renderer and no unit at all for a chief.
+
+       Offered only for a gallery photo, because an upload leaves exactly
+       as it is and there is nothing to blur. Absent once something has
+       left, like everything else about the card.
+
+       There is NO floor any more. « Net » is net — measured, not assumed:
+       `CardRenderer` used to clamp the radius up to one pixel, so a ratio
+       of zero still cost a 1.4× loss of detail, and that is fixed in the
+       same change. A slider whose left end does nothing is a lie told in
+       an interface. #}
+    {% if blur_adjustable|default(false) %}
+        <div class="mb-3" data-card-blur-control>
+            <label for="communication-blur" class="form-label small d-block">
+                Flou de la photo
+            </label>
+            <input type="range" class="form-range" id="communication-blur" name="blur_ratio"
+                   min="0" max="{{ blur_max }}" step="0.005" value="{{ blur_ratio }}"
+                   data-card-blur-input
+                   aria-describedby="communication-blur-help">
+            <div class="d-flex justify-content-between small text-body-secondary">
+                <span>Net</span>
+                <span>Très flou</span>
+            </div>
+            {# The one sentence that matters, and it only appears when it
+               is true: a gallery photo at « Net » leaves recognisable.
+               Said before publishing rather than regretted after. #}
+            <p class="small mt-2 mb-0" id="communication-blur-help">
+                <span class="text-warning-emphasis" data-card-blur-sharp hidden>
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    Cette photo de la galerie part sans flou.
+                </span>
+                <span class="text-body-secondary" data-card-blur-blurred hidden>
+                    On devine l'ambiance, pas les visages. Pour voir les photos, il faut venir sur le site.
+                </span>
+            </p>
+        </div>
+    {% endif %}
+
     {# 2. The two buttons that change it — absent when the image is the
        source's, which is the album's own to change, not this page's. #}
     {% if not frozen and uploadable %}
@@ -106,7 +149,8 @@
                    accept="image/jpeg,image/png,image/webp">
         </div>
         <p class="small text-body-secondary mb-4">
-            Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
+            Une image téléversée part telle quelle. Une image de la galerie part au flou que vous choisissez,
+            le même vers toutes les destinations.
         </p>
     {% elseif frozen and from_source %}
         {# What is true for a source-backed share, which is less than the

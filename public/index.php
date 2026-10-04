@@ -10805,7 +10805,11 @@ if ($isEnabled('social')) {
         : new \Modules\Social\Service\GroupPublishingService(
             $groupsPublisherForOthers,
             $socialPublicationRepo,
-            $journalService
+            $journalService,
+            // The card a group receives, from issue #706, IT-02: the same
+            // composition every other destination gets, at the strength
+            // the chief chose. Before it, a group got the photo raw.
+            $socialCardService
         );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,

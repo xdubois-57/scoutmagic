@@ -35,6 +35,18 @@ final class Communication
         public readonly \DateTimeImmutable $createdAt,
         public readonly ?string $sourceKind = null,
         public readonly ?int $sourceId = null,
+        /**
+         * How blurred this card's photo leaves — the composer's slider,
+         * frozen with the rest once one destination has been tried
+         * (issue #706, IT-02).
+         *
+         * **Null is « never chosen »**, not zero: every row written
+         * before the slider existed carries null, and the site's own
+         * starting position applies to them. Zero is a real answer —
+         * « Net » — and telling the two apart is the whole reason this is
+         * nullable.
+         */
+        public readonly ?float $blurRatio = null,
     ) {
     }
 

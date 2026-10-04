@@ -59,6 +59,19 @@ final class ShareSource
          * IT-01).
          */
         public readonly ?string $originKind = null,
+        /**
+         * How blurred this card's photo leaves — the composer's slider
+         * (issue #706, IT-02). Carried here rather than passed through
+         * every method because everything that draws this card already
+         * has the source: the publication, the fallback preview, and the
+         * discussion groups that receive the card too from IT-02.
+         *
+         * **Null is « never chosen »**, and the site's own starting
+         * position applies. Zero is a chief who moved the slider to
+         * « Net » on purpose, and the two must not be confused — which is
+         * why the floor that made zero impossible had to go first.
+         */
+        public readonly ?float $blurRatio = null,
     ) {
     }
 

@@ -82,7 +82,12 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null,
+                null,
+                null,
+                // The slider's position, as this row kept it (issue #706,
+                // IT-02). Null when nothing was ever chosen.
+                $communication->blurRatio
             );
     }
 
@@ -117,7 +122,10 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                self::vanishedSourceReason((string) $communication->sourceKind)
+                self::vanishedSourceReason((string) $communication->sourceKind),
+                null,
+                null,
+                $communication->blurRatio
             );
         }
 
@@ -137,7 +145,11 @@ final class ShareSourceResolver
             // publications are recorded under — so a message about a
             // missing image can name the album instead of telling the
             // chief to choose one here, where there is no button to.
-            $source->kind
+            $source->kind,
+            // The slider's position belongs to THIS share, not to the
+            // album: two shares of one album may be blurred differently,
+            // and the album has no slider of its own (issue #706, IT-02).
+            $communication->blurRatio
         );
     }
 

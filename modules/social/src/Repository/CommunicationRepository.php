@@ -144,6 +144,21 @@ class CommunicationRepository
             ->execute([$title, $body, $now->format('Y-m-d H:i:s'), $id]);
     }
 
+    /**
+     * The blur the composer's slider was left on (issue #706, IT-02).
+     *
+     * Its own method rather than a parameter of `updateText()`: the text
+     * is frozen once one destination has been tried, and so is this, but
+     * they are set at different moments — the text as it is typed, this
+     * at « Publier » — and a caller that had to pass both would have to
+     * invent one of them.
+     */
+    public function updateBlurRatio(int $id, float $ratio, \DateTimeImmutable $now): void
+    {
+        $this->pdo->prepare('UPDATE social_communications SET blur_ratio = ?, updated_at = ? WHERE id = ?')
+            ->execute([$ratio, $now->format('Y-m-d H:i:s'), $id]);
+    }
+
     /** One image or the other: choosing a gallery photo forgets the uploaded file, and back. */
     public function useGalleryPhoto(int $id, int $mediaId, \DateTimeImmutable $now): void
     {
@@ -173,7 +188,11 @@ class CommunicationRepository
             $row['created_by'] === null ? null : (int) $row['created_by'],
             DateInput::fromStorage((string) $row['created_at']) ?? new \DateTimeImmutable(),
             $row['source_kind'] === null ? null : (string) $row['source_kind'],
-            $row['source_id'] === null ? null : (int) $row['source_id']
+            $row['source_id'] === null ? null : (int) $row['source_id'],
+            // Null stays null: it means « never chosen », and the site's
+            // own starting position applies. A cast would turn it into a
+            // deliberate 0 — « Net » — which is a different answer.
+            ($row['blur_ratio'] ?? null) === null ? null : (float) $row['blur_ratio']
         );
     }
 }

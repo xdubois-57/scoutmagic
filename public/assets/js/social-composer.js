@@ -44,9 +44,13 @@
     }
 
     const titleField = /** @type {HTMLInputElement|null} */ (document.getElementById('communication-title'));
+    const blurField = /** @type {HTMLInputElement|null} */ (document.querySelector('[data-card-blur-input]'));
+    const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
+    const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
     const address = canvas.getAttribute('data-card-address') || '';
-    const blurRatio = parseFloat(canvas.getAttribute('data-card-blur') || '0') || 0;
     const backgroundUrl = canvas.getAttribute('data-card-background') || '';
+    /** The canvas carries the strength the server computed; the slider then owns it. */
+    const startingBlur = parseFloat(canvas.getAttribute('data-card-blur') || '0') || 0;
 
     /** @type {HTMLImageElement|null} */
     let background = null;
@@ -55,6 +59,42 @@
 
     function title() {
         return titleField ? titleField.value : (canvas.getAttribute('data-card-title') || '');
+    }
+
+    /**
+     * The blur the card is drawn with: the slider when the page offers
+     * one, otherwise what the server computed.
+     *
+     * The slider is absent for an uploaded image — nothing to blur — and
+     * once something has left, where the card is frozen.
+     */
+    function blur() {
+        if (!blurField) {
+            return startingBlur;
+        }
+
+        return parseFloat(blurField.value) || 0;
+    }
+
+    /**
+     * Says, in words and only when it is true, that a gallery photo is
+     * about to leave recognisable.
+     *
+     * Two sentences rather than one that changes: a screen reader
+     * announces a replaced sentence as new text either way, and two
+     * elements let the page say the reassuring half too.
+     */
+    function sayWhatTheBlurMeans() {
+        if (!blurField) {
+            return;
+        }
+        const sharp = blur() <= 0;
+        if (sharpNote) {
+            sharpNote.hidden = !sharp;
+        }
+        if (blurredNote) {
+            blurredNote.hidden = sharp;
+        }
     }
 
     /**
@@ -71,7 +111,7 @@
             image: background,
             title: title(),
             address: address,
-            blurRatio: blurRatio,
+            blurRatio: blur(),
         });
         if (!drawn || shown) {
             return;
@@ -95,6 +135,16 @@
 
     if (titleField) {
         titleField.addEventListener('input', schedule);
+    }
+
+    if (blurField) {
+        blurField.addEventListener('input', function () {
+            // The sentence first, so it is right even on a frame the
+            // browser decides to skip.
+            sayWhatTheBlurMeans();
+            schedule();
+        });
+        sayWhatTheBlurMeans();
     }
 
     if (backgroundUrl !== '') {

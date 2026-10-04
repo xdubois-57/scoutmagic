@@ -113,7 +113,8 @@ portrait rapproché) à 1, 2, 3, 3,5, 4, 5, 6 et 7 % du côté.
   laisse deviner un visage souriant.
 - **À 5 %, le portrait ne laisse plus rien deviner**, et la scène — une
   tente, un uniforme, une clairière — reste lisible. C'est la valeur
-  retenue, et le plancher : `CardService::MIN_BLUR_RATIO`.
+  retenue, et la position de départ du curseur : `CardService::DEFAULT_BLUR_RATIO`. Le plancher
+  `MIN_BLUR_RATIO` a disparu en #706, IT-02, quand le flou est devenu le choix du chef.
 - Au-delà, l'image n'est plus qu'une tache de couleur.
 
 Le premier essai (un seul agrandissement de l'image réduite) laissait

@@ -53,7 +53,12 @@ class FakeImage {
 }
 
 /** The page the composer runs on, in the shape the Twig renders it. */
-function page({ background = '/medias-sociaux/7/image', blur = '0.05', title = 'Week-end' } = {}) {
+function page({
+    background = '/medias-sociaux/7/image',
+    blur = '0.025',
+    title = 'Week-end',
+    slider = false,
+} = {}) {
     document.body.innerHTML = `
         <form>
           <div data-communication-image data-card-composer>
@@ -66,6 +71,14 @@ function page({ background = '/medias-sociaux/7/image', blur = '0.05', title = '
                     data-card-title="${title}"></canvas>
           </div>
           <input type="text" id="communication-title" value="${title}">
+          ${slider ? `
+            <input type="range" id="communication-blur" name="blur_ratio"
+                   min="0" max="0.2" step="0.005" value="${blur}" data-card-blur-input>
+            <p>
+              <span data-card-blur-sharp hidden>Cette photo de la galerie part sans flou.</span>
+              <span data-card-blur-blurred hidden>On devine l'ambiance, pas les visages.</span>
+            </p>
+          ` : ''}
         </form>
     `;
 
@@ -73,6 +86,9 @@ function page({ background = '/medias-sociaux/7/image', blur = '0.05', title = '
         canvas: document.querySelector('[data-card-canvas]'),
         img: document.querySelector('[data-card-preview]'),
         titleField: document.getElementById('communication-title'),
+        blurField: document.querySelector('[data-card-blur-input]'),
+        sharpNote: document.querySelector('[data-card-blur-sharp]'),
+        blurredNote: document.querySelector('[data-card-blur-blurred]'),
     };
 }
 
@@ -147,7 +163,8 @@ describe('once the background has loaded', () => {
         expect(card.draws[0]).toMatchObject({
             title: 'Week-end',
             address: 'unite.example',
-            blurRatio: 0.05,
+            // The shipped starting position, halved in IT-02.
+            blurRatio: 0.025,
         });
         expect(card.draws[0].image).toBe(images[0]);
         expect(dom.canvas.hidden).toBe(false);
@@ -280,6 +297,90 @@ describe('the title follows the typing', () => {
 
         expect(card.draws).toHaveLength(2);
         expect(dom.canvas.hidden).toBe(false);
+    });
+});
+
+describe('the blur slider', () => {
+    it('draws with the slider\'s position rather than the server\'s', async () => {
+        const dom = page({ slider: true, blur: '0.025' });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+        expect(card.draws[0].blurRatio).toBe(0.025);
+
+        dom.blurField.value = '0.1';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        expect(card.draws[1].blurRatio).toBe(0.1);
+    });
+
+    it('draws a gallery photo SHARP at « Net », with no floor under it', async () => {
+        const dom = page({ slider: true, blur: '0.025' });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        dom.blurField.value = '0';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        // The floor (CardService::MIN_BLUR_RATIO) is gone: « Net » means
+        // net, and a slider whose left end did nothing would be a lie
+        // told in an interface.
+        expect(card.draws[card.draws.length - 1].blurRatio).toBe(0);
+    });
+
+    it('warns, in words, only when the photo is about to leave sharp', async () => {
+        const dom = page({ slider: true, blur: '0.025' });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        // Blurred to start with: the reassuring half shows, the warning
+        // does not.
+        expect(dom.sharpNote.hidden).toBe(true);
+        expect(dom.blurredNote.hidden).toBe(false);
+
+        dom.blurField.value = '0';
+        dom.blurField.dispatchEvent(new Event('input'));
+
+        expect(dom.sharpNote.hidden).toBe(false);
+        expect(dom.blurredNote.hidden).toBe(true);
+
+        dom.blurField.value = '0.05';
+        dom.blurField.dispatchEvent(new Event('input'));
+
+        expect(dom.sharpNote.hidden).toBe(true);
+        expect(dom.blurredNote.hidden).toBe(false);
+    });
+
+    it('says which it is before the first frame, not after it', async () => {
+        // The sentence is set on the input event itself rather than in the
+        // draw, so it is right even on a frame the browser skips.
+        const dom = page({ slider: true, blur: '0' });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        expect(frames).toHaveLength(0);
+        expect(dom.sharpNote.hidden).toBe(false);
+    });
+
+    it('falls back to the server\'s strength when the page offers no slider', async () => {
+        // An uploaded image has nothing to blur, and a frozen card has
+        // nothing left to choose: no slider is rendered in either case.
+        const dom = page({ slider: false, blur: '0.05' });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+        images[0].fire('load');
+        flush();
+
+        expect(dom.blurField).toBeNull();
+        expect(card.draws[0].blurRatio).toBe(0.05);
     });
 });
 

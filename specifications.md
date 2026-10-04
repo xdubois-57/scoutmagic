@@ -3357,7 +3357,7 @@ entier —, l'image de fond, un titre incrusté (trois lignes au plus,
 raccourci au-delà) et l'adresse du site en pied. L'adresse est sur l'image
 parce qu'Instagram ne publie pas de lien.
 
-- **Une photo de la galerie est toujours floutée**, sur toute l'image, sans
+- **Une photo de la galerie est floutée autant que le chef l'a choisi**, sur toute l'image, sans
   case pour l'éviter. L'intensité est une proportion du côté de l'image,
   calibrée sur de vraies photos à 5 % : le visage d'un portrait rapproché
   n'est plus reconnaissable, la scène reste lisible. C'est un réglage non
@@ -3473,7 +3473,7 @@ dans cet ordre :
    image ;
 2. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
    sous eux : « Une image téléversée part telle quelle. Une image de la
-   galerie est toujours floutée. » Pour téléverser, on choisit le fichier
+   galerie part sans flou. », quand le curseur est sur « Net ». Pour téléverser, on choisit le fichier
    puis on clique (JPEG, PNG ou WebP, 10 Mo au plus) ;
 3. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
 4. **le texte de la publication** (2 200 caractères) ;
@@ -3528,10 +3528,16 @@ actualité et la communication libre proposent une destination de plus,
   publier y apparaissent — c'est le module Groupes qui le décide. La
   fenêtre dit que chaque groupe reçoit sa propre publication, avec ses
   propres règles de modération.
-- **Chaque groupe reçoit sa propre publication** : le texte, **la photo
-  telle quelle — jamais floutée**, le groupe étant privé et ses membres
-  voyant déjà la galerie — et **un vrai lien** vers l'album ou
-  l'actualité. Pas de carte composée.
+- **Chaque groupe reçoit sa propre publication** : le texte, **la même
+  carte que toutes les autres destinations**, au flou que le curseur du
+  composeur indiquait, et **un vrai lien** vers l'album ou l'actualité.
+  Le groupe recevait autrefois la photo telle quelle, au motif qu'il est
+  privé et que ses membres voient déjà la galerie ; ce motif tenait tant
+  que le flou était une règle fixe, et il a cessé de tenir quand le flou
+  est devenu le choix du chef — « la même carte partout » est ce que le
+  composeur montre et promet désormais. Le chef qui veut qu'un groupe ait
+  la photo nette met le curseur sur « Net », et la page le dit en toute
+  lettre avant.
 - **Chaque groupe est une destination à part entière** : sa propre ligne
   dans « Ce qui est parti », son propre état, et la règle « une seule
   fois » appliquée groupe par groupe. Un même album peut partir dans deux

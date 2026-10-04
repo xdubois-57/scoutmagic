@@ -12,6 +12,8 @@ use Core\Journal\JournalService;
 use Modules\Groups\Api\GroupPublishException;
 use Modules\Groups\Api\GroupPublisherInterface;
 use Modules\Groups\Api\PostableGroup;
+use Modules\Social\Card\CardException;
+use Modules\Social\Card\CardService;
 use Modules\Social\Repository\PublicationRepository;
 
 /**
@@ -40,7 +42,17 @@ final class GroupPublishingService
     public function __construct(
         private readonly GroupPublisherInterface $groups,
         private readonly PublicationRepository $publications,
-        private readonly JournalService $journal
+        private readonly JournalService $journal,
+        /**
+         * Composes the card a group receives (issue #706, IT-02).
+         *
+         * Nullable, and a null means « send the photo as it is », which
+         * is what every group received before IT-02. It is a constructor
+         * default rather than a required dependency so that nothing which
+         * builds this service without a card service starts failing —
+         * but every caller in the module passes one.
+         */
+        private readonly ?CardService $cards = null
     ) {
     }
 
@@ -77,6 +89,10 @@ final class GroupPublishingService
         }
 
         $outcomes = [];
+        // Composed at most once for the whole request, and only if a
+        // group is actually reached: the same bytes to every group, as
+        // `PublishingService` already does for the platforms.
+        $card = null;
         foreach (array_values(array_unique($groupIds)) as $groupId) {
             $group = $postable[$groupId] ?? null;
             $label = $group->name ?? 'Groupe n° ' . $groupId;
@@ -116,7 +132,21 @@ final class GroupPublishingService
                     $role,
                     $userId,
                     $caption,
-                    $source->image,
+                    // **The same card as every other destination** (issue
+                    // #706, IT-02). A group used to receive the photo
+                    // exactly as it was, unblurred, on the reasoning that
+                    // the group is private and its members already see
+                    // the gallery. That reasoning held while the blur was
+                    // a fixed rule; it stopped holding when the blur
+                    // became the chief's choice, because « the same card
+                    // everywhere » is what the composer now shows and
+                    // promises. The chief who wants a group to have the
+                    // sharp photo moves the slider to « Net », and the
+                    // page says so in words before it happens.
+                    $card ??= $this->card($source),
+                    // The real link survives: a group is inside the site,
+                    // so it gets a clickable address, which is a separate
+                    // argument from the image.
                     $source->pageUrl
                 );
             } catch (GroupPublishException $e) {
@@ -159,6 +189,35 @@ final class GroupPublishingService
         $id = substr($key, strlen(self::KEY_PREFIX));
 
         return ctype_digit($id) && (int) $id > 0 ? (int) $id : null;
+    }
+
+    /**
+     * The card this source's groups receive, composed once for the whole
+     * request — the same bytes to every group, as to every platform.
+     *
+     * A source with no image, or a composition that fails, falls back to
+     * the photo as it is rather than refusing to post: a group is inside
+     * the site, and a message that arrives without its card is worth more
+     * than one that does not arrive. `PublishingService` already refuses
+     * a publication with no image at all, before this is ever reached.
+     */
+    private function card(ShareSource $source): ?string
+    {
+        if ($this->cards === null || $source->image === null || $source->image === '') {
+            return $source->image;
+        }
+
+        try {
+            return $this->cards->compose(
+                $source->image,
+                $source->title,
+                $source->address,
+                $source->imageFromGallery,
+                $source->blurRatio
+            );
+        } catch (CardException) {
+            return $source->image;
+        }
     }
 
     private function whyNotClaimed(ShareSource $source, string $key, \DateTimeImmutable $now): string

@@ -48,26 +48,74 @@ final class CardServiceTest extends TestCase
         }
     }
 
-    public function testAGalleryCardIsBlurredEvenIfTheSettingSaysNotTo(): void
+    /**
+     * **The reverse of what this test used to assert**, and deliberately
+     * so (issue #706, IT-02).
+     *
+     * It was `testAGalleryCardIsBlurredEvenIfTheSettingSaysNotTo`: the
+     * floor meant a gallery photo was blurred at 0.05 at the least,
+     * whatever the setting said, and the composer promised « floutée,
+     * sans exception ». The floor is gone, because the strength became
+     * the chief's to choose with a slider that reaches « Net ». A slider
+     * whose left end does nothing is a lie told in an interface.
+     *
+     * So a zero now means zero, end to end: the ratio read back, and the
+     * card on disk as sharp as one composed with no blur at all.
+     */
+    public function testAGalleryCardLeavesSharpWhenTheStrengthIsZero(): void
     {
         $this->settings->values = [CardService::BLUR_SETTING => '0'];
         $service = $this->service();
 
-        $this->assertSame(CardService::MIN_BLUR_RATIO, $service->blurRatio());
+        $this->assertSame(0.0, $service->blurRatio());
 
         $card = $service->issue(H::groupPhoto(), 'Camp', 'a.be', true, $this->now);
         $path = $service->open($this->token($card->path), $this->now);
         $this->assertNotNull($path);
 
-        $sharp = H::sharpness((new CardRenderer())->render(H::groupPhoto(), 'Camp', 'a.be', false, 0.05));
-        $this->assertLessThan($sharp / 4, H::sharpness((string) file_get_contents($path)));
+        $sharp = H::sharpness((new CardRenderer())->render(H::groupPhoto(), 'Camp', 'a.be', false, 0.0));
+        $this->assertSame($sharp, H::sharpness((string) file_get_contents($path)));
     }
 
-    public function testASettingCanOnlyMakeTheBlurStronger(): void
+    /** Where the slider starts when the site has stored nothing of its own. */
+    public function testTheShippedDefaultIsHalfTheOldFloor(): void
+    {
+        $this->settings->values = [];
+
+        $this->assertSame(0.025, $this->service()->blurRatio());
+        $this->assertSame(CardService::DEFAULT_BLUR_RATIO, $this->service()->blurRatio());
+    }
+
+    /**
+     * A site's own stored value is where its slider starts — stronger or
+     * weaker than the shipped default alike. « Only stronger » was the
+     * floor's rule and it is gone.
+     */
+    public function testASiteSStoredValueIsWhereItsSliderStarts(): void
     {
         $this->settings->values = [CardService::BLUR_SETTING => '0.08'];
-
         $this->assertSame(0.08, $this->service()->blurRatio());
+
+        $this->settings->values = [CardService::BLUR_SETTING => '0.01'];
+        $this->assertSame(0.01, $this->service()->blurRatio());
+    }
+
+    /**
+     * A value outside the slider's range is brought back into it rather
+     * than refused: it can only have got there by hand in the database,
+     * and a composer that would not open is worse than one that opens on
+     * the nearest position it can show.
+     */
+    public function testAValueOutsideTheSlidersRangeIsBroughtBackIntoIt(): void
+    {
+        $this->settings->values = [CardService::BLUR_SETTING => '0.9'];
+        $this->assertSame(CardService::MAX_BLUR_RATIO, $this->service()->blurRatio());
+
+        $this->settings->values = [CardService::BLUR_SETTING => '-1'];
+        $this->assertSame(0.0, $this->service()->blurRatio());
+
+        $this->settings->values = [CardService::BLUR_SETTING => 'beaucoup'];
+        $this->assertSame(CardService::DEFAULT_BLUR_RATIO, $this->service()->blurRatio());
     }
 
     public function testTheCardIsServedWithinTheHourAndJournalledWithoutItsToken(): void

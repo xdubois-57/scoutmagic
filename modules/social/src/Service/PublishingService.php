@@ -118,7 +118,13 @@ class PublishingService
                         $source->title,
                         $source->address,
                         $source->imageFromGallery,
-                        $now
+                        $now,
+                        // The strength the chief chose, frozen with the
+                        // rest (issue #706, IT-02). Null here means the
+                        // slider was never moved — every share made
+                        // before it existed — and the site's own starting
+                        // position applies.
+                        $source->blurRatio
                     );
                 }
                 $remoteId = $this->send($source, $platform, $caption, $base, $card);

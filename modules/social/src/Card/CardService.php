@@ -25,22 +25,46 @@ use Modules\Social\Repository\CardRepository;
  * narrow: a composed, blurred image; 256 random bits; an hour; every
  * access journalled.
  *
- * **The blur has a floor.** Its strength is the setting
- * {@see self::BLUR_SETTING}, declared non-editable, and this class never
- * uses less than {@see self::MIN_BLUR_RATIO} whatever the setting says —
- * a value lowered in the database can make the blur stronger, never
- * weaker.
+ * **The blur has NO floor any more** (issue #706, IT-02). It used to: a
+ * gallery photo was blurred at `MIN_BLUR_RATIO` = 0.05 at the least,
+ * whatever the setting said, and the composer promised « floutée, sans
+ * exception ». The floor is gone, because the strength became the chief's
+ * to choose with a slider that reaches « Net » — and a slider whose left
+ * end does nothing is a lie told in an interface. A gallery photo CAN now
+ * leave sharp; the composer says so in words before it does
+ * ({@see \Modules\Social\Controller\CommunicationController}).
+ *
+ * {@see self::BLUR_SETTING} survives as **where the slider starts**, not
+ * as a rule — still non-editable, so no screen offers it. Its shipped
+ * default halves, to {@see self::DEFAULT_BLUR_RATIO}.
+ *
+ * **An existing site keeps its own stored value**, and that is deliberate
+ * rather than overlooked: `SettingRepository::updateDefaultValue()` moves
+ * a stored value only for a `url`-typed setting, and
+ * `pruneUndeclaredSettings()` deletes only `editable` rows, so neither
+ * mechanism can quietly change this one. A site that has been publishing
+ * at 0.05 therefore keeps 0.05 as the slider's starting position — the
+ * conservative migration, since nothing it already publishes changes
+ * shape — and any chief can move the slider from there. An administrator
+ * who wants the new default applied runs the « Paramètres par défaut »
+ * maintenance task, which resets stored values to their declared ones.
  */
 class CardService
 {
     public const BLUR_SETTING = 'social_card_blur_ratio';
 
     /**
-     * Calibrated on real photos (docs/chantiers/partage-social.md, IT-02):
-     * at 5 % of the side, a close-up portrait's face gives nothing away
-     * while the scene — a tent, a uniform, a clearing — still reads.
+     * Where the slider starts when a site has no stored value of its own.
+     *
+     * Half the old floor. At 5 % of the side a close-up portrait gave
+     * nothing away, which is why the floor sat there; at 2.5 % the scene
+     * reads more and a face is still not identifiable, and the chief who
+     * wants either extreme now has a slider for it.
      */
-    public const MIN_BLUR_RATIO = 0.05;
+    public const DEFAULT_BLUR_RATIO = 0.025;
+
+    /** The strongest blur the slider offers — past this the photo is a smear. */
+    public const MAX_BLUR_RATIO = 0.2;
 
     /** How long Meta has to fetch the card. Publishing takes seconds; retries within the hour are covered. */
     public const LIFETIME_MINUTES = 60;
@@ -69,9 +93,10 @@ class CardService
         string $title,
         string $address,
         bool $fromGallery,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?float $blurRatio = null
     ): IssuedCard {
-        $jpeg = $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurRatio());
+        $jpeg = $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurOrDefault($blurRatio));
 
         if (!is_dir($this->directory) && !@mkdir($this->directory, 0750, true) && !is_dir($this->directory)) {
             throw new CardException('L\'image n\'a pas pu être enregistrée. Réessayez plus tard.');
@@ -102,14 +127,44 @@ class CardService
     }
 
     /**
-     * The card exactly as {@see issue()} would compose it, for the person
-     * about to publish — nothing is stored and no address is issued.
+     * The card's bytes, composed and stored nowhere — no file, no row, no
+     * address issued.
+     *
+     * Two callers, and the name says what they share rather than what
+     * either one does with it: the composer's fallback preview, and a
+     * discussion group, which receives the card itself from issue #706,
+     * IT-02 and keeps it in its own media storage. It was called
+     * `preview()` while the composer was the only caller; publishing to a
+     * group through something named « preview » would have read as a
+     * mistake.
+     *
+     * {@see issue()} is the other half: the same composition, kept on
+     * disk behind a token, for Meta's servers to fetch.
      *
      * @throws CardException when the image cannot be used
      */
-    public function preview(string $contents, string $title, string $address, bool $fromGallery): string
+    public function compose(
+        string $contents,
+        string $title,
+        string $address,
+        bool $fromGallery,
+        ?float $blurRatio = null
+    ): string {
+        return $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurOrDefault($blurRatio));
+    }
+
+    /**
+     * The strength to draw with: the one chosen for this communication,
+     * or this site's starting position when nothing was chosen.
+     *
+     * **Null and zero are different answers**, which is the whole reason
+     * the parameter is nullable: null is « nobody ever moved the slider »
+     * — every row written before the slider existed — and zero is a chief
+     * who moved it to « Net » on purpose.
+     */
+    private function blurOrDefault(?float $blurRatio): float
     {
-        return $this->renderer->render($contents, $title, $address, $fromGallery, $this->blurRatio());
+        return $blurRatio === null ? $this->blurRatio() : self::clampBlurRatio($blurRatio);
     }
 
     /**
@@ -169,14 +224,31 @@ class CardService
     }
 
     /**
-     * The setting, never below the floor.
+     * Where the slider starts: this site's stored value, or the shipped
+     * default, clamped to what the slider can express.
+     *
+     * **Zero is a legitimate answer** — « Net » — which is why the lower
+     * bound is 0 and not a floor. A value outside the slider's range is
+     * brought back into it rather than refused: it can only have got
+     * there by hand in the database, and a composer that would not open
+     * is worse than one that opens on the nearest position it can show.
      */
     public function blurRatio(): float
     {
-        $value = $this->settings->get(self::BLUR_SETTING, 'social', (string) self::MIN_BLUR_RATIO);
-        $ratio = is_numeric($value) ? (float) $value : self::MIN_BLUR_RATIO;
+        $value = $this->settings->get(self::BLUR_SETTING, 'social', (string) self::DEFAULT_BLUR_RATIO);
+        $ratio = is_numeric($value) ? (float) $value : self::DEFAULT_BLUR_RATIO;
 
-        return min(0.5, max(self::MIN_BLUR_RATIO, $ratio));
+        return self::clampBlurRatio($ratio);
+    }
+
+    /**
+     * One ratio brought into the slider's range — the one place that
+     * decides what « a blur strength » may be, so the form, the stored
+     * value and the setting cannot disagree about it.
+     */
+    public static function clampBlurRatio(float $ratio): float
+    {
+        return min(self::MAX_BLUR_RATIO, max(0.0, $ratio));
     }
 
     private static function hash(string $token): string
