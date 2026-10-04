@@ -25,8 +25,8 @@ Parmi les nombreuses possibilités de ScoutMagic :
 - **Préparer les activités et les camps** : présences, covoiturage, recherche
   et gestion des endroits de camp, autorisations parentales et fiches
   médicales.
-- **Communiquer** : actualités, discussions, e-mails, listes de diffusion,
-  notifications et réseaux sociaux.
+- **Communiquer** : actualités, groupes de discussion, e-mails, listes de
+  diffusion, notifications et réseaux sociaux.
 - **Gérer la vie de l'unité** : inscriptions et réinscriptions, passages,
   membres, cotisations, attestations, finances, paiements par code QR et
   campagnes de paiement, locations, année scoute, mises à jour automatiques,
@@ -130,6 +130,32 @@ L'inventaire à jour des scénarios est le répertoire `tests/e2e/specs/`.
 Les profils OWASP ZAP et leur rôle sont documentés dans le
 [pipeline de qualité](docs/quality-pipeline.md#dynamic-scan--owasp-zap) ; le
 modèle de sécurité détaillé reste dans [SECURITY.md](SECURITY.md).
+
+La matrice d'autorisation : **toutes** les routes rejouées sous les six rôles
+est décrite dans ce même pipeline de qualité.
+
+## Intégration continue
+
+Le détail du pipeline reste dans [docs/quality-pipeline.md](docs/quality-pipeline.md),
+mais le README conserve l'inventaire vérifié des jobs bloquants :
+
+- **`test`** : PHPStan et PHPUnit sur MySQL 8.
+- **`database-mariadb`** : la même suite PHPUnit sur MariaDB 10.11.
+- **`javascript-tests`** : analyse statique et tests JavaScript.
+- **`e2e-tests`** : tests de bout en bout Playwright.
+- **`authorization-matrix`** : matrice d'autorisation sur toutes les routes.
+- **`dast-passive`** : analyse dynamique passive OWASP ZAP.
+- **`security`** : audit des dépendances Composer.
+- **`sonarqube`** : Quality Gate SonarQube Cloud.
+
+`All checks` agrège ces contrôles et bloque la fusion si l'un d'eux échoue.
+
+## Releases
+
+Le processus détaillé est documenté dans le
+[pipeline de qualité](docs/quality-pipeline.md#release-pipeline). Avant une
+release, le script exécute sept verrous ; leur définition canonique reste dans
+`scripts/release.sh` et la documentation spécialisée.
 
 ## Données, sécurité et responsabilité
 
