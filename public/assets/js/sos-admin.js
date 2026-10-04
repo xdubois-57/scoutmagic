@@ -583,7 +583,7 @@
         var activityList = document.getElementById('sos-day-sheet-activity-list');
         if (activity && activityList) {
             var items = activityOf(row);
-            activityList.replaceChildren.apply(activityList, items.map(function (text) {
+            activityList.replaceChildren(...items.map(function (text) {
                 var li = document.createElement('li');
                 li.textContent = text;
                 return li;
