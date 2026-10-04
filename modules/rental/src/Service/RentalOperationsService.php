@@ -237,20 +237,47 @@ class RentalOperationsService
             $this->recordStatusChange($current, BookingStatus::CONTRACT_SENT, $actorMemberId);
         }
 
-        $this->holdAtLeast($current, $now->modify('+' . max(0, $minHoldDays) . ' days'), $now, $actorMemberId);
+        $this->holdUntil($current, $this->contractHoldUntil($current, $now, $minHoldDays), $now, $actorMemberId);
     }
 
     /**
-     * Lengthens the hold to `$until` at least, capped at the start of the
-     * stay. Never shortens one, never changes the origin of one that runs.
+     * Until when the dates stay held once the contract goes out now — the
+     * rule `contractSent()` applies, also read by the confirmation that
+     * announces it before anything leaves: `$minHoldDays` from now at
+     * least, capped at the start of the stay, a longer running hold kept
+     * as it is. Null when sending holds nothing: a final booking, one that
+     * firmly occupies the asset, or a stay starting too soon with no hold
+     * running.
      */
-    private function holdAtLeast(
+    public function contractHoldUntil(
         RentalBooking $booking,
-        \DateTimeImmutable $until,
+        \DateTimeImmutable $now,
+        int $minHoldDays = self::DEFAULT_CONTRACT_HOLD_MIN_DAYS
+    ): ?\DateTimeImmutable {
+        if ($booking->status->isFinal() || $booking->status->firmlyOccupiesTheAsset()) {
+            return null;
+        }
+
+        $floor = RentalBookingService::capAtArrival(
+            $now->modify('+' . max(0, $minHoldDays) . ' days'),
+            $now,
+            $booking->arrivalDate
+        );
+        $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
+
+        return $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
+    }
+
+    /**
+     * Sets the hold to `$until` when it lengthens it. Never shortens one,
+     * never changes the origin of one that runs.
+     */
+    private function holdUntil(
+        RentalBooking $booking,
+        ?\DateTimeImmutable $until,
         \DateTimeImmutable $now,
         ?int $actorMemberId
     ): void {
-        $until = RentalBookingService::capAtArrival($until, $now, $booking->arrivalDate);
         if ($until === null) {
             return;
         }

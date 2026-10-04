@@ -1548,23 +1548,12 @@ class RentalManagementController extends AbstractController
 
         $latest = null;
         foreach ($documents as $document) {
-            if ($document->type === DocumentType::CONTRACT && ($latest === null || $document->version > $latest->version)) {
+            if ($document->type !== DocumentType::CONTRACT) {
+                continue;
+            }
+            if ($latest === null || $document->version > $latest->version) {
                 $latest = $document;
             }
-        }
-
-        // What `RentalOperationsService::contractSent()` will make of the
-        // hold: lengthened to the floor, never shortened, and nothing to
-        // say once the booking firmly occupies the asset.
-        $holdUntil = null;
-        if (!$booking->status->isFinal() && !$booking->status->firmlyOccupiesTheAsset()) {
-            $floor = RentalBookingService::capAtArrival(
-                $now->modify('+' . $this->contractHoldMinDays() . ' days'),
-                $now,
-                $booking->arrivalDate
-            );
-            $running = $booking->holdIsActive($now) ? $booking->holdUntil : null;
-            $holdUntil = $running !== null && ($floor === null || $running >= $floor) ? $running : $floor;
         }
 
         $account = AuthSession::getUserAccountId();
@@ -1573,7 +1562,9 @@ class RentalManagementController extends AbstractController
             'latest' => $latest,
             'is_locked' => $this->documentService->textIsLocked($booking, DocumentType::CONTRACT),
             'renter_email' => $booking->renterEmail,
-            'hold_until' => $holdUntil,
+            // What the send will make of the hold, from the rule the send
+            // itself applies.
+            'hold_until' => $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
             'landlord' => $this->documentService->landlordFor($asset),
             // The countersignature (#708, IT-16): the copy waiting for an
             // answer, and whether THIS manager has a signature to sign with.
