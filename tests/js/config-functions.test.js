@@ -254,6 +254,39 @@ describe('config-functions.js', () => {
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
             expect(lastRequest().body).toEqual({ function_id: 8, role: 'identified', _csrf_token: 'tok-123' });
         });
+
+        it('disables an arrow with nowhere to go, at either edge of the board', async () => {
+            await boot();
+            const arrows = (id) => [row(id).querySelector('.function-move-up').disabled,
+                row(id).querySelector('.function-move-down').disabled];
+
+            // « À configurer » takes nothing back; « Chef » is the last zone.
+            expect(arrows('7')).toEqual([true, false]);
+            expect(arrows('8')).toEqual([false, true]);
+        });
+
+        it('locks a row while its move is being saved, so two answers can never cross', async () => {
+            let answer;
+            global.fetch = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+            await boot();
+            const down = () => row('7').querySelector('.function-move-down');
+
+            down().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            expect(down().disabled).toBe(true);
+            expect(row('7').querySelector('.function-move-up').disabled).toBe(true);
+            expect(row('7').draggable).toBe(false);
+
+            down().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(fetch).toHaveBeenCalledTimes(1);
+            expect(zoneIds('zone-identified')).toEqual(['7']);
+
+            answer({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            await vi.waitFor(() => expect(row('7').draggable).toBe(true));
+            expect(down().disabled).toBe(false);
+            expect(row('7').querySelector('.function-move-up').disabled).toBe(true);
+        });
     });
 
     describe('per-function flags', () => {

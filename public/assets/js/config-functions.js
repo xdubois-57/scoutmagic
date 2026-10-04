@@ -175,8 +175,48 @@
             row.querySelector('.flags-group')?.classList.toggle('d-none', role !== 'chief' && role !== 'admin');
         };
 
+        var zones = /** @type {HTMLElement[]} */ (Array.from(board.querySelectorAll('.function-zone-items')));
+
+        /**
+         * The zone one step above (-1) or below (1) `from` that takes rows,
+         * or null at the edge of the board — « À configurer » takes none.
+         *
+         * @param {HTMLElement} from
+         * @param {number} step
+         * @returns {HTMLElement|null}
+         */
+        var zoneNextTo = function (from, step) {
+            var to = zones[zones.indexOf(from) + step];
+            return to && to.dataset.receives !== '0' ? to : null;
+        };
+
+        /**
+         * Disables an arrow with nowhere to go, and both while the row's
+         * move is being saved: a keyboard user then never presses a key
+         * that does nothing.
+         *
+         * @param {HTMLElement} row
+         */
+        var syncArrows = function (row) {
+            var zone = /** @type {HTMLElement} */ (row.closest('.function-zone-items'));
+            var saving = row.dataset.saving === '1';
+            var up = /** @type {HTMLButtonElement|null} */ (row.querySelector('.function-move-up'));
+            var down = /** @type {HTMLButtonElement|null} */ (row.querySelector('.function-move-down'));
+            if (up) {
+                up.disabled = saving || !zoneNextTo(zone, -1);
+            }
+            if (down) {
+                down.disabled = saving || !zoneNextTo(zone, 1);
+            }
+        };
+
         /**
          * Saves the move of `row` from `from` into `to`, or puts it back.
+         *
+         * One move per row at a time: the row can be neither dragged nor
+         * sent by its arrows until the server answers, or two answers
+         * arriving out of order could leave the board on a role the
+         * server does not hold.
          *
          * @param {HTMLElement} row
          * @param {HTMLElement} from
@@ -185,6 +225,9 @@
         var moveFunction = function (row, from, to) {
             refreshZone(from);
             refreshZone(to);
+            row.dataset.saving = '1';
+            row.draggable = false;
+            syncArrows(row);
             save(null, '/config/functions/update', {
                 function_id: Number.parseInt(row.dataset.id || '', 10),
                 role: to.dataset.role || ''
@@ -199,11 +242,17 @@
                 if (data) {
                     settle(row, to.dataset.role || '');
                 }
+                delete row.dataset.saving;
+                row.draggable = true;
+                syncArrows(row);
             });
         };
 
-        board.querySelectorAll('.function-zone-items').forEach(function (node) {
-            var zone = /** @type {HTMLElement} */ (node);
+        board.querySelectorAll('.function-row').forEach(function (row) {
+            syncArrows(/** @type {HTMLElement} */ (row));
+        });
+
+        zones.forEach(function (zone) {
             window.ScoutMagicSortable?.bind(zone, {
                 itemSelector: '.function-row',
                 draggingClass: 'opacity-50',
@@ -229,12 +278,12 @@
                 return;
             }
             var row = /** @type {HTMLElement} */ (button.closest('.function-row'));
+            if (row.dataset.saving === '1') {
+                return;
+            }
             var from = /** @type {HTMLElement} */ (row.closest('.function-zone-items'));
-            var zones = Array.from(board.querySelectorAll('.function-zone-items'));
-            var to = /** @type {HTMLElement|undefined} */ (
-                zones[zones.indexOf(from) + (button.classList.contains('function-move-up') ? -1 : 1)]
-            );
-            if (!to || to.dataset.receives === '0') {
+            var to = zoneNextTo(from, button.classList.contains('function-move-up') ? -1 : 1);
+            if (!to) {
                 return;
             }
             to.insertBefore(row, to.querySelector('.function-zone-empty'));
