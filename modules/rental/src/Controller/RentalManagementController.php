@@ -1625,7 +1625,7 @@ class RentalManagementController extends AbstractController
                 : [];
             $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
 
-            $this->signedContractService->countersign(
+            $final = $this->signedContractService->countersign(
                 $booking,
                 $asset,
                 (int) $request->getBody('document_id', 0),
@@ -1635,10 +1635,15 @@ class RentalManagementController extends AbstractController
                 new \DateTimeImmutable()
             );
 
+            // Said as it happened: an e-mail that did not leave is not « il
+            // le reçoit », and a manager told so has no reason to resend it.
             FlashMessage::set(
-                'success',
-                'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger '
-                    . 'depuis sa page de suivi.'
+                $final->sentAt !== null ? 'success' : 'warning',
+                $final->sentAt !== null
+                    ? 'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger '
+                        . 'depuis sa page de suivi.'
+                    : "Contrat contresigné, mais l'e-mail au locataire n'a pas pu partir. Il peut le "
+                        . 'télécharger depuis sa page de suivi ; renvoyez-le depuis Documents.'
             );
         };
 
@@ -1658,7 +1663,7 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Le refus d'une copie n'est pas disponible.");
             }
 
-            $this->signedContractService->refuseCopy(
+            $mailed = $this->signedContractService->refuseCopy(
                 $booking,
                 $asset,
                 (int) $request->getBody('document_id', 0),
@@ -1668,8 +1673,11 @@ class RentalManagementController extends AbstractController
             );
 
             FlashMessage::set(
-                'success',
-                'Copie refusée : le locataire a reçu le motif et peut en déposer une autre.'
+                $mailed ? 'success' : 'warning',
+                $mailed
+                    ? 'Copie refusée : le locataire a reçu le motif et peut en déposer une autre.'
+                    : "Copie refusée, mais l'e-mail au locataire n'a pas pu partir. Sa page de suivi "
+                        . 'dit le motif ; prévenez-le autrement.'
             );
         };
 

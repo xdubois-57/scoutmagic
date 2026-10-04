@@ -195,6 +195,51 @@ class RentalDocumentRepository implements AttachedFileRepository
      * same copy send the renter one reason, not two. Returns whether this
      * call is the one that refused it.
      */
+    /**
+     * Runs `$work` holding the booking's row, as one transaction (#708,
+     * IT-16): the answer to a renter's copy — a countersignature or a
+     * refusal — is decided and written under it, so two managers answering
+     * the same copy at once cannot both file a signed contract, nor refuse
+     * a copy the other is countersigning. A failure inside `$work` rolls
+     * back everything it wrote: no half-answered copy is left behind.
+     *
+     * `FOR UPDATE` only on MySQL/MariaDB: SQLite, the test engine, has no
+     * row locks and serialises writers on its own — the same carve-out as
+     * `RentalBookingRepository::withAssetLocked()`.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withBookingLocked(int $bookingId, callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $lock = $this->pdo->prepare('SELECT id FROM rental_bookings WHERE id = ? FOR UPDATE');
+                $lock->execute([$bookingId]);
+                $lock->fetchAll();
+            }
+
+            $result = $work();
+
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     public function markRefused(int $id, string $reason, \DateTimeImmutable $at): bool
     {
         $stmt = $this->pdo->prepare(

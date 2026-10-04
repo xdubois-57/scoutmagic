@@ -202,7 +202,9 @@ class RentalSignedContractService
 
     /**
      * Refuses a copy with the reason the renter is sent; they may send
-     * another. The copy stays on file.
+     * another. The copy stays on file. Returns whether the e-mail saying
+     * so went out — the refusal stands either way, and the renter's page
+     * says it.
      *
      * @throws RentalException
      */
@@ -213,7 +215,7 @@ class RentalSignedContractService
         string $reason,
         ?int $actorMemberId,
         \DateTimeImmutable $now
-    ): void {
+    ): bool {
         $reason = trim($reason);
         if ($reason === '') {
             throw new RentalException('Dites au locataire pourquoi sa copie est refusée.');
@@ -222,22 +224,32 @@ class RentalSignedContractService
             throw new RentalException('Le motif tient en ' . self::MAX_REFUSAL_LENGTH . ' caractères au plus.');
         }
 
-        $copy = $this->pendingCopyOf($booking, $documentId);
-        if (!$this->documentRepository->markRefused($copy->id, $reason, $now)) {
-            // Another manager answered first: one refusal, one e-mail.
-            throw new RentalException('Cette copie a déjà reçu une réponse.');
-        }
+        // Decided and written under the booking's lock: a countersignature
+        // of the same copy cannot slip in between the check and the write.
+        $this->documentRepository->withBookingLocked($booking->id, function () use (
+            $booking,
+            $documentId,
+            $reason,
+            $actorMemberId,
+            $now
+        ): void {
+            $copy = $this->pendingCopyOf($booking, $documentId);
+            if (!$this->documentRepository->markRefused($copy->id, $reason, $now)) {
+                // Another manager answered first: one refusal, one e-mail.
+                throw new RentalException('Cette copie a déjà reçu une réponse.');
+            }
 
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::STATUS_CHANGED,
-            DocumentType::SIGNED_COPY->label(),
-            'Refusée',
-            'Copie signée refusée',
-            $actorMemberId
-        );
+            $this->bookingAudit->record(
+                $booking->id,
+                BookingAudit::STATUS_CHANGED,
+                DocumentType::SIGNED_COPY->label(),
+                'Refusée',
+                'Copie signée refusée',
+                $actorMemberId
+            );
+        });
 
-        $this->mail->sendCopyRefused($booking, $asset, $reason, $this->tokenOf($booking));
+        return $this->mail->sendCopyRefused($booking, $asset, $reason, $this->tokenOf($booking));
     }
 
     /**
@@ -262,31 +274,51 @@ class RentalSignedContractService
             );
         }
 
-        $copy = $this->pendingCopyOf($booking, $documentId);
-        $path = $this->documents->absolutePath($copy);
-        if ($path === null) {
-            throw new RentalException('Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.');
-        }
-
-        $pdf = $this->assemble($path, $booking, $asset, $copy, $signature, $actorName, $now);
         $fileName = 'contrat-signe-' . $booking->reference . '.pdf';
-        $final = $this->documents->attachPdf(
-            $booking,
-            $pdf,
-            DocumentType::SIGNED_CONTRACT,
-            $fileName,
-            true,
-            $actorMemberId
-        );
 
-        $this->bookingAudit->record(
-            $booking->id,
-            BookingAudit::STATUS_CHANGED,
-            DocumentType::SIGNED_COPY->label(),
-            DocumentType::SIGNED_CONTRACT->label(),
-            'Contrat contresigné',
-            $actorMemberId
-        );
+        // Decided, assembled and filed under the booking's lock: a second
+        // countersignature, or a refusal, of the same copy waits, then finds
+        // it answered. Nothing is written before the signed contract itself,
+        // so a copy that cannot be assembled is left exactly as it was.
+        $final = $this->documentRepository->withBookingLocked($booking->id, function () use (
+            $booking,
+            $asset,
+            $documentId,
+            $signature,
+            $actorName,
+            $actorMemberId,
+            $now,
+            $fileName
+        ): RentalDocument {
+            $copy = $this->pendingCopyOf($booking, $documentId);
+            $path = $this->documents->absolutePath($copy);
+            if ($path === null) {
+                throw new RentalException(
+                    'Le fichier de cette copie est introuvable. Demandez-en une autre au locataire.'
+                );
+            }
+
+            $pdf = $this->assemble($path, $booking, $asset, $copy, $signature, $actorName, $now);
+            $final = $this->documents->attachPdf(
+                $booking,
+                $pdf,
+                DocumentType::SIGNED_CONTRACT,
+                $fileName,
+                true,
+                $actorMemberId
+            );
+
+            $this->bookingAudit->record(
+                $booking->id,
+                BookingAudit::STATUS_CHANGED,
+                DocumentType::SIGNED_COPY->label(),
+                DocumentType::SIGNED_CONTRACT->label(),
+                'Contrat contresigné',
+                $actorMemberId
+            );
+
+            return $final;
+        });
 
         $finalPath = $this->documents->absolutePath($final);
         if ($finalPath !== null) {

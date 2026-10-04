@@ -203,7 +203,9 @@ class RentalRequestController extends AbstractController
      * countersigned contract of THIS booking, after the same check as the
      * page, and there is no id of a document in its address to change. A
      * wrong token, an unknown booking and a contract not countersigned yet
-     * get the same answer.
+     * get the same answer. It is the fifth deliberate exception to
+     * « every download through FileAccessGuard », written down as such in
+     * SECURITY.md §6 — anything that widens it reopens that paragraph.
      *
      * @param array<string, string> $params
      */
@@ -226,7 +228,8 @@ class RentalRequestController extends AbstractController
                 'attachment; filename="contrat-signe-' . $booking->reference . '.pdf"'
             )
             ->setHeader('Cache-Control', 'private, no-store')
-            ->setHeader('X-Content-Type-Options', 'nosniff');
+            ->setHeader('X-Content-Type-Options', 'nosniff')
+            ->setHeader('X-Robots-Tag', 'noindex');
     }
 
     /**

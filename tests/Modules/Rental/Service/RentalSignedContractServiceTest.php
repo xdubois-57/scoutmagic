@@ -57,6 +57,9 @@ class RentalSignedContractServiceTest extends TestCase
     /** @var list<array{kind: string, booking_id: int, reason?: string, path?: string}> */
     private array $mails = [];
 
+    /** Whether the refusal e-mail goes out; a test turns it off. */
+    private bool $refusalMailSucceeds = true;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -97,7 +100,7 @@ class RentalSignedContractServiceTest extends TestCase
             function (RentalBooking $booking, RentalAsset $asset, string $reason): bool {
                 $this->mails[] = ['kind' => 'refused', 'booking_id' => $booking->id, 'reason' => $reason];
 
-                return true;
+                return $this->refusalMailSucceeds;
             }
         );
         $mail->method('sendSignedContract')->willReturnCallback(
@@ -323,6 +326,50 @@ class RentalSignedContractServiceTest extends TestCase
         $this->service->countersign($booking, $this->asset(), $second->id, $account, null, 'Xavier Dubois', $now);
 
         $this->assertNull($this->service->lastRefusedCopy($booking->id));
+    }
+
+    /**
+     * The refusal stands when its e-mail does not leave — the renter's page
+     * says it — and the caller is told, so the manager can be warned.
+     */
+    public function testARefusalWhoseEmailFailsStandsAndSaysSo(): void
+    {
+        $booking = $this->booking();
+        $photo = $this->storedFile(self::photo(), 'jpg', 'image/jpeg');
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $photo);
+        $this->refusalMailSucceeds = false;
+
+        $now = new \DateTimeImmutable();
+        $mailed = $this->service->refuseCopy($booking, $this->asset(), $copy->id, 'Illisible.', null, $now);
+
+        $this->assertFalse($mailed);
+        $this->assertTrue($this->documentRepository->findById($copy->id)?->isRefused());
+    }
+
+    /**
+     * A copy that cannot be assembled is left exactly as it was: nothing is
+     * filed, and it can still be answered — no half-answered copy.
+     */
+    public function testACountersignatureThatFailsLeavesTheCopyWaiting(): void
+    {
+        $booking = $this->booking();
+        $photo = $this->storedFile(self::photo(), 'jpg', 'image/jpeg');
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $photo);
+        $account = $this->account();
+        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $path = $this->documents->absolutePath($copy);
+        $this->assertIsString($path);
+        unlink($path);
+
+        try {
+            $now = new \DateTimeImmutable();
+            $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', $now);
+            $this->fail('a copy whose file is gone cannot be countersigned');
+        } catch (RentalException) {
+        }
+
+        $this->assertNull($this->service->finalContract($booking->id));
+        $this->assertSame($copy->id, $this->service->pendingCopy($booking->id)?->id);
     }
 
     public function testCountersigningNeedsTheManagersOwnSignature(): void
