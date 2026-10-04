@@ -2968,6 +2968,33 @@ class RentalManagementControllerTest extends TestCase
         $this->assertEquals($sent?->holdUntil, $reopened?->holdUntil);
     }
 
+    /**
+     * The mark and the status it carries are one write: a reopened
+     * « Contrat envoyé » whose status cannot go back keeps its mark, so
+     * the page never shows the step to do while the booking still says
+     * the contract went out.
+     */
+    public function testAReopenWhoseStatusFailsKeepsTheMark(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->markStep($booking, 'contract_sent');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_received BEFORE UPDATE ON rental_bookings WHEN NEW.status = 'received' "
+                . "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->markStep($booking, 'contract_sent', false);
+            $this->fail('the status write was expected to fail');
+        } catch (\PDOException) {
+        }
+
+        $marks = new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo);
+        $this->assertArrayHasKey('contract_sent', $marks->findForBooking($booking->id));
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
     /** A step ticked by hand moves the journey on, like the site's own answer. */
     public function testAHandTickMovesTheNextStepOn(): void
     {

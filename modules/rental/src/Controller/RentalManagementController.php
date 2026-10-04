@@ -1072,32 +1072,34 @@ class RentalManagementController extends AbstractController
                         break 2;
                     }
 
-                    $this->milestoneMarkService->set(
-                        $booking,
-                        $key,
-                        $milestone->label,
-                        $done,
-                        $this->actorMemberId(),
-                        $now
-                    );
+                    // One transaction: a reopened « Contrat envoyé » whose
+                    // status could not go back must not lose its mark.
+                    $marks = $this->milestoneMarkService;
+                    $this->operationsService->atomicallyOnAsset(
+                        $asset->id,
+                        function () use ($marks, $booking, $key, $milestone, $done, $now): void {
+                            $marks->set($booking, $key, $milestone->label, $done, $this->actorMemberId(), $now);
 
-                    if ($key === BookingMilestones::CONTRACT_SENT) {
-                        if ($done) {
-                            $this->operationsService->contractSent(
-                                $booking,
-                                $this->actorMemberId(),
-                                $now,
-                                $this->contractHoldMinDays()
-                            );
-                        } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
-                            $this->operationsService->changeStatus(
-                                $booking,
-                                BookingStatus::RECEIVED,
-                                $this->actorMemberId(),
-                                $now
-                            );
+                            if ($key !== BookingMilestones::CONTRACT_SENT) {
+                                return;
+                            }
+                            if ($done) {
+                                $this->operationsService->contractSent(
+                                    $booking,
+                                    $this->actorMemberId(),
+                                    $now,
+                                    $this->contractHoldMinDays()
+                                );
+                            } elseif ($booking->status === BookingStatus::CONTRACT_SENT) {
+                                $this->operationsService->changeStatus(
+                                    $booking,
+                                    BookingStatus::RECEIVED,
+                                    $this->actorMemberId(),
+                                    $now
+                                );
+                            }
                         }
-                    }
+                    );
 
                     FlashMessage::set(
                         'success',

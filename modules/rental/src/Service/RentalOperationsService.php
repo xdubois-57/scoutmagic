@@ -117,6 +117,21 @@ class RentalOperationsService
     // ── Lifecycle (§6.15) ───────────────────────────────────────────────
 
     /**
+     * Runs `$work` as one transaction holding `$assetId`'s bookings — for a
+     * caller whose gesture writes through more than this service, such as
+     * « Contrat envoyé » ticked or reopened by hand (#708, IT-14): the mark
+     * and the status it carries land together or not at all.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function atomicallyOnAsset(int $assetId, callable $work): mixed
+    {
+        return $this->bookingRepository->withAssetLocked($assetId, $work);
+    }
+
+    /**
      * Moves a booking to $target.
      *
      * Confirmation is special and goes through `confirm()` instead, because
