@@ -787,7 +787,8 @@ class BackupServiceTest extends TestCase
             $this->service,
             \Core\Maintenance\Backup::PORTABLE_TYPE,
             null,
-            new \Core\Maintenance\Portable\PortableManifest('1.0.0', null, new \DateTimeImmutable())
+            new \Core\Maintenance\Portable\PortableManifest('1.0.0', null, new \DateTimeImmutable()),
+            \Tests\Support\PortableHints::sample('1.0.0')
         );
     }
 

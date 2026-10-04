@@ -68,7 +68,7 @@ class SendPendingTicketsHandlerTest extends TestCase
         $this->forms = new FormRepository($this->pdo);
         $this->formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, true, '2026-03-14', 'Salle paroissiale'
+            null, null, false, 'chief', null, null, true, '2026-03-14', 'Salle paroissiale'
         );
         $this->responses = new FormResponseRepository($this->pdo, $this->encryption);
 
@@ -226,7 +226,7 @@ class SendPendingTicketsHandlerTest extends TestCase
         $responseId = $this->ticketedResponse('a@test.com');
         $this->forms->update(
             $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, false
+            null, null, false, 'chief', null, null, false
         );
 
         $this->handle([$responseId]);

@@ -46,7 +46,7 @@ class SendResponseDigestHandlerTest extends TestCase
         $authorId = (int) $this->pdo->lastInsertId();
 
         $articleId = (new ArticleRepository($this->pdo))->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $authorId);
-        $this->formId = (new FormRepository($this->pdo))->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', true, null);
+        $this->formId = (new FormRepository($this->pdo))->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', 'resume@unite.test', null);
 
         $settingRepository = new SettingRepository($this->pdo);
         $settingService = new SettingService($settingRepository);
@@ -71,12 +71,15 @@ class SendResponseDigestHandlerTest extends TestCase
     {
         (new FormResponseRepository($this->pdo, $this->encryption))->create($this->formId, null, null, 'parent@test.com', [], null, null);
 
-        // The digest goes to the article's AUTHOR — never to the parent
+        // The digest goes to the FORM'S OWN address — never to the parent
         // whose response it summarises, which is the mix-up a bare count
-        // cannot see (issue #439). `parent@test.com` above is the responder.
+        // cannot see (issue #439), and no longer to the article's author
+        // either (issue #738). `parent@test.com` above is the responder,
+        // and `author@test.com` is the author: a digest arriving at either
+        // is a different defect, and this holds both at once.
         $mailService = $this->createMock(MailService::class);
         $mailService->expects($this->once())->method('send')
-            ->with($this->identicalTo('author@test.com'));
+            ->with($this->identicalTo('resume@unite.test'));
 
         $handler = new SendResponseDigestHandler();
         $handler->handle([], $this->buildContext($mailService));

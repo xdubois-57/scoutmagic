@@ -33,10 +33,28 @@ class DelegatedAlbumDescriberRegistry
     }
 
     /**
-     * A label for (ownerType, ownerId) — never empty.
+     * A label for (ownerType, ownerId) — never empty, and never an
+     * identifier on its own.
+     *
+     * Both fallbacks read as a sentence first and carry `owner_type #id`
+     * after it (issue #749): an administrator looking at this page is
+     * accounting for storage, and `camp_camp #10` told them neither what
+     * the album is nor what to do about it. The identifier stays, because
+     * it is the only thing left to go on when the owner itself is gone —
+     * but as diagnostic detail, not as the name.
+     *
+     * The two cases are deliberately worded differently, because the
+     * answer differs: a deleted owner is an album to clean up, while a
+     * module that is merely switched off will name its own albums again
+     * the moment it is switched back on. Gallery cannot say WHICH module
+     * that is — learning that `camp_camp` means "a stay" is exactly the
+     * coupling Api\DelegatedAlbumDescriber exists to prevent — so it
+     * names the situation and quotes the type verbatim.
      */
     public function describe(string $ownerType, int $ownerId): string
     {
+        $technical = $ownerType . ' #' . $ownerId;
+
         foreach ($this->describers as $describer) {
             if (!$describer->supports($ownerType)) {
                 continue;
@@ -49,9 +67,9 @@ class DelegatedAlbumDescriberRegistry
 
             // The describer owns this type and says the owner is gone. Say
             // so rather than falling through to a label implying otherwise.
-            return $ownerType . ' #' . $ownerId . ' (supprimé)';
+            return 'Propriétaire supprimé — ' . $technical;
         }
 
-        return $ownerType . ' #' . $ownerId;
+        return 'Module propriétaire indisponible — ' . $technical;
     }
 }

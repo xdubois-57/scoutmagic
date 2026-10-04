@@ -84,7 +84,18 @@ CREATE TABLE IF NOT EXISTS news_forms (
     closes_at DATE NULL,
     is_force_closed BOOLEAN NOT NULL DEFAULT FALSE,
     response_role_min ENUM('intendant', 'chief', 'admin') NOT NULL DEFAULT 'chief',
-    daily_digest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Where the daily summary of new responses goes, and whether it goes
+    -- at all: an address means « send it there », NULL or empty means « do
+    -- not send » (issue #738). It replaced a `daily_digest_enabled`
+    -- boolean, which recorded that somebody wanted the digest and never
+    -- where to send it — the article's author got it, and could not be
+    -- changed without changing the author.
+    --
+    -- Not a foreign key to a member or an account, deliberately: the
+    -- address that should receive the registrations of an event is often
+    -- a function rather than a person (`locations@…`, the camp's own
+    -- mailbox), and it must not move when the article changes hands.
+    digest_email VARCHAR(255) NULL,
     -- The form delivers a ticket: every response gets a reference, the
     -- confirmation e-mail carries it, and the door screen accepts it.
     -- Deliberately INDEPENDENT of price — an event can be ticketed and

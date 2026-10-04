@@ -5,6 +5,14 @@ return [
     'site_name' => 'Unité scoute',
     'base_url' => 'http://localhost',
 
+    // ScoutMagic is never served publicly over HTTP. While this is true
+    // the session cookie is always Secure and Strict-Transport-Security
+    // is always sent, whatever scheme PHP itself sees — which is what a
+    // host terminating TLS in front of PHP needs. Set it to false only
+    // for a development or test server deliberately running over plain
+    // http://. See SECURITY.md § 9.
+    'https_required' => true,
+
     // Trust the "X-Forwarded-Proto" header to tell whether the visitor
     // reached the site over HTTPS. Leave this false unless a TLS
     // terminator you control (load balancer, CDN, reverse proxy) sits in

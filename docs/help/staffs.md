@@ -7,6 +7,7 @@ role_min: intendant
 question: Qui anime quelle section cette année ?
 question: Comment ajouter la photo de groupe d'un staff ?
 question: Comment attribuer un badge à un animateur ?
+question: Comment présenter le staff d'une section sur la page Staffs ?
 paths: /chefs/staffs
 related: documents-de-section, membres-par-section
 ---
@@ -34,6 +35,14 @@ puis « Changer ».
 > Cette photo n'est pas interne au staff : elle illustre aussi la page
 > publique Sections, la page Contact pour le Staff d'Unité et la page
 > de chaque animé. Choisissez-la en conséquence.
+
+## Le texte de la section
+
+Sous la photo, un texte présente le staff ou donne des informations
+utiles. Il appartient à la section et reste d'une année à l'autre tant
+qu'on ne le change pas. Les animateurs de la section et le Staff d'Unité
+le modifient avec le crayon, sans passer par le mode configuration.
+Sans texte, rien ne s'affiche pour les autres.
 
 ## Les badges
 
