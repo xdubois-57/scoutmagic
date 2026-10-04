@@ -184,7 +184,8 @@ class RentalRequestController extends AbstractController
             $this->signedContractService->receiveCopy($booking, $asset, $fileId);
             FlashMessage::set(
                 'success',
-                'Votre copie signée est bien reçue. Nous la vérifions et vous renvoyons le contrat signé par les deux parties.'
+                'Votre copie signée est bien reçue. Nous la vérifions et vous renvoyons le contrat signé '
+                    . 'par les deux parties.'
             );
         } catch (\Modules\Rental\Service\RentalException $e) {
             FlashMessage::set('error', $e->getMessage());

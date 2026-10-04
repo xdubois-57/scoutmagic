@@ -1613,16 +1613,17 @@ class RentalManagementController extends AbstractController
      */
     public function countersignContract(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             $account = AuthSession::getUserAccountId();
             if ($this->signedContractService === null || $account === null) {
                 throw new RentalException("La contresignature n'est pas disponible.");
             }
 
             $memberId = $this->actorMemberId();
-            $name = $memberId !== null
-                ? ($this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())[$memberId] ?? null)
-                : null;
+            $names = $memberId !== null
+                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
+                : [];
+            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
 
             $this->signedContractService->countersign(
                 $booking,
@@ -1636,9 +1637,12 @@ class RentalManagementController extends AbstractController
 
             FlashMessage::set(
                 'success',
-                'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger depuis sa page de suivi.'
+                'Contrat contresigné : le locataire le reçoit par e-mail et peut le télécharger '
+                    . 'depuis sa page de suivi.'
             );
-        });
+        };
+
+        return $this->bookingAction($request, $work);
     }
 
     /**
@@ -1649,7 +1653,7 @@ class RentalManagementController extends AbstractController
      */
     public function refuseSignedCopy(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        $work = function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
             if ($this->signedContractService === null) {
                 throw new RentalException("Le refus d'une copie n'est pas disponible.");
             }
@@ -1663,8 +1667,13 @@ class RentalManagementController extends AbstractController
                 new \DateTimeImmutable()
             );
 
-            FlashMessage::set('success', 'Copie refusée : le locataire a reçu le motif et peut en déposer une autre.');
-        });
+            FlashMessage::set(
+                'success',
+                'Copie refusée : le locataire a reçu le motif et peut en déposer une autre.'
+            );
+        };
+
+        return $this->bookingAction($request, $work);
     }
 
     /**
@@ -1734,7 +1743,9 @@ class RentalManagementController extends AbstractController
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect('/mes-locations/ma-signature' . ($back !== null ? '?retour=' . rawurlencode($back) : ''));
+            $query = $back !== null ? '?retour=' . rawurlencode($back) : '';
+
+            return $this->redirect('/mes-locations/ma-signature' . $query);
         }
 
         FlashMessage::set('success', 'Votre signature est enregistrée. Vous seul la voyez et pouvez la supprimer.');
