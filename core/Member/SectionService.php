@@ -129,6 +129,18 @@ class SectionService
     }
 
     /**
+     * Whether $memberYearId is on $sectionId's staff in $scoutYearId: an
+     * active member year holding a chief or admin function there. Stricter
+     * than isMemberYearInSection(), which an animé or a past year passes.
+     */
+    public function isStaffOfSection(int $memberYearId, int $sectionId, int $scoutYearId): bool
+    {
+        $staff = $this->sections->memberYearIdsInSection($sectionId, $scoutYearId, staff: true);
+
+        return in_array($memberYearId, $staff, true);
+    }
+
+    /**
      * Get a single section by ID with branch info.
      *
      * @return array{

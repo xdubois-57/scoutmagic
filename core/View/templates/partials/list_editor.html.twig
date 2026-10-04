@@ -55,12 +55,45 @@
   passes none of them (e.g. a reorder-only list, like the general
   configuration page's module list) gets pure drag/reorder chrome with
   no activate/delete/add affordances at all.
+  Set sortable: false for a list whose order is not the manager's to
+  choose (e.g. a register sorted by date): no drag handle, no move
+  arrows, and the rows are not draggable. Omitted, a list stays sortable
+  exactly as before.
+
+  An item may also carry `delete_confirm` (string): the question asked
+  before deleting it, in place of the generic one — when deleting has a
+  consequence worth saying.
+
+  Set in_place: true for a list that changes without reloading the page:
+  the caller's `add_form` block (a form with the add fields, and its own
+  submit button) replaces the "Ajouter" button, its fields are posted as
+  JSON to add_url, and the server answers {success, html, message?} where
+  `html` holds the new row — typically this same embed rendered with that
+  one item — which is inserted at the end of the list. A deletion then
+  removes its row instead of reloading. Lists that leave it out behave
+  exactly as before.
 #}
+{# `default()` would turn an explicit false back into true — it treats
+   false as empty — so the flag is read this way instead. #}
+{% set is_sortable = sortable is not defined or sortable %}
 <div class="list-editor" id="{{ list_id }}"
      data-reorder-url="{{ reorder_url }}"
      data-active-url="{{ active_url }}"
      data-delete-url="{{ delete_url }}"
-     data-add-mode="{{ add_mode|default('default') }}">
+     data-add-url="{{ add_url|default('') }}"
+     data-add-mode="{{ add_mode|default('default') }}"
+     data-empty-label="{{ empty_label|default('Aucun élément.') }}"
+     {%- if not is_sortable %} data-sortable="false"{% endif %}
+     {%- if in_place is defined and in_place %} data-in-place="true"{% endif %}
+     {#- Opt-in connected lists (issue #752): lists sharing a
+         `sortable_group` accept each other's items, and post their
+         `group_key` with their order. Both or neither: a group without a
+         key would post an empty group, which the server reads as « no
+         move » and answers with success — a drop shown, never saved.
+         Absent, the list is on its own. #}
+     {%- if sortable_group is defined and sortable_group and (group_key|default('')) ~ '' != '' %}
+     data-sortable-group="{{ sortable_group }}" data-group-key="{{ group_key }}"
+     {%- endif %}>
     <div class="list-editor-items d-flex flex-column gap-2 mb-3">
         {% for item in items %}
             {% set can_delete = item.can_delete is not defined or item.can_delete %}
@@ -72,7 +105,9 @@
               on. The width that actually forces the wrap is in app.css —
               Bootstrap has no responsive width utility to say it here.
             #}
-            <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap" draggable="true" data-id="{{ item.id }}">
+            <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2 flex-wrap" draggable="{{ is_sortable ? 'true' : 'false' }}" data-id="{{ item.id }}"
+                 {%- if item.delete_confirm is defined and item.delete_confirm %} data-delete-confirm="{{ item.delete_confirm }}"{% endif %}>
+                {% if is_sortable %}
                 <span class="list-editor-drag-handle text-body-secondary d-none d-lg-inline" title="Glisser pour réordonner" style="cursor:grab;">
                     <i class="bi bi-grip-vertical" aria-hidden="true"></i>
                 </span>
@@ -85,6 +120,7 @@
                         <i class="bi bi-chevron-down" aria-hidden="true"></i>
                     </button>
                 </span>
+                {% endif %}
                 <div class="list-editor-item-content flex-grow-1">
                     {% block item_content %}{% endblock %}
                 </div>
@@ -108,11 +144,15 @@
                     {% endif %}
                 </div>
             </div>
-        {% else %}
-            <p class="text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>
         {% endfor %}
+        {# Always rendered, hidden while there are items: a connected list
+           that is emptied by a drag must be able to say so, and one that
+           receives a drop must be able to stop saying it. #}
+        <p class="text-body-secondary fst-italic mb-0 list-editor-empty{{ items is empty ? '' : ' d-none' }}">{{ empty_label|default('Aucun élément.') }}</p>
     </div>
-    {% if add_url is defined and add_url %}
+    {% if in_place is defined and in_place %}
+        <div class="list-editor-add-form-slot">{% block add_form %}{% endblock %}</div>
+    {% elseif add_url is defined and add_url %}
         <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">
             <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ add_label|default('Ajouter') }}
         </button>

@@ -84,6 +84,7 @@
 /admin/leadership/training
 /admin/leadership/obligations
 /admin/leadership/stewards
+/admin/leadership/configuration
 /config/llm
 /mass-mail
 /mass-mail/new

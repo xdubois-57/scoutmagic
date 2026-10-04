@@ -39,6 +39,14 @@ final class BookingAudit
     public const STATUS_CHANGED = 'status_changed';
     public const HOLD_PLACED = 'hold_placed';
     public const HOLD_CLEARED = 'hold_cleared';
+    /**
+     * The dates held longer when the contract goes out (#708, IT-13). The
+     * hold keeps its origin — an option stays an option, an automatic hold
+     * stays automatic — so « Option posée » would record a manager decision
+     * nobody took. And once the contract is out, no hold's lapse expires
+     * the booking (RentalBooking::lapseEndsTheBooking()).
+     */
+    public const HOLD_EXTENDED = 'hold_extended';
     public const PRICE_CHANGED = 'price_changed';
     public const DATES_CHANGED = 'dates_changed';
     public const CHANGE_REQUESTED = 'change_requested';
@@ -57,6 +65,7 @@ final class BookingAudit
         self::STATUS_CHANGED => 'Statut',
         self::HOLD_PLACED => 'Option posée',
         self::HOLD_CLEARED => 'Option levée',
+        self::HOLD_EXTENDED => 'Blocage prolongé',
         self::PRICE_CHANGED => 'Prix',
         self::DATES_CHANGED => 'Dates',
         self::CHANGE_REQUESTED => 'Demande de modification',

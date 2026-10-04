@@ -34,7 +34,7 @@ class NewsTestHelper
             closes_at TEXT NULL,
             is_force_closed INTEGER NOT NULL DEFAULT 0,
             response_role_min TEXT NOT NULL DEFAULT "chief",
-            daily_digest_enabled INTEGER NOT NULL DEFAULT 0,
+            digest_email TEXT NULL,
             issues_ticket INTEGER NOT NULL DEFAULT 0,
             event_date TEXT NULL,
             event_location TEXT NULL,

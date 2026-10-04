@@ -40,6 +40,7 @@ class PassageOptimizationServiceTest extends TestCase
     private ReenrollmentRepository $reenrollmentRepository;
     private SectionTransferRepository $transferRepository;
     private RegistrationRequestRepository $requestRepository;
+    private PassageNoteRepository $notes;
     private int $publicYearId;
     private int $targetYearId;
     private int $eclaireursBranchId;
@@ -88,7 +89,7 @@ class PassageOptimizationServiceTest extends TestCase
             RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption, $this->settingService),
             $this->requestRepository,
             $this->reenrollmentRepository,
-            new PassageNoteRepository($this->pdo, $this->encryption),
+            $this->notes = new PassageNoteRepository($this->pdo, $this->encryption),
             $this->transferRepository,
             new MemberYearRepository($this->pdo),
             $this->settingService,
@@ -314,6 +315,77 @@ class PassageOptimizationServiceTest extends TestCase
         $this->assertSame($outcome->memberDestinations[$alix], $outcome->memberDestinations[$bo]);
     }
 
+    // ── what the AI read in a family's comment (issue #733) ───────────
+
+    public function testASectionReadByTheAiInfluencesTheDistribution(): void
+    {
+        $members = [];
+        foreach (['Alix', 'Bo', 'Cléo', 'Dan'] as $name) {
+            $members[$name] = $this->createMember($name);
+        }
+        $this->aiReading($members['Alix'], $this->sectionB);
+        $this->aiReading($members['Bo'], $this->sectionB);
+
+        $outcome = $this->plan($this->branchChanges(array_values($members)));
+
+        $this->assertSame($this->sectionB, $outcome->memberDestinations[$members['Alix']]);
+        $this->assertSame($this->sectionB, $outcome->memberDestinations[$members['Bo']]);
+    }
+
+    /**
+     * Two children, one place each side. Alix's family chose A in the
+     * form and the AI read B in their comment; Bo has only an AI reading
+     * of B. With the family's field first, everybody gets what they asked
+     * for — with the AI first, both would want B and one would lose.
+     */
+    public function testTheFamilysOwnFieldWinsOverTheAisReading(): void
+    {
+        $alix = $this->createMember('Alix');
+        $bo = $this->createMember('Bo');
+        $this->answer($alix, $this->sectionA);
+        $this->aiReading($alix, $this->sectionB);
+        $this->aiReading($bo, $this->sectionB);
+
+        $outcome = $this->plan($this->branchChanges([$alix, $bo]));
+
+        $this->assertSame($this->sectionA, $outcome->memberDestinations[$alix]);
+        $this->assertSame($this->sectionB, $outcome->memberDestinations[$bo]);
+    }
+
+    public function testTheStaffsChoiceWinsOverBoth(): void
+    {
+        $alix = $this->createMember('Alix');
+        $bo = $this->createMember('Bo');
+        $this->answer($alix, $this->sectionA);
+        $this->aiReading($alix, $this->sectionA);
+        $this->notes->setPreferredSection($alix, $this->targetYearId, $this->sectionB, null);
+        $this->answer($bo, $this->sectionA);
+
+        $outcome = $this->plan($this->branchChanges([$alix, $bo]));
+
+        $this->assertSame($this->sectionB, $outcome->memberDestinations[$alix]);
+        $this->assertSame($this->sectionA, $outcome->memberDestinations[$bo]);
+    }
+
+    public function testFriendsReadByTheAiCompleteTheFamilysOwnWithoutDuplicates(): void
+    {
+        $alix = $this->createMember('Alix');
+        $bo = $this->createMember('Bo');
+        $cleo = $this->createMember('Cléo');
+        $others = array_map(fn(string $n): int => $this->createMember($n), ['Dan', 'Eli', 'Fé']);
+        $this->answerWithWishes($alix, [
+            ['raw_name' => 'Bo', 'matched_member_id' => $bo, 'match_state' => 'unique'],
+        ]);
+        // The AI read Bo again, and Cléo — whom the form did not name.
+        // Six children, so three together still leaves the sections even.
+        $this->aiReading($alix, null, [$bo, $cleo]);
+
+        $outcome = $this->plan($this->branchChanges([$alix, $bo, $cleo, ...$others]));
+
+        $this->assertSame($outcome->memberDestinations[$alix], $outcome->memberDestinations[$bo]);
+        $this->assertSame($outcome->memberDestinations[$alix], $outcome->memberDestinations[$cleo]);
+    }
+
     /**
      * The two methods differ exactly where §14 says they do: « Respecter
      * les souhaits » keeps the pair together even though that leaves one
@@ -494,6 +566,24 @@ class PassageOptimizationServiceTest extends TestCase
             null,
             null,
             []
+        );
+    }
+
+    /**
+     * What PassageCommentReviewService stores once it has read a comment:
+     * already resolved to a section of the branch and to member ids.
+     *
+     * @param array<int, int> $friendMemberIds
+     */
+    private function aiReading(int $memberId, ?int $sectionId, array $friendMemberIds = []): void
+    {
+        $this->notes->setAiSuggestion(
+            $memberId,
+            $this->targetYearId,
+            hash('sha256', 'commentaire ' . $memberId),
+            'Une lecture.',
+            $sectionId,
+            $friendMemberIds
         );
     }
 

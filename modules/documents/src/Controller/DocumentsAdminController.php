@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Documents\Controller;
 
+use Core\Config\AppClock;
 use Core\Http\Controller\AbstractController;
 use Core\File\UploadException;
 use Core\Http\FlashMessage;
@@ -49,6 +50,7 @@ class DocumentsAdminController extends AbstractController
             'versions' => $this->documentService->versionsByDocument(),
             'kept_versions' => DocumentService::KEPT_VERSIONS,
             'base_url' => rtrim($this->baseUrl, '/'),
+            'today' => AppClock::now()->format('Y-m-d'),
         ]);
     }
 
@@ -63,6 +65,8 @@ class DocumentsAdminController extends AbstractController
             'title' => '',
             'description' => '',
             'visibility' => DocumentVisibility::PUBLIC->value,
+            // Two years by default (#731), still the editor's to change.
+            'expires_on' => Document::defaultExpiry(AppClock::now()->format('Y-m-d')),
         ]);
     }
 
@@ -85,7 +89,8 @@ class DocumentsAdminController extends AbstractController
                 $submitted['description'],
                 $submitted['visibility'],
                 $request->getFile('file') ?? [],
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                $submitted['expires_on']
             );
         } catch (DocumentException | UploadException $e) {
             return $this->renderForm(null, $submitted, $e->getMessage());
@@ -111,6 +116,7 @@ class DocumentsAdminController extends AbstractController
             'title' => $document->title,
             'description' => (string) $document->description,
             'visibility' => $document->visibility->value,
+            'expires_on' => $document->expiresOn,
         ]);
     }
 
@@ -138,7 +144,8 @@ class DocumentsAdminController extends AbstractController
                 $submitted['description'],
                 $submitted['visibility'],
                 $request->getFile('file'),
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                $submitted['expires_on']
             );
         } catch (DocumentException | UploadException $e) {
             return $this->renderForm($document, $submitted, $e->getMessage());
@@ -194,7 +201,7 @@ class DocumentsAdminController extends AbstractController
     }
 
     /**
-     * @param array{title: string, description: string, visibility: string} $values
+     * @param array{title: string, description: string, visibility: string, expires_on: string} $values
      */
     private function renderForm(?Document $document, array $values, ?string $error = null): Response
     {
@@ -219,7 +226,7 @@ class DocumentsAdminController extends AbstractController
     }
 
     /**
-     * @return array{title: string, description: string, visibility: string}
+     * @return array{title: string, description: string, visibility: string, expires_on: string}
      */
     private function submitted(Request $request): array
     {
@@ -227,6 +234,7 @@ class DocumentsAdminController extends AbstractController
             'title' => (string) $request->getBody('title', ''),
             'description' => (string) $request->getBody('description', ''),
             'visibility' => (string) $request->getBody('visibility', ''),
+            'expires_on' => (string) $request->getBody('expires_on', ''),
         ];
     }
 

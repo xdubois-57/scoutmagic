@@ -97,6 +97,14 @@ interface Window {
         bind: (root?: ParentNode) => void;
         describe: (zone: HTMLElement, files: FileList) => void;
     };
+    // public/assets/js/form-submit-lock.js — « Envoi en cours… » and the
+    // guard against a second tap sending the same file twice (issue #756),
+    // loaded by the pages whose forms carry `data-submit-lock`.
+    ScoutMagicFormSubmitLock?: {
+        bind: (root?: ParentNode) => void;
+        lock: (form: HTMLFormElement) => void;
+        unlock: (form: HTMLFormElement) => void;
+    };
     // public/assets/js/collapse-anchor.js — opens the collapsible section
     // a URL fragment points at, loaded by the pages whose boxes fold.
     ScoutMagicCollapseAnchor?: {
@@ -126,7 +134,12 @@ interface Window {
                 itemSelector: string;
                 axis?: string;
                 draggingClass?: string;
-                onReorder?: () => void;
+                // Lists bound with the same group accept each other's
+                // items (opt-in, issue #752).
+                group?: string;
+                // A grouped list that lends its items but takes none.
+                receive?: boolean;
+                onReorder?: (move?: { item: HTMLElement; from: HTMLElement; to: HTMLElement }) => void;
             }
         ) => void;
     };
@@ -143,7 +156,7 @@ interface Window {
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
     ScoutMagicToast?: {
-        show: (message: string, options?: { variant?: 'success' | 'error' | 'warning' | 'info', delayMs?: number }) => HTMLElement;
+        show: (message: string, options?: { variant?: 'success' | 'error' | 'warning' | 'info', delayMs?: number, action?: { label: string, onClick: () => void } }) => HTMLElement;
     };
     // public/assets/js/confirm.js — the site's one confirmation dialog and
     // the non-native replacement for confirm() (design.md §7.5), loaded by
@@ -245,12 +258,6 @@ interface Window {
             hidden: HTMLInputElement,
             members: Array<{ id: number, name: string }>
         ) => HTMLDataListElement;
-    };
-    // public/assets/js/leadership-copy-emails.js — « Copier les adresses »
-    // on the Encadrement lists, present only on those three pages.
-    ScoutMagicLeadershipEmails?: {
-        collect: (list: ParentNode) => string[];
-        format: (addresses: string[]) => string;
     };
     // public/assets/js/fees-copy.js — « Copier pour Desk » on Cotisations >
     // Justesse des tarifs, present only on that page.

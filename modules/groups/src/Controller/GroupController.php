@@ -34,7 +34,6 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReopenOutcome;
-use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\MemberIdentityService;
@@ -104,7 +103,6 @@ class GroupController extends AbstractController
         private ?GroupMembershipService $membershipService = null,
         private ?SettingService $settingService = null,
         private ?GroupReadStateService $readStateService = null,
-        private ?PostEventService $eventService = null,
         private ?MemberIdentityService $identityService = null,
         private ?ReportService $reportService = null,
         // Trailing and optional like every other collaborator here. Used
@@ -245,10 +243,6 @@ class GroupController extends AbstractController
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
             'draft_ttl_minutes' => $this->draftTtlMinutes(),
-            // Empty whenever the calendar module is disabled, which is
-            // also what hides the picker — the composer never mentions a
-            // feature this install does not have.
-            'event_options' => $this->eventService?->options($context) ?? [],
             // How many option boxes the poll section offers. Four is
             // enough for the questions a group actually asks and short
             // enough to stay a form rather than a wall; the two beyond

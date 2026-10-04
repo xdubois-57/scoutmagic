@@ -67,6 +67,31 @@ class LeadershipRepositoryTest extends TestCase
         $this->assertTrue($rows[1]->isSteward());
     }
 
+    public function testFindStaffFunctionsPrefersTheMobileAndFallsBackToTheLandline(): void
+    {
+        $animator = $this->insertFunction('ANIM', 'Animateur', 'chief');
+        $both = $this->insertMemberYear($this->insertMember('P1'), $this->currentYearId, [
+            'last_name' => 'Aaa',
+            'mobile' => '0470 11 22 33',
+            'phone' => '02 111 22 33',
+        ]);
+        $landline = $this->insertMemberYear($this->insertMember('P2'), $this->currentYearId, [
+            'last_name' => 'Bbb',
+            'phone' => '02 444 55 66',
+        ]);
+        $none = $this->insertMemberYear($this->insertMember('P3'), $this->currentYearId, ['last_name' => 'Ccc']);
+        foreach ([$both, $landline, $none] as $memberYearId) {
+            $this->insertMemberFunction($memberYearId, $animator, $this->louveteauxId, null, true);
+        }
+
+        $phones = [];
+        foreach ($this->repository->findStaffFunctions($this->currentYearId) as $row) {
+            $phones[$row->lastName] = $row->phone;
+        }
+
+        $this->assertSame(['Aaa' => '0470 11 22 33', 'Bbb' => '02 444 55 66', 'Ccc' => null], $phones);
+    }
+
     public function testFindStaffFunctionsExcludesAnimesAndInactiveMembers(): void
     {
         $animeFunction = $this->insertFunction('ANIME', 'Louveteau', 'identified');
@@ -351,8 +376,9 @@ class LeadershipRepositoryTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years
                 (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted,
-                 birth_date_encrypted, formation_level, scout_year_offset, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 birth_date_encrypted, mobile_encrypted, phone_encrypted, formation_level,
+                 scout_year_offset, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId,
@@ -364,6 +390,12 @@ class LeadershipRepositoryTest extends TestCase
                 : null,
             isset($fields['birth_date'])
                 ? $this->encryption->encrypt((string) $fields['birth_date'], 'member_years.birth_date')
+                : null,
+            isset($fields['mobile'])
+                ? $this->encryption->encrypt((string) $fields['mobile'], 'member_years.mobile')
+                : null,
+            isset($fields['phone'])
+                ? $this->encryption->encrypt((string) $fields['phone'], 'member_years.phone')
                 : null,
             $fields['formation_level'] ?? null,
             $fields['scout_year_offset'] ?? 0,

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.36.0",
+  "version": "1.37.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -285,10 +285,19 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/blocage",
+      "path": "/mes-locations/{slug}/calendrier/jours",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "createBlock",
+      "action": "calendarDays",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/blocage-motif",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "blockReason",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -450,24 +459,6 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/compteur",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "saveMeter",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/inventaire-modele",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "saveInventoryTemplate",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
       "path": "/mes-locations/releve",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -540,28 +531,10 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/conformite-ajouter",
+      "path": "/mes-locations/{slug}/conformite/supprimer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "addComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-modifier",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "updateComplianceItem",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/conformite-supprimer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "deleteComplianceItem",
+      "action": "complianceDelete",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -903,7 +876,7 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/{slug}/reglages/conditions",
+      "path": "/mes-locations/{slug}/gabarits/conditions",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
       "action": "saveConditions",
@@ -1024,6 +997,123 @@
           "Espace membres"
         ]
       }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Nouvelle entrée",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/nouvelle",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceForm",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifier une entrée",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite/{id}/modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "complianceSave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/{document}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "templateDocument",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Gabarit",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/compteurs",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addMeter",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/compteurs/retirer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "retireMeter",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "updateInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/ordre",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "reorderInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/gabarits/etat-des-lieux/retirer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "removeInventoryItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
   "settings": [

@@ -117,6 +117,21 @@ class RentalOperationsService
     // ── Lifecycle (§6.15) ───────────────────────────────────────────────
 
     /**
+     * Runs `$work` as one transaction holding `$assetId`'s bookings — for a
+     * caller whose gesture writes through more than this service, such as
+     * « Contrat envoyé » ticked or reopened by hand (#708, IT-14): the mark
+     * and the status it carries land together or not at all.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function atomicallyOnAsset(int $assetId, callable $work): mixed
+    {
+        return $this->bookingRepository->withAssetLocked($assetId, $work);
+    }
+
+    /**
      * Moves a booking to $target.
      *
      * Confirmation is special and goes through `confirm()` instead, because
@@ -249,7 +264,7 @@ class RentalOperationsService
         $this->bookingRepository->setHold($booking->id, $until, $origin);
         $this->bookingAudit->record(
             $booking->id,
-            BookingAudit::HOLD_PLACED,
+            BookingAudit::HOLD_EXTENDED,
             $running ? $booking->holdUntil?->format('d/m/Y H:i') : null,
             $until->format('d/m/Y H:i'),
             'Blocage prolongé à l\'envoi du contrat',
@@ -295,7 +310,9 @@ class RentalOperationsService
             throw new RentalException(BookingTransition::refusalReason($booking->status, BookingStatus::CONFIRMED));
         }
 
-        $missing = $milestones !== null ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones) : [];
+        $missing = $milestones !== null
+            ? \Modules\Rental\Booking\BookingMilestones::missingBeforeConfirmation($milestones)
+            : [];
         if ($missing !== []) {
             throw new RentalException(
                 'La réservation ne peut être confirmée qu\'au bout de l\'accord. Il manque : '

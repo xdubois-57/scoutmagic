@@ -76,6 +76,8 @@ final class PersonLine
          * chips looked identical while meaning opposite things.
          */
         public readonly string $daysDirection = self::DAYS_SINCE,
+        /** The number to call — the mobile first — or null when Desk holds none. */
+        public readonly ?string $phone = null,
     ) {
     }
 }

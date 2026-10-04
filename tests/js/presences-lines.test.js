@@ -153,6 +153,7 @@ describe('presences-lines.js', () => {
                 status: 'excused',
                 _csrf_token: 'tok-123',
             });
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
         });
 
         it('never sends a comment alongside a state', async () => {
@@ -301,6 +302,7 @@ describe('presences-lines.js', () => {
                 comment: 'Prévenu jeudi.',
                 _csrf_token: 'tok-123',
             });
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Enregistré.', { variant: 'success' });
         });
 
 

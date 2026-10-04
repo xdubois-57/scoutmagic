@@ -15,9 +15,10 @@ related: staffs, page-membre
 
 Le trombinoscope présente, section par section, les visages de
 l'encadrement : chaque animateur avec sa photo (ou ses initiales), son
-nom, sa fonction et ses badges. La carte encadrée en tête de section,
-marquée « Responsable », est la personne de référence de la section —
-votre premier contact.
+totem, son nom, sa fonction et ses badges. Un totem propre à la
+section suit entre parenthèses : « Guépard (Akela) ». La carte
+encadrée en tête de section, marquée « Responsable », est la personne
+de référence de la section — votre premier contact.
 
 ## Naviguer
 
@@ -54,10 +55,9 @@ document prêt à imprimer : d'abord un annuaire d'une page — un
 responsable par section, avec ses coordonnées et l'adresse de sa
 section — puis une page par section avec tous ses animateurs.
 
-Inutile de tout imprimer. La première page suffit à savoir qui
-contacter, et chaque page porte le nom de sa section en tête : dans la
-boîte d'impression, vous retrouvez celle de votre enfant d'un coup
-d'œil et n'imprimez que celle-là. Le document couvre toujours l'unité
+Inutile de tout imprimer : la première page suffit à savoir qui
+contacter, et chaque page porte le nom de sa section en tête. Le
+document couvre toujours l'unité
 entière et l'année scoute en cours, quelle que soit la section
 affichée à l'écran.
 

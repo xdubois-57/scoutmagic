@@ -295,6 +295,15 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
+    },
+    {
+      "path": "/covoiturage/{id}/trajet",
+      "method": "GET",
+      "controller": "Modules\\Covoiturage\\Controller\\CarpoolController",
+      "action": "travel",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
   "settings": [

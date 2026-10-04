@@ -1,0 +1,26 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The Encadrement sub-navigation (#727), on all five pages, under each
+  page's header — the standard page_picker / nav_rail, as Finance does.
+  It completes the breadcrumbs; it does not replace them.
+
+  « Tableau de bord » is /admin/leadership: the site menu still says
+  « Encadrement », the rubric's name, and this rail names the page.
+
+  Requires `current_path` (a global).
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'leadership-page-picker',
+    aria_label: 'Pages Encadrement',
+    pages: [
+        { url: '/admin/leadership', label: 'Tableau de bord' },
+        { url: '/admin/leadership/training', label: 'Formations' },
+        { url: '/admin/leadership/obligations', label: 'Obligations' },
+        { url: '/admin/leadership/stewards', label: 'Intendants' },
+        { url: '/admin/leadership/configuration', label: 'Configuration' },
+    ],
+    current_path: current_path,
+} only %}

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Booking;
 
+use Modules\Rental\Reminder\RenterDeadline;
+
 /**
  * One booking on « À traiter », and what put it there (§22.5).
  *
@@ -92,8 +94,14 @@ final class BookingAttention
 
         // The step the booking's page puts forward (#708, IT-12). Never on
         // a final booking, and not twice for a request whose status already
-        // says a decision is expected.
-        if ($next !== null && !$booking->status->isFinal() && $reasons === []) {
+        // says a decision is expected. Nor while a proposal waits on the
+        // renter's answer: the page says so (BookingJourney::headline()),
+        // and the unit's next line cannot start before that answer.
+        if ($next !== null
+            && !$booking->status->isFinal()
+            && $booking->status !== BookingStatus::PROPOSED
+            && $reasons === []
+        ) {
             if ($next->actor === StepActor::UNIT) {
                 $reasons[] = AttentionReason::UNIT_STEP;
                 $stepLines[AttentionReason::UNIT_STEP->value] = 'À faire : ' . self::unitTask($next);
@@ -104,7 +112,7 @@ final class BookingAttention
             ) {
                 $reasons[] = AttentionReason::RENTER_LATE;
                 $stepLines[AttentionReason::RENTER_LATE->value] = 'En retard : ' . self::renterWait($next)
-                    . ' attendu depuis le ' . $renterDeadline->expected->format('d/m/Y');
+                    . ' depuis le ' . $renterDeadline->expected->format('d/m/Y');
             }
         }
 
@@ -149,22 +157,25 @@ final class BookingAttention
         };
     }
 
-    /** What the renter owes, as the thing expected. */
+    /**
+     * What the renter owes, as the thing expected — with its participle,
+     * which agrees with it: « caution attendue », « acompte attendu ».
+     */
     private static function renterWait(BookingMilestone $step): string
     {
         return match ($step->key) {
-            BookingMilestones::SIGNED_COPY_RECEIVED => 'contrat signé',
-            BookingMilestones::DEPOSIT_RECEIVED => 'acompte',
-            BookingMilestones::BALANCE_RECEIVED => 'solde',
-            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution',
-            default => mb_strtolower($step->label),
+            BookingMilestones::SIGNED_COPY_RECEIVED => 'contrat signé attendu',
+            BookingMilestones::DEPOSIT_RECEIVED => 'acompte attendu',
+            BookingMilestones::BALANCE_RECEIVED => 'solde attendu',
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED => 'caution attendue',
+            default => 'étape « ' . $step->label . ' » attendue',
         };
     }
 
     /**
      * @param RentalBooking[] $bookings
      * @param array<int, ChangeRequest[]> $pendingByBooking keyed by booking id
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
      *   keyed by booking id — the step each booking's page puts forward
      * @return list<self>
      */
@@ -199,7 +210,7 @@ final class BookingAttention
      *
      * @param RentalBooking[] $bookings
      * @param array<int, ChangeRequest[]> $pendingByBooking
-     * @param array<int, array{next: ?BookingMilestone, deadline: ?\Modules\Rental\Reminder\RenterDeadline}> $stepsByBooking
+     * @param array<int, array{next: ?BookingMilestone, deadline: ?RenterDeadline}> $stepsByBooking
      */
     public static function countIn(
         array $bookings,

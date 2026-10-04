@@ -156,20 +156,28 @@ final class BookingMilestones
         // task (#708, IT-01): ticked while a hold runs, a warning once an
         // automatic one ran out on a request still waiting, and never
         // « L'action suivante ».
+        // A manager's option that ran out says so in its own words: it ends
+        // the booking, so « posez une option » would be the wrong advice.
         $lapsedSince = $abandoned ? null : $booking->holdLapsedSince($now);
+        $optionLapsedSince = $abandoned ? null : $booking->optionLapsedSince($now);
+        $warning = null;
+        if ($lapsedSince !== null) {
+            $warning = 'Les dates ne sont plus bloquées depuis le ' . $lapsedSince->format('d/m/Y à H\hi')
+                . ' : un autre visiteur peut les demander. Confirmez, ou posez une option pour les garder.';
+        } elseif ($optionLapsedSince !== null) {
+            $warning = "L'option est échue depuis le " . $optionLapsedSince->format('d/m/Y à H\hi')
+                . ' : les dates sont libres et la réservation va expirer.';
+        }
         $milestones[] = new BookingMilestone(
             'hold',
             $booking->holdOrigin?->managerLabel() ?? 'Dates bloquées',
             $booking->holdIsActive($now),
-            ($booking->holdIsActive($now) || $lapsedSince !== null) && !$abandoned,
+            ($booking->holdIsActive($now) || $warning !== null) && !$abandoned,
             $booking->holdIsActive($now) && $booking->holdUntil !== null
                 ? "jusqu'au " . $booking->holdUntil->format('d/m/Y à H\hi')
                 : null,
             isState: true,
-            warning: $lapsedSince !== null
-                ? 'Les dates ne sont plus bloquées depuis le ' . $lapsedSince->format('d/m/Y à H\hi')
-                    . ' : un autre visiteur peut les demander. Confirmez, ou posez une option pour les garder.'
-                : null
+            warning: $warning
         );
 
         // No « Décision prise sur la demande » line any more (#708, IT-13):
@@ -238,7 +246,7 @@ final class BookingMilestones
                 $m,
                 $booking->status,
                 $offsite,
-                $booking->holdOrigin,
+                $booking->lapseEndsTheBooking(),
                 in_array($m->key, $manual, true)
             ),
             $milestones
@@ -251,6 +259,7 @@ final class BookingMilestones
         if ($missing === []) {
             return $shaped;
         }
+        $missingLabels = array_map(static fn(BookingMilestone $x): string => '« ' . $x->label . ' »', $missing);
 
         return array_map(
             static fn(BookingMilestone $m): BookingMilestone => $m->key !== 'confirmed' ? $m : new BookingMilestone(
@@ -260,9 +269,7 @@ final class BookingMilestones
                 $m->isApplicable,
                 $m->detail,
                 $m->kind,
-                'Se confirme quand l\'accord est complet. Il manque : '
-                    . implode(', ', array_map(static fn(BookingMilestone $x): string => '« ' . $x->label . ' »', $missing))
-                    . '.',
+                'Se confirme quand l\'accord est complet. Il manque : ' . implode(', ', $missingLabels) . '.',
                 null,
                 $m->isState,
                 $m->warning,
@@ -286,7 +293,7 @@ final class BookingMilestones
         BookingMilestone $m,
         BookingStatus $status,
         array $offsite,
-        ?HoldOrigin $holdOrigin = null,
+        bool $lapseEndsTheBooking = false,
         bool $isManual = false
     ): BookingMilestone {
         $kind = MilestoneKind::DERIVED;
@@ -296,8 +303,9 @@ final class BookingMilestones
         switch ($m->key) {
             case 'hold':
                 $kind = MilestoneKind::DERIVED;
-                // What happens at the deadline depends on who set it.
-                $explanation = $holdOrigin === HoldOrigin::MANAGER
+                // What happens at the deadline depends on who set it — and,
+                // for an option, on whether the contract has gone out.
+                $explanation = $lapseEndsTheBooking
                     ? "Une option bloque les dates jusqu'à son échéance ; passée sans confirmation, la "
                         . 'réservation expire et les dates se libèrent.'
                     : 'Les dates sont bloquées automatiquement le temps de répondre ; passé ce délai, elles '

@@ -279,6 +279,39 @@ class BookingAttentionTest extends TestCase
         $this->assertSame(['En retard : acompte attendu depuis le 01/06/2027'], $attention?->lines());
     }
 
+    /**
+     * A proposal waits on the renter: the list must not tell the unit to
+     * send a contract the page itself says is not due yet.
+     */
+    public function testAProposalWaitingOnTheRenterIsNotAUnitStep(): void
+    {
+        $booking = $this->booking(BookingStatus::PROPOSED);
+        $next = $this->nextOf($booking, [BookingMilestones::CONTRACT_SENT => false]);
+        $this->assertSame(StepActor::UNIT, $next?->actor);
+
+        $this->assertNull(BookingAttention::of($booking, [], $next));
+    }
+
+    /** « Caution » is feminine: the line agrees with it. */
+    public function testALateSecurityDepositAgreesWithItsNoun(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED);
+        $next = new BookingMilestone(
+            BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
+            'Caution reçue',
+            false,
+            actor: StepActor::RENTER
+        );
+        $deadline = new \Modules\Rental\Reminder\RenterDeadline(
+            new \DateTimeImmutable('2027-06-01'),
+            new \DateTimeImmutable('2027-06-02')
+        );
+
+        $attention = BookingAttention::of($booking, [], $next, $deadline, new \DateTimeImmutable('2027-06-03'));
+
+        $this->assertSame(['En retard : caution attendue depuis le 01/06/2027'], $attention?->lines());
+    }
+
     /** Muting a reminder must not make a booking vanish from the list. */
     public function testTheDelayCountsEvenWithTheReminderSwitchedOff(): void
     {

@@ -81,6 +81,14 @@ class SectionSenderAlignmentTest extends TestCase
         $this->assertStringContainsString('info@unite.be', $warning, 'the address the mailing leaves from');
         $this->assertStringContainsString('Baladins (Unité Exemple)', $warning, 'the name the recipient reads');
         $this->assertStringContainsString('réponses arriveront', $warning, 'where « Répondre » goes');
+        // Issue #741: read on its own, the sentence says which address it
+        // is about, from its first words to its last.
+        $this->assertStringStartsWith(
+            "L'adresse e-mail configurée pour cette section n'est pas sur le domaine d'envoi du site (unite.be).",
+            $warning
+        );
+        $this->assertStringEndsWith("et les réponses arriveront à l'adresse e-mail de la section.", $warning);
+        $this->assertStringNotContainsString('Cette adresse', $warning);
     }
 
     /**

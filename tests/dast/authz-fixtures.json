@@ -302,6 +302,7 @@
       "recipient_id": "1"
     },
     "/mes-locations/{slug}": {
+      "document": "conditions",
       "id": "1",
       "slug": "salle-des-fetes",
       "type": "contrat"
@@ -356,6 +357,9 @@
     },
     "/test-tools/mail-sandbox/{id}": {
       "id": "1"
+    },
+    "/admin/leadership/{page}": {
+      "page": "training"
     }
   }
 }

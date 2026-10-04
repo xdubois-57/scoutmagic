@@ -133,7 +133,10 @@ test('the duty grid cycles a cell through its three states, saving the month on 
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
-        await expect(saveStatus).toHaveText('Enregistré.');
+        // The outcome is a toast (issue #739); the line under the grid only
+        // says a save is under way, and empties once it has answered.
+        await expect(saveStatus).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // ---------------------------------------------------------------
@@ -293,7 +296,8 @@ test('on a phone the month is a list of days, and one sheet edits any of them', 
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await memberBlock.getByRole('button', { name: label, exact: true }).click();
         expect((await saved).ok()).toBe(true);
-        await expect(page.locator('#sos-day-sheet-status')).toHaveText('Enregistré.');
+        await expect(page.locator('#sos-day-sheet-status')).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // ---------------------------------------------------------------
@@ -398,7 +402,10 @@ test('the default-number warning shows only when today has no on-call', async ({
         const saved = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/oncall'));
         await cellAgain().click();
         expect((await saved).ok()).toBe(true);
-        await expect(page.locator('#oncall-save-status')).toHaveText('Enregistré.');
+        // The outcome is a toast (issue #739); the line under the grid only
+        // says a save is under way, and empties once it has answered.
+        await expect(page.locator('#oncall-save-status')).toHaveText('');
+        await expect(page.locator('.toast-body', { hasText: 'Enregistré.' }).last()).toBeVisible();
     }
 
     // As provisioned, nobody is on call today — so the save really would

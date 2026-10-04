@@ -26,7 +26,10 @@ class TrombinoscopePdfServiceTest extends TestCase
     /** @var array<int, array{lead: ?MemberProfile, staff: MemberProfile[]}> */
     private array $staffBySection = [];
 
-    private function profile(int $id, string $first, string $last, ?string $totem, ?string $mobile = '0496 88 41 20', ?string $email = 'antonin@sv025.be'): MemberProfile
+    /**
+     * @param array<int, string> $sectionTotems
+     */
+    private function profile(int $id, string $first, string $last, ?string $totem, ?string $mobile = '0496 88 41 20', ?string $email = 'antonin@sv025.be', array $sectionTotems = []): MemberProfile
     {
         return new MemberProfile(
             memberYearId: $id,
@@ -47,7 +50,8 @@ class TrombinoscopePdfServiceTest extends TestCase
             unitMailConsent: false,
             addresses: [],
             functions: [],
-            scoutYearLabel: '2025-2026'
+            scoutYearLabel: '2025-2026',
+            sectionTotems: $sectionTotems
         );
     }
 
@@ -68,7 +72,7 @@ class TrombinoscopePdfServiceTest extends TestCase
         $this->staffBySection[$id] = ['lead' => $lead, 'staff' => $staff];
     }
 
-    private function service(): TrombinoscopePdfService
+    private function service(?string $cacheDir = null): TrombinoscopePdfService
     {
         $sections = $this->sections;
         $staff = $this->staffBySection;
@@ -129,7 +133,7 @@ class TrombinoscopePdfServiceTest extends TestCase
             }
         };
 
-        return new TrombinoscopePdfService($trombinoscopeService, $sectionService, $embedder, new TrombinoscopeHtmlBuilder());
+        return new TrombinoscopePdfService($trombinoscopeService, $sectionService, $embedder, new TrombinoscopeHtmlBuilder(), $cacheDir);
     }
 
     private function generate(bool $showContacts = true): string
@@ -222,6 +226,52 @@ class TrombinoscopePdfServiceTest extends TestCase
         $this->assertStringNotContainsString('antonin@sv025.be', $text);
         // The section's own address is organizational and survives.
         $this->assertStringContainsString('louveteaux1@sv025.be', $text);
+    }
+
+    /**
+     * Issue #722: the card's title carries the section totem of THIS
+     * section — « Chacal (Akela) », « Antonin (Akela) » — and the civil
+     * name always follows, whichever of the four cases it is.
+     */
+    public function testTheCardTitleCarriesTheSectionTotemAndTheCivilNameAlwaysFollows(): void
+    {
+        $this->addSection(1, 'Louveteaux 1', 'LOU01', 20, null, $this->profile(10, 'Antonin', 'Grandjean', 'Chacal', sectionTotems: [1 => 'Akela']), [
+            $this->profile(11, 'Lucie', 'Crijns', null, sectionTotems: [1 => 'Hathi']),
+            $this->profile(12, 'Xavier', 'Dubois', 'Bouquetin', sectionTotems: [2 => 'Raksha']),
+            $this->profile(13, 'Élie', 'Wathelet', null),
+        ]);
+
+        $text = $this->textOf($this->generate());
+
+        $this->assertStringContainsString('Chacal (Akela)', $text);
+        $this->assertStringContainsString('Lucie (Hathi)', $text);
+        $this->assertStringNotContainsString('Raksha', $text, "another section's totem stays off this section's card");
+        foreach (['Antonin Grandjean', 'Lucie Crijns', 'Xavier Dubois', 'Élie Wathelet'] as $civilName) {
+            $this->assertStringContainsString($civilName, $text);
+        }
+    }
+
+    /** A chief setting « Akela » is a new document, not the cached one. */
+    public function testASectionTotemChangeIsNotServedFromTheCache(): void
+    {
+        $cacheDir = sys_get_temp_dir() . '/scoutmagic-trombi-pdf-' . bin2hex(random_bytes(4));
+        try {
+            $this->addSection(1, 'Louveteaux 1', 'LOU01', 20, null, $this->profile(10, 'Antonin', 'Grandjean', 'Chacal'));
+            $this->service($cacheDir)->generate(1, '2025-2026', 'Unité SV025', 'www.sv025.be', true);
+
+            $this->staffBySection = [];
+            $this->sections = [];
+            $this->addSection(1, 'Louveteaux 1', 'LOU01', 20, null, $this->profile(10, 'Antonin', 'Grandjean', 'Chacal', sectionTotems: [1 => 'Akela']));
+            $pdf = $this->service($cacheDir)->generate(1, '2025-2026', 'Unité SV025', 'www.sv025.be', true);
+
+            $this->assertStringContainsString('Chacal (Akela)', $this->textOf($pdf));
+        } finally {
+            foreach (glob($cacheDir . '/trombinoscope/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($cacheDir . '/trombinoscope');
+            @rmdir($cacheDir);
+        }
     }
 
     public function testASectionWithNoNameFallsBackToItsDeskCode(): void

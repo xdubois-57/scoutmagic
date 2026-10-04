@@ -612,6 +612,8 @@ final class UxConventionsTest extends TestCase
         '/covoiturage/organiser/lieux',
         // JSON: the point of the address being typed (#642).
         '/covoiturage/organiser/adresse',
+        // JSON: the suggested departure times from the meeting point typed (#703).
+        '/covoiturage/{id}/trajet',
         // Redirects: leaving for Meta's consent screen, and Meta's return,
         // which always lands back on « Réseaux sociaux ».
         '/config/reseaux-sociaux/{platform}/connecter',
@@ -622,6 +624,8 @@ final class UxConventionsTest extends TestCase
         '/partage/album/{id}/apercu',
         '/partage/actualite/{id}/apercu',
         '/communications/{id}/apercu',
+        // XLSX download of one Encadrement page's lists (#727), never a page.
+        '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
         '/admin/fees/tarifs/export',
         // XLSX download of one invoice's verification report, likewise.
@@ -1495,6 +1499,59 @@ final class UxConventionsTest extends TestCase
             }
         }
         self::assertSame([], $found, 'Open the page-medium/page-wide column before the page_header include (issue #471)');
+    }
+
+    /**
+     * `data-submit-lock` belongs to a form that POSTS AND NAVIGATES, and
+     * to no other kind. It says « Envoi en cours… », locks the button
+     * and never unlocks on a timer, because the page it sits on is about
+     * to be replaced — success and refusal both end in a new page, and
+     * `pageshow` covers the one way back.
+     *
+     * A form the page intercepts and sends with `fetch` breaks every one
+     * of those assumptions. The lock's listener is bound to the form and
+     * fires at the target; an interceptor bound to an ancestor fires
+     * later, in the bubble phase, and calls `preventDefault()` before
+     * starting its request. All the lock can read afterwards is
+     * `defaultPrevented`, which says « somebody stopped the browser from
+     * sending this » and cannot tell a refusal apart from a request
+     * already in flight. Releasing the button there re-opens the double
+     * submit the file exists to close; holding it would strand a button
+     * on a page that never goes away.
+     *
+     * So: every form under `[data-rental-booking]` is sent by
+     * `rental-booking.js`, and none of them may carry the attribute.
+     * `api.withDisabled` already holds the submit button for the life of
+     * the request. Caught in review on the pull request for issue #756,
+     * where the one form below had opted in.
+     */
+    public function testNoAsyncFormOptsIntoTheSubmitLock(): void
+    {
+        $offenders = [];
+        foreach (self::templates() as $rel) {
+            if (!str_starts_with($rel, 'modules/rental/views/')) {
+                continue;
+            }
+            $source = self::templateSource($rel);
+            // Attribute uses only — a `{# … #}` comment saying why a form
+            // does NOT take it is the point of this rule, not a breach.
+            foreach (preg_split('/\R/', $source) ?: [] as $number => $line) {
+                if (preg_match('/\{#/', $line) === 1) {
+                    continue;
+                }
+                if (preg_match('/\bdata-submit-lock\b/', $line) === 1) {
+                    $offenders[] = $rel . ':' . ($number + 1);
+                }
+            }
+        }
+
+        self::assertSame(
+            [],
+            $offenders,
+            'A form sent with fetch must not carry data-submit-lock: the lock cannot tell a'
+            . ' refusal from a request in flight, and releases the button mid-upload.'
+            . ' api.withDisabled already guards these forms.'
+        );
     }
 
     public function testNoInlineTouchTargetPatches(): void

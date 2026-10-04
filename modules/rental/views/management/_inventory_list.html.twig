@@ -1,0 +1,81 @@
+{#
+  The asset's inventory checklist on the shared list editor (#708,
+  IT-10): added, retired and reordered without reloading the page — the
+  drag replaces the old « Ordre » number, which could only be set once.
+  Each item's sort and expected count are edited in place in its row
+  (rental-inventory-template.js).
+
+  Rendered by the Gabarits page, and by
+  RentalManagementController::addInventoryItem() with the one item just
+  added: the list inserts that row in place.
+
+  Requires `asset`, `inventory_template` and `inventory_kinds`.
+#}
+{% set inventory_items = [] %}
+{% for entry in inventory_template %}
+    {% set inventory_items = inventory_items|merge([{
+        id: entry.id,
+        entry: entry,
+        delete_confirm: 'Retirer « ' ~ entry.label ~ ' » du modèle ? Les états des lieux déjà figés ne changent pas.',
+    }]) %}
+{% endfor %}
+<div class="inventory-template" data-update-url="/mes-locations/{{ asset.slug }}/gabarits/etat-des-lieux/modifier">
+{% embed 'partials/list_editor.html.twig' with {
+    list_id: 'inventory-list',
+    items: inventory_items,
+    in_place: true,
+    add_url: '/mes-locations/' ~ asset.slug ~ '/gabarits/etat-des-lieux',
+    reorder_url: '/mes-locations/' ~ asset.slug ~ '/gabarits/etat-des-lieux/ordre',
+    delete_url: '/mes-locations/' ~ asset.slug ~ '/gabarits/etat-des-lieux/retirer',
+    empty_label: 'Aucun élément.',
+    inventory_kinds: inventory_kinds,
+} only %}
+    {% block item_content %}
+        {% set entry = item.entry %}
+        <div class="d-flex flex-wrap align-items-center gap-2" data-inventory-item="{{ entry.id }}">
+            <span class="fw-semibold flex-grow-1">{{ entry.label }}</span>
+            <label class="visually-hidden" for="inventory-kind-{{ entry.id }}">Sorte de « {{ entry.label }} »</label>
+            <select class="form-select form-select-sm w-auto" id="inventory-kind-{{ entry.id }}"
+                    data-inventory-field="kind">
+                {% for kind in inventory_kinds %}
+                    <option value="{{ kind.value }}" {{ entry.kind == kind ? 'selected' : '' }}>{{ kind.label }}</option>
+                {% endfor %}
+            </select>
+            <label class="visually-hidden" for="inventory-count-{{ entry.id }}">Nombre attendu de « {{ entry.label }} »</label>
+            <input type="number" min="1" step="1" class="form-control form-control-sm inventory-count" style="width: 6rem;"
+                   id="inventory-count-{{ entry.id }}" data-inventory-field="expected_count"
+                   value="{{ entry.expected_count ?? 1 }}"
+                   {{ entry.kind.value == 'quantity' ? '' : 'hidden' }}>
+        </div>
+    {% endblock %}
+    {% block add_form %}
+        <form class="row g-2 align-items-end inventory-add-form">
+            <div class="col-12 col-md-5">
+                <label class="form-label" for="item-label">Élément à vérifier</label>
+                <input type="text" class="form-control form-control-sm" id="item-label" name="label"
+                       placeholder="Chaises, clés, cuisine propre…" maxlength="160" required>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="item-kind">Sorte</label>
+                <select class="form-select form-select-sm" id="item-kind" name="kind" data-inventory-field="kind">
+                    {% for kind in inventory_kinds %}
+                        <option value="{{ kind.value }}">{{ kind.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2" data-inventory-count-field>
+                <label class="form-label" for="item-count">Nombre attendu</label>
+                <input type="number" min="1" step="1" class="form-control form-control-sm" id="item-count"
+                       name="expected_count" value="1">
+            </div>
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
+            </div>
+            <div class="col-12 form-text mt-1">
+                « Oui / Non » : écrivez l'élément comme ce qui doit être vrai — « Cuisine propre »,
+                « Chauffage coupé » —, la réponse attendue est toujours « Oui ».
+            </div>
+        </form>
+    {% endblock %}
+{% endembed %}
+</div>
