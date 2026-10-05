@@ -146,7 +146,14 @@ class EmailTemplateRenderer
      * dropped it would be the first thing to make the rule false.
      *
      * @param array<string, mixed> $context
-     * @return array{site_name: string, footer_note: string, footer_link: string, next_step: string, next_step_link: string, next_step_link_label: string}
+     * @return array{
+     *     site_name: string,
+     *     footer_note: string,
+     *     footer_link: string,
+     *     next_step: string,
+     *     next_step_link: string,
+     *     next_step_link_label: string
+     * }
      */
     private static function frameContext(array $context): array
     {

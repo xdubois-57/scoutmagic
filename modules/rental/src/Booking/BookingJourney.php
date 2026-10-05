@@ -235,7 +235,10 @@ final class BookingJourney
             BookingMilestones::CONTRACT_GENERATED => 'Le contrat reste à générer.',
             BookingMilestones::CONTRACT_SENT => 'Le contrat reste à envoyer.',
             BookingMilestones::SIGNED_COPY_RECEIVED => 'Le contrat attend la signature du locataire'
-                . ($holdUntil !== null ? ' : les dates sont bloquées jusqu\'au ' . $holdUntil->format('d/m/Y') : '') . '.',
+                . ($holdUntil !== null
+                    ? ' : les dates sont bloquées jusqu\'au ' . $holdUntil->format('d/m/Y')
+                    : '')
+                . '.',
             BookingMilestones::CONTRACT_COUNTERSIGNED => 'Une copie signée attend votre vérification.',
             BookingMilestones::DEPOSIT_RECEIVED => "En attente de l'acompte" . $detail . '.',
             // A request nobody answered yet, on an asset with no contract:

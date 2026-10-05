@@ -91,6 +91,7 @@ final class RenterNextStep
     public static function forStep(string $key, RentalBooking $booking, array $payment = []): self
     {
         $waiting = "Rien à faire de votre côté pour l'instant : ";
+        $securityDeposit = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
 
         return match ($key) {
             'request_received', 'hold', BookingMilestones::CONTRACT_GENERATED, BookingMilestones::CONTRACT_SENT
@@ -104,21 +105,30 @@ final class RenterNextStep
             BookingMilestones::CONTRACT_COUNTERSIGNED => new self(
                 $waiting . 'nous vérifions votre copie signée et vous renverrons le contrat signé par les deux parties.'
             ),
-            BookingMilestones::DEPOSIT_RECEIVED => self::pay("l'acompte", $payment['deposit_due_date'] ?? null, $payment),
+            BookingMilestones::DEPOSIT_RECEIVED => self::pay(
+                "l'acompte",
+                $payment['deposit_due_date'] ?? null,
+                $payment
+            ),
             'confirmed' => new self(
                 $waiting . ($booking->status === BookingStatus::RECEIVED
                     ? 'nous étudions votre demande et vous écrirons dès qu\'elle est confirmée.'
                     : 'nous confirmons votre réservation et vous écrirons dès que c\'est fait.')
                 . self::hold($booking)
             ),
-            BookingMilestones::BALANCE_RECEIVED => self::pay('le solde', $payment['balance_due_date'] ?? null, $payment),
+            BookingMilestones::BALANCE_RECEIVED => self::pay(
+                'le solde',
+                $payment['balance_due_date'] ?? null,
+                $payment
+            ),
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => self::pay(
                 'la caution',
-                is_array($payment['security_deposit'] ?? null) ? ($payment['security_deposit']['due_date'] ?? null) : null,
-                is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : []
+                $securityDeposit['due_date'] ?? null,
+                $securityDeposit
             ),
             BookingMilestones::ARRIVAL_INVENTORY => new self(
-                "Rien à faire de votre côté avant votre arrivée : l'état des lieux d'entrée se fera avec vous sur place."
+                "Rien à faire de votre côté avant votre arrivée : "
+                . "l'état des lieux d'entrée se fera avec vous sur place."
             ),
             BookingMilestones::DEPARTURE_INVENTORY => new self(
                 "Rien à faire de votre côté : l'état des lieux de sortie se fera avec vous à votre départ."

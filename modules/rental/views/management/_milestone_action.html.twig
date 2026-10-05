@@ -41,8 +41,8 @@
         action: action, contract_step: contract_step|default(null), asset: asset, booking: booking,
         primary: primary|default(false), small: small|default(false),
     } only %}
-{% elseif action.box %}
-    <a class="{{ button_class }}" href="{{ action.box.href(booking_url) }}">{{ action.label }}</a>
-{% elseif action.page %}
-    <a class="{{ button_class }}" href="{{ action.page.url(booking_url) }}">{{ action.label }}</a>
+{% elseif action.box or action.page %}
+    {# A card on the dashboard, or a sub-page of its own: one link either way. #}
+    {% set target = action.box ? action.box.href(booking_url) : action.page.url(booking_url) %}
+    <a class="{{ button_class }}" href="{{ target }}">{{ action.label }}</a>
 {% endif %}

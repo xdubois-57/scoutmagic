@@ -770,7 +770,8 @@ class RentalBookingMailService
             return [];
         }
 
-        $link = $nextStep->onTrackingPage && is_string($context['tracking_url'] ?? null) ? $context['tracking_url'] : '';
+        $trackingUrl = $context['tracking_url'] ?? null;
+        $link = $nextStep->onTrackingPage && is_string($trackingUrl) ? $trackingUrl : '';
 
         return [
             'next_step' => $nextStep->sentence,
