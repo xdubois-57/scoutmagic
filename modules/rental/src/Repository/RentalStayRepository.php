@@ -403,6 +403,15 @@ class RentalStayRepository
         return true;
     }
 
+    /** Whether this booking's checklist was copied (at its confirmation). */
+    public function isInventorySnapshotted(int $bookingId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT inventory_snapshotted FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$bookingId]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
     /**
      * @return array<
      *     int,

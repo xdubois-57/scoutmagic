@@ -974,7 +974,7 @@ class RentalManagementController extends AbstractController
             // An asset with neither items to check nor meters to read has
             // nothing an inventory could walk, so its walk-throughs are
             // ticked by hand (#708, IT-17).
-            $this->stayService === null || $this->stayService->keepsInventory($asset->id),
+            $this->stayService === null || $this->stayService->keepsInventoryFor($booking),
             $marks,
             $now,
             $acceptedConditions
@@ -1162,10 +1162,11 @@ class RentalManagementController extends AbstractController
     private function bookingPagesOffered(RentalAsset $asset): array
     {
         $communications = $this->communicationService?->dedicatedMailbox() !== null;
-        // « État des lieux » only where the asset has something to walk —
-        // items to check or meters to read (#708, IT-17). Elsewhere the
-        // walk-throughs are ticked by hand on the dashboard.
-        $inventory = $this->stayService?->keepsInventory($asset->id) ?? false;
+        // « État des lieux » wherever the stay features are: the incidents
+        // live there (#708, IT-17), and an asset with nothing to walk can
+        // still be damaged. Its walk-throughs are ticked by hand on the
+        // dashboard; the page then shows only the incidents.
+        $inventory = $this->stayService !== null;
 
         return array_values(array_filter(
             BookingPage::cases(),
@@ -2961,10 +2962,13 @@ class RentalManagementController extends AbstractController
 
         $validations = $this->stayService->inventoryValidations($booking->id);
         $arrivalByHand = $this->arrivalTickedByHand($booking);
+        $kept = $this->stayService->keepsInventoryFor($booking);
         // A validated departure freezes the arrival too (frozenBy): unticking
         // a hand-ticked arrival afterwards must not reopen a form whose every
         // save would be refused.
         $phase = match (true) {
+            // Nothing to walk: no phase to fill in, only the incidents.
+            !$kept => null,
             !isset($validations['arrival']) && !$arrivalByHand && !isset($validations['departure'])
                 => ReadingPhase::ARRIVAL,
             !isset($validations['departure']) => ReadingPhase::DEPARTURE,
@@ -2988,6 +2992,7 @@ class RentalManagementController extends AbstractController
         }
 
         return [
+            'inventory_kept' => $kept,
             'inventory_phase' => $phase,
             'inventory_lines' => $lines,
             'inventory_validations' => $validations,

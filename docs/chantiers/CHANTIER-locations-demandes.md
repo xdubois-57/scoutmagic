@@ -1156,9 +1156,12 @@ et rappel au locataire.
   des lieux de sortie ; **les trancher reste possible après**, puisque c'est une décision de
   facturation, pas un constat. Leurs montants sont **reportés dans la sous-page « Facture »** (IT-18),
   en lecture seule, avec un lien vers l'État des lieux pour changer une décision.
-- Elle n'apparaît que si le bien a des éléments d'état des lieux ou des compteurs. Un bien dont
-  l'inventaire n'est pas tenu sur le site n'y montre que ses compteurs ; ses états des lieux se
-  cochent à la main (IT-14).
+- L'état des lieux n'y est proposé que si le bien a des éléments d'état des lieux ou des compteurs.
+  Un bien dont l'inventaire n'est pas tenu sur le site n'y montre que ses compteurs ; ses états des
+  lieux se cochent à la main (IT-14). Un bien qui n'a ni l'un ni l'autre garde pourtant la
+  sous-page, réduite aux incidents : c'est le seul endroit où ils se constatent, et un tel bien peut
+  être abîmé lui aussi. La question « y a-t-il quelque chose à parcourir ? » se pose sur la liste
+  copiée à la confirmation, pas sur le gabarit actuel du bien.
 
 ### Un état des lieux à la fois — **Décidé**
 

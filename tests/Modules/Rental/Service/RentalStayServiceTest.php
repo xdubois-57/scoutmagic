@@ -597,6 +597,32 @@ class RentalStayServiceTest extends TestCase
         $this->assertTrue($this->service->keepsInventory($this->assetId));
     }
 
+    /**
+     * A booking is walked against its own checklist once copied, the
+     * template before then, and the asset's meters either way.
+     */
+    public function testABookingKeepsItsInventoryFromItsOwnChecklistOnceCopied(): void
+    {
+        $booking = $this->createBooking();
+        $this->assertFalse($this->service->keepsInventoryFor($booking));
+
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $this->assertTrue($this->service->keepsInventoryFor($booking), 'not copied yet: the template decides');
+
+        $empty = $this->createBooking('LOC-2027-0002');
+        $this->service->snapshotInventory($empty, $this->otherAssetId);
+        $this->assertFalse($this->service->keepsInventoryFor($empty));
+
+        $this->service->snapshotInventory($booking, $this->assetId);
+        foreach ($this->service->inventoryTemplateFor($this->assetId) as $item) {
+            $this->service->removeInventoryItem($this->assetId, $item['id']);
+        }
+        $this->assertTrue($this->service->keepsInventoryFor($booking), 'copied: the template no longer decides');
+
+        $this->addMeter();
+        $this->assertTrue($this->service->keepsInventoryFor($empty), 'meters are read live');
+    }
+
     public function testAnInventoryLineOfAnotherBookingCannotBeWritten(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');

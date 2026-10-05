@@ -338,6 +338,23 @@ class RentalStayService
     }
 
     /**
+     * The same question for one booking, read from what that booking will
+     * actually be walked against: its own checklist once copied at the
+     * confirmation (the asset's template may have changed since, either
+     * way), the template before then; the asset's meters either way, since
+     * meters are read live rather than copied. What the page, the
+     * dashboard's steps, the reminders and the validation all agree on.
+     */
+    public function keepsInventoryFor(RentalBooking $booking): bool
+    {
+        $lines = $this->stayRepository->isInventorySnapshotted($booking->id)
+            ? $this->inventoryFor($booking->id)
+            : $this->inventoryTemplateFor($booking->assetId);
+
+        return $lines !== [] || $this->metersFor($booking->assetId) !== [];
+    }
+
+    /**
      * The phases validated on this booking (#708, IT-17), keyed by phase.
      *
      * @return array<string, array{validated_at: \DateTimeImmutable, validated_by_member_id: ?int, document_id: ?int}>

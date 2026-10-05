@@ -11,10 +11,12 @@ paths: /mes-locations/*/reservations/*/etat-des-lieux
 related: locations-gabarits, locations-reservation, gerer-les-locations, locations-documents
 ---
 
-La page « État des lieux » d'une réservation n'apparaît que si le bien a
-un modèle d'état des lieux ou des compteurs (page « Gabarits »). Sans
-l'un ni l'autre, l'état des lieux se coche à la main sur le tableau de
-bord.
+La page « État des lieux » d'une réservation propose l'état des lieux si
+le bien a un modèle d'état des lieux ou des compteurs (page « Gabarits »).
+Sans l'un ni l'autre, l'état des lieux se coche à la main sur le tableau
+de bord, et la page ne garde que les incidents. C'est la liste copiée à la
+confirmation qui compte : modifier le modèle ensuite ne change pas les
+réservations déjà confirmées.
 
 Elle montre **un seul état des lieux à la fois** : celui d'entrée tant
 qu'il n'est pas validé, puis celui de sortie, puis un récapitulatif avec

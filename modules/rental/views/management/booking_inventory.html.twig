@@ -26,6 +26,17 @@
 {% block booking_content %}
     <div id="{{ boxes.inventory.anchor }}">
         <div data-booking-panel="inventory">
+            {% if not inventory_kept %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-2">État des lieux</h2>
+                        <p class="text-body-secondary small mb-0">
+                            Ce bien n'a ni éléments d'état des lieux ni compteurs : ses états des lieux se
+                            cochent à la main sur le tableau de bord. Les incidents se constatent ci-dessous.
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
             {% if inventory_phase %}
                 {% set phase = inventory_phase %}
                 {% set phase_name = phase.value == 'arrival' ? "d'entrée" : 'de sortie' %}

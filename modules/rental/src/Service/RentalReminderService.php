@@ -431,7 +431,7 @@ class RentalReminderService
 
         // Nothing to walk on an asset with neither items nor meters, so
         // nothing to chase — as before (#708, IT-17).
-        if (!$this->stayService->keepsInventory($booking->assetId)) {
+        if (!$this->stayService->keepsInventoryFor($booking)) {
             return ['arrival' => true, 'departure' => true];
         }
 

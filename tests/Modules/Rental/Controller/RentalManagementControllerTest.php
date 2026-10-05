@@ -4500,16 +4500,50 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /** An asset with nothing to walk has no such page, nor a chip for it. */
-    public function testTheInventoryPageIsAbsentWhereNoInventoryIsKept(): void
+    /**
+     * An asset with nothing to walk keeps the page all the same, reduced to
+     * the incidents: they live there, and such an asset can be damaged too.
+     * No inventory to fill in, no validation to press.
+     */
+    public function testAnAssetWithNothingToWalkKeepsThePageForItsIncidents(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
 
-        $this->assertSame(404, $this->filePage(BookingPage::INVENTORY, 'local-saint-georges', $booking->id)->getStatusCode());
-        $this->assertStringNotContainsString(
+        $this->assertStringContainsString(
             '/etat-des-lieux"',
             (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody()
         );
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
+        $this->assertStringContainsString('action="/mes-locations/incident"', $body);
+        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+    }
+
+    /**
+     * The booking is walked against the checklist copied at its
+     * confirmation: emptying the asset's template afterwards does not take
+     * its inventory away, nor does filling one later give an empty booking
+     * a validation it could never pass.
+     */
+    public function testTheBookingsOwnChecklistDecidesWhetherItHasAnInventory(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        foreach ($this->stayService->inventoryTemplateFor($this->assetId) as $item) {
+            $this->stayService->removeInventoryItem($this->assetId, $item['id']);
+        }
+
+        $this->assertStringContainsString('data-inventory-validate', $this->inventoryPage($booking));
+
+        $empty = $this->createBooking(null, 'LOC-2027-0042');
+        $this->stayService->snapshotInventory($empty, $this->assetId);
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $body = $this->inventoryPage($empty);
+        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
     }
 
     /**
