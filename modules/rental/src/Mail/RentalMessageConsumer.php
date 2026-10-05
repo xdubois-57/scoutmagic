@@ -341,7 +341,9 @@ class RentalMessageConsumer implements
      * The booking these addresses settle on, or — when they settle on none
      * — the bookings still standing, for the model to weigh: the live ones
      * in the window when there are several, else everything in it, else,
-     * with nothing in the window, every live booking of those addresses.
+     * with nothing in the window, every booking of those addresses — a
+     * cancelled one included, since the correspondence about why a stay
+     * fell through belongs on that stay.
      *
      * @param string[] $emails
      * @return array{0: ?RentalBooking, 1: list<RentalBooking>}
@@ -393,7 +395,7 @@ class RentalMessageConsumer implements
         $standing = match (true) {
             count($liveInWindow) > 1 => $liveInWindow,
             $inWindow !== [] => $inWindow,
-            default => $alive,
+            default => $all,
         };
 
         return [null, array_slice($standing, 0, self::MAX_MODEL_OPTIONS)];
@@ -463,12 +465,17 @@ class RentalMessageConsumer implements
             }
         }
 
+        [$standing, $fromReference] = $this->standingBookings($message);
         $candidates = array_values(array_filter(
-            $this->standingBookings($message),
+            $standing,
             fn(RentalBooking $booking): bool =>
                 !$this->inboundMail->isExcluded(self::CONSUMER_ID, $message->id, $booking->reference)
         ));
-        if ($candidates === []) {
+        // A choice needs two options. The one exception is a random
+        // reference the message quoted (`standingBookings()`); on the
+        // address path a single booking left standing is a rubber stamp,
+        // not a decision, and stays the managers' to make.
+        if ($candidates === [] || (!$fromReference && count($candidates) < 2)) {
             return AnalysisResult::nothing();
         }
 
@@ -486,16 +493,17 @@ class RentalMessageConsumer implements
     /**
      * The bookings the rules put forward for this message without settling
      * on one — the same levels as `analyze()`, read the same way for both
-     * directions.
+     * directions — and whether they come from a quoted reference, the one
+     * path on which a single booking may be put to the model.
      *
-     * @return list<RentalBooking>
+     * @return array{0: list<RentalBooking>, 1: bool}
      */
     private function standingBookings(InboundMessage $message): array
     {
         if ($message->isSent()) {
             $messageId = $message->messageId;
             if ($messageId !== '' && $this->inboundMail->wasSentByThisSite(self::CONSUMER_ID, $messageId)) {
-                return [];
+                return [[], false];
             }
             $people = $message->toEmails;
         } else {
@@ -508,7 +516,7 @@ class RentalMessageConsumer implements
             foreach ($people as $person) {
                 if ($this->isRenterOf($referenced, $person)) {
                     // The rules filed this one; nothing is in doubt.
-                    return [];
+                    return [[], false];
                 }
             }
 
@@ -517,12 +525,12 @@ class RentalMessageConsumer implements
             // step 9 can be enumerated, and the model, handed the one
             // booking the message itself names, would only rubber-stamp it
             // (#231).
-            return BookingReference::isUnguessable($referenced->reference) ? [$referenced] : [];
+            return [BookingReference::isUnguessable($referenced->reference) ? [$referenced] : [], true];
         }
 
         [$decided, $standing] = $this->addressMatch($people, $message->sentAt);
 
-        return $decided === null ? $standing : [];
+        return [$decided === null ? $standing : [], false];
     }
 
     /**
