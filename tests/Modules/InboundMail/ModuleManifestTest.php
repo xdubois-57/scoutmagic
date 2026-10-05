@@ -52,10 +52,14 @@ class ModuleManifestTest extends TestCase
      * 1.14.0 lets a consumer detach a message for good: an exclusion per
      * (message, consumer, object) that no automatic path writes past
      * (`inbound_message_exclusions`, #720).
+     *
+     * 1.15.0 knows which way a message went: `inbound_messages.direction`,
+     * and the box's « Envoyés » read for the consumers that ask for it
+     * (`inbound_mailboxes.sent_folder` corrects it, #720).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.14.0', $this->manifest->version);
+        $this->assertSame('1.15.0', $this->manifest->version);
     }
 
     /**
