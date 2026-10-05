@@ -1117,6 +1117,33 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertFalse($others[0]->wasLearned());
     }
 
+    public function testAnAddressTwoDecisionsTaughtSurvivesDetachingOneOfThem(): void
+    {
+        // Two messages from the treasurer, each filed by a decision. One
+        // row holds the address, pinned to the first; detaching that one
+        // must hand it to the second rather than forget it for both.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->deliver(11, 'Question sur les clés', from: 'tresorier@groupe.example', messageId: 'two@groupe.example');
+        $this->sync();
+        [$first, $second] = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $first, 7);
+        // The second followed on the rules; record it as the AI's decision
+        // it would be when the rules could not tell bookings apart.
+        $this->pdo->prepare("UPDATE inbound_message_links SET link_origin = 'ai' WHERE message_id = ?")->execute([$second]);
+        $this->assertSame($first, $this->bookingRepository->otherRenterEmails($booking->id)[0]->learnedFromMessageId);
+
+        $this->assertTrue($this->communicationService->detach($booking, $first));
+
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertCount(1, $others, 'the second decision still teaches the address');
+        $this->assertSame($second, $others[0]->learnedFromMessageId);
+
+        // And once the second goes too, nothing teaches it any more.
+        $this->assertTrue($this->communicationService->detach($booking, $second));
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
     // ── Attachments become documents (§7.8) ─────────────────────────────
 
     private function deliverWithPdf(int $uid, string $subject, string $filename = 'contrat.pdf'): void

@@ -2376,8 +2376,10 @@ messages already filed where they are. **A decision teaches an address**:
 `LinkOrigin::AI` adds the sender, or for a sent message its recipient when
 there is exactly one, with `learned_from_message_id` naming the message;
 the page marks it « ajoutée automatiquement », and « Détacher » on that
-message forgets it (`forgetEmailsLearnedFrom()`, in `onUnlinked()`) while
-an address typed by hand or taught by another message stays. A decision
+message forgets it (`onUnlinked()`) while an address typed by hand stays —
+and so does one another message filed by a decision teaches too: one row
+exists per address, so it is handed over to that message
+(`repointLearnedEmail()`) rather than deleted. A decision
 then re-examines the mail nobody could attribute
 (`REANALYSIS_AFTER_DECISION`, the rules only), so the treasurer is filed
 once, not on every message.
