@@ -521,17 +521,19 @@ class RentalMessageConsumer implements
     }
 
     /**
-     * What the model reads: who wrote to whom, when, about what — and the
-     * text, which `BookingChoiceByModel` cuts to its own limit.
+     * What the model reads: which way the message went, when, about what —
+     * and the text, which `BookingChoiceByModel` cuts to its own limit.
+     * Never an address: the bookings it chooses between are the same
+     * renter's, or the one a reference names, so an address would tell it
+     * nothing and would be one more personal datum sent out (the RGPD page
+     * lists what is).
      */
     private static function textForModel(InboundMessage $message): string
     {
-        $who = $message->isSent()
-            ? 'Envoyé par l\'unité à : ' . implode(', ', $message->toEmails)
-            : 'De : ' . $message->fromEmail;
+        $direction = $message->isSent() ? 'Envoyé par l\'unité au locataire' : 'Reçu par l\'unité';
 
         return 'Objet : ' . $message->subject . "\n"
-            . $who . "\n"
+            . $direction . "\n"
             . 'Date : ' . $message->sentAt->format('Y-m-d') . "\n\n"
             . $message->bodyText;
     }
@@ -551,7 +553,9 @@ class RentalMessageConsumer implements
             $parts = [
                 $asset?->name,
                 'du ' . $booking->arrivalDate . ' au ' . $booking->departureDate,
-                $booking->renterOrganisation ?? $booking->renterName,
+                // The group, never the renter's own name (the RGPD page
+                // says which fields leave).
+                $booking->renterOrganisation,
                 $booking->status->label(),
             ];
             $options[$booking->reference] = implode(' · ', array_filter($parts));
