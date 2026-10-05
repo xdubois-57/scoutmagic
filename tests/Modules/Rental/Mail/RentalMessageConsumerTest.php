@@ -802,13 +802,67 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertNotInstanceOf(\Modules\InboundMail\Api\PropositionListener::class, $this->plainConsumer());
     }
 
-    private function plainConsumer(): RentalMessageConsumer
+    private function plainConsumer(?\Modules\Rental\Mail\NewMessageNotifier $notifier = null): RentalMessageConsumer
     {
         return new RentalMessageConsumer(
             $this->bookingRepository,
             $this->inboundMail,
             $this->documentService,
-            assetRepository: $this->assetRepository
+            assetRepository: $this->assetRepository,
+            newMessageNotifier: $notifier
+        );
+    }
+
+    // ── « Nouveau message du locataire » (#720) ─────────────────────────
+
+    public function testAMessageFiledUnderABookingIsAnnouncedOnce(): void
+    {
+        $booking = $this->createBooking();
+        $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->expects($this->once())->method('messageFiled')->with(
+            $this->callback(static fn(RentalBooking $b): bool => $b->id === $booking->id)
+        );
+
+        $this->plainConsumer($notifier)->onLinked(
+            $this->storedUnattached(),
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER)
+        );
+    }
+
+    public function testAnAttachmentLevelAssociationIsNotASecondMessage(): void
+    {
+        $booking = $this->createBooking();
+        $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->expects($this->never())->method('messageFiled');
+
+        $this->plainConsumer($notifier)->onLinked(
+            $this->storedUnattached(),
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER, 12)
+        );
+    }
+
+    public function testANotificationThatFailsDoesNotStopTheFiling(): void
+    {
+        // The message is filed whether or not anybody can be told: a push
+        // service down must not surface as a failed association, nor stop
+        // the attachments below it from becoming documents.
+        $booking = $this->createBooking();
+        $notifier = $this->createStub(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->method('messageFiled')->willThrowException(new \RuntimeException('push service down'));
+
+        $this->plainConsumer($notifier)->onLinked(
+            $this->storedUnattached(),
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER)
+        );
+
+        $this->addToAssertionCount(1);
+    }
+
+    private function storedUnattached(): \Modules\InboundMail\Api\InboundMessage
+    {
+        return new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::SENDER, 'Bonjour', 'jeanne@example.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
         );
     }
 

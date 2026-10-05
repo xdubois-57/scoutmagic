@@ -135,10 +135,14 @@ class ModuleManifestTest extends TestCase
      * 1.41.0 makes « Courrier » one booking's own mail on every booking, with
      * « Détacher » final for it, and retires the triage screen, the
      * propositions and their notification (#720, steps 1 and 7).
+     *
+     * 1.42.0 announces a message filed under a booking
+     * (`rental.new_message`) and counts, per person, what they have not
+     * read yet (`rental_booking_mail_reads`) (#720, step 7).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.41.0', $this->manifest->version);
+        $this->assertSame('1.42.0', $this->manifest->version);
     }
 
     /**

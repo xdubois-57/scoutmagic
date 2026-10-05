@@ -241,6 +241,53 @@ class InboundMessageRepository
     }
 
     /**
+     * The id of the newest message-level association with this object —
+     * the position `InboundMailInterface::latestLinkPosition()` hands out.
+     */
+    public function latestLinkId(string $consumerId, string $businessReference): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT MAX(id) FROM inbound_message_links
+              WHERE consumer_id = ? AND business_reference = ? AND attachment_id = 0'
+        );
+        $stmt->execute([$consumerId, $businessReference]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Message-level associations written after each position, by
+     * reference. One query for a whole list of objects: the overview asks
+     * for every booking it shows.
+     *
+     * @param array<string, int> $afterByReference
+     * @return array<string, int>
+     */
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        if ($afterByReference === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($afterByReference), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT business_reference, id FROM inbound_message_links
+              WHERE consumer_id = ? AND attachment_id = 0 AND business_reference IN (' . $placeholders . ')'
+        );
+        $stmt->execute([$consumerId, ...array_map('strval', array_keys($afterByReference))]);
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $reference = (string) $row['business_reference'];
+            if ((int) $row['id'] > ($afterByReference[$reference] ?? PHP_INT_MAX)) {
+                $counts[$reference] = ($counts[$reference] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * Record that no automatic path may file this message under this
      * object again (`inbound_message_exclusions`, #720).
      *

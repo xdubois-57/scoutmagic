@@ -33,6 +33,14 @@ plusieurs, le message doit tomber dans la période de l'une d'elles.
 Quand le site hésite entre plusieurs réservations, il ne rattache
 rien : le message n'apparaît sur aucune, et vous n'avez rien à trier.
 
+## Être prévenu
+
+Un message rattaché à une réservation vous est signalé par la
+notification « Nouveau message du locataire ». L'onglet Courrier affiche
+alors entre parenthèses le nombre de messages à lire, et la vue d'ensemble
+du bien liste la réservation sous « Nouveaux messages ». Ce compte est le vôtre : il retombe quand vous
+ouvrez la page Courrier, pas quand un autre gestionnaire l'ouvre.
+
 ## Détacher
 
 « Détacher » répond à « Ce message ne concerne pas cette réservation ? ».

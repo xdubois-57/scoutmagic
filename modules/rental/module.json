@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.41.0",
+  "version": "1.42.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -1331,6 +1331,18 @@
         "in_app": "default_on",
         "push": "default_on",
         "email": "default_on"
+      }
+    },
+    {
+      "id": "rental.new_message",
+      "label": "Nouveau message du locataire",
+      "description": "Un e-mail reçu vient d'être rattaché à une réservation d'un bien que vous gérez. La notification mène à la page Courrier de la réservation.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
       }
     },
     {

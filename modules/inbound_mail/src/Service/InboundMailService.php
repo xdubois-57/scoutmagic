@@ -101,6 +101,16 @@ class InboundMailService implements InboundMailInterface
         return $this->messageRepository->findForReference($consumerId, $businessReference);
     }
 
+    public function latestLinkPosition(string $consumerId, string $businessReference): int
+    {
+        return $this->messageRepository->latestLinkId($consumerId, $businessReference);
+    }
+
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        return $this->messageRepository->countLinksAfter($consumerId, $afterByReference);
+    }
+
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage
     {
         return $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);

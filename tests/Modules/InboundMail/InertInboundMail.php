@@ -35,6 +35,16 @@ trait InertInboundMail
         return null;
     }
 
+    public function latestLinkPosition(string $consumerId, string $businessReference): int
+    {
+        return 0;
+    }
+
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        return [];
+    }
+
     /**
      * @param int[] $preserveFileIds
      */

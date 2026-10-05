@@ -554,6 +554,24 @@ function scoutmagicBootstrapScheduler(
                             $settingService,
                             $journalService,
                             $storagePath
+                        ),
+                        // THIS is the path that tells the managers of a new
+                        // message (#720): the relève runs from the
+                        // scheduler. Null without a notification service.
+                        newMessageNotifier: $notificationService === null ? null : new \Modules\Rental\Mail\NewMessageNotifier(
+                            $notificationService,
+                            new \Modules\Rental\Service\ManagerRecipientResolver(
+                                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+                                new \Core\Import\MemberYearRepository($pdo),
+                                $userAccountRepo,
+                                $journalService,
+                                \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+                                    new \Core\Member\Repository\SectionRepository(\Core\Database\Connection::withPdo($pdo)),
+                                    new \Core\Import\MemberYearRepository($pdo),
+                                    new \Core\Config\ScoutYearService($pdo)
+                                )
+                            ),
+                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService)
                         )
                     ));
                 }

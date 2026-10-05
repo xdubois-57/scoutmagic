@@ -93,12 +93,36 @@
                             {% include '@rental/management/_attention_row.html.twig' with {
                                 attention: attention,
                                 asset: asset,
+                                unread: mail_unread[attention.booking.id]|default(0),
                             } only %}
                         {% endfor %}
                     </div>
                 {% endif %}
             </div>
         </div>
+
+        {% if unread_bookings is not empty %}
+            {# Per person (#720): what was filed under each booking since
+               the one reading this page last opened its « Courrier ». #}
+            <div class="card mb-4" data-unread-mail>
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Nouveaux messages</h2>
+                    <ul class="list-unstyled mb-0">
+                        {% for booking in unread_bookings %}
+                            {% set count = mail_unread[booking.id] %}
+                            <li class="mb-2 text-break">
+                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/courrier" class="link-body-emphasis text-decoration-none">
+                                    {% include '@rental/management/_renter_line.html.twig' with { booking: booking } only %}
+                                </a>
+                                <span class="text-body-secondary small d-block">
+                                    {{ booking.reference }} · {{ count }} nouveau{{ count > 1 ? 'x' : '' }} message{{ count > 1 ? 's' : '' }}
+                                </span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        {% endif %}
 
         {% if in_progress is not empty %}
             <div class="card mb-4">

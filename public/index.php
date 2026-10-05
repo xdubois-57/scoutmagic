@@ -12013,7 +12013,14 @@ if ($isEnabled('rental')) {
                     AuthSession::isAuthenticated() ? AuthSession::getEmail() : null,
                     // « Rattacher à… » on the chief's screen names a
                     // booking by its asset (Api\ReferenceDirectory).
-                    $rentalAssetRepository
+                    $rentalAssetRepository,
+                    // A message filed by hand from the unit's general mail
+                    // is announced like one the rules filed (#720).
+                    new \Modules\Rental\Mail\NewMessageNotifier(
+                        $notificationService,
+                        $rentalManagerRecipients,
+                        $rentalAssetRepository
+                    )
                 )
         );
     }
@@ -12043,7 +12050,9 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $journalService,
             $inboundMailForOthers,
-            $fileRepository
+            $fileRepository,
+            // The « non lus » badges of the bookings' mail (#720).
+            new \Modules\Rental\Repository\RentalMailReadRepository($pdo)
         );
     }
 

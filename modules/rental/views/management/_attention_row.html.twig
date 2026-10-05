@@ -16,7 +16,8 @@
 
   Requires `attention` (Booking\BookingAttention) and `asset`.
   Optional: `show_asset_name` — « Gérer mes locations » spans several assets and
-  has to name them; an asset's own overview does not.
+  has to name them; an asset's own overview does not. `unread` — the messages
+  filed since the reader last opened the booking's « Courrier » (#720).
 #}
 <a href="/mes-locations/{{ asset.slug }}/reservations/{{ attention.booking.id }}"
    class="list-group-item list-group-item-action px-0">
@@ -34,6 +35,14 @@
                 </span>
             {% endfor %}
         </span>
-        {% include '@rental/_status_badge.html.twig' with { status: attention.booking.status } only %}
+        <span class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+            {% include '@rental/_status_badge.html.twig' with { status: attention.booking.status } only %}
+            {% if unread|default(0) > 0 %}
+                <span class="badge text-bg-primary" data-unread-badge>
+                    <i class="bi bi-envelope" aria-hidden="true"></i>
+                    {{ unread }}<span class="visually-hidden"> nouveau{{ unread > 1 ? 'x' : '' }} message{{ unread > 1 ? 's' : '' }}</span>
+                </span>
+            {% endif %}
+        </span>
     </div>
 </a>

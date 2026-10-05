@@ -95,7 +95,14 @@ class RentalMessageConsumer implements
          * reached through its asset's slug. Null on the scheduled path,
          * where nobody searches.
          */
-        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null
+        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null,
+        /**
+         * Who tells the asset's managers that a message was filed under one
+         * of its bookings (« Nouveau message du locataire », #720). Null:
+         * nobody is told, and the message is on the booking's page all the
+         * same.
+         */
+        private ?NewMessageNotifier $newMessageNotifier = null
     ) {
     }
 
@@ -385,6 +392,8 @@ class RentalMessageConsumer implements
             $this->learnFrom($message, $booking);
         }
 
+        $this->announce($booking, $link);
+
         if ($message->attachments === []) {
             return;
         }
@@ -414,6 +423,28 @@ class RentalMessageConsumer implements
                 null,
                 RentalDocument::SOURCE_EMAIL
             );
+        }
+    }
+
+    /**
+     * « Nouveau message du locataire » (#720), once per message filed under
+     * the booking — the association of the message itself, not one per
+     * attachment.
+     *
+     * Never in the way of the filing: a notification that cannot go out is
+     * the notification system's to journal, and the attachments below must
+     * still become documents of the booking.
+     */
+    private function announce(RentalBooking $booking, MessageLink $link): void
+    {
+        if ($this->newMessageNotifier === null || $link->attachmentId !== 0) {
+            return;
+        }
+
+        try {
+            $this->newMessageNotifier->messageFiled($booking);
+        } catch (\Throwable) {
+            // See above: the message is filed whether or not anybody is told.
         }
     }
 
