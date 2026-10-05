@@ -119,8 +119,20 @@ class CandidateMessage
          * clean bill of health, which is the one answer a deliverability
          * measurement must never invent.
          */
-        public readonly ?string $folder = null
+        public readonly ?string $folder = null,
+        /**
+         * Received, or sent from the box (#720): read in its « Envoyés »
+         * folder. Only a consumer implementing `HandlesOutboundMail` is
+         * ever handed a sent one — for it, the person the message concerns
+         * is among the recipients, not the sender.
+         */
+        public readonly MessageDirection $direction = MessageDirection::RECEIVED
     ) {
+    }
+
+    public function isSent(): bool
+    {
+        return $this->direction === MessageDirection::SENT;
     }
 
     /**

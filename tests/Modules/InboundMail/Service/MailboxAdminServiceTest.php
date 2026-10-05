@@ -230,6 +230,41 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertSame(SyncState::OK, $mailbox->syncState);
     }
 
+    public function testATestNamesTheSentFolderTheServerMarks(): void
+    {
+        // So the operator sees at once whether « Dossier des envoyés » needs
+        // filling at all (#720).
+        $id = $this->createMailbox();
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+        $this->client->markSent('Envoyés');
+
+        $result = $this->service->testConnection($id, new \DateTimeImmutable('2027-07-12 10:00:00'));
+
+        $this->assertSame(['INBOX', 'Envoyés'], $result['folders']);
+        $this->assertSame('Envoyés', $result['sent_folder'] ?? null);
+        $this->assertStringContainsString('Dossier des envoyés reconnu : « Envoyés ».', $result['message']);
+    }
+
+    public function testATestOnAServerThatMarksNoneSaysNothingOfIt(): void
+    {
+        $id = $this->createMailbox();
+        $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+
+        $result = $this->service->testConnection($id, new \DateTimeImmutable('2027-07-12 10:00:00'));
+
+        $this->assertNull($result['sent_folder'] ?? null);
+        $this->assertStringNotContainsString('envoyés', $result['message']);
+    }
+
+    public function testTheSentFolderTheOperatorNamesIsKeptAndABlankOneClearsIt(): void
+    {
+        $id = $this->service->create('X', 'imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true, ' INBOX.Sent ');
+        $this->assertSame('INBOX.Sent', $this->repository->findById($id)?->sentFolder);
+
+        $this->service->update($id, 'X', 'imap.test', 993, 'ssl', 'x@unite.be', '', [], true, '');
+        $this->assertNull($this->repository->findById($id)?->sentFolder);
+    }
+
     public function testAFailedTestLeavesTheSameTraceAFailedSyncWould(): void
     {
         // An operator should not have to work out which of the two produced
