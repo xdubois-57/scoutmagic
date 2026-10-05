@@ -2421,7 +2421,10 @@ that eventually went out, or still did not, however many clicks it took.
 The entry is claimed first by a conditional write (`claimForRetry()`,
 failed → sending), so of two clicks arriving together only one sends; a
 claim abandoned by a request that died counts as failed again after
-`SentEmail::STALE_CLAIM_MINUTES`. The page shows the plain
+`SentEmail::STALE_CLAIM_MINUTES`. A resend is the first send that worked,
+so it records what that send would have: its documents are marked sent, a
+contract takes the booking to « Contrat envoyé » — and a contract voided
+since is refused, as on the Documents page. The page shows the plain
 text, never the stored HTML, in its own dialog — so the sent half needs
 nothing of `inbound_mail` and is there without it.
 

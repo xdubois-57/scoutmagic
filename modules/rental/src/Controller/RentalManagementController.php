@@ -1389,25 +1389,57 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
             }
 
+            /** @var list<\Modules\Rental\Document\RentalDocument> $documents */
+            $documents = [];
             try {
                 $this->mailService->resend(
                     $sent,
                     $booking,
                     $this->bookingService?->trackingTokenFor($booking->id),
-                    function (int $documentId) use ($booking): ?array {
+                    function (int $documentId) use ($booking, &$documents): ?array {
                         $document = $this->documentService?->find($documentId);
                         if ($document === null || $document->bookingId !== $booking->id) {
                             return null;
                         }
+                        // The same refusal as the Documents page's own
+                        // « Renvoyer » (sendDocument()): a void contract
+                        // describes a booking that no longer exists.
+                        if ($document->isSuperseded()) {
+                            throw new RentalException(
+                                'Ce document a été remplacé : la réservation a changé depuis. '
+                                    . 'Générez-en une nouvelle version et envoyez-la.'
+                            );
+                        }
                         $path = $this->documentService->absolutePath($document);
+                        if ($path === null) {
+                            return null;
+                        }
+                        $documents[] = $document;
 
-                        return $path === null ? null : ['path' => $path, 'name' => $document->originalName ?? 'document.pdf'];
+                        return ['path' => $path, 'name' => $document->originalName ?? 'document.pdf'];
                     }
                 );
             } catch (RentalException $e) {
                 throw $e;
             } catch (\Throwable) {
                 throw new RentalException("L'e-mail n'a pas pu partir. Il reste « Non envoyé » ; réessayez plus tard.");
+            }
+
+            // What a first send that worked would have recorded
+            // (sendDocument()): the document went out, and a contract makes
+            // the booking « Contrat envoyé » — without it the renter could
+            // not hand in the copy the e-mail asks them to sign.
+            $now = new \DateTimeImmutable();
+            foreach ($documents as $document) {
+                $this->documentService?->markSent($document->id, $now);
+                if ($document->type === DocumentType::CONTRACT) {
+                    $this->operationsService->contractSent(
+                        $booking,
+                        $this->actorMemberId(),
+                        $now,
+                        $this->contractHoldMinDays()
+                    );
+                }
             }
 
             FlashMessage::set('success', 'E-mail renvoyé.');
