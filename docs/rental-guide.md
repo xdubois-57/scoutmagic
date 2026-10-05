@@ -329,11 +329,20 @@ ouvrir une. Seuls les e-mails arrivés dans une boîte de l'unité y
 figurent : un e-mail écrit depuis une adresse personnelle n'y apparaît
 pas.
 
+Ce qu'un membre de l'unité écrit au locataire **depuis une boîte de
+l'unité** y figure aussi, marqué « Envoyé » et adressé « À : » le
+locataire : le site lit le dossier des envoyés de ces boîtes. Il ne
+garde que les e-mails qu'il rattache à une réservation ; le reste du
+courrier envoyé de l'unité n'entre pas sur le site. Un e-mail du site
+n'apparaît jamais deux fois, même quand la boîte en garde une copie.
+
 Le rattachement se fait d'abord par l'**adresse de réponse signée** que
 portait l'e-mail du site, puis par la **référence** dans le sujet — quand
 c'est le locataire qui écrit —, puis par la **conversation**, puis, à
 défaut, par l'**adresse de l'expéditeur** si le message tombe dans une
-fenêtre autour du séjour. **En cas d'ambiguïté, rien n'est rattaché** :
+fenêtre autour du séjour. Un e-mail envoyé suit les mêmes règles, en
+lisant ses **destinataires** au lieu de l'expéditeur. **En cas
+d'ambiguïté, rien n'est rattaché** :
 le message n'apparaît sur aucune réservation, et personne n'a de tri à
 faire. Mieux vaut un e-mail qui reste dans la boîte qu'un e-mail dans le
 mauvais dossier.

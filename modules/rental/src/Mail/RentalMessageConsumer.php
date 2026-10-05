@@ -11,6 +11,7 @@ namespace Modules\Rental\Mail;
 use Core\Service\DateInput;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\HandlesOutboundMail;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
@@ -59,7 +60,8 @@ use Modules\Rental\Service\RentalDocumentService;
  */
 class RentalMessageConsumer implements
     MessageConsumerInterface,
-    ReferenceDirectory
+    ReferenceDirectory,
+    HandlesOutboundMail
 {
     public const CONSUMER_ID = 'rental';
 
@@ -189,6 +191,10 @@ class RentalMessageConsumer implements
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
+        if ($message->isSent()) {
+            return $this->analyzeSent($message);
+        }
+
         // Which boxes this module reads is the mailbox configuration's
         // answer (§8.58, `Service\MailboxScopeService`): a consumer is
         // only ever handed the messages of a box it was opened to. The
@@ -243,22 +249,87 @@ class RentalMessageConsumer implements
     }
 
     /**
-     * The sender-and-window level, which produces a link when it is sure
-     * and **nothing when it is not** (#720).
+     * A message the unit SENT, read in its box's « Envoyés » (#720).
      *
-     * Several bookings of the same renter in range mean no association: a
-     * renter's email on whichever of their two bookings sorted first is
-     * worse than none, because the manager reading the wrong file has no
-     * way to know. Nobody is asked to pick either — the propositions that
-     * once did are gone, with the screen that showed them.
+     * The same levels as for received mail, turned around: the person it
+     * concerns is among the recipients, not the sender — the sender is the
+     * unit. There is no signed reply address to read: that is something
+     * the renter writes TO.
+     *
+     * **A copy of an e-mail the site sent is recognised first, and filed
+     * nowhere.** Some providers file what the site sends through the box
+     * in « Envoyés »; the booking's page already shows that e-mail from
+     * the site's own log, with its document and « Renvoyer », and a second
+     * entry for the same e-mail would only be noise. The site minted its
+     * Message-ID, so this is certain.
      */
-    private function fromSender(CandidateMessage $message): AnalysisResult
+    private function analyzeSent(CandidateMessage $message): AnalysisResult
     {
-        if ($message->fromEmail === '') {
+        if ($message->messageId !== '' && $this->inboundMail->wasSentByThisSite(self::CONSUMER_ID, $message->messageId)) {
             return AnalysisResult::nothing();
         }
 
-        $all = $this->bookingRepository->findByRenterEmail($message->fromEmail);
+        $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
+        $referenced = $reference !== null ? $this->bookingRepository->findByReference($reference) : null;
+        if ($referenced !== null) {
+            foreach ($message->toEmails as $recipient) {
+                if ($this->isRenterOf($referenced, $recipient)) {
+                    return AnalysisResult::linkedTo(self::CONSUMER_ID, $referenced->reference, LinkOrigin::REFERENCE);
+                }
+            }
+
+            // A reference quoted to somebody who is not the renter — the
+            // caretaker, the insurer — is not the renter's correspondence.
+            return AnalysisResult::nothing();
+        }
+
+        $threaded = $this->inboundMail->findReferenceByThread(
+            self::CONSUMER_ID,
+            $message->mailboxId,
+            $message->threadMessageIds()
+        );
+        if ($threaded !== null) {
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $threaded, LinkOrigin::THREAD);
+        }
+
+        return $this->byAddress($message->toEmails, $message->sentAt, LinkOrigin::RECIPIENT);
+    }
+
+    /**
+     * The sender-and-window level, which produces a link when it is sure
+     * and **nothing when it is not** (#720).
+     */
+    private function fromSender(CandidateMessage $message): AnalysisResult
+    {
+        return $this->byAddress([$message->fromEmail], $message->sentAt, LinkOrigin::SENDER);
+    }
+
+    /**
+     * The address-and-window level: the sender of a received message, the
+     * recipients of a sent one.
+     *
+     * Several bookings in range mean no association: a renter's email on
+     * whichever of their two bookings sorted first is worse than none,
+     * because the manager reading the wrong file has no way to know. Nobody
+     * is asked to pick either — the propositions that once did are gone,
+     * with the screen that showed them. Two recipients who are each the
+     * renter of a booking are two bookings, and the same answer.
+     *
+     * @param string[] $emails
+     */
+    private function byAddress(array $emails, \DateTimeImmutable $sentAt, LinkOrigin $origin): AnalysisResult
+    {
+        $all = [];
+        foreach ($emails as $email) {
+            if (trim($email) === '') {
+                continue;
+            }
+
+            foreach ($this->bookingRepository->findByRenterEmail($email) as $booking) {
+                $all[$booking->id] = $booking;
+            }
+        }
+        $all = array_values($all);
         if ($all === []) {
             return AnalysisResult::nothing();
         }
@@ -270,23 +341,23 @@ class RentalMessageConsumer implements
         // what tells two bookings apart, and it has nothing to tell here.
         $alive = array_values(array_filter($all, static fn(RentalBooking $booking): bool => self::isAlive($booking)));
         if (count($alive) === 1 && count($all) === 1) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, $alive[0]->reference, LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $alive[0]->reference, $origin);
         }
 
         $inWindow = array_values(array_filter(
             $all,
-            fn(RentalBooking $booking) => $this->covers($booking, $message->sentAt)
+            fn(RentalBooking $booking) => $this->covers($booking, $sentAt)
         ));
 
         // Among several in the window, the ones the unit refused,
         // cancelled or let lapse do not compete with the live one.
         $liveInWindow = array_values(array_filter($inWindow, static fn(RentalBooking $b): bool => self::isAlive($b)));
         if (count($liveInWindow) === 1) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, $liveInWindow[0]->reference, LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $liveInWindow[0]->reference, $origin);
         }
 
         if (count($inWindow) === 1) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, $inWindow[0]->reference, LinkOrigin::SENDER);
+            return AnalysisResult::linkedTo(self::CONSUMER_ID, $inWindow[0]->reference, $origin);
         }
 
         // None in the window, or several: nothing is filed.
@@ -388,11 +459,16 @@ class RentalMessageConsumer implements
             return;
         }
 
-        if ($link->origin === LinkOrigin::MANUAL) {
-            $this->learnFrom($message, $booking);
-        }
+        // What the unit sent is neither news to its managers nor a new
+        // address of the renter's: the sender of a sent message is the
+        // unit itself.
+        if (!$message->isSent()) {
+            if ($link->origin === LinkOrigin::MANUAL) {
+                $this->learnFrom($message, $booking);
+            }
 
-        $this->announce($booking, $link);
+            $this->announce($booking, $link);
+        }
 
         if ($message->attachments === []) {
             return;

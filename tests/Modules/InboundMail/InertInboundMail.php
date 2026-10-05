@@ -83,6 +83,11 @@ trait InertInboundMail
     {
     }
 
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool
+    {
+        return false;
+    }
+
     public function purgeReference(string $consumerId, string $businessReference): int
     {
         return 0;
