@@ -112,6 +112,8 @@
                                             <div class="fw-semibold">
                                                 {% if sent.failed %}
                                                     <span class="badge text-bg-danger me-1">Non envoyé</span>
+                                                {% elseif sent.beingResent %}
+                                                    <span class="badge text-bg-warning me-1">Renvoi en cours</span>
                                                 {% else %}
                                                     <span class="badge bg-body-tertiary border text-body-secondary me-1">Envoyé</span>
                                                 {% endif %}

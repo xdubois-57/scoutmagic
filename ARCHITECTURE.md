@@ -2432,7 +2432,11 @@ sends the logged text again with the booking's CURRENT link in place of
 the mask and the documents re-read from disk, refusing in French when the
 link or a document is gone. It updates the entry it retries
 (`recordAttempt()`) rather than adding one: the page shows one e-mail
-that eventually went out, or still did not, however many clicks it took. The page shows the plain
+that eventually went out, or still did not, however many clicks it took.
+The entry is claimed first by a conditional write (`claimForRetry()`,
+failed → sending), so of two clicks arriving together only one sends; a
+claim abandoned by a request that died counts as failed again after
+`SentEmail::STALE_CLAIM_MINUTES`. The page shows the plain
 text, never the stored HTML, in its own dialog — so the sent half needs
 nothing of `inbound_mail` and is there without it.
 

@@ -92,6 +92,33 @@ class RentalSentEmailRepository
     }
 
     /**
+     * Take a failed e-mail for a new attempt, atomically: true for the one
+     * request that changed it from failed to sending, false for every
+     * other. A claim older than `SentEmail::STALE_CLAIM_MINUTES` — a
+     * request that died between claiming and recording — may be taken
+     * again, so an e-mail is never stuck out of reach of « Renvoyer ».
+     */
+    public function claimForRetry(int $id, \DateTimeImmutable $now): bool
+    {
+        $stale = $now->modify('-' . SentEmail::STALE_CLAIM_MINUTES . ' minutes');
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_booking_sent_emails
+                SET status = ?, sent_at = ?
+              WHERE id = ? AND (status = ? OR (status = ? AND sent_at < ?))'
+        );
+        $stmt->execute([
+            SentEmail::STATUS_SENDING,
+            $now->format('Y-m-d H:i:s'),
+            $id,
+            SentEmail::STATUS_FAILED,
+            SentEmail::STATUS_SENDING,
+            $stale->format('Y-m-d H:i:s'),
+        ]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
      * A new attempt at an e-mail already in the log (« Renvoyer »): the
      * same row, so the page shows one e-mail that eventually went out, or
      * still did not — never a second entry per click. The text and the

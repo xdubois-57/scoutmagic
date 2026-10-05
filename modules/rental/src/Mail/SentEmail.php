@@ -19,6 +19,15 @@ final class SentEmail
     public const STATUS_FAILED = 'failed';
 
     /**
+     * A failed e-mail one « Renvoyer » has claimed and is sending now
+     * (`RentalSentEmailRepository::claimForRetry()`). Only ever for the
+     * length of a request; a claim older than this is a request that died
+     * before recording, and counts as failed again.
+     */
+    public const STATUS_SENDING = 'sending';
+    public const STALE_CLAIM_MINUTES = 15;
+
+    /**
      * Where the tracking link stood in the stored text: a credential is
      * never kept, and « Renvoyer » puts the booking's current link back.
      * Chosen to appear in no e-mail anybody writes.
@@ -46,9 +55,24 @@ final class SentEmail
     ) {
     }
 
-    public function failed(): bool
+    /**
+     * Did not go out — including a « Renvoyer » that claimed it and never
+     * came back to say how it ended.
+     */
+    public function failed(?\DateTimeImmutable $now = null): bool
     {
-        return $this->status === self::STATUS_FAILED;
+        if ($this->status === self::STATUS_FAILED) {
+            return true;
+        }
+
+        return $this->status === self::STATUS_SENDING
+            && $this->sentAt < ($now ?? new \DateTimeImmutable())->modify('-' . self::STALE_CLAIM_MINUTES . ' minutes');
+    }
+
+    /** Being sent again right now, by another request. */
+    public function beingResent(?\DateTimeImmutable $now = null): bool
+    {
+        return $this->status === self::STATUS_SENDING && !$this->failed($now);
     }
 
     public function carriesTheTrackingLink(): bool
