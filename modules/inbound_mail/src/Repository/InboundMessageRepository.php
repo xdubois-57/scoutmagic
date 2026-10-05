@@ -16,6 +16,7 @@ use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
+use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\OmittedAttachment;
 
@@ -105,7 +106,8 @@ class InboundMessageRepository
         \DateTimeImmutable $sentAt,
         array $toEmails = [],
         bool $isBulk = false,
-        ?string $rawHeaders = null
+        ?string $rawHeaders = null,
+        MessageDirection $direction = MessageDirection::RECEIVED
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
@@ -113,8 +115,8 @@ class InboundMessageRepository
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
                  in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted,
-                 raw_headers_encrypted, sent_at, is_bulk)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 raw_headers_encrypted, sent_at, is_bulk, direction)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -139,6 +141,7 @@ class InboundMessageRepository
                 : $this->encryption->encrypt(RawHeaderBlock::bounded($rawHeaders), 'inbound_messages.raw_headers'),
             $sentAt->format('Y-m-d H:i:s'),
             $isBulk ? 1 : 0,
+            $direction->value,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -258,7 +261,8 @@ class InboundMessageRepository
     /**
      * Message-level associations written after each position, by
      * reference. One query for a whole list of objects: the overview asks
-     * for every booking it shows.
+     * for every booking it shows. Only received messages count: what the
+     * unit itself sent is never news to anyone.
      *
      * @param array<string, int> $afterByReference
      * @return array<string, int>
@@ -271,10 +275,16 @@ class InboundMessageRepository
 
         $placeholders = implode(',', array_fill(0, count($afterByReference), '?'));
         $stmt = $this->pdo->prepare(
-            'SELECT business_reference, id FROM inbound_message_links
-              WHERE consumer_id = ? AND attachment_id = 0 AND business_reference IN (' . $placeholders . ')'
+            'SELECT l.business_reference, l.id FROM inbound_message_links l
+               JOIN inbound_messages m ON m.id = l.message_id
+              WHERE l.consumer_id = ? AND l.attachment_id = 0 AND m.direction = ?
+                AND l.business_reference IN (' . $placeholders . ')'
         );
-        $stmt->execute([$consumerId, ...array_map('strval', array_keys($afterByReference))]);
+        $stmt->execute([
+            $consumerId,
+            MessageDirection::RECEIVED->value,
+            ...array_map('strval', array_keys($afterByReference)),
+        ]);
 
         $counts = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
@@ -985,6 +995,20 @@ class InboundMessageRepository
             // The unique index: the same id recorded twice is the state
             // the caller asked for.
         }
+    }
+
+    public function isOutboundMessageId(string $consumerId, string $messageId): bool
+    {
+        if (trim($messageId, "<> \t") === '') {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_outbound_message_ids WHERE consumer_id = ? AND message_id_blind_index = ? LIMIT 1'
+        );
+        $stmt->execute([$consumerId, $this->messageIdIndex($messageId)]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     // ── Deletion ────────────────────────────────────────────────────────
@@ -2154,7 +2178,8 @@ class InboundMessageRepository
             rawHeaders: ($row['raw_headers_encrypted'] ?? null) !== null
                 ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
                 : null,
-            isBulk: (bool) ($row['is_bulk'] ?? false)
+            isBulk: (bool) ($row['is_bulk'] ?? false),
+            direction: MessageDirection::tryFrom((string) ($row['direction'] ?? '')) ?? MessageDirection::RECEIVED
         );
     }
 

@@ -263,10 +263,6 @@ class RentalBookingMailService
     }
 
     /**
-     * A fresh Message-ID for a message about this booking, remembered so
-     * the reply to it is recognised.
-     */
-    /**
      * The signed reply address of this booking (§8.58), so a bare
      * « Répondre » comes back naming it — null without `inbound_mail`,
      * when the operator turned it off, or when no box can receive it,
@@ -286,6 +282,12 @@ class RentalBookingMailService
         );
     }
 
+    /**
+     * A fresh Message-ID for a message about this booking, remembered so
+     * the reply to it is recognised — and so its copy in the box's
+     * « Envoyés », if the provider files one there, is known for what it
+     * is (#720).
+     */
     private function messageIdFor(RentalBooking $booking): string
     {
         $messageId = $this->newMessageId();
