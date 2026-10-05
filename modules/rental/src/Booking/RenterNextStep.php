@@ -26,7 +26,8 @@ use Core\Service\DateInput;
  * renter's, and says what, where and by when when there is a date.
  * `RenterNextStepTest` walks every step key and every status.
  *
- * Pure: the booking, the journey and the payment status are handed in.
+ * Pure: the booking, the journey, the payment status and the clock are
+ * handed in.
  */
 final class RenterNextStep
 {
@@ -40,9 +41,13 @@ final class RenterNextStep
     /**
      * @param array<string, mixed> $payment `RentalPaymentService::statusFor()`
      */
-    public static function of(RentalBooking $booking, BookingJourney $journey, array $payment = []): self
-    {
-        $byStatus = self::forStatus($booking);
+    public static function of(
+        RentalBooking $booking,
+        BookingJourney $journey,
+        \DateTimeImmutable $now,
+        array $payment = []
+    ): self {
+        $byStatus = self::forStatus($booking, $now);
         if ($byStatus !== null) {
             return $byStatus;
         }
@@ -52,7 +57,7 @@ final class RenterNextStep
             return new self('Rien à faire de votre côté : tout est en ordre.');
         }
 
-        return self::forStep($next->key, $booking, $payment);
+        return self::forStep($next->key, $booking, $now, $payment);
     }
 
     /**
@@ -60,15 +65,15 @@ final class RenterNextStep
      * answer the renter owes, or a file that will not move again. Null for
      * the others, whose next step speaks.
      */
-    public static function forStatus(RentalBooking $booking): ?self
+    public static function forStatus(RentalBooking $booking, \DateTimeImmutable $now): ?self
     {
         return match ($booking->status) {
             BookingStatus::INFO_REQUESTED => new self(
-                'À vous : répondez à notre question depuis votre page de suivi.' . self::hold($booking),
+                'À vous : répondez à notre question depuis votre page de suivi.' . self::hold($booking, $now),
                 true
             ),
             BookingStatus::PROPOSED => new self(
-                'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.' . self::hold($booking),
+                'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.' . self::hold($booking, $now),
                 true
             ),
             BookingStatus::REFUSED => new self("Rien à faire de votre côté : votre demande n'a pas pu être acceptée."),
@@ -88,8 +93,12 @@ final class RenterNextStep
      * @throws \LogicException for a step nobody wrote a sentence for —
      *   `RenterNextStepTest` fails first
      */
-    public static function forStep(string $key, RentalBooking $booking, array $payment = []): self
-    {
+    public static function forStep(
+        string $key,
+        RentalBooking $booking,
+        \DateTimeImmutable $now,
+        array $payment = []
+    ): self {
         $waiting = "Rien à faire de votre côté pour l'instant : ";
         $securityDeposit = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
 
@@ -99,9 +108,9 @@ final class RenterNextStep
                     $waiting . ($booking->status === BookingStatus::RECEIVED
                         ? 'nous étudions votre demande et vous enverrons le contrat.'
                         : 'nous préparons votre contrat et vous l\'enverrons.')
-                    . self::hold($booking)
+                    . self::hold($booking, $now)
                 ),
-            BookingMilestones::SIGNED_COPY_RECEIVED => self::signContract($booking),
+            BookingMilestones::SIGNED_COPY_RECEIVED => self::signContract($booking, $now),
             BookingMilestones::CONTRACT_COUNTERSIGNED => new self(
                 $waiting . 'nous vérifions votre copie signée et vous renverrons le contrat signé par les deux parties.'
             ),
@@ -114,7 +123,7 @@ final class RenterNextStep
                 $waiting . ($booking->status === BookingStatus::RECEIVED
                     ? 'nous étudions votre demande et vous écrirons dès qu\'elle est confirmée.'
                     : 'nous confirmons votre réservation et vous écrirons dès que c\'est fait.')
-                . self::hold($booking)
+                . self::hold($booking, $now)
             ),
             BookingMilestones::BALANCE_RECEIVED => self::pay(
                 'le solde',
@@ -150,11 +159,15 @@ final class RenterNextStep
      * The contract's own e-mail passes the hold it is about to set: the
      * booking still carries the one before.
      */
-    public static function signContract(RentalBooking $booking, ?\DateTimeImmutable $holdUntil = null): self
+    public static function signContract(
+        RentalBooking $booking,
+        \DateTimeImmutable $now,
+        ?\DateTimeImmutable $holdUntil = null
+    ): self
     {
         $hold = $holdUntil !== null
             ? " Les dates vous sont réservées jusqu'au " . $holdUntil->format('d/m/Y') . '.'
-            : self::hold($booking);
+            : self::hold($booking, $now);
 
         return new self(
             'À vous : signez le contrat et déposez votre copie signée sur votre page de suivi.' . $hold,
@@ -184,10 +197,14 @@ final class RenterNextStep
         );
     }
 
-    /** « Les dates vous sont réservées jusqu'au … » while they are held. */
-    private static function hold(RentalBooking $booking): string
+    /**
+     * « Les dates vous sont réservées jusqu'au … » while they are held, and
+     * not a day longer: a lapsed hold must not be promised to the renter
+     * while the manager's « Cycle de vie » says the dates are free (IT-01).
+     */
+    private static function hold(RentalBooking $booking, \DateTimeImmutable $now): string
     {
-        return $booking->holdUntil !== null && $booking->status !== BookingStatus::CONFIRMED
+        return $booking->holdIsActive($now) && $booking->status !== BookingStatus::CONFIRMED
             ? " Les dates vous sont réservées jusqu'au " . $booking->holdUntil->format('d/m/Y') . '.'
             : '';
     }

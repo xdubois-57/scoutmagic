@@ -129,6 +129,7 @@ class RentalJourneyService
         return RenterNextStep::of(
             $booking,
             BookingJourney::of($this->milestones($booking, $asset, $now, null, $payment), $booking->status),
+            $now,
             $payment
         );
     }

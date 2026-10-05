@@ -349,7 +349,7 @@ class RentalBookingMailService
             'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
             'hold_until' => $holdUntil !== null ? $holdUntil->format('d/m/Y') : '',
-        ], RenterNextStep::signContract($booking, $holdUntil));
+        ], RenterNextStep::signContract($booking, new \DateTimeImmutable(), $holdUntil));
 
         $this->mailService->send(
             $booking->renterEmail,

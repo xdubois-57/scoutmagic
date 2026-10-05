@@ -64,16 +64,22 @@ final class RenterNextStepTest extends TestCase
     private function journey(RentalBooking $booking, array $extras = [], array $manual = []): BookingJourney
     {
         return BookingJourney::of(
-            BookingMilestones::for($booking, new \DateTimeImmutable('2027-01-10 12:00:00'), $extras, [], [], $manual),
+            BookingMilestones::for($booking, $this->now(), $extras, [], [], $manual),
             $booking->status
         );
+    }
+
+    private function now(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2027-01-10 12:00:00');
     }
 
     /** Every step the checklist knows has its sentence — no step falls through. */
     public function testEveryStepHasASentenceInTheRentersWords(): void
     {
         foreach (array_keys(BookingMilestones::ACTORS) as $key) {
-            $sentence = RenterNextStep::forStep($key, $this->booking(BookingStatus::CONFIRMED))->sentence;
+            $booking = $this->booking(BookingStatus::CONFIRMED);
+            $sentence = RenterNextStep::forStep($key, $booking, $this->now())->sentence;
 
             $this->assertNotSame('', $sentence, $key);
             $this->assertMatchesRegularExpression('/^(À vous|Rien à faire)/u', $sentence, $key);
@@ -86,7 +92,7 @@ final class RenterNextStepTest extends TestCase
     {
         foreach (BookingStatus::cases() as $status) {
             $booking = $this->booking($status);
-            $sentence = RenterNextStep::of($booking, $this->journey($booking))->sentence;
+            $sentence = RenterNextStep::of($booking, $this->journey($booking), $this->now())->sentence;
 
             $this->assertMatchesRegularExpression('/^(À vous|Rien à faire)/u', $sentence, $status->value);
         }
@@ -96,7 +102,11 @@ final class RenterNextStepTest extends TestCase
     {
         $booking = $this->booking(BookingStatus::RECEIVED, '2027-02-01');
 
-        $step = RenterNextStep::of($booking, $this->journey($booking, [BookingMilestones::CONTRACT_GENERATED => false]));
+        $step = RenterNextStep::of(
+            $booking,
+            $this->journey($booking, [BookingMilestones::CONTRACT_GENERATED => false]),
+            $this->now()
+        );
 
         $this->assertSame(
             "Rien à faire de votre côté pour l'instant : nous étudions votre demande et vous enverrons le contrat."
@@ -114,7 +124,7 @@ final class RenterNextStepTest extends TestCase
             BookingMilestones::CONTRACT_GENERATED => true,
             BookingMilestones::CONTRACT_SENT => true,
             BookingMilestones::SIGNED_COPY_RECEIVED => false,
-        ]));
+        ]), $this->now());
 
         $this->assertSame(
             'À vous : signez le contrat et déposez votre copie signée sur votre page de suivi.'
@@ -127,16 +137,46 @@ final class RenterNextStepTest extends TestCase
     /** The contract's own e-mail names the hold it is about to set. */
     public function testTheContractsEmailNamesTheHoldItSets(): void
     {
-        $step = RenterNextStep::signContract($this->booking(), new \DateTimeImmutable('2027-03-01'));
+        $step = RenterNextStep::signContract($this->booking(), $this->now(), new \DateTimeImmutable('2027-03-01'));
 
         $this->assertStringEndsWith("jusqu'au 01/03/2027.", $step->sentence);
+    }
+
+    /**
+     * A hold that has run out is not promised any more: the manager's
+     * « Cycle de vie » says the dates are free, and the renter must not be
+     * told they are reserved until a day already past (IT-01).
+     */
+    public function testALapsedHoldIsNoLongerPromised(): void
+    {
+        $lapsed = $this->booking(BookingStatus::RECEIVED, '2027-01-08');
+        $step = RenterNextStep::of(
+            $lapsed,
+            $this->journey($lapsed, [BookingMilestones::CONTRACT_GENERATED => false]),
+            $this->now()
+        );
+        $this->assertSame(
+            "Rien à faire de votre côté pour l'instant : nous étudions votre demande et vous enverrons le contrat.",
+            $step->sentence
+        );
+
+        $question = $this->booking(BookingStatus::INFO_REQUESTED, '2027-01-08');
+        $this->assertStringNotContainsString(
+            'réservées',
+            RenterNextStep::of($question, $this->journey($question), $this->now())->sentence
+        );
+        $this->assertStringNotContainsString(
+            'réservées',
+            RenterNextStep::signContract($this->booking(BookingStatus::CONTRACT_SENT, '2027-01-08'), $this->now())
+                ->sentence
+        );
     }
 
     public function testAPaymentSaysItsDueDateAndItsCommunication(): void
     {
         $booking = $this->booking(BookingStatus::CONFIRMED);
 
-        $step = RenterNextStep::forStep(BookingMilestones::DEPOSIT_RECEIVED, $booking, [
+        $step = RenterNextStep::forStep(BookingMilestones::DEPOSIT_RECEIVED, $booking, $this->now(), [
             'deposit_due_date' => '2027-03-10',
             'communication' => '+++123/4567/89012+++',
         ]);
@@ -152,8 +192,8 @@ final class RenterNextStepTest extends TestCase
         $info = $this->booking(BookingStatus::INFO_REQUESTED);
         $proposed = $this->booking(BookingStatus::PROPOSED);
 
-        $this->assertStringStartsWith('À vous : répondez à notre question', RenterNextStep::of($info, $this->journey($info))->sentence);
-        $this->assertStringStartsWith('À vous : acceptez ou refusez', RenterNextStep::of($proposed, $this->journey($proposed))->sentence);
+        $this->assertStringStartsWith('À vous : répondez à notre question', RenterNextStep::of($info, $this->journey($info), $this->now())->sentence);
+        $this->assertStringStartsWith('À vous : acceptez ou refusez', RenterNextStep::of($proposed, $this->journey($proposed), $this->now())->sentence);
     }
 
     /** A step ticked by hand is done (IT-14): the sentence moves on. */
@@ -169,7 +209,8 @@ final class RenterNextStepTest extends TestCase
             BookingMilestones::DEPARTURE_INVENTORY => false,
         ];
 
-        $step = RenterNextStep::of($booking, $this->journey($booking, $extras, [BookingMilestones::ARRIVAL_INVENTORY]));
+        $journey = $this->journey($booking, $extras, [BookingMilestones::ARRIVAL_INVENTORY]);
+        $step = RenterNextStep::of($booking, $journey, $this->now());
 
         $this->assertStringContainsString("l'état des lieux de sortie", $step->sentence);
     }
