@@ -15,7 +15,7 @@ related: courrier-entrant, courrier-portee, locations-courrier
 Quand le site écrit au sujet d'un dossier — l'accusé de réception d'une
 demande de location, un contrat, les informations pratiques —, l'e-mail
 porte une **adresse de réponse** de la forme
-*locations+rental.LOC-2027-0042.9f3a1b2c4d5e@votre-unite.be*.
+*locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@votre-unite.be*.
 
 Un simple « Répondre » renvoie le message à cette adresse, et le site y
 lit le dossier concerné avant même d'en avoir lu un mot : la réponse est
@@ -25,7 +25,7 @@ locataire, même sans aucune conversation connue.
 
 ## Pourquoi une signature
 
-La partie *+rental.LOC-2027-0042* désigne le dossier ; les douze
+La partie *+rental.LOC-K7Q2M4* désigne le dossier ; les douze
 caractères qui suivent sont une signature que seul le site sait
 calculer. Une adresse fabriquée à la main avec une référence lue sur un
 contrat ne vaut rien : sans la bonne signature, c'est une adresse

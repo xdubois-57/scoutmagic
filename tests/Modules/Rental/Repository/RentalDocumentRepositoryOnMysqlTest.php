@@ -53,7 +53,7 @@ final class RentalDocumentRepositoryOnMysqlTest extends TestCase
         );
         $created = $bookings->create(
             $assetId,
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             '2027-07-01',
             '2027-07-04',
             1,

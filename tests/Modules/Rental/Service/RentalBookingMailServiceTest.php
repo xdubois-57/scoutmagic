@@ -123,7 +123,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $service->sendPracticalInfo($this->booking(), $this->asset());
 
         $this->assertSame(
-            ['locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be', 'locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be'],
+            ['locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be', 'locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be'],
             $replyTos
         );
     }
@@ -216,7 +216,7 @@ final class RentalBookingMailServiceTest extends TestCase
         return new RentalBooking(
             id: 42,
             assetId: 7,
-            reference: 'LOC-2027-0042',
+            reference: 'LOC-K7Q2M4',
             arrivalDate: '2027-08-14',
             departureDate: '2027-08-17',
             units: 1,
@@ -395,7 +395,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertSame('camille@example.test', $mail['to']);
         // The reference first, in every subject: it is the most reliable of
         // the inbound-matching rules (§7.6).
-        $this->assertStringStartsWith('[LOC-2027-0042] ', $mail['subject']);
+        $this->assertStringStartsWith('[LOC-K7Q2M4] ', $mail['subject']);
         $this->assertStringContainsString('confirmée', $mail['subject']);
     }
 
@@ -407,7 +407,7 @@ final class RentalBookingMailServiceTest extends TestCase
             $body = $this->onlyMail()[$part];
             $this->assertStringContainsString('Camille Renard', $body);
             $this->assertStringContainsString('Le Chalet', $body);
-            $this->assertStringContainsString('LOC-2027-0042', $body);
+            $this->assertStringContainsString('LOC-K7Q2M4', $body);
             // French dates, not '2027-08-14' — the renter is not reading a
             // database row.
             $this->assertStringContainsString('14/08/2027', $body);

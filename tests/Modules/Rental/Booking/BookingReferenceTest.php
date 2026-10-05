@@ -17,11 +17,11 @@ use PHPUnit\Framework\TestCase;
  */
 class BookingReferenceTest extends TestCase
 {
-    public function testTheReferenceIsTheYearThenSixCharacters(): void
+    public function testTheReferenceIsSixCharactersWithoutAYear(): void
     {
-        $reference = BookingReference::secure()->draw(new \DateTimeImmutable('2027-03-14 10:00:00'));
+        $reference = BookingReference::secure()->draw();
 
-        $this->assertMatchesRegularExpression('/^LOC-2027-[' . BookingReference::ALPHABET . ']{6}$/', $reference);
+        $this->assertMatchesRegularExpression('/^LOC-[' . BookingReference::ALPHABET . ']{6}$/', $reference);
     }
 
     public function testTheAlphabetHoldsNoCharacterThatReadsLikeAnother(): void
@@ -38,46 +38,71 @@ class BookingReferenceTest extends TestCase
     {
         // The draw indexes the alphabet from 0 to its last position; an
         // off-by-one would silently lose the last character (or read past
-        // the end). Walk the whole range through a known sequence.
-        $next = 0;
-        $reference = new BookingReference(static function (int $min, int $max) use (&$next): int {
+        // the end). Each draw here starts with the next position and is
+        // completed by « 2A222 », so every one of them is kept.
+        $draws = [];
+        for ($position = 0; $position < 31; $position++) {
+            array_push($draws, $position, 0, 8, 0, 0, 0);
+        }
+        $reference = new BookingReference(static function (int $min, int $max) use (&$draws): int {
             self::assertSame(0, $min);
             self::assertSame(30, $max);
 
-            return $next++ % 31;
+            return (int) array_shift($draws);
         });
 
         $seen = '';
-        for ($i = 0; $i < 6; $i++) {
-            $seen .= substr($reference->draw(new \DateTimeImmutable('2027-01-01')), -6);
+        for ($i = 0; $i < 31; $i++) {
+            $seen .= substr($reference->draw(), 4, 1);
         }
 
-        $this->assertSame(BookingReference::ALPHABET, substr($seen, 0, 31));
+        $this->assertSame(BookingReference::ALPHABET, $seen);
     }
 
-    public function testTheYearIsThatOfTheRequest(): void
+    public function testADrawOfOnlyOneKindOfCharacterIsDrawnAgain(): void
     {
-        $reference = BookingReference::secure()->draw(new \DateTimeImmutable('2031-12-31 23:59:00'));
+        // « LOC-MARCHE » and « LOC-234567 » read as ordinary text once there
+        // is no year; the draw never hands either out.
+        $draws = [
+            ...array_fill(0, 6, 8),   // AAAAAA: letters only
+            ...array_fill(0, 6, 0),   // 222222: digits only
+            0, 8, 0, 8, 0, 8,         // 2A2A2A
+        ];
+        $reference = new BookingReference(static function () use (&$draws): int {
+            return (int) array_shift($draws);
+        });
 
-        $this->assertStringStartsWith('LOC-2031-', $reference);
+        $this->assertSame('LOC-2A2A2A', $reference->draw());
     }
 
-    public function testThePatternRecognisesTheRandomAndTheSequentialForm(): void
+    public function testASourceStuckOnOneValueGivesUpInsteadOfLoopingForEver(): void
+    {
+        $reference = new BookingReference(static fn(): int => 0);
+
+        $this->expectException(\RuntimeException::class);
+        $reference->draw();
+    }
+
+    public function testThePatternRecognisesADrawnReferenceInEitherCase(): void
     {
         $pattern = '/^' . BookingReference::PATTERN . '$/i';
 
-        $this->assertMatchesRegularExpression($pattern, 'LOC-2027-K7Q2MX');
-        $this->assertMatchesRegularExpression($pattern, 'loc-2027-k7q2mx', 'A reference retyped in lower case.');
-        // A booking made while references were counted keeps its number.
-        $this->assertMatchesRegularExpression($pattern, 'LOC-2027-0042');
-        $this->assertMatchesRegularExpression($pattern, 'LOC-2027-123456');
+        $this->assertMatchesRegularExpression($pattern, 'LOC-K7Q2MX');
+        $this->assertMatchesRegularExpression($pattern, 'loc-k7q2mx', 'A reference retyped in lower case.');
+        $this->assertMatchesRegularExpression($pattern, 'LOC-2A2A2A');
     }
 
     public function testThePatternRefusesWhatNoDrawCanProduce(): void
     {
         $pattern = '/^' . BookingReference::PATTERN . '$/i';
 
-        foreach (['LOC-2027-K7Q2MO', 'LOC-2027-K7Q2MI', 'LOC-2027-K7Q2ML', 'LOC-2027-K7Q2M', 'LOC-2027-K7Q2MXA', 'LOC-27-K7Q2MX'] as $notOne) {
+        $notOnes = [
+            'LOC-K7Q2MO', 'LOC-K7Q2MI', 'LOC-K7Q2ML', 'LOC-K7Q2M', 'LOC-K7Q2MXA',
+            'LOC-MARCHE', 'LOC-234567',
+            // The earlier forms, with a year: no longer references (#720).
+            'LOC-2027-K7Q2MX', 'LOC-2027-0042',
+        ];
+        foreach ($notOnes as $notOne) {
             $this->assertDoesNotMatchRegularExpression($pattern, $notOne, $notOne);
         }
     }
@@ -85,32 +110,12 @@ class BookingReferenceTest extends TestCase
     public function testTwentyDrawsDoNotRepeat(): void
     {
         $references = BookingReference::secure();
-        $now = new \DateTimeImmutable('2027-01-01');
 
         $drawn = [];
         for ($i = 0; $i < 20; $i++) {
-            $drawn[] = $references->draw($now);
+            $drawn[] = $references->draw();
         }
 
         $this->assertCount(20, array_unique($drawn));
-    }
-
-    /** @return array<string, array{string, bool}> */
-    public static function guessability(): array
-    {
-        return [
-            'a random reference' => ['LOC-2027-K7Q2MX', true],
-            'typed in lower case' => ['loc-2027-k7q2mx', true],
-            'a sequential one' => ['LOC-2027-0042', false],
-            'a long sequential one' => ['LOC-2027-123456', false],
-            'a random draw of digits only' => ['LOC-2027-234567', false],
-            'not a reference' => ['LOC-2027-K7Q2M', false],
-        ];
-    }
-
-    #[\PHPUnit\Framework\Attributes\DataProvider('guessability')]
-    public function testOnlyARandomReferenceCountsAsUnguessable(string $reference, bool $unguessable): void
-    {
-        $this->assertSame($unguessable, BookingReference::isUnguessable($reference));
     }
 }

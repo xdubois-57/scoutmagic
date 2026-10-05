@@ -64,7 +64,7 @@ enum DocumentType: string
 
     /**
      * The file-name stem a generated document uses:
-     * `contrat-LOC-2027-0042-v1.pdf`.
+     * `contrat-LOC-K7Q2M4-v1.pdf`.
      */
     public function fileStem(): string
     {

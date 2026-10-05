@@ -104,11 +104,11 @@ class InboundMailServiceTest extends TestCase
             sentAt: new \DateTimeImmutable('2027-07-12 10:00:00'),
             isBulk: true
         );
-        $this->messageRepository->addLink($bulk, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messageRepository->addLink($bulk, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $person = $this->storeMessage();
 
-        $this->assertTrue($this->service->findOneForReference('rental', 'LOC-2027-0042', $bulk)?->isBulk);
-        $this->assertFalse($this->service->findOneForReference('rental', 'LOC-2027-0042', $person)?->isBulk);
+        $this->assertTrue($this->service->findOneForReference('rental', 'LOC-K7Q2M4', $bulk)?->isBulk);
+        $this->assertFalse($this->service->findOneForReference('rental', 'LOC-K7Q2M4', $person)?->isBulk);
     }
 
     /**
@@ -160,7 +160,7 @@ class InboundMailServiceTest extends TestCase
     }
 
     private function storeMessage(
-        string $reference = 'LOC-2027-0042',
+        string $reference = 'LOC-K7Q2M4',
         string $consumerId = 'rental',
         string $messageId = 'msg-1@example.be',
         string $subject = 'Demande'
@@ -205,7 +205,7 @@ class InboundMailServiceTest extends TestCase
     {
         $this->storeMessage();
 
-        $messages = $this->service->findForReference('rental', 'LOC-2027-0042');
+        $messages = $this->service->findForReference('rental', 'LOC-K7Q2M4');
 
         $this->assertCount(1, $messages);
         $this->assertSame('Demande', $messages[0]->subject);
@@ -213,9 +213,9 @@ class InboundMailServiceTest extends TestCase
 
     public function testAnotherReferenceSeesNothing(): void
     {
-        $this->storeMessage(reference: 'LOC-2027-0042');
+        $this->storeMessage(reference: 'LOC-K7Q2M4');
 
-        $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0099'));
+        $this->assertSame([], $this->service->findForReference('rental', 'LOC-W9Y8X7'));
     }
 
     public function testAnotherConsumerSeesNothingEvenKnowingTheReference(): void
@@ -224,16 +224,16 @@ class InboundMailServiceTest extends TestCase
         // `rental`'s mail gets nothing, not the mail.
         $this->storeMessage(consumerId: 'rental');
 
-        $this->assertSame([], $this->service->findForReference('finance', 'LOC-2027-0042'));
+        $this->assertSame([], $this->service->findForReference('finance', 'LOC-K7Q2M4'));
     }
 
     public function testAMessageIdAloneIsNeverEnoughToReadAMessage(): void
     {
-        $id = $this->storeMessage(reference: 'LOC-2027-0042');
+        $id = $this->storeMessage(reference: 'LOC-K7Q2M4');
 
-        $this->assertNotNull($this->service->findOneForReference('rental', 'LOC-2027-0042', $id));
-        $this->assertNull($this->service->findOneForReference('rental', 'LOC-2027-0099', $id));
-        $this->assertNull($this->service->findOneForReference('finance', 'LOC-2027-0042', $id));
+        $this->assertNotNull($this->service->findOneForReference('rental', 'LOC-K7Q2M4', $id));
+        $this->assertNull($this->service->findOneForReference('rental', 'LOC-W9Y8X7', $id));
+        $this->assertNull($this->service->findOneForReference('finance', 'LOC-K7Q2M4', $id));
     }
 
     public function testMessagesComeBackOldestFirst(): void
@@ -248,12 +248,12 @@ class InboundMailServiceTest extends TestCase
             'a@x', null, 'Premier', 'jeanne@example.be', null, 'A', '<p>A</p>',
             new \DateTimeImmutable('2027-07-12 09:00:00')
         );
-        $this->messageRepository->addLink($second, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
-        $this->messageRepository->addLink($first, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messageRepository->addLink($second, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
+        $this->messageRepository->addLink($first, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
         $subjects = array_map(
             static fn($message) => $message->subject,
-            $this->service->findForReference('rental', 'LOC-2027-0042')
+            $this->service->findForReference('rental', 'LOC-K7Q2M4')
         );
 
         $this->assertSame(['Premier', 'Deuxième'], $subjects);
@@ -268,8 +268,8 @@ class InboundMailServiceTest extends TestCase
         // removes it if nobody re-orients it.
         $id = $this->storeMessage();
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
-        $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2M4', $id));
+        $this->assertSame([], $this->service->findForReference('rental', 'LOC-K7Q2M4'));
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_message_links')->fetchColumn());
     }
@@ -278,8 +278,8 @@ class InboundMailServiceTest extends TestCase
     {
         $id = $this->storeMessage();
 
-        $this->assertFalse($this->service->detach('rental', 'LOC-2027-0099', $id));
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertFalse($this->service->detach('rental', 'LOC-W9Y8X7', $id));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
     public function testDetachingKeepsTheAttachmentFileWithTheMessage(): void
@@ -291,7 +291,7 @@ class InboundMailServiceTest extends TestCase
         $fileId = $this->storeFile();
         $this->messageRepository->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, str_repeat('a', 64));
 
-        $this->service->detach('rental', 'LOC-2027-0042', $id);
+        $this->service->detach('rental', 'LOC-K7Q2M4', $id);
 
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
         $this->assertSame([$fileId], $this->messageRepository->findFileIdsForMessage($id));
@@ -303,7 +303,7 @@ class InboundMailServiceTest extends TestCase
         $fileId = $this->storeFile();
         $this->messageRepository->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, str_repeat('a', 64));
 
-        $this->service->purgeReference('rental', 'LOC-2027-0042');
+        $this->service->purgeReference('rental', 'LOC-K7Q2M4');
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
@@ -318,9 +318,9 @@ class InboundMailServiceTest extends TestCase
         $hash = str_repeat('a', 64);
         $this->messageRepository->addAttachment($first, $fileId, 'contrat.pdf', 'application/pdf', 1024, $hash);
         $this->messageRepository->addAttachment($second, $fileId, 'contrat.pdf', 'application/pdf', 1024, $hash);
-        $this->messageRepository->addLink($second, 'rental', 'LOC-2027-0043', \Modules\InboundMail\Api\LinkOrigin::REFERENCE);
+        $this->messageRepository->addLink($second, 'rental', 'LOC-K7Q2M5', \Modules\InboundMail\Api\LinkOrigin::REFERENCE);
 
-        $this->service->purgeReference('rental', 'LOC-2027-0042');
+        $this->service->purgeReference('rental', 'LOC-K7Q2M4');
 
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
@@ -329,11 +329,11 @@ class InboundMailServiceTest extends TestCase
 
     public function testMovingChangesTheReference(): void
     {
-        $id = $this->storeMessage(reference: 'LOC-2027-0042');
+        $id = $this->storeMessage(reference: 'LOC-K7Q2M4');
 
-        $this->assertTrue($this->service->move('rental', 'LOC-2027-0042', 'LOC-2027-0043', $id));
-        $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0042'));
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0043'));
+        $this->assertTrue($this->service->move('rental', 'LOC-K7Q2M4', 'LOC-K7Q2M5', $id));
+        $this->assertSame([], $this->service->findForReference('rental', 'LOC-K7Q2M4'));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-K7Q2M5'));
     }
 
     public function testAMovedMessageIsAHumanDecisionAndSaysByWhom(): void
@@ -341,10 +341,10 @@ class InboundMailServiceTest extends TestCase
         // D20: the booking a manager moved a message onto must not go on
         // reading « adresse de l'expéditeur — rattachement incertain »
         // about a decision that manager just made.
-        $id = $this->storeMessage(reference: 'LOC-2027-0042');
+        $id = $this->storeMessage(reference: 'LOC-K7Q2M4');
         $this->pdo->exec("UPDATE inbound_message_links SET link_origin = 'sender'");
 
-        $this->assertTrue($this->service->move('rental', 'LOC-2027-0042', 'LOC-2027-0043', $id, 7));
+        $this->assertTrue($this->service->move('rental', 'LOC-K7Q2M4', 'LOC-K7Q2M5', $id, 7));
 
         $links = $this->messageRepository->findLinksForMessage($id);
         $this->assertCount(1, $links);
@@ -354,24 +354,24 @@ class InboundMailServiceTest extends TestCase
 
     public function testMovingRequiresTheMessageToBeWhereTheCallerSaysItIs(): void
     {
-        $id = $this->storeMessage(reference: 'LOC-2027-0042');
+        $id = $this->storeMessage(reference: 'LOC-K7Q2M4');
 
-        $this->assertFalse($this->service->move('rental', 'LOC-2027-0099', 'LOC-2027-0043', $id));
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertFalse($this->service->move('rental', 'LOC-W9Y8X7', 'LOC-K7Q2M5', $id));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
     public function testAnotherConsumerCannotMoveAMessageItDoesNotOwn(): void
     {
         $id = $this->storeMessage(consumerId: 'rental');
 
-        $this->assertFalse($this->service->move('finance', 'LOC-2027-0042', 'FAC-2027-0001', $id));
+        $this->assertFalse($this->service->move('finance', 'LOC-K7Q2M4', 'FAC-2027-0001', $id));
     }
 
     public function testMovingToTheSameReferenceIsRefusedRatherThanBeingANoOpWrite(): void
     {
         $id = $this->storeMessage();
 
-        $this->assertFalse($this->service->move('rental', 'LOC-2027-0042', 'LOC-2027-0042', $id));
+        $this->assertFalse($this->service->move('rental', 'LOC-K7Q2M4', 'LOC-K7Q2M4', $id));
     }
 
     // ── Retention (§7.10) ───────────────────────────────────────────────
@@ -380,11 +380,11 @@ class InboundMailServiceTest extends TestCase
     {
         $this->storeMessage(messageId: 'a@x');
         $this->storeMessage(messageId: 'b@x');
-        $this->storeMessage(reference: 'LOC-2027-0099', messageId: 'c@x');
+        $this->storeMessage(reference: 'LOC-W9Y8X7', messageId: 'c@x');
 
-        $this->assertSame(2, $this->service->purgeReference('rental', 'LOC-2027-0042'));
-        $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0042'));
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0099'));
+        $this->assertSame(2, $this->service->purgeReference('rental', 'LOC-K7Q2M4'));
+        $this->assertSame([], $this->service->findForReference('rental', 'LOC-K7Q2M4'));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-W9Y8X7'));
     }
 
     public function testPurgingRemovesTheAttachmentFilesToo(): void
@@ -393,7 +393,7 @@ class InboundMailServiceTest extends TestCase
         $fileId = $this->storeFile();
         $this->messageRepository->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, str_repeat('a', 64));
 
-        $this->service->purgeReference('rental', 'LOC-2027-0042');
+        $this->service->purgeReference('rental', 'LOC-K7Q2M4');
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }

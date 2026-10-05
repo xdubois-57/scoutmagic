@@ -175,7 +175,7 @@ class RentalBookingService implements OccupancyProvider
             $now
         );
 
-        $created = $this->writeWithFreshReference($write, $now);
+        $created = $this->writeWithFreshReference($write);
 
         $booking = $this->bookingRepository->findById($created['id']);
         if ($booking === null) {
@@ -201,9 +201,9 @@ class RentalBookingService implements OccupancyProvider
      * Writes the booking under a freshly drawn reference, drawing again
      * when the draw collides with one already spent.
      *
-     * A collision is one chance in 887 million per pair of requests in a
-     * year ({@see BookingReference}), so a second draw almost never
-     * happens and a third practically never does. The bound is there for
+     * A collision is one chance in 740 million per pair of bookings
+     * ({@see BookingReference}), so a second draw almost never happens and
+     * a third practically never does. The bound is there for
      * the case that is not chance at all — a broken random source handing
      * out the same value — where looping forever would hang the visitor's
      * request instead of refusing it.
@@ -218,12 +218,18 @@ class RentalBookingService implements OccupancyProvider
      * @return array{id: int, tracking_token: string}
      * @throws RentalException
      */
-    private function writeWithFreshReference(callable $write, \DateTimeImmutable $now): array
+    private function writeWithFreshReference(callable $write): array
     {
         $collision = null;
         for ($draw = 0; $draw < self::REFERENCE_DRAWS; $draw++) {
             try {
-                return $write($this->allocateReference($now));
+                $reference = $this->allocateReference();
+            } catch (\RuntimeException $e) {
+                // The random source itself is broken (`BookingReference::draw()`).
+                throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+            }
+            try {
+                return $write($reference);
             } catch (\PDOException $e) {
                 if (!self::isDuplicateKey($e)) {
                     throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
@@ -261,15 +267,14 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * A fresh `LOC-YYYY-XXXXXX` for a request made at $now.
-     *
-     * The year is when the request was *made*, so a reference stays stable
-     * even for a stay in a later year. Uniqueness is the `UNIQUE` index's
+     * A fresh `LOC-XXXXXX`. Uniqueness is the `UNIQUE` index's
      * job, and `writeWithFreshReference()` draws again when it refuses one.
+     *
+     * @throws \RuntimeException when the random source is broken
      */
-    public function allocateReference(\DateTimeImmutable $now): string
+    public function allocateReference(): string
     {
-        return $this->references->draw($now);
+        return $this->references->draw();
     }
 
     /**

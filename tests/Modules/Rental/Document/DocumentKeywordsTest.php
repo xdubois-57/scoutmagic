@@ -88,10 +88,10 @@ class DocumentKeywordsTest extends TestCase
     {
         $rendered = DocumentKeywords::substitute(
             '<p>{{ reference }} — {{ bien }} — {{ prix_total }}</p>',
-            ['reference' => 'LOC-2027-0042', 'bien' => 'Local Saint-Georges', 'prix_total' => '467,50 €']
+            ['reference' => 'LOC-K7Q2M4', 'bien' => 'Local Saint-Georges', 'prix_total' => '467,50 €']
         );
 
-        $this->assertSame('<p>LOC-2027-0042 — Local Saint-Georges — 467,50 €</p>', $rendered);
+        $this->assertSame('<p>LOC-K7Q2M4 — Local Saint-Georges — 467,50 €</p>', $rendered);
     }
 
     public function testSpacingInsideTheBracesIsToleratedBecausePeopleTypeIt(): void

@@ -9,13 +9,15 @@ declare(strict_types=1);
 namespace Modules\Rental\Booking;
 
 /**
- * A booking reference: `LOC-YYYY-XXXXXX` (issue #720, step 9).
+ * A booking reference: `LOC-XXXXXX` (issue #720, step 9).
  *
- * The year the request was MADE, then six characters drawn at random. A
- * counter (`LOC-2027-0042`) told anyone holding one reference where the
- * others were: the next one, the one before, roughly how many bookings the
- * unit had taken (issue #231). Six random characters out of 31 make a
- * neighbour no easier to find than any other value.
+ * Six characters drawn at random. A counter (`LOC-2027-0042`) told anyone
+ * holding one reference where the others were: the next one, the one
+ * before, roughly how many bookings the unit had taken (issue #231). Six
+ * random characters make a neighbour no easier to find than any other
+ * value. No year: the reference opens every subject line the module sends,
+ * and four digits the renter already knows only pushed the subject itself
+ * out of a phone's inbox.
  *
  * **Not a secret, and never presented as one.** The reference is printed in
  * every subject line the module sends, so a renter's reply carries it back;
@@ -29,9 +31,14 @@ namespace Modules\Rental\Booking;
  * Upper case only on the way out; {@see self::PATTERN} accepts either case
  * on the way in, because a renter typing it by hand will not respect it.
  *
+ * **At least one digit and one letter.** Without a year, `LOC-` followed by
+ * six letters is also how « loc-marche » reads, and six digits how a phone
+ * number's tail does; a draw holding only one kind is drawn again, and the
+ * pattern refuses it, so ordinary text is never taken for a reference. That
+ * leaves about 740 million values.
+ *
  * Uniqueness is the job of `uniq_rental_bookings_reference`, not of this
- * class: a collision is one chance in 887 million per year and pair, and the
- * caller draws again when the index refuses one.
+ * class: the caller draws again when the index refuses one.
  */
 final class BookingReference
 {
@@ -41,12 +48,21 @@ final class BookingReference
     public const RANDOM_LENGTH = 6;
 
     /**
-     * Either format, without its delimiters: the random one issued now, and
-     * the sequential one (`LOC-2027-0042`) a booking made before this change
-     * still carries and a renter may still quote. Case-insensitive — a
-     * reference typed by hand arrives in whatever case the renter used.
+     * How many draws `draw()` makes before giving up. One draw in six holds a
+     * single kind of character, so a working source needs a second draw now
+     * and then and a twentieth never; a source stuck on one value would
+     * otherwise loop for ever on the visitor's request.
      */
-    public const PATTERN = 'LOC-\d{4}-(?:[2-9A-HJKMNP-Z]{6}|\d{1,6})';
+    private const MAX_DRAWS = 20;
+
+    /**
+     * A reference without its delimiters: six characters of the alphabet,
+     * a digit and a letter among them. Case-insensitive — a reference typed
+     * by hand arrives in whatever case the renter used. The lookaheads stay
+     * inside the six characters because a seventh would break the word
+     * boundary or the bracket the matcher puts around this.
+     */
+    public const PATTERN = 'LOC-(?=[2-9A-HJKMNP-Z]*[2-9])(?=[2-9A-HJKMNP-Z]*[A-HJKMNP-Z])[2-9A-HJKMNP-Z]{6}';
 
     /**
      * @param \Closure(int, int): int $randomInt the draw, `random_int` unless
@@ -62,23 +78,23 @@ final class BookingReference
     }
 
     /**
-     * Whether a reference is one of the random ones — something only its
-     * booking's correspondents can know — rather than a sequential one
-     * (`LOC-2026-0042`) a stranger can enumerate (#231).
+     * A fresh reference: six characters, drawn again until both kinds are in.
      *
-     * A random suffix that happens to hold digits only (one draw in about
-     * 3 000) is indistinguishable from a sequential number and is counted
-     * as guessable: the cautious answer costs that booking nothing but the
-     * model's help with a reference quoted from an unknown address.
+     * @throws \RuntimeException when the source never yields one
      */
-    public static function isUnguessable(string $reference): bool
+    public function draw(): string
     {
-        return preg_match('/^LOC-\d{4}-([2-9A-HJKMNP-Z]{6})$/i', $reference, $m) === 1
-            && preg_match('/[A-Z]/i', $m[1]) === 1;
+        for ($draw = 0; $draw < self::MAX_DRAWS; $draw++) {
+            $reference = 'LOC-' . $this->characters();
+            if (preg_match('/^' . self::PATTERN . '$/', $reference) === 1) {
+                return $reference;
+            }
+        }
+
+        throw new \RuntimeException('The random source never produced a usable booking reference.');
     }
 
-    /** A fresh reference for a request made at $now. */
-    public function draw(\DateTimeImmutable $now): string
+    private function characters(): string
     {
         $last = strlen(self::ALPHABET) - 1;
         $characters = '';
@@ -86,6 +102,6 @@ final class BookingReference
             $characters .= self::ALPHABET[($this->randomInt)(0, $last)];
         }
 
-        return sprintf('LOC-%04d-%s', (int) $now->format('Y'), $characters);
+        return $characters;
     }
 }
