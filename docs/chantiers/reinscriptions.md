@@ -324,9 +324,10 @@ l'ouverture ; le test ne l'exclut donc pas avant l'ouverture.
   clôture et celle de l'année suivante prend la place : elle ne survit pas
   à son année (revue d'IT-02).
 - **La clé d'une campagne est la dernière fenêtre qui s'ouvre avant le
-  1er septembre de l'année visée.** Les fenêtres d'automne et celles qui
-  chevauchent le nouvel an ont leur clôture dans l'année d'avant ; le
-  libellé et « a commencé » se lisent sur la date d'ouverture enregistrée.
+  1er septembre de l'année visée.** Les fenêtres d'automne ont leur
+  clôture dans l'année d'avant ; celles qui chevauchent le nouvel an
+  s'ouvrent l'année d'avant mais closent dans l'année visée. Le libellé et
+  « a commencé » se lisent sur la date d'ouverture enregistrée.
 - **La ligne « campagne précédente » est un enregistrement, pas un
   calcul** : dernier marqueur de clôture, daté par son moment réel ; rien
   sans campagne passée.
