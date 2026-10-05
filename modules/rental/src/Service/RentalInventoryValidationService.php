@@ -192,7 +192,10 @@ class RentalInventoryValidationService
                     $asset,
                     $label,
                     $path,
-                    $document->originalName ?? 'etat-des-lieux.pdf'
+                    $document->originalName ?? 'etat-des-lieux.pdf',
+                    false,
+                    null,
+                    $document->id
                 );
                 $sent = true;
             } catch (\Throwable) {

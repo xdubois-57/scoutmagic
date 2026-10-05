@@ -90,7 +90,8 @@ class RentalCommunicationService
         }
 
         $counts = [];
-        foreach ($this->inboundMail->countLinksAfter(RentalMessageConsumer::CONSUMER_ID, $after) as $reference => $count) {
+        $unread = $this->inboundMail->countLinksAfter(RentalMessageConsumer::CONSUMER_ID, $after);
+        foreach ($unread as $reference => $count) {
             if (isset($idByReference[$reference]) && $count > 0) {
                 $counts[$idByReference[$reference]] = $count;
             }

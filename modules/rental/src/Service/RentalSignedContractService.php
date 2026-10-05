@@ -323,7 +323,7 @@ class RentalSignedContractService
         $finalPath = $this->documents->absolutePath($final);
         if ($finalPath !== null) {
             try {
-                $this->mail->sendSignedContract($booking, $asset, $finalPath, $fileName, $this->tokenOf($booking));
+                $this->mail->sendSignedContract($booking, $asset, $finalPath, $fileName, $this->tokenOf($booking), $final->id);
                 $this->documents->markSent($final->id, $now);
             } catch (\Throwable) {
                 // Countersigned and filed either way: the renter can
