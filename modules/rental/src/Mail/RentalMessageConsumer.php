@@ -703,7 +703,8 @@ class RentalMessageConsumer implements
      * And the unattributed mail is offered to this module again straight
      * away: the rest of that thread, and every earlier message from that
      * address, just became attributable. Bounded; it re-runs only the
-     * rules, never the AI, so a decision cannot set off another.
+     * rules, never the AI — the deferred pass keeps its marker and its
+     * attempts — so a decision cannot set off another.
      */
     private function learnFrom(InboundMessage $message, RentalBooking $booking): void
     {
@@ -713,7 +714,10 @@ class RentalMessageConsumer implements
         }
 
         try {
-            $this->inboundMail->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION);
+            // The rules only: the deferred pass keeps its marker and its
+            // attempts, so neither a manager's filing nor the model's own
+            // sets off another model call on the rest of the mail.
+            $this->inboundMail->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION, false);
         } catch (\Throwable) {
             // The association a person just made is already written; a
             // re-run that fails must not undo their click or show them an

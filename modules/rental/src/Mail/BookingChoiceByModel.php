@@ -21,9 +21,13 @@ use Modules\LlmConnector\Api\LlmTier;
  * reference from that list — filed with `LinkOrigin::AI`, so the page says
  * how it got there — or nothing: an empty answer, a reference that is not
  * on the list, an answer in the wrong shape all mean « aucune », and the
- * message is filed nowhere. The text it reads is anybody's (#231), so the
- * most a hostile message can obtain is one of the bookings the rules had
- * already put forward for it, which a manager sees and « Détacher » undoes.
+ * message is filed nowhere. The text it reads is anybody's (#231), so it
+ * only ever picks among the bookings the rules put forward. For a reference
+ * quoted by an address the booking does not know, that list is the one
+ * booking the message named: the model confirms rather than chooses, and
+ * what bounds it is the reference being random and sent only to that
+ * booking's own correspondents (ARCHITECTURE.md §8.59). Either way the
+ * filing is visible to the managers alone and « Détacher » undoes it.
  *
  * Optional everywhere (§7.5): without the connector, or without a model on
  * the cheap tier, nothing is called and nothing is filed.

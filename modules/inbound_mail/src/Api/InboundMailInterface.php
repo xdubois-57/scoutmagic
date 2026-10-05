@@ -429,9 +429,16 @@ interface InboundMailInterface
      * parts: what this call settles immediately, and what the hourly task
      * settles afterwards.
      *
+     * `$requeueStoredPass` false keeps that second part out: a consumer
+     * re-reading its mail after one of its own decisions wants the rules
+     * re-run with what it just learned, not every unlinked message's
+     * deferred reading — a model call among them — started again from
+     * zero, attempts and a declined answer included (#720, step 6). A
+     * person's « Relancer l'analyse » keeps the default.
+     *
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array;
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array;
 
     /**
      * The business object a message belongs to, found from the Message-IDs
