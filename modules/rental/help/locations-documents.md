@@ -12,9 +12,8 @@ related: gerer-les-locations, locations-reglages, locations-courrier, locations-
 ---
 
 La page « Documents » d'une réservation réunit ses documents — contrat,
-facture, copies signées, et les PDF, fichiers Word et photos des e-mails
-reçus ou envoyés, jamais en double. Rangés « Non classé », ils se
-reclassent depuis leur ligne. La
+facture, copies signées, pièces reçues par e-mail. Un document reçu
+par e-mail et rangé « Non classé » se reclasse depuis sa ligne. La
 facture se génère sur la page « Facture », avec les coordonnées de
 facturation qu'elle reprend.
 

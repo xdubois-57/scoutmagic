@@ -325,37 +325,6 @@ class MimeMessageParserTest extends TestCase
         $this->assertFalse($message->attachments[0]->isInline);
     }
 
-    /**
-     * The file whole, final line break included: most PDFs end `%%EOF\n`,
-     * and a byte cut off there made the stored file hash differently from
-     * the very contract the site generated (#720, step 8). A charset
-     * parameter on a binary part converts nothing either.
-     */
-    public function testABase64AttachmentKeepsItsLastByteAndIsNeverConverted(): void
-    {
-        $bytes = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n%%EOF\r\n";
-        $message = $this->parser->parse($this->raw(
-            'From: jeanne@example.be',
-            'Message-ID: <a@b>',
-            'Content-Type: multipart/mixed; boundary="frontier"',
-            '',
-            '--frontier',
-            'Content-Type: text/plain',
-            '',
-            'Voici le document.',
-            '--frontier',
-            'Content-Type: application/pdf; name="contrat.pdf"; charset=ISO-8859-1',
-            'Content-Disposition: attachment; filename="contrat.pdf"',
-            'Content-Transfer-Encoding: base64',
-            '',
-            base64_encode($bytes),
-            '--frontier--'
-        ), 1, 'INBOX');
-
-        $this->assertSame($bytes, $message->attachments[0]->bytes);
-        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
-    }
-
     public function testAnRfc2231EncodedFilenameIsDecoded(): void
     {
         // The ASCII `filename` a sender leaves behind for old clients is a

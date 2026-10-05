@@ -548,12 +548,13 @@ class RentalMessageConsumer implements
         $options = [];
         foreach ($bookings as $booking) {
             $asset = $this->assetRepository?->findById($booking->assetId);
-            $options[$booking->reference] = implode(' · ', array_filter([
+            $parts = [
                 $asset?->name,
                 'du ' . $booking->arrivalDate . ' au ' . $booking->departureDate,
                 $booking->renterOrganisation ?? $booking->renterName,
                 $booking->status->label(),
-            ]));
+            ];
+            $options[$booking->reference] = implode(' · ', array_filter($parts));
         }
 
         return $options;
@@ -574,8 +575,9 @@ class RentalMessageConsumer implements
             'référence de location explicite dans l\'objet ou le corps',
             'réponse dans une conversation déjà rattachée à une location',
             'adresse du locataire, entre la demande et quelques semaines après le départ',
-            'plusieurs réservations du même locataire dans la période, ou une référence citée par une adresse '
-                . 'inconnue : l\'IA tranche parmi elles si elle est disponible, sinon le message n\'est rattaché à aucune',
+            'plusieurs réservations du même locataire dans la période, ou une référence citée par une '
+                . 'adresse inconnue : l\'IA tranche parmi elles si elle est disponible, '
+                . 'sinon le message n\'est rattaché à aucune',
         ];
     }
 
@@ -599,10 +601,7 @@ class RentalMessageConsumer implements
     }
 
     /**
-     * Turn the message's attachments into documents of the booking (§7.8) —
-     * a received message's and a sent one's alike, the types of
-     * `DOCUMENT_MIME_TYPES` only, and never a file the booking already holds
-     * (#720, step 8).
+     * Turn the message's attachments into documents of the booking (§7.8).
      *
      * **Always `Non classé`, always internal.** An attachment is a file a
      * stranger sent; presuming it is the signed contract would put an
@@ -630,39 +629,22 @@ class RentalMessageConsumer implements
             $this->announce($booking, $link);
         }
 
-        $attachments = array_values(array_filter(
-            $message->attachments,
-            static fn(InboundAttachment $attachment): bool =>
-                in_array($attachment->mimeType, self::DOCUMENT_MIME_TYPES, true)
-        ));
-        if ($attachments === []) {
+        if ($message->attachments === []) {
             return;
         }
 
-        // Never twice, by content (#720, step 8): the same file id — a
-        // message moved onto a booking whose documents were moved there
-        // first, or confirmed twice — and the same bytes under another id —
-        // the contract the site generated that a manager sent again by
-        // hand, or the scan the renter attached to two replies.
-        $filedIds = [];
-        $filedHashes = [];
+        // Idempotent per file: a message moved onto a booking whose
+        // documents were moved there first, or confirmed twice, must not
+        // file the same attachment twice.
+        $alreadyFiled = [];
         foreach ($this->documentService->forBooking($booking->id) as $document) {
-            $filedIds[$document->fileId] = true;
-            $path = $this->documentService->absolutePath($document);
-            $hash = $path === null ? false : hash_file('sha256', $path);
-            if ($hash !== false) {
-                $filedHashes[$hash] = true;
-            }
+            $alreadyFiled[$document->fileId] = true;
         }
 
-        foreach ($attachments as $attachment) {
-            if (isset($filedIds[$attachment->fileId])
-                || ($attachment->contentHash !== '' && isset($filedHashes[$attachment->contentHash]))
-            ) {
+        foreach ($message->attachments as $attachment) {
+            if (isset($alreadyFiled[$attachment->fileId])) {
                 continue;
             }
-            $filedIds[$attachment->fileId] = true;
-            $filedHashes[$attachment->contentHash] = true;
 
             // Registered as email-sourced: the row points at the message's
             // OWN file id, not at a copy, so deleting the document later
@@ -788,26 +770,6 @@ class RentalMessageConsumer implements
 
     /** How many unattributed messages one manual decision re-examines. */
     public const REANALYSIS_AFTER_DECISION = 50;
-
-    /**
-     * What becomes a document of the booking, received or sent (#720,
-     * step 8): PDF, Word, and the images `inbound_mail` kept at all — its
-     * `AttachmentPolicy` has already dropped signature logos and anything
-     * under the minimum size. A spreadsheet or an OpenDocument file stays
-     * on the message, downloadable there, without a document.
-     *
-     * @var list<string>
-     */
-    public const DOCUMENT_MIME_TYPES = [
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'image/jpeg',
-        'image/png',
-        'image/webp',
-        'image/heic',
-        'image/heif',
-    ];
 
     /**
      * Take back what `onLinked()` filed on that booking: the address the
