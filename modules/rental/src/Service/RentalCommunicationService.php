@@ -55,8 +55,62 @@ class RentalCommunicationService
          * the booking — see detach(). Optional because every other surface
          * of this class works without it.
          */
-        private ?\Core\File\FileRepository $fileRepository = null
+        private ?\Core\File\FileRepository $fileRepository = null,
+        /**
+         * How far each person has read each booking's mail — the « non
+         * lus » badges (#720). Null: no badge anywhere.
+         */
+        private ?\Modules\Rental\Repository\RentalMailReadRepository $reads = null
     ) {
+    }
+
+    /**
+     * How many messages were filed under each of these bookings since this
+     * person last opened its « Courrier » page (#720) — every one of them,
+     * for a booking they never opened. A booking with none is absent.
+     *
+     * @param RentalBooking[] $bookings
+     * @return array<int, int> booking id => unread count
+     */
+    public function unreadCounts(int $userAccountId, array $bookings): array
+    {
+        if ($this->inboundMail === null || $this->reads === null || $bookings === []) {
+            return [];
+        }
+
+        $readUpTo = $this->reads->readUpTo(
+            $userAccountId,
+            array_map(static fn(RentalBooking $booking): int => $booking->id, $bookings)
+        );
+        $after = [];
+        $idByReference = [];
+        foreach ($bookings as $booking) {
+            $after[$booking->reference] = $readUpTo[$booking->id] ?? 0;
+            $idByReference[$booking->reference] = $booking->id;
+        }
+
+        $counts = [];
+        foreach ($this->inboundMail->countLinksAfter(RentalMessageConsumer::CONSUMER_ID, $after) as $reference => $count) {
+            if (isset($idByReference[$reference]) && $count > 0) {
+                $counts[$idByReference[$reference]] = $count;
+            }
+        }
+
+        return $counts;
+    }
+
+    /** Opening the booking's « Courrier » page reads everything filed so far. */
+    public function markRead(RentalBooking $booking, int $userAccountId): void
+    {
+        if ($this->inboundMail === null || $this->reads === null) {
+            return;
+        }
+
+        $this->reads->markRead(
+            $booking->id,
+            $userAccountId,
+            $this->inboundMail->latestLinkPosition(RentalMessageConsumer::CONSUMER_ID, $booking->reference)
+        );
     }
 
     /**

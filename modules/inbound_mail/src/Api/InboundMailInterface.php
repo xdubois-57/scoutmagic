@@ -49,6 +49,29 @@ interface InboundMailInterface
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage;
 
     /**
+     * The newest association of a message with this object, as an opaque
+     * position: what a consumer stores to say « read up to here » (#720).
+     *
+     * A position rather than a date, so that « what came after » is
+     * decided by the order the associations were written in and never by
+     * comparing a server clock with an application one. 0 when nothing is
+     * filed under the object. Attachment-level associations do not count:
+     * they are part of a message already counted.
+     */
+    public function latestLinkPosition(string $consumerId, string $businessReference): int;
+
+    /**
+     * How many messages were filed under each object after the given
+     * position (`latestLinkPosition()`), keyed by reference — the « non
+     * lus » of a consumer's screens (#720). An object absent from the
+     * answer has none.
+     *
+     * @param array<string, int> $afterByReference reference => position
+     * @return array<string, int>
+     */
+    public function countLinksAfter(string $consumerId, array $afterByReference): array;
+
+    /**
      * Associate a message with one of this consumer's business objects,
      * because a person said so.
      *

@@ -673,6 +673,27 @@ CREATE TABLE IF NOT EXISTS rental_booking_emails (
     CONSTRAINT fk_rental_booking_emails_booking FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- How far each person has read a booking's mail (#720): the « non lus »
+-- badge on its « Courrier » tab and on the asset's overview.
+--
+-- Per person, not per booking: two managers of one hall each have their
+-- own badge, and the one who opened the page must not clear the other's.
+-- A position in inbound_mail's associations (`latestLinkPosition()`)
+-- rather than a date, so « what came after » is decided by the order the
+-- messages were filed in and never by comparing two clocks. Nothing
+-- personal is stored; the row goes with the booking or the account.
+CREATE TABLE IF NOT EXISTS rental_booking_mail_reads (
+    booking_id INT UNSIGNED NOT NULL,
+    user_account_id INT UNSIGNED NOT NULL,
+    read_up_to INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (booking_id, user_account_id),
+    CONSTRAINT fk_rental_booking_mail_reads_booking FOREIGN KEY (booking_id)
+        REFERENCES rental_bookings (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_booking_mail_reads_account FOREIGN KEY (user_account_id)
+        REFERENCES user_accounts (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rental_booking_comments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,

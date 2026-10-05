@@ -684,7 +684,9 @@ class RentalManagementControllerTest extends TestCase
                 $this->managerRepository
             ),
             new JournalService(new JournalRepository($this->pdo)),
-            $inbound
+            $inbound,
+            null,
+            new \Modules\Rental\Repository\RentalMailReadRepository($this->pdo)
         );
         (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
             ->setValue($this->controller, $service);
@@ -867,6 +869,63 @@ class RentalManagementControllerTest extends TestCase
         foreach (['rattacher', 'ecarter', 'reprendre', 'relancer', 'proposition/confirmation', 'proposition/rejet'] as $gone) {
             $this->assertNotContains('/mes-locations/courrier/' . $gone, $paths);
         }
+    }
+
+    // ── « Non lus », per person (#720) ──────────────────────────────────
+
+    public function testTheCourrierChipCountsWhatWasFiledSinceThePersonLastLooked(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+
+        // Opening the page reads it — and its own chip does not announce
+        // what is already on the screen.
+        $page = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->assertStringContainsString('<span>Courrier</span>', $page);
+        $this->assertStringContainsString('<span>Courrier</span>', $this->dashboardOf($mine));
+
+        $mail->link(7, 'rental', $mine->reference);
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+    }
+
+    public function testReadingIsEachPersonsOwn(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+        $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+
+        // A second manager of the same hall still has the message to read.
+        $this->addManager($this->assetId, 'second@test.be');
+        AuthSession::login(2, 'second@test.be', 'identified');
+
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+    }
+
+    public function testTheOverviewListsTheBookingsWithNewMessages(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+        $this->assertStringContainsString('data-unread-mail', $body);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reservations/' . $mine->id . '/courrier"', $body);
+        $this->assertStringContainsString('1 nouveau message', $body);
+
+        $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+        $this->assertStringNotContainsString('data-unread-mail', (string) $this->overview('local-saint-georges')->getBody());
+    }
+
+    public function testABookingToDealWithCarriesItsUnreadBadgeToo(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();   // a new request: « À traiter »
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertMatchesRegularExpression('#data-unread-badge>\s*<i class="bi bi-envelope" aria-hidden="true"></i>\s*1<span class="visually-hidden"> nouveau message</span>#', $body);
+    }
+
+    private function dashboardOf(RentalBooking $booking): string
+    {
+        return (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
     }
 
     private function detachPost(RentalBooking $booking, int $messageId): Response

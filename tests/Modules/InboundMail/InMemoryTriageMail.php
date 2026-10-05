@@ -65,6 +65,39 @@ final class InMemoryTriageMail implements InboundMailInterface
     public function linkAs(int $messageId, string $consumerId, string $businessReference, LinkOrigin $origin): void
     {
         $this->links[$messageId][] = new MessageLink($consumerId, $businessReference, $origin);
+        $this->positions[$messageId][$consumerId . '|' . $businessReference] = ++$this->lastPosition;
+    }
+
+    /** @var array<int, array<string, int>> message => "consumer|reference" => position */
+    private array $positions = [];
+
+    private int $lastPosition = 0;
+
+    public function latestLinkPosition(string $consumerId, string $businessReference): int
+    {
+        $latest = 0;
+        foreach (array_keys($this->messages) as $messageId) {
+            if ($this->findOneForReference($consumerId, $businessReference, $messageId) !== null) {
+                $latest = max($latest, $this->positions[$messageId][$consumerId . '|' . $businessReference] ?? 0);
+            }
+        }
+
+        return $latest;
+    }
+
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        $counts = [];
+        foreach ($afterByReference as $reference => $after) {
+            foreach (array_keys($this->messages) as $messageId) {
+                $position = $this->positions[$messageId][$consumerId . '|' . $reference] ?? 0;
+                if ($position > $after && $this->findOneForReference($consumerId, (string) $reference, $messageId) !== null) {
+                    $counts[$reference] = ($counts[$reference] ?? 0) + 1;
+                }
+            }
+        }
+
+        return $counts;
     }
 
     /**

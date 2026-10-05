@@ -732,6 +732,11 @@ class RentalManagementController extends AbstractController
             $now
         );
 
+        // « Nouveaux messages », for the person looking (#720): what was
+        // filed under each booking since THEY last opened its Courrier.
+        $accountId = AuthSession::getUserAccountId();
+        $unread = $accountId === null ? [] : ($this->communicationService?->unreadCounts($accountId, $bookings) ?? []);
+
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             // A public asset with no rate at all answers every visitor
@@ -752,6 +757,11 @@ class RentalManagementController extends AbstractController
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
+            )),
+            'mail_unread' => $unread,
+            'unread_bookings' => array_values(array_filter(
+                $bookings,
+                static fn(RentalBooking $b): bool => isset($unread[$b->id])
             )),
             'upcoming_blocks' => $this->blockService->upcomingFor($asset->id, $now),
             // The three figures of §6.34, read from the live bookings AND
@@ -1234,6 +1244,14 @@ class RentalManagementController extends AbstractController
 
         $now = new \DateTimeImmutable();
 
+        // Opening « Courrier » reads it, for this person only (#720) — and
+        // before the counts below, so its own chip does not still announce
+        // what is on the screen.
+        $accountId = AuthSession::getUserAccountId();
+        if ($page === BookingPage::MAIL && $accountId !== null) {
+            $this->communicationService?->markRead($booking, $accountId);
+        }
+
         // Keyed by the enum's own value so the template writes
         // `boxes.payment.anchor` rather than the string that anchor
         // happens to be today: the journey's links are built from the same
@@ -1271,6 +1289,10 @@ class RentalManagementController extends AbstractController
                     $this->changeRequestRepository->findForBooking($booking->id),
                     static fn($change): bool => $change->isPending()
                 )),
+                // « Courrier (2) »: what was filed since this person last
+                // opened it (#720).
+                BookingPage::MAIL->value => $accountId === null ? 0
+                    : ($this->communicationService?->unreadCounts($accountId, [$booking])[$booking->id] ?? 0),
             ],
         ];
 

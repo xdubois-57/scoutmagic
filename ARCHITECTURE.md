@@ -2400,6 +2400,21 @@ tabs, the attach, set aside, restore and « Relancer l'analyse » routes and
 the propositions are gone; `POST /mes-locations/courrier/detacher` is the
 one form left, through `bookingAction()` like every form of the booking.
 
+**A filed message is announced, and counted until read — per person**
+(#720). `RentalMessageConsumer::onLinked()` tells the asset's managers
+(`Mail\NewMessageNotifier`, `rental.new_message`, through
+`ManagerRecipientResolver` like a new request) once per message-level
+association, whichever path wrote it; the booking and the link to its
+« Courrier », never the sender or the subject, and a notification that
+fails never stops the filing. The badge — « Courrier (2) » on the rail,
+« Nouveaux messages » on the overview, a count on the « À traiter » row —
+is `rental_booking_mail_reads`: per booking AND account, a position in
+inbound_mail's associations (`latestLinkPosition()`, `countLinksAfter()`)
+rather than a date, so « what came after » is the order the messages were
+filed in and never a comparison of two clocks. Opening the page reads up
+to the latest position, before the rail is counted, and never moves the
+position back.
+
 **A renter's « Répondre » names the booking.** Every booking mail carries
 the signed reply address when the operator allows it
 (`ReplyAddressService::mailboxFor()` mints it on a box dedicated to rentals,

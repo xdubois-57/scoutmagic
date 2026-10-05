@@ -328,6 +328,13 @@ le message n'apparaît sur aucune réservation, et personne n'a de tri à
 faire. Mieux vaut un e-mail qui reste dans la boîte qu'un e-mail dans le
 mauvais dossier.
 
+Quand un e-mail est rattaché à une réservation, ses gestionnaires
+reçoivent une notification « Nouveau message du locataire », qui mène à
+la page « Courrier ». Chacun a sa **pastille de non-lus** : « Courrier (2) »
+dans les onglets de la réservation, et un encadré « Nouveaux messages »
+sur la vue d'ensemble du bien. Elle retombe quand **vous** ouvrez la page,
+pas quand un autre gestionnaire l'ouvre.
+
 Une pièce jointe devient un document de la réservation, en « Non classé »
 et en visibilité interne — jamais présumée être le contrat signé. Vous la
 reclassez en un clic.
