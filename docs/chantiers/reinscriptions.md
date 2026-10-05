@@ -206,3 +206,67 @@ dialogue. Les deux lisent le même plan et le même texte.
 - L'attente de `ReenrollmentConfigControllerTest` sur « Aucun autre rappel
   automatique n'est prévu | Prochain rappel… » reste inchangée : elle porte
   sur le dialogue « Relancer maintenant », qu'IT-04 reprend.
+
+---
+
+## IT-04 — Deux sous-pages, et les dates prévues
+
+**Livré.**
+
+- **Le rail et les deux routes (D9).** Le rail `page_picker`
+  (`_reenrollment_nav.html.twig`) mène à deux pages :
+  - « Tableau de bord » sur `/config/reinscription` : l'état et « Relancer
+    maintenant » ;
+  - « Réglages » sur `/config/reinscription/reglages` : les dates, les
+    rappels et les deux interrupteurs.
+
+  L'enregistrement passe sur `POST /config/reinscription/reglages`, et
+  l'écran de confirmation y renvoie. `/config/reinscription/relance` et
+  `/apercu` ne bougent pas. Le fil d'Ariane de la page « Réglages » porte
+  tous les niveaux, par `ancestors` : Espace chefs d'U / Réinscriptions /
+  Réglages. Le module passe en 6.11.0, puisque `module.json` change.
+- **`ReenrollmentCampaignService::timeline()`** est la seule source de la
+  boîte (D10) et de son dialogue (D11). Elle donne la campagne de l'année
+  visée, puis ses quatre étapes, chacune dans l'un de cinq états :
+  - envoyé, avec son moment, et « (ouverte à la main) » quand l'ouverture
+    est partie avant sa date ;
+  - prévu le …, avec la date ;
+  - pas envoyé, prévu le …, date passée ;
+  - sauté, la date tombe avant l'ouverture ;
+  - désactivé.
+
+  Les rappels se comptent depuis la fermeture de CETTE campagne.
+  `automaticReminders()` et `emailStates()` disparaissent, remplacés par
+  cette chronologie.
+- **La boîte nomme sa campagne.** Elle affiche « Campagne pour 2027-2028 :
+  du 01/03/2027 au 15/05/2027 », ou « ouverte le 04/10/2026, fermeture le
+  15/05/2027 » quand l'ouverture s'est faite à la main. Tant que la campagne
+  de l'année visée n'a pas commencé, une ligne grise dit comment la
+  précédente s'est terminée.
+- **La carte « État »** n'annonce plus une clôture prévue déjà passée. Elle
+  dit « Ouverte à la main, avant la date prévue. » quand c'est le cas.
+- **Le dialogue « Relancer maintenant »** compte les familles avec le même
+  `ReenrollmentSavePlanner::families()` que le plan d'envoi. Il lit le
+  dernier rappel parti et le prochain prévu dans la même chronologie que la
+  boîte.
+- **E-mails désactivés.** Chaque étape dit « Désactivé » et le bouton est
+  grisé, avec « Les réactiver dans les réglages ».
+
+**Écart avec la maquette.** La ligne « Campagne précédente » s'affiche tant
+que la campagne de l'année visée n'a pas commencé : entre deux campagnes,
+mais aussi juste avant l'ouverture. La maquette ne la montre que dans la
+situation « Entre deux campagnes ». Elle reste vraie et utile jusqu'à
+l'ouverture ; le test ne l'exclut donc pas avant l'ouverture.
+
+**Tests.**
+
+- `ReenrollmentCampaignServiceTest` couvre les cinq états, l'ouverture à la
+  main et la ligne de la campagne précédente.
+- `ReenrollmentConfigControllerTest` couvre :
+  - les huit situations de la maquette sur le tableau de bord ;
+  - le dialogue de relance, qui lit les mêmes étapes que la boîte ;
+  - le rail et le fil d'Ariane sur les deux pages ;
+  - la matrice RBAC des deux nouvelles routes : autorisé à `admin`, refusé
+    à `chief`.
+- L'attente de la ligne 562 (« Aucun autre rappel automatique n'est prévu
+  | Prochain rappel… ») porte maintenant sur des dates exactes.

@@ -6,7 +6,7 @@ category: Espace chefs d'U
 role_min: admin
 question: Quels e-mails la campagne de réinscription envoie-t-elle ?
 question: Comment empêcher la campagne d'écrire aux familles ?
-paths: /config/reinscription
+paths: /config/reinscription, /config/reinscription/reglages
 related: config-reinscription, reinscription
 ---
 

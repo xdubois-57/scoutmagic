@@ -459,51 +459,160 @@ class ReenrollmentCampaignService
     }
 
     /**
-     * Where the two AUTOMATIC reminders stand, for the « Relancer
-     * maintenant » question (issue #732): the last one that went out, and
-     * the next one still to come.
+     * The campaign of the target year, step by step — the one source for the
+     * « Relancer maintenant » box and its dialog (issue #796, D10, D11).
      *
-     * « Last » is a sent reminder of this campaign — with its moment when
-     * it was recorded, `last_at` null otherwise. « Next » is the earliest
-     * reminder due today or later that has not gone out; null when none is
-     * left, or when the e-mails are switched off and none will go.
+     * Each of the four e-mails is in one of five states:
      *
-     * @return array{last_sent: bool, last_at: ?\DateTimeImmutable, next: ?\DateTimeImmutable}
+     * - **sent** — with its moment, and `manual` when the opening went out
+     *   before the opening date, by the switch;
+     * - **planned** — with its date, today or later;
+     * - **missed** — its date is behind us and it did not go: a missed date
+     *   is missed, nothing is sent late;
+     * - **skipped** — a reminder whose date falls before the opening, with
+     *   that date, never sent;
+     * - **off** — the campaign's e-mails are switched off.
+     *
+     * The reminder dates are those of THIS campaign — the dialog said « no
+     * other reminder is planned » while the settings planned two, because
+     * they were counted from the close of a campaign already over.
+     *
+     * @return array{
+     *     key: string,
+     *     label: string,
+     *     opens: ?string,
+     *     closes: string,
+     *     opened_early_at: ?\DateTimeImmutable,
+     *     opened_early: bool,
+     *     started: bool,
+     *     steps: list<array{type: string, state: string, date: ?string, at: ?\DateTimeImmutable, manual: bool}>,
+     *     previous: ?array{label: string, closed_on: string}
+     * }|null null when the dates designate no campaign
      */
-    public function automaticReminders(?\DateTimeImmutable $now = null): array
+    public function timeline(\DateTimeImmutable $now): ?array
     {
-        $now ??= new \DateTimeImmutable();
         $key = $this->currentCampaignKey($now);
-
-        $lastSent = false;
-        $lastAt = null;
-        $next = null;
-        if ($key === null) {
-            return ['last_sent' => false, 'last_at' => null, 'next' => null];
+        $openAt = $this->monthDay(self::SETTING_OPEN_AT);
+        $close = $key !== null ? DateInput::parse('!Y-m-d', $key) : null;
+        if ($key === null || $openAt === null || $close === null) {
+            return null;
         }
 
-        foreach ([self::EMAIL_REMINDER_1, self::EMAIL_REMINDER_2] as $type) {
-            $marker = self::emailMarker($type);
-            if ($this->alreadyDone($marker, $key)) {
-                $lastSent = true;
-                $at = $this->doneAt($marker, $key);
-                if ($at !== null && ($lastAt === null || $at > $lastAt)) {
-                    $lastAt = $at;
-                }
+        $today = $now->format('Y-m-d');
+        $opens = self::openingDateOf($key, $openAt)?->format('Y-m-d');
+        $emailsOn = $this->emailsEnabled();
+
+        $steps = [];
+        foreach ([self::EMAIL_OPENING, self::EMAIL_REMINDER_1, self::EMAIL_REMINDER_2, self::EMAIL_CLOSING] as $type) {
+            $date = match ($type) {
+                self::EMAIL_OPENING => $opens,
+                self::EMAIL_CLOSING => $key,
+                default => $this->rawReminderDate($type, $close),
+            };
+            if ($date === null && $type !== self::EMAIL_OPENING) {
+                // No delay set: no such reminder in this campaign.
                 continue;
             }
+            $marker = self::emailMarker($type);
+            $sent = $this->alreadyDone($marker, $key);
+            $at = $sent ? $this->doneAt($marker, $key) : null;
 
-            $due = $this->reminderDate($type, $now);
-            if ($due !== null && $due >= $now->setTime(0, 0) && ($next === null || $due < $next)) {
-                $next = $due;
-            }
+            $state = match (true) {
+                !$emailsOn && !$sent => 'off',
+                $sent => 'sent',
+                $type !== self::EMAIL_OPENING && $type !== self::EMAIL_CLOSING
+                    && $opens !== null && $date < $opens => 'skipped',
+                $date !== null && $date < $today => 'missed',
+                default => 'planned',
+            };
+
+            $steps[] = [
+                'type' => $type,
+                'state' => $state,
+                'date' => $date,
+                'at' => $at,
+                'manual' => $type === self::EMAIL_OPENING && $at !== null && $opens !== null
+                    && $at->format('Y-m-d') < $opens,
+            ];
         }
 
+        $openingAt = $this->doneAt(self::emailMarker(self::EMAIL_OPENING), $key);
+        // A campaign the switch has opened is under way, whatever its e-mails
+        // did: the switch writes no marker, and with the e-mails off nothing
+        // else does either — the page's « Ouverte » badge reads isOpen() too.
+        $started = $this->hasStarted($key, $now) || $this->isOpen();
+        $previousKey = $this->lastClosedCampaignBefore($key);
+        // One answer for every surface of the page: opened before its
+        // scheduled date, by the recorded opening e-mail or, when none was
+        // recorded (the switch writes no marker), by the clock today.
+        $openedEarly = $started && $opens !== null
+            && ($openingAt !== null ? $openingAt->format('Y-m-d') : $now->format('Y-m-d')) < $opens;
+
         return [
-            'last_sent' => $lastSent,
-            'last_at' => $lastAt,
-            'next' => $this->emailsEnabled() ? $next : null,
+            'key' => $key,
+            'label' => $this->targetLabelOf($key),
+            'opens' => $opens,
+            'closes' => $key,
+            'opened_early_at' => $openingAt !== null && $opens !== null && $openingAt->format('Y-m-d') < $opens
+                ? $openingAt
+                : null,
+            'opened_early' => $openedEarly,
+            'started' => $started,
+            'steps' => $steps,
+            // Between two campaigns, one grey line says how the last one
+            // ended — what the box used to show in full, as if current.
+            'previous' => !$started && $previousKey !== null
+                ? ['label' => $this->targetLabelOf($previousKey['key']), 'closed_on' => $previousKey['on']]
+                : null,
         ];
+    }
+
+    /**
+     * The last campaign that really closed before the one keyed `$key`, as
+     * recorded — by the clock's closing or by its closing e-mail — never
+     * worked out from today's settings: a unit that has never run a campaign
+     * has no previous one to speak of, and one that has moved its close date
+     * since must not have the old campaign restated with the new one.
+     *
+     * `on` is the day the closing really happened, as its marker recorded it
+     * — a campaign closed by hand ahead of its date, with the e-mails on,
+     * leaves its closing e-mail and so reads the day the switch was turned
+     * off, not the scheduled one. The scheduled date is the fallback when a
+     * marker carries no moment. A campaign closed by hand with the e-mails
+     * off leaves no mark, and so no line: a wrong answer looks worse than
+     * none.
+     *
+     * @return array{key: string, on: string}|null
+     */
+    private function lastClosedCampaignBefore(string $key): ?array
+    {
+        $last = null;
+        foreach ([self::MARKER_CLOSED, self::emailMarker(self::EMAIL_CLOSING)] as $marker) {
+            $value = (string) $this->settingService->get($marker, 'registration', '');
+            if ($value === '' || $value >= $key || ($last !== null && $value <= $last['key'])) {
+                continue;
+            }
+            $last = [
+                'key' => $value,
+                'on' => $this->doneAt($marker, $value)?->format('Y-m-d') ?? $value,
+            ];
+        }
+
+        return $last;
+    }
+
+    /**
+     * A reminder's date in campaign `$close`, BEFORE the « skipped » rule —
+     * the date the box shows beside « sauté ». Null when no delay is set.
+     */
+    private function rawReminderDate(string $type, \DateTimeImmutable $close): ?string
+    {
+        $raw = (string) $this->settingService->get(
+            $type === self::EMAIL_REMINDER_1 ? self::SETTING_REMINDER_1_DAYS : self::SETTING_REMINDER_2_DAYS,
+            'registration'
+        );
+
+        return is_numeric($raw) ? $close->modify('-' . max(0, (int) $raw) . ' days')->format('Y-m-d') : null;
     }
 
     public static function emailMarker(string $type): string

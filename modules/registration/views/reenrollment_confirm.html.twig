@@ -56,13 +56,13 @@
             </div>
         {% endif %}
 
-        <form method="post" action="/config/reinscription" class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+        <form method="post" action="/config/reinscription/reglages" class="d-flex flex-wrap gap-2 justify-content-end mt-3">
             {{ csrf_field()|raw }}
             {% for name, value in fields %}
                 <input type="hidden" name="{{ name }}" value="{{ value }}">
             {% endfor %}
             <input type="hidden" name="plan_fingerprint" value="{{ fingerprint }}">
-            <a href="/config/reinscription" class="btn btn-outline-secondary">Annuler</a>
+            <a href="/config/reinscription/reglages" class="btn btn-outline-secondary">Annuler</a>
             <button type="submit" class="btn {{ dialog.sends ? 'btn-danger' : 'btn-primary' }}">{{ dialog.confirm_label }}</button>
         </form>
     </div>

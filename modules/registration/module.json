@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.10.1",
+  "version": "6.11.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -95,7 +95,28 @@
       }
     },
     {
-      "path": "/config/reinscription",
+      "path": "/config/reinscription/reglages",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
+      "action": "settings",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réglages",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Réinscriptions",
+            "path": "/config/reinscription"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/reinscription/reglages",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\ReenrollmentConfigController",
       "action": "save",

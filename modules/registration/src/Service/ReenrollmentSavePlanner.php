@@ -87,6 +87,16 @@ class ReenrollmentSavePlanner
     }
 
     /**
+     * How many families an e-mail of the campaign reaches now — all of them,
+     * or the silent ones. The « Relancer maintenant » question counts with
+     * it too, so it can never count other families than the sender writes to.
+     */
+    public function families(bool $silentOnly): int
+    {
+        return (int) ($this->familyCounter)($silentOnly);
+    }
+
+    /**
      * @param array{
      *     open_at: ?string,
      *     close_at: ?string,
@@ -256,7 +266,7 @@ class ReenrollmentSavePlanner
             }
         }
 
-        $families = (int) ($this->familyCounter)($type !== ReenrollmentCampaignService::EMAIL_OPENING);
+        $families = $this->families($type !== ReenrollmentCampaignService::EMAIL_OPENING);
         if ($families === 0) {
             // Due, and nobody to write to — every family has already
             // answered, or none is rostered yet: nothing leaves.

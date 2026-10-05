@@ -6,7 +6,7 @@ category: Espace chefs d'U
 role_min: admin
 question: Comment ouvrir la campagne de réinscription aux familles ?
 question: Comment relancer les familles qui n'ont pas répondu ?
-paths: /config/reinscription
+paths: /config/reinscription, /config/reinscription/reglages
 related: config-reinscription-emails, reinscription, departs, passage
 ---
 

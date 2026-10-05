@@ -16,7 +16,6 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
-use Core\Security\CsrfGuard;
 use Modules\Registration\Service\ReenrollmentCampaignService;
 use Modules\Registration\Service\ReenrollmentSavePlan;
 use Modules\Registration\Service\ReenrollmentSavePlanPresenter;
@@ -49,7 +48,10 @@ use Twig\Environment;
  */
 class ReenrollmentConfigController extends AbstractController
 {
+    /** The dashboard: « État » and « Relancer maintenant » (issue #796, D9). */
     private const PAGE_URL = '/config/reinscription';
+    /** The settings: dates, reminders, the two switches. */
+    private const SETTINGS_URL = '/config/reinscription/reglages';
 
     /**
      * The fields a save carries, in the form's own names — what the
@@ -90,91 +92,58 @@ class ReenrollmentConfigController extends AbstractController
     }
 
     /**
+     * GET /config/reinscription — the dashboard (issue #796, D9): where the
+     * campaign of the target year stands, and « Relancer maintenant », each
+     * step saying what went out or what is planned (D10).
+     *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
-        $closeDate = $this->campaign->closeDate($this->now());
-        $campaignKey = $this->campaign->currentCampaignKey($this->now());
+        $now = $this->now();
+        $timeline = $this->campaign->timeline($now);
+        $isOpen = $this->campaign->isOpen();
+        $closeDate = $this->campaign->closeDate($now);
 
         return $this->render('@registration/reenrollment_config.html.twig', [
+            'is_open' => $isOpen,
+            'emails_enabled' => $this->campaign->emailsEnabled(),
+            'timeline' => $timeline,
+            'remind_question' => $this->remindQuestion($timeline),
+            // « Clôture prévue » only while it is still ahead: the card
+            // announced a close five months gone.
+            'close_date' => $closeDate !== null && $closeDate->format('Y-m-d') >= $now->format('Y-m-d')
+                ? $closeDate->format('d/m/Y')
+                : null,
+            'opened_early' => $isOpen && $timeline !== null && $timeline['opened_early'],
+            'tracking' => $this->campaign->tracking(),
+        ]);
+    }
+
+    /**
+     * GET /config/reinscription/reglages — the dates, the reminders and the
+     * two switches (issue #796, D9).
+     *
+     * @param array<string, string> $params
+     */
+    public function settings(Request $request, array $params): Response
+    {
+        $campaignKey = $this->campaign->currentCampaignKey($this->now());
+        $setting = fn (string $key): string => (string) $this->settingService->get($key, 'registration', '');
+
+        return $this->render('@registration/reenrollment_settings.html.twig', [
             'is_open' => $this->campaign->isOpen(),
             'emails_enabled' => $this->campaign->emailsEnabled(),
-            'remind_question' => $this->remindQuestion(),
-            'open_at' => (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_OPEN_AT,
-                'registration',
-                ''
-            ),
-            'close_at' => (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_CLOSE_AT,
-                'registration',
-                ''
-            ),
-            'reminder_1_days' => (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS,
-                'registration',
-                ''
-            ),
-            'reminder_2_days' => (string) $this->settingService->get(
-                ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS,
-                'registration',
-                ''
-            ),
-            'close_date' => $closeDate?->format('d/m/Y'),
+            'open_at' => $setting(ReenrollmentCampaignService::SETTING_OPEN_AT),
+            'close_at' => $setting(ReenrollmentCampaignService::SETTING_CLOSE_AT),
+            'reminder_1_days' => $setting(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS),
+            'reminder_2_days' => $setting(ReenrollmentCampaignService::SETTING_REMINDER_2_DAYS),
             // The campaign the switch opens and closes, named under it
             // (issue #796, D3): there is only one, the target year's.
             'campaign_label' => $campaignKey !== null
                 ? $this->campaign->targetLabelOf($campaignKey)
                 : null,
-            // When each email of this campaign actually went out. A chief
-            // who has just clicked « Relancer » gets a scheduled job and a
-            // success message; without this the page never told them
-            // whether it ran, so the only way to find out was to click
-            // again.
-            'emails' => $this->emailStates(),
-            'tracking' => $this->campaign->tracking(),
-            'csrf_token' => CsrfGuard::generateToken(),
         ]);
-    }
-
-    /**
-     * Where each of the campaign's four emails stands, keyed by type.
-     *
-     * **Two facts, not one.** « Sent » and « sent at » come apart in a case
-     * that exists on any installation upgrading mid-campaign: the marker
-     * says the email went out, and the moment beside it was introduced
-     * after it did, so there is nothing to read. Collapsing the two would
-     * print « Pas encore envoyé » under an email a chief watched leave —
-     * a wrong answer, which is what this whole block was added to stop.
-     *
-     * Both are scoped to the campaign now open. A marker from last year's
-     * campaign is not this campaign's news.
-     *
-     * @return array<string, array{sent: bool, at: ?\DateTimeImmutable}>
-     */
-    private function emailStates(): array
-    {
-        $campaignKey = $this->campaign->currentCampaignKey($this->now());
-
-        $states = [];
-        foreach ([
-            ReenrollmentCampaignService::EMAIL_OPENING,
-            ReenrollmentCampaignService::EMAIL_REMINDER_1,
-            ReenrollmentCampaignService::EMAIL_REMINDER_2,
-            ReenrollmentCampaignService::EMAIL_CLOSING,
-        ] as $type) {
-            $marker = ReenrollmentCampaignService::emailMarker($type);
-
-            $states[$type] = $campaignKey === null
-                ? ['sent' => false, 'at' => null]
-                : [
-                    'sent' => $this->campaign->alreadyDone($marker, $campaignKey),
-                    'at' => $this->campaign->doneAt($marker, $campaignKey),
-                ];
-        }
-
-        return $states;
     }
 
     /**
@@ -216,7 +185,7 @@ class ReenrollmentConfigController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_URL)) !== null) {
+        if (($guard = $this->guardCsrf($request, self::SETTINGS_URL)) !== null) {
             return $guard;
         }
 
@@ -231,7 +200,7 @@ class ReenrollmentConfigController extends AbstractController
         if (!$plan->hasChanges()) {
             FlashMessage::set('warning', 'Aucun changement à enregistrer.');
 
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect(self::SETTINGS_URL);
         }
 
         // **Every save that changes something is confirmed, on the exact
@@ -311,7 +280,7 @@ class ReenrollmentConfigController extends AbstractController
 
         FlashMessage::set('success', $this->presenter->afterSave($plan, $now));
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->redirect(self::SETTINGS_URL);
     }
 
     /**
@@ -385,25 +354,53 @@ class ReenrollmentConfigController extends AbstractController
     }
 
     /**
-     * The « Relancer maintenant » question (issue #732): that an e-mail
-     * leaves, to whom, and where the automatic reminders stand, so a chief
-     * can see a scheduled reminder is two days away before sending one now.
+     * The « Relancer maintenant » question (issues #732, #796 D11): how many
+     * families an e-mail reaches, and where the automatic reminders stand —
+     * read off the same timeline as the box beside it, so the two can never
+     * say different things.
+     *
+     * @param array{steps: list<array{type: string, state: string, date: ?string, at: ?\DateTimeImmutable,
+     *     manual: bool}>}|null $timeline
      */
-    private function remindQuestion(): string
+    private function remindQuestion(?array $timeline): string
     {
-        $question = "Un e-mail de relance va être envoyé à chaque famille qui n'a pas encore répondu. "
-            . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.";
+        $families = $this->planner->families(true);
+        $question = match (true) {
+            $families === 0 => "Aucune famille ne recevra de relance. ",
+            $families === 1 => "1 e-mail va partir : une relance à la famille qui n'a pas encore répondu. "
+                . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.",
+            default => $families . " e-mails vont partir : une relance à chaque famille qui n'a pas encore répondu. "
+                . "L'envoi est programmé : il part dans quelques minutes, et rien ici ne le rappelle.",
+        };
 
-        $reminders = $this->campaign->automaticReminders($this->now());
-        if ($reminders['last_at'] !== null) {
-            $question .= ' Dernier rappel automatique envoyé le ' . $reminders['last_at']->format('d/m/Y') . '.';
-        } elseif ($reminders['last_sent']) {
+        $sent = [];
+        $next = null;
+        foreach ($timeline['steps'] ?? [] as $step) {
+            if ($step['type'] !== ReenrollmentCampaignService::EMAIL_REMINDER_1
+                && $step['type'] !== ReenrollmentCampaignService::EMAIL_REMINDER_2
+            ) {
+                continue;
+            }
+            if ($step['state'] === 'sent') {
+                $sent[] = $step['at'];
+            } elseif ($step['state'] === 'planned' && ($next === null || $step['date'] < $next)) {
+                // The earliest date, not the first step met: the two delays
+                // are independent, so the second reminder can come first.
+                $next = $step['date'];
+            }
+        }
+
+        $last = array_filter($sent);
+        if ($last !== []) {
+            $question .= ' Dernier rappel automatique envoyé le ' . max($last)->format('d/m/Y') . '.';
+        } elseif ($sent !== []) {
             $question .= ' Un rappel automatique a déjà été envoyé, à une date inconnue.';
         } else {
             $question .= " Aucun rappel automatique n'a encore été envoyé.";
         }
-        $question .= $reminders['next'] !== null
-            ? ' Prochain rappel automatique prévu le ' . $reminders['next']->format('d/m/Y') . '.'
+        $question .= $next !== null
+            ? ' Prochain rappel automatique prévu le '
+                . (\Core\Service\DateInput::parse('!Y-m-d', $next)?->format('d/m/Y') ?? $next) . '.'
             : " Aucun autre rappel automatique n'est prévu.";
 
         return $question . ' Relancer maintenant ?';
