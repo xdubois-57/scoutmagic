@@ -2374,8 +2374,17 @@ failed answers `readingFailed()` and is retried at most
 `MAX_ANALYSIS_ATTEMPTS` times, while a model that declines is an answer and
 is not asked again. Without the connector or a cheap model nothing is
 asked and the message appears on no booking. The text read is anybody's
-(#231): the most a hostile message obtains is one of the bookings the
-rules had already put forward for it, visible and reversible.
+(#231), so the model only ever picks among the bookings the rules put
+forward. **The reference case is the weak one, and it is deliberate**
+(the chantier asks for it): there the rules put forward one booking only
+because the message named it, so the model is confirming, not choosing. Two
+things bound it. The reference is random since #720 step 9 (six characters
+out of 31, about 887 million) and travels only in that booking's own mail,
+so quoting it means having seen that mail — the treasurer the renter
+forwarded it to, which is the case this exists for. And what it obtains is
+a message, and an address, filed under the booking for its managers alone:
+nothing is sent to the sender, the attachments stay `Non classé` and
+internal, the filing is shown as the model's, and « Détacher » undoes both.
 
 **« Autres adresses du locataire »** (#720, step 5, `rental_booking_emails`).
 The booking's other addresses — the treasurer, a partner, a work address —
