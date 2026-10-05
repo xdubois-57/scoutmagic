@@ -399,7 +399,14 @@ class RentalManagementControllerTest extends TestCase
             }
         );
         $mock->method('resend')->willReturnCallback(
-            function (\Modules\Rental\Mail\SentEmail $sent, RentalBooking $booking, ?string $trackingToken): void {
+            function (\Modules\Rental\Mail\SentEmail $sent, RentalBooking $booking, ?string $trackingToken, \Closure $attachmentOf): void {
+                // As the real service does: every document read again first,
+                // and the e-mail refused when one is gone.
+                foreach ($sent->documentIds as $documentId) {
+                    if ($attachmentOf($documentId) === null) {
+                        throw new \Modules\Rental\Service\RentalException("Une pièce jointe de cet e-mail n'existe plus.");
+                    }
+                }
                 $this->resends[] = ['sent_id' => $sent->id, 'booking_id' => $booking->id, 'token' => $trackingToken];
             }
         );
@@ -919,20 +926,25 @@ class RentalManagementControllerTest extends TestCase
         return $log;
     }
 
+    /**
+     * @param list<int> $documentIds
+     */
     private function logEmail(
         \Modules\Rental\Repository\RentalSentEmailRepository $log,
         RentalBooking $booking,
         string $status,
-        string $subject = '[LOC-2027-0001] Votre demande de location'
+        string $subject = '[LOC-2027-0001] Votre demande de location',
+        string $kind = 'rental.acknowledgement',
+        array $documentIds = []
     ): int {
         return $log->record(
             $booking->id,
-            'rental.acknowledgement',
+            $kind,
             'jeanne@example.be',
             $subject,
             "Bonjour,\nVotre lien : " . \Modules\Rental\Mail\SentEmail::MASKED_LINK,
             '<p>Bonjour</p>',
-            [],
+            $documentIds,
             '<m1@unite.test>',
             $status,
             new \DateTimeImmutable('2027-06-01 10:00:00')
@@ -1032,6 +1044,64 @@ class RentalManagementControllerTest extends TestCase
      * `identified`, and what keeps it to the asset's managers is the
      * asset check behind it (§22.9).
      */
+    public function testAContractThatFinallyGoesOutIsRecordedAsSent(): void
+    {
+        // Its first send failed: nothing marked it sent, the booking never
+        // reached « Contrat envoyé ». « Renvoyer » is that first send.
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED, 'Contrat', 'rental.contract', [$contract->id]);
+        \Core\Http\FlashMessage::get();
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->resends);
+        $this->assertTrue($this->documentService->find($contract->id)?->hasBeenSent());
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    public function testAVoidContractIsNotResentFromTheCourrierPageEither(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        (new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo))->markSuperseded([$contract->id], new \DateTimeImmutable());
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED, 'Contrat', 'rental.contract', [$contract->id]);
+        \Core\Http\FlashMessage::get();
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $refusal = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $refusal['type'] ?? null);
+        $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
+        $this->assertSame([], $this->resends);
+        $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
     public function testAnAnonymousVisitorCannotResendAnything(): void
     {
         $this->loginAsManager();
