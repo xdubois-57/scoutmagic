@@ -256,7 +256,12 @@ class RentalManagementController extends AbstractController
         /** Whether a contract still says what its booking says (#708, IT-20). */
         private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null,
         /** « Valider l'état des lieux » and its PDF (#708, IT-17). */
-        private ?\Modules\Rental\Service\RentalInventoryValidationService $inventoryValidation = null
+        private ?\Modules\Rental\Service\RentalInventoryValidationService $inventoryValidation = null,
+        /**
+         * What the site sent the renter (#720, step 2): the other half of
+         * « Courrier », shown even without `inbound_mail`.
+         */
+        private ?\Modules\Rental\Repository\RentalSentEmailRepository $sentEmails = null
     ) {
         parent::__construct($twig);
     }
@@ -1364,6 +1369,100 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * POST /mes-locations/courrier/renvoyer — « Renvoyer » an e-mail the
+     * log shows as not sent (#720, step 2): the same text, with the
+     * booking's current tracking link and its attachments read from the
+     * documents they are.
+     *
+     * @param array<string, string> $params
+     */
+    public function resendEmail(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $sent = $this->sentEmails?->findById((int) $request->getBody('sent_email_id', 0));
+            if ($sent === null || $sent->bookingId !== $booking->id || $this->mailService === null) {
+                throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
+            }
+            // The button is only on a failure; a request naming an e-mail
+            // that went out is refused here too, not merely not offered.
+            if (!$sent->failed()) {
+                throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
+            }
+
+            /** @var list<\Modules\Rental\Document\RentalDocument> $documents */
+            $documents = [];
+            try {
+                $this->mailService->resend(
+                    $sent,
+                    $booking,
+                    $this->bookingService?->trackingTokenFor($booking->id),
+                    function (int $documentId) use ($booking, &$documents): ?array {
+                        $document = $this->documentService?->find($documentId);
+                        if ($document === null || $document->bookingId !== $booking->id) {
+                            return null;
+                        }
+                        // The same refusal as the Documents page's own
+                        // « Renvoyer » (sendDocument()): a void contract
+                        // describes a booking that no longer exists.
+                        if ($document->isSuperseded()) {
+                            throw new RentalException(
+                                'Ce document a été remplacé : la réservation a changé depuis. '
+                                    . 'Générez-en une nouvelle version et envoyez-la.'
+                            );
+                        }
+                        $path = $this->documentService->absolutePath($document);
+                        if ($path === null) {
+                            return null;
+                        }
+                        $documents[] = $document;
+
+                        return ['path' => $path, 'name' => $document->originalName ?? 'document.pdf'];
+                    }
+                );
+            } catch (RentalException $e) {
+                throw $e;
+            } catch (\Throwable) {
+                throw new RentalException("L'e-mail n'a pas pu partir. Il reste « Non envoyé » ; réessayez plus tard.");
+            }
+
+            // What a first send that worked would have recorded
+            // (sendDocument()): the document went out, and a contract makes
+            // the booking « Contrat envoyé » — without it the renter could
+            // not hand in the copy the e-mail asks them to sign.
+            $now = new \DateTimeImmutable();
+            foreach ($documents as $document) {
+                $this->documentService?->markSent($document->id, $now);
+                if ($document->type === DocumentType::CONTRACT) {
+                    $this->operationsService->contractSent(
+                        $booking,
+                        $this->actorMemberId(),
+                        $now,
+                        $this->contractHoldMinDays()
+                    );
+                }
+            }
+
+            FlashMessage::set('success', 'E-mail renvoyé.');
+        });
+    }
+
+    /**
+     * The names of the booking's documents, for the attachments a sent
+     * e-mail names by id.
+     *
+     * @return array<int, string>
+     */
+    private function documentNames(RentalBooking $booking): array
+    {
+        $names = [];
+        foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
+            $names[$document->id] = $document->originalName ?? $document->label();
+        }
+
+        return $names;
+    }
+
+    /**
      * What the Courrier page renders (#720): this booking's mail and
      * nothing else, most recent first (Mail\BookingMailTimeline), and
      * whether anything gathers renters' replies at all — the page is there
@@ -1374,7 +1473,11 @@ class RentalManagementController extends AbstractController
     private function mailContext(RentalBooking $booking): array
     {
         return [
-            'mail_entries' => BookingMailTimeline::of($this->communicationService?->timeline($booking) ?? []),
+            'mail_entries' => BookingMailTimeline::of(
+                $this->communicationService?->timeline($booking) ?? [],
+                $this->sentEmails?->findForBooking($booking->id) ?? [],
+                $this->documentNames($booking)
+            ),
             'mail_module_active' => $this->communicationService !== null,
             'mail_collected' => $this->communicationService?->collects() ?? false,
         ];
@@ -2028,7 +2131,8 @@ class RentalManagementController extends AbstractController
                     $document->originalName ?? 'contrat.pdf',
                     $document->hasBeenSent(),
                     $this->bookingService?->trackingTokenFor($booking->id),
-                    $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays())
+                    $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
+                    $document->id
                 );
             } else {
                 $this->mailService->sendDocument(
@@ -2038,7 +2142,8 @@ class RentalManagementController extends AbstractController
                     $path,
                     $document->originalName ?? 'document.pdf',
                     $document->hasBeenSent(),
-                    $document->type
+                    $document->type,
+                    $document->id
                 );
             }
             $this->documentService->markSent($document->id, $now);

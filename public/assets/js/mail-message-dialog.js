@@ -94,4 +94,10 @@
             giveBack();
         }
     });
+
+    // The listeners are bound: a click on « Lire le message » now opens
+    // the dialog. Same convention as groups.js's `groups-js` — a page whose
+    // deferred scripts are still arriving (a slow connection, or the E2E
+    // run with coverage) would otherwise drop a click silently.
+    document.documentElement.classList.add('mail-message-js');
 })();

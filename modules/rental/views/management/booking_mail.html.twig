@@ -31,12 +31,13 @@
         <div data-booking-panel="mail">
             {% if mail_entries is empty %}
                 {% include 'partials/empty_state.html.twig' with {
-                    message: "Aucun message n'est rattaché à cette réservation.",
+                    message: "Aucun message pour cette réservation.",
                     icon: 'bi-envelope',
                 } only %}
             {% else %}
                 <div class="d-flex flex-column gap-3" data-mail-timeline>
                     {% for entry in mail_entries %}
+                        {% if entry.direction == 'received' %}
                         {% set message = entry.message %}
                         <div class="card" data-mail-entry="{{ message.id }}">
                             <div class="card-body">
@@ -98,16 +99,89 @@
                                 </div>
                             </div>
                         </div>
+                        {% else %}
+                            {% set sent = entry.sent %}
+                            <div class="card{{ sent.failed ? ' border-danger' : '' }}" data-sent-entry="{{ sent.id }}">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                        <div class="min-w-0">
+                                            <div class="fw-semibold">
+                                                {% if sent.failed %}
+                                                    <span class="badge text-bg-danger me-1">Non envoyé</span>
+                                                {% elseif sent.beingResent %}
+                                                    <span class="badge text-bg-warning me-1">Renvoi en cours</span>
+                                                {% else %}
+                                                    <span class="badge bg-body-tertiary border text-body-secondary me-1">Envoyé</span>
+                                                {% endif %}
+                                                {{ sent.subject }}
+                                            </div>
+                                            <div class="small text-body-secondary">À {{ sent.recipient }}</div>
+                                        </div>
+                                        <span class="small text-body-secondary text-nowrap">{{ sent.sentAt|datetime_fr }}</span>
+                                    </div>
+
+                                    {% if entry.has_body %}
+                                        <div class="small text-body-secondary text-truncate mt-2">{{ entry.excerpt }}</div>
+                                        {# The site's own text, as sent, with the tracking link
+                                           masked — never the stored HTML. #}
+                                        <div class="d-none mail-message-body" id="mail-message-body-sent-{{ sent.id }}">
+                                            <div style="white-space: pre-wrap;">{{ sent.displayText }}</div>
+                                        </div>
+                                    {% endif %}
+
+                                    {% if entry.attachment_names is not empty %}
+                                        <ul class="list-unstyled small mt-2 mb-0">
+                                            {% for name in entry.attachment_names %}
+                                                <li><i class="bi bi-paperclip" aria-hidden="true"></i> {{ name }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% endif %}
+
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        {% if entry.has_body %}
+                                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                                    data-mail-message-open="mail-message-body-sent-{{ sent.id }}"
+                                                    data-mail-message-title="{{ sent.subject }}"
+                                                    data-mail-message-meta="À {{ sent.recipient }} · {{ sent.sentAt|datetime_fr }}">
+                                                <i class="bi bi-envelope-open" aria-hidden="true"></i> Lire le message
+                                            </button>
+                                        {% endif %}
+                                        {% if sent.failed %}
+                                            <form method="post" action="/mes-locations/courrier/renvoyer"
+                                                  data-confirm="Renvoyer cet e-mail au locataire, {{ sent.recipient }} ?{{ sent.carriesTheTrackingLink ? ' Il partira avec le lien de suivi actuel de la réservation.' : '' }}">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                                                <input type="hidden" name="sent_email_id" value="{{ sent.id }}">
+                                                <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                                        aria-label="Renvoyer « {{ sent.subject }} »">
+                                                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Renvoyer
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
                     {% endfor %}
                 </div>
             {% endif %}
         </div>
     </div>
-    {# Only with the module: its templates are not registered without it,
-       and the page must still say so rather than fail. #}
-    {% if mail_module_active %}
-        {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
-    {% endif %}
+    {# The page's own reading dialog, the same ids as the inbound mail
+       screens' so mail-message-dialog.js opens it: the site's sent mail is
+       shown here even without that module, whose templates are then not
+       registered. #}
+    {% embed 'partials/modal.html.twig' with { id: 'mail-message-modal', title: 'Message', scrollable: true, size: 'lg' } only %}
+        {% block body %}
+            <p id="mail-message-modal-meta" class="small text-body-secondary"></p>
+            <div id="mail-message-modal-body"></div>
+        {% endblock %}
+        {% block footer %}
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
 
 {% block booking_scripts %}

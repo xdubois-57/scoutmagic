@@ -12,10 +12,15 @@ paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/courrier
 related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
-Chaque réservation a une page « Courrier ». Elle montre les e-mails
-rattachés à **cette** réservation, du plus récent au plus ancien, et
-rien d'autre. Chaque message est marqué « Reçu » ; « Lire le message »
-l'ouvre en entier, avec ses pièces jointes.
+Chaque réservation a une page « Courrier ». Elle montre le courrier de
+**cette** réservation, du plus récent au plus ancien, et rien d'autre :
+les e-mails du locataire, marqués « Reçu », et ceux que le site lui a
+envoyés, marqués « Envoyé ». « Lire le message » ouvre un message en
+entier.
+
+Un e-mail du site qui n'a pas pu partir est marqué « Non envoyé » :
+« Renvoyer » le fait repartir tel quel, avec le lien de suivi actuel de
+la réservation. Une fois parti, il n'est plus marqué.
 
 Les e-mails arrivent depuis les boîtes de l'unité ouvertes aux Locations.
 Si aucune ne l'est, la page le dit : un superadministrateur peut en

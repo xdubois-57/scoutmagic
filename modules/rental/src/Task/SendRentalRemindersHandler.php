@@ -184,7 +184,10 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                     ),
                     $documentService,
                     $paymentService
-                )
+                ),
+                // The booking's « Courrier » shows what this pass sent
+                // (#720, step 2).
+                sentEmails: new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $context->encryption)
             ),
             // The per-asset reminder overrides and the unit's defaults
             // (§6.29). Without them every asset runs on the shipped

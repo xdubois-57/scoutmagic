@@ -2400,6 +2400,34 @@ tabs, the attach, set aside, restore and « Relancer l'analyse » routes and
 the propositions are gone; `POST /mes-locations/courrier/detacher` is the
 one form left, through `bookingAction()` like every form of the booking.
 
+**What the site sent is on the page too** (#720, step 2,
+`rental_booking_sent_emails`). Every e-mail to the renter goes through ONE
+write point, `RentalBookingMailService::deliver()`, which sends it and
+records it — sent, or failed and re-thrown, so each caller keeps the answer
+it always gave; a log that cannot be written is journaled and never stands
+in the e-mail's way. Recipient, subject and both bodies are encrypted; the
+tracking link is masked BEFORE encryption (`SentEmail::MASKED_LINK`, the URL
+raw and HTML-escaped and the bare token wherever else it appears), because a
+copy of a credential in a log outlives the regeneration that killed it.
+Attachments are the booking's documents, named by id, never copied. The
+Message-ID stays in clear: the id the renter's reply will quote.
+« Renvoyer » (`resend()`, `POST /mes-locations/courrier/renvoyer`) applies
+to a failed e-mail only — the server checks it, not just the page — and
+sends the logged text again with the booking's CURRENT link in place of
+the mask and the documents re-read from disk, refusing in French when the
+link or a document is gone. It updates the entry it retries
+(`recordAttempt()`) rather than adding one: the page shows one e-mail
+that eventually went out, or still did not, however many clicks it took.
+The entry is claimed first by a conditional write (`claimForRetry()`,
+failed → sending), so of two clicks arriving together only one sends; a
+claim abandoned by a request that died counts as failed again after
+`SentEmail::STALE_CLAIM_MINUTES`. A resend is the first send that worked,
+so it records what that send would have: its documents are marked sent, a
+contract takes the booking to « Contrat envoyé » — and a contract voided
+since is refused, as on the Documents page. The page shows the plain
+text, never the stored HTML, in its own dialog — so the sent half needs
+nothing of `inbound_mail` and is there without it.
+
 **A filed message is announced, and counted until read — per person**
 (#720). `RentalMessageConsumer::onLinked()` tells the asset's managers
 (`Mail\NewMessageNotifier`, `rental.new_message`, through

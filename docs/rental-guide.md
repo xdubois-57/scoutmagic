@@ -308,8 +308,18 @@ heures du matin.
 
 Chaque réservation a une page « Courrier », quelle que soit la
 configuration des boîtes e-mail. Elle montre le courrier de **cette**
-réservation, et lui seul, du plus récent au plus ancien : chaque message
-est marqué « Reçu » et s'ouvre en entier avec « Lire le message ».
+réservation, et lui seul, du plus récent au plus ancien : ce que le
+locataire a écrit, marqué « Reçu », et ce que le site lui a envoyé —
+accusé de réception, décisions, contrat, facture, rappels —, marqué
+« Envoyé ». Chaque message s'ouvre en entier avec « Lire le message ».
+
+Un e-mail du site qui n'a pas pu partir apparaît en rouge, « Non
+envoyé », avec un bouton **Renvoyer** : il repart tel qu'il avait été
+écrit, avec ses pièces jointes, et le lien de suivi actuel de la
+réservation à la place de celui qu'il portait. Une fois parti, il perd
+sa marque rouge : la page garde un seul e-mail, quel que soit le nombre
+d'essais. Ce lien n'est jamais conservé : la page affiche « [lien de
+suivi masqué] » à sa place.
 
 Avec le module Courrier entrant, les réponses du locataire y remontent
 automatiquement, depuis toute boîte ouverte aux Locations — qu'elle leur

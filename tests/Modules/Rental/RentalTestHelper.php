@@ -411,6 +411,21 @@ class RentalTestHelper
 
         self::createComplianceTables($pdo);
 
+        $pdo->exec('CREATE TABLE rental_booking_sent_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            recipient_encrypted BLOB NOT NULL,
+            subject_encrypted BLOB NOT NULL,
+            body_text_encrypted BLOB NOT NULL,
+            body_html_encrypted BLOB NOT NULL,
+            document_ids TEXT NOT NULL DEFAULT \'\',
+            message_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE rental_booking_mail_reads (
             booking_id INTEGER NOT NULL,
             user_account_id INTEGER NOT NULL,

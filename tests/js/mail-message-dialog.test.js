@@ -50,6 +50,10 @@ describe('mail-message-dialog', () => {
         delete window.bootstrap;
     });
 
+    it('says when a click will be heard', () => {
+        expect(document.documentElement.classList.contains('mail-message-js')).toBe(true);
+    });
+
     it('moves the row body into the dialog and names the message', async () => {
         await load();
 
