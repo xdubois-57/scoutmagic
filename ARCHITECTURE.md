@@ -2375,7 +2375,9 @@ failed answers `readingFailed()` and is retried at most
 is not asked again. Without the connector or a cheap model nothing is
 asked and the message appears on no booking. The text read is anybody's
 (#231), so the model only ever picks among the bookings the rules put
-forward. **The reference case is the weak one, and it is deliberate**
+forward — on the address path at least two, a cancelled booking included
+when nothing covers the message's date, since a single one would be a
+rubber stamp. **The reference case is the weak one, and it is deliberate**
 (the chantier asks for it): there the rules put forward one booking only
 because the message named it, so the model is confirming, not choosing. Two
 things bound it. Only a random reference qualifies

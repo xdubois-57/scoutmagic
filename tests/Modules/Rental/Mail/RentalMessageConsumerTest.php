@@ -1369,8 +1369,9 @@ class RentalMessageConsumerTest extends TestCase
 
     public function testABookingTheMessageWasDetachedFromIsNeverOffered(): void
     {
-        [$first] = [$this->createBooking('LOC-2027-0042', 'jeanne@example.be')];
+        $first = $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
         $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $this->createBooking('LOC-2027-0044', 'jeanne@example.be', arrival: '2027-09-01', departure: '2027-09-04');
         $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
         $this->sync();
         $id = $this->storedMessageIds()[0];
@@ -1383,6 +1384,43 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame('LOC-2027-0043', $result->links[0]->businessReference);
         $this->assertNotNull($llm->lastRequest);
         $this->assertStringNotContainsString('LOC-2027-0042', $llm->lastRequest->prompt);
+        $this->assertStringContainsString('LOC-2027-0044', $llm->lastRequest->prompt);
+    }
+
+    public function testOneBookingLeftStandingOnTheAddressPathIsNotPutToTheModel(): void
+    {
+        // Two bookings, the message detached from one: the other alone is
+        // no choice, and confirming it would be a rubber stamp.
+        $first = $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
+        $this->sync();
+        $id = $this->storedMessageIds()[0];
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $first->reference, $id, 7);
+        $this->assertTrue($this->communicationService->detach($first, $id));
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0043');
+
+        $this->assertTrue($consumer->analyzeStored($this->storedMessage())->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
+    public function testACancelledBookingOutsideTheWindowIsStillOfferedBesideTheLiveOne(): void
+    {
+        // Nothing covers the message's date: the cancelled stay the renter
+        // may be writing about stays on the list next to the live one.
+        $cancelled = $this->createBooking('LOC-2027-0042', 'jeanne@example.be', arrival: '2027-03-01', departure: '2027-03-04');
+        $this->bookingRepository->setStatus($cancelled->id, BookingStatus::CANCELLED, new \DateTimeImmutable('2027-02-01'));
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-03-10', departure: '2027-03-12');
+        $this->deliver(10, 'Pourquoi avoir annulé ?', from: 'jeanne@example.be', date: 'Mon, 20 Dec 2027 09:30:00 +0100');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
+        $this->assertNotNull($llm->lastRequest);
+        $this->assertStringContainsString('LOC-2027-0043', $llm->lastRequest->prompt);
     }
 
     public function testWhatTheUnitSentToARenterOfTwoBookingsIsTheModelsToSettle(): void
