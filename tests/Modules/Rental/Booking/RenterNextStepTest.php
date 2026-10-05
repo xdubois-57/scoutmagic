@@ -172,6 +172,32 @@ final class RenterNextStepTest extends TestCase
         );
     }
 
+    /**
+     * Every step that can come while the dates are still held says so:
+     * the tracking page has no other line for the hold once a sentence
+     * stands there — the countersignature and the deposit used to drop it.
+     */
+    public function testEveryStepSaysAHoldStillRunning(): void
+    {
+        $booking = $this->booking(BookingStatus::CONTRACT_SENT, '2027-02-15');
+
+        foreach (array_keys(BookingMilestones::ACTORS) as $key) {
+            $sentence = RenterNextStep::forStep($key, $booking, $this->now())->sentence;
+
+            $this->assertSame(
+                1,
+                substr_count($sentence, "Les dates vous sont réservées jusqu'au 15/02/2027."),
+                $key
+            );
+        }
+
+        $confirmed = $this->booking(BookingStatus::CONFIRMED, '2027-02-15');
+        $this->assertStringNotContainsString(
+            'réservées',
+            RenterNextStep::forStep(BookingMilestones::DEPOSIT_RECEIVED, $confirmed, $this->now())->sentence
+        );
+    }
+
     public function testAPaymentSaysItsDueDateAndItsCommunication(): void
     {
         $booking = $this->booking(BookingStatus::CONFIRMED);

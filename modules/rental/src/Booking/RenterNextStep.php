@@ -102,15 +102,19 @@ final class RenterNextStep
         $waiting = "Rien à faire de votre côté pour l'instant : ";
         $securityDeposit = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
 
-        return match ($key) {
+        // The contract's step says the hold itself, with the date its own
+        // e-mail is about to set; every other step gets it appended below.
+        if ($key === BookingMilestones::SIGNED_COPY_RECEIVED) {
+            return self::signContract($booking, $now);
+        }
+
+        $step = match ($key) {
             'request_received', 'hold', BookingMilestones::CONTRACT_GENERATED, BookingMilestones::CONTRACT_SENT
                 => new self(
                     $waiting . ($booking->status === BookingStatus::RECEIVED
                         ? 'nous étudions votre demande et vous enverrons le contrat.'
                         : 'nous préparons votre contrat et vous l\'enverrons.')
-                    . self::hold($booking, $now)
                 ),
-            BookingMilestones::SIGNED_COPY_RECEIVED => self::signContract($booking, $now),
             BookingMilestones::CONTRACT_COUNTERSIGNED => new self(
                 $waiting . 'nous vérifions votre copie signée et vous renverrons le contrat signé par les deux parties.'
             ),
@@ -123,7 +127,6 @@ final class RenterNextStep
                 $waiting . ($booking->status === BookingStatus::RECEIVED
                     ? 'nous étudions votre demande et vous écrirons dès qu\'elle est confirmée.'
                     : 'nous confirmons votre réservation et vous écrirons dès que c\'est fait.')
-                . self::hold($booking, $now)
             ),
             BookingMilestones::BALANCE_RECEIVED => self::pay(
                 'le solde',
@@ -151,6 +154,10 @@ final class RenterNextStep
             'closed' => new self($waiting . 'nous clôturons votre dossier.'),
             default => throw new \LogicException("No renter sentence for the step '{$key}'."),
         };
+
+        // Whatever the step, a hold still running is said: the tracking
+        // page shows no other line for it once this sentence is there.
+        return new self($step->sentence . self::hold($booking, $now), $step->onTrackingPage);
     }
 
     /**
