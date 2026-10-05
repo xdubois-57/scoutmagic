@@ -335,7 +335,7 @@ class FinanceMessageConsumerTest extends TestCase
 
     public function testAReferenceThatIsNotThisModulesHasNoName(): void
     {
-        $this->assertNull($this->consumer()->describeReference('LOC-2027-0012'));
+        $this->assertNull($this->consumer()->describeReference('LOC-D4E5F6'));
     }
 
     // ── L'expéditeur anime un seul staff ────────────────────────────────

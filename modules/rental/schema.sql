@@ -375,16 +375,16 @@ CREATE TABLE IF NOT EXISTS rental_fees (
 CREATE TABLE IF NOT EXISTS rental_bookings (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
-    -- Stable, human-quotable reference in the form LOC-YYYY-XXXXXX: the
-    -- year the request was made, then six characters drawn at random from
-    -- an alphabet without 0/O or 1/I/L, so it can be read out on the phone
+    -- Stable, human-quotable reference in the form LOC-XXXXXX: six
+    -- characters drawn at random from an alphabet without 0/O or 1/I/L, so
+    -- it can be read out on the phone, a digit and a letter among them
     -- (Modules\Rental\Booking\BookingReference). Random rather than counted
     -- so that one reference does not point at its neighbours (#231) — it is
     -- harder to guess, not a secret. Drawn once at submission and never
     -- changed. It is what a renter quotes on the phone, what the contract
     -- carries, and what an inbound email's subject is matched on (§7.6) — so
     -- it must survive everything, including the booking being refused. A
-    -- booking made before #720 keeps its sequential LOC-YYYY-NNNN.
+    -- booking made earlier keeps its LOC-YYYY-NNNN or LOC-YYYY-XXXXXX.
     reference VARCHAR(20) NOT NULL,
 
     arrival_date DATE NOT NULL,

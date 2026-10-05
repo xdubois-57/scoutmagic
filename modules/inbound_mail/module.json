@@ -264,7 +264,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Adresse de réponse signée sur les e-mails envoyés",
-      "description": "Les e-mails que le site envoie au sujet d'un dossier (une réservation, par exemple) portent une adresse de réponse de la forme locations+rental.LOC-2027-0042.9f3a1b2c4d5e@votre-unite.be : la réponse, même sans référence dans le sujet et même envoyée par quelqu'un d'autre, est rattachée au bon dossier dès son arrivée. Requiert une boîte relevée par le site dont le compte est une adresse e-mail, et un fournisseur qui accepte les adresses « +étiquette » (Gmail, Outlook, Infomaniak, OVH et la plupart des autres). Désactivez si vos réponses reviennent en erreur : les autres règles de rattachement restent en place."
+      "description": "Les e-mails que le site envoie au sujet d'un dossier (une réservation, par exemple) portent une adresse de réponse de la forme locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@votre-unite.be : la réponse, même sans référence dans le sujet et même envoyée par quelqu'un d'autre, est rattachée au bon dossier dès son arrivée. Requiert une boîte relevée par le site dont le compte est une adresse e-mail, et un fournisseur qui accepte les adresses « +étiquette » (Gmail, Outlook, Infomaniak, OVH et la plupart des autres). Désactivez si vos réponses reviennent en erreur : les autres règles de rattachement restent en place."
     },
     {
       "key": "inbound_mail_storage_quota_mb",

@@ -52,7 +52,7 @@ final class PlainTextEmailEscapingTest extends TestCase
         $context = [
             'decision_subject' => 'Votre réservation est confirmée',
             'renter_name' => $name,
-            'reference' => 'LOC-2027-0042',
+            'reference' => 'LOC-K7Q2M4',
             'arrival_date' => '14/08/2027',
             'departure_date' => '17/08/2027',
             'asset_name' => 'Le Chalet',
@@ -108,7 +108,7 @@ final class PlainTextEmailEscapingTest extends TestCase
         $rendered = $this->twig()->render('@rental/email/decision.text.twig', [
             'decision_subject' => 'Une précision avant de vous répondre',
             'renter_name' => "O'Brien",
-            'reference' => 'LOC-2027-0042',
+            'reference' => 'LOC-K7Q2M4',
             'arrival_date' => '14/08/2027',
             'departure_date' => '17/08/2027',
             'asset_name' => 'Le Chalet',

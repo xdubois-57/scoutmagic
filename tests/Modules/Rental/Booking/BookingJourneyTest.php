@@ -49,7 +49,7 @@ class BookingJourneyTest extends TestCase
         return new RentalBooking(
             id: 1,
             assetId: 7,
-            reference: 'LOC-2027-0001',
+            reference: 'LOC-A2B3C4',
             arrivalDate: '2027-07-17',
             departureDate: '2027-07-20',
             units: 1,

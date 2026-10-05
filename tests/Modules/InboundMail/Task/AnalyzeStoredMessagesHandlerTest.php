@@ -106,7 +106,7 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
             'rental',
             null,
             fn(): AnalysisResult => new AnalysisResult(
-                [new MessageLink('rental', 'LOC-2027-0042', LinkOrigin::AI)]
+                [new MessageLink('rental', 'LOC-K7Q2M4', LinkOrigin::AI)]
             )
         );
 
@@ -114,7 +114,7 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
 
         $links = $this->messages->findLinksForMessage($messageId);
         $this->assertCount(1, $links);
-        $this->assertSame('LOC-2027-0042', $links[0]->businessReference);
+        $this->assertSame('LOC-K7Q2M4', $links[0]->businessReference);
     }
 
     /**

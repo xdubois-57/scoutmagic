@@ -65,7 +65,7 @@ class ReminderPlannerTest extends TestCase
         return new RentalBooking(
             id: 7,
             assetId: 1,
-            reference: 'LOC-2027-0042',
+            reference: 'LOC-K7Q2M4',
             arrivalDate: $arrival,
             departureDate: $departure,
             units: 1,

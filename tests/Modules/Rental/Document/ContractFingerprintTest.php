@@ -24,7 +24,7 @@ class ContractFingerprintTest extends TestCase
     private static function values(array $overrides = []): array
     {
         return $overrides + [
-            'reference' => 'LOC-2027-0042',
+            'reference' => 'LOC-K7Q2M4',
             'bien' => 'Local Saint-Georges',
             'date_arrivee' => '01/07/2027',
             'date_depart' => '04/07/2027',
