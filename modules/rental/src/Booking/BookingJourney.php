@@ -182,7 +182,6 @@ final class BookingJourney
                 default => 'La réservation reste à confirmer.',
             },
             BookingMilestones::ARRIVAL_INVENTORY => "L'état des lieux d'entrée reste à faire.",
-            BookingMilestones::METER_READINGS => 'Les relevés de compteurs restent à faire.',
             BookingMilestones::DEPARTURE_INVENTORY => "L'état des lieux de sortie reste à faire.",
             BookingMilestones::FINAL_SETTLEMENT => 'Le décompte final reste à régler.',
             BookingMilestones::SECURITY_DEPOSIT_RETURNED => 'La caution reste à restituer.',

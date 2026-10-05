@@ -125,7 +125,7 @@ class BookingJourneyTest extends TestCase
             BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
             BookingMilestones::ARRIVAL_INVENTORY,
-            BookingMilestones::METER_READINGS,
+           
             BookingMilestones::DEPARTURE_INVENTORY,
             BookingMilestones::FINAL_SETTLEMENT,
             BookingMilestones::SECURITY_DEPOSIT_RETURNED,
@@ -663,7 +663,7 @@ class BookingJourneyTest extends TestCase
             BookingMilestones::CONTRACT_GENERATED, BookingMilestones::CONTRACT_SENT,
             BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED,
             BookingMilestones::DEPOSIT_RECEIVED, BookingMilestones::BALANCE_RECEIVED,
-            BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS,
+            BookingMilestones::ARRIVAL_INVENTORY,
             BookingMilestones::DEPARTURE_INVENTORY, BookingMilestones::FINAL_SETTLEMENT,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED, BookingMilestones::SECURITY_DEPOSIT_RETURNED,
         ], false);
@@ -679,7 +679,7 @@ class BookingJourneyTest extends TestCase
         $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::CONTRACT_COUNTERSIGNED]);
         $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::DEPOSIT_RECEIVED]);
         $this->assertSame(MilestoneKind::DERIVED, $kinds[BookingMilestones::BALANCE_RECEIVED]);
-        // With the stay page recording the inventory, it is done there.
+        // The « État des lieux » page validates it (#708, IT-17): it is done there.
         $this->assertSame(MilestoneKind::HERE, $kinds[BookingMilestones::ARRIVAL_INVENTORY]);
         $this->assertSame(MilestoneKind::HERE, $kinds['closed']);
     }

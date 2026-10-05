@@ -29,4 +29,17 @@ enum ReadingPhase: string
     {
         return $this === self::ARRIVAL ? self::DEPARTURE : self::ARRIVAL;
     }
+
+    /**
+     * The phases whose validation freezes this one (#708, IT-17): its own,
+     * and every later one. The departure is read against the arrival, so
+     * an arrival only ticked by hand — never validated itself — is frozen
+     * all the same once the departure's PDF has gone out.
+     *
+     * @return list<self>
+     */
+    public function frozenBy(): array
+    {
+        return $this === self::ARRIVAL ? [self::ARRIVAL, self::DEPARTURE] : [self::DEPARTURE];
+    }
 }

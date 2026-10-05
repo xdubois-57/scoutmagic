@@ -78,7 +78,6 @@ use Modules\Rental\Service\RentalStatisticsService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Support;
 use Twig\Environment;
@@ -256,7 +255,9 @@ class RentalManagementController extends AbstractController
         /** Each manager's own signature, readable by its owner alone. */
         private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null,
         /** Whether a contract still says what its booking says (#708, IT-20). */
-        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null,
+        /** « Valider l'état des lieux » and its PDF (#708, IT-17). */
+        private ?\Modules\Rental\Service\RentalInventoryValidationService $inventoryValidation = null
     ) {
         parent::__construct($twig);
     }
@@ -625,6 +626,27 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * Stores the optional photo, then writes what it illustrates — and
+     * takes the photo back when that write is refused (a frozen phase, a
+     * value that does not parse): nothing would ever reference it.
+     *
+     * @param callable(?int): mixed $write
+     * @throws RentalException
+     */
+    private function withOptionalPhoto(Request $request, RentalBooking $booking, callable $write): void
+    {
+        $fileId = $this->uploadOptionalPhoto($request, $booking);
+        try {
+            $write($fileId);
+        } catch (\Throwable $e) {
+            if ($fileId !== null) {
+                $this->documentService?->discardUnusedUpload($fileId);
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * GET /mes-locations — every asset the visitor manages (§6.5).
      *
      * @param array<string, string> $params
@@ -905,6 +927,18 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * GET /mes-locations/{slug}/reservations/{id}/etat-des-lieux — the
+     * inventories, their meters and the incidents (#708, IT-17); a 404 on
+     * an asset with nothing to walk.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingInventory(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::INVENTORY);
+    }
+
+    /**
      * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
      * booking; a 404 where `inbound_mail` collects nothing, the same answer
      * as a page that does not exist, because here it does not.
@@ -934,9 +968,9 @@ class RentalManagementController extends AbstractController
         ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
         // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
+        // reads the difference between "nothing validated yet" and
         // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
+        $validations = $this->stayService?->inventoryValidations($booking->id);
 
         $marks = [];
         $marked = $this->decorateWithAuthors(
@@ -956,12 +990,12 @@ class RentalManagementController extends AbstractController
             $booking,
             $documents,
             $payment,
-            $inventory,
-            $this->stayService?->consumptionsFor($booking, $asset->id),
+            $validations,
             $this->stayService?->latestSettlement($booking->id),
-            // An asset with no inventory template has nothing the stay page
-            // could walk, so its walk-throughs are ticked by hand.
-            $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
+            // An asset with neither items to check nor meters to read has
+            // nothing an inventory could walk, so its walk-throughs are
+            // ticked by hand (#708, IT-17).
+            $this->stayService === null || $this->stayService->keepsInventoryFor($booking),
             $marks,
             $now,
             $acceptedConditions
@@ -1146,16 +1180,23 @@ class RentalManagementController extends AbstractController
      *
      * @return list<BookingPage>
      */
-    private function bookingPagesOffered(): array
+    private function bookingPagesOffered(RentalAsset $asset): array
     {
         $communications = $this->communicationService?->dedicatedMailbox() !== null;
+        // « État des lieux » wherever the stay features are: the incidents
+        // live there (#708, IT-17), and an asset with nothing to walk can
+        // still be damaged. Its walk-throughs are ticked by hand on the
+        // dashboard; the page then shows only the incidents.
+        $inventory = $this->stayService !== null;
 
-        // Filtering drops « Courrier », the last case, so what remains is
-        // still a list in rail order.
-        return array_filter(
+        return array_values(array_filter(
             BookingPage::cases(),
-            static fn(BookingPage $page): bool => $page !== BookingPage::MAIL || $communications
-        );
+            static fn(BookingPage $page): bool => match ($page) {
+                BookingPage::MAIL => $communications,
+                BookingPage::INVENTORY => $inventory,
+                default => true,
+            }
+        ));
     }
 
     /**
@@ -1182,7 +1223,7 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
-        $pages = $this->bookingPagesOffered();
+        $pages = $this->bookingPagesOffered($asset);
         if (!in_array($page, $pages, true)) {
             return $this->notFound();
         }
@@ -1264,6 +1305,7 @@ class RentalManagementController extends AbstractController
                     // belongs (issue #497).
                     'landlord' => $this->documentService?->landlordFor($asset),
                 ],
+                BookingPage::INVENTORY => $this->inventoryContext($booking, $asset),
                 // Only offered at all when a mailbox collects, which
                 // `bookingPagesOffered()` settled above.
                 BookingPage::MAIL => $this->mailContext($request, $booking),
@@ -2908,25 +2950,179 @@ class RentalManagementController extends AbstractController
             ? $latestSettlement->finalPersons
             : $booking->estimatedPersons;
 
+        // Only the settlement is left here (#708, IT-17): the meters, the
+        // inventories and the incidents have their own page.
         return $this->render('@rental/management/stay.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
             'breadcrumb_current' => 'Séjour',
             'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
-            'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
-            'inventory' => $this->stayService->inventoryFor($booking->id),
-            'inventory_states' => InventoryState::all(),
-            'incidents' => $this->stayService->incidentsFor($booking->id),
-            'incident_decisions' => IncidentDecision::decidable(),
             'settlements' => $this->stayService->settlementsFor($booking->id),
             'final_persons' => $finalPersons,
             // Recomputed live so a manager sees the effect of the reading
             // they just typed — looking never creates a version.
             'preview' => $this->stayService->previewSettlement($booking, $asset->id, $finalPersons),
-            'phases' => ReadingPhase::cases(),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
         ]);
+    }
+
+    /**
+     * What « État des lieux » renders (#708, IT-17): one inventory at a
+     * time — the arrival until it is validated, then the departure, then a
+     * read-only summary with both PDFs — its lines with what each is
+     * checked against, the meters, and the incidents.
+     *
+     * @return array<string, mixed>
+     */
+    private function inventoryContext(RentalBooking $booking, RentalAsset $asset): array
+    {
+        if ($this->stayService === null) {
+            return [];
+        }
+
+        $validations = $this->stayService->inventoryValidations($booking->id);
+        $arrivalByHand = $this->arrivalTickedByHand($booking);
+        $kept = $this->stayService->keepsInventoryFor($booking);
+        // A validated departure freezes the arrival too (frozenBy): unticking
+        // a hand-ticked arrival afterwards must not reopen a form whose every
+        // save would be refused.
+        $phase = match (true) {
+            // Nothing to walk: no phase to fill in, only the incidents.
+            !$kept => null,
+            !isset($validations['arrival']) && !$arrivalByHand && !isset($validations['departure'])
+                => ReadingPhase::ARRIVAL,
+            !isset($validations['departure']) => ReadingPhase::DEPARTURE,
+            default => null,
+        };
+
+        $lines = [];
+        foreach ($this->stayService->inventoryFor($booking->id) as $line) {
+            $lines[] = $line + [
+                'reference' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::reference($line, $phase) : null,
+                'value' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::value($line, $phase) : null,
+                'note' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::note($line, $phase) : null,
+            ];
+        }
+
+        $documents = [];
+        foreach ($validations as $validatedPhase => $validation) {
+            $documents[$validatedPhase] = $validation['document_id'] !== null
+                ? $this->documentService?->find($validation['document_id'])
+                : null;
+        }
+
+        return [
+            'inventory_kept' => $kept,
+            'inventory_phase' => $phase,
+            'inventory_lines' => $lines,
+            'inventory_validations' => $validations,
+            'inventory_documents' => $documents,
+            'arrival_by_hand' => $arrivalByHand,
+            'unchecked_count' => $phase !== null
+                ? \Modules\Rental\Stay\InventoryReport::uncheckedCount($lines, $phase)
+                : 0,
+            'missing_readings' => $phase !== null
+                ? ($this->inventoryValidation?->missingReadings($booking, $asset->id, $phase) ?? [])
+                : [],
+            'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
+            // An arrival ticked by hand was never read through this page:
+            // its meter readings stay to be taken beside the departure's
+            // until the departure is validated, or the consumption could
+            // never be billed.
+            'meter_phases' => match (true) {
+                $phase === ReadingPhase::DEPARTURE && $arrivalByHand && !isset($validations['arrival'])
+                    => [ReadingPhase::ARRIVAL, ReadingPhase::DEPARTURE],
+                $phase !== null => [$phase],
+                default => [],
+            },
+            'incidents' => $this->stayService->incidentsFor($booking->id),
+            'incident_decisions' => IncidentDecision::decidable(),
+            'incidents_open' => !isset($validations['departure']),
+        ];
+    }
+
+    /**
+     * Whether a manager ticked the arrival inventory by hand (#708, IT-14)
+     * — the departure then starts without a validated arrival.
+     */
+    private function arrivalTickedByHand(RentalBooking $booking): bool
+    {
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
+        return isset($marks[BookingMilestones::ARRIVAL_INVENTORY]);
+    }
+
+    /**
+     * POST /mes-locations/etat-des-lieux/ligne — what was found on one line
+     * (#708, IT-17), saved as it is typed: the page answers in JSON and
+     * stays where it is.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveInventoryLine(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null || $this->stayService === null) {
+                throw new RentalException("Cet état des lieux n'existe pas.");
+            }
+
+            $this->stayService->setInventoryValue(
+                $booking,
+                (int) $request->getBody('inventory_id', 0),
+                $phase,
+                (string) $request->getBody('value', ''),
+                Support::optionalString($request->getBody('note')),
+                $this->arrivalTickedByHand($booking)
+            );
+
+            FlashMessage::set('success', 'Enregistré.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/etat-des-lieux/valider — the phase frozen, its
+     * PDF filed and sent to the renter (#708, IT-17).
+     *
+     * @param array<string, string> $params
+     */
+    public function validateInventory(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null || $this->inventoryValidation === null) {
+                throw new RentalException("Cet état des lieux n'existe pas.");
+            }
+
+            $memberId = $this->actorMemberId();
+            $names = $memberId !== null
+                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
+                : [];
+            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
+
+            $result = $this->inventoryValidation->validate(
+                $booking,
+                $asset,
+                $phase,
+                $memberId,
+                $name ?? 'un gestionnaire',
+                new \DateTimeImmutable(),
+                $this->arrivalTickedByHand($booking)
+            );
+
+            FlashMessage::set(
+                $result['sent'] ? 'success' : 'warning',
+                ($phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie')
+                . ' validé et rangé dans les documents'
+                . ($result['sent']
+                    ? ', puis envoyé au locataire.'
+                    : ". Il n'a pas pu être envoyé : renvoyez-le depuis la page Documents.")
+            );
+        });
     }
 
     /**
@@ -2936,7 +3132,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordReading(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
             if ($phase === null) {
                 throw new RentalException("Cette phase n'existe pas.");
@@ -2945,9 +3144,7 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->recordReading(
+            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->recordReading(
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
@@ -2956,36 +3153,11 @@ class RentalManagementController extends AbstractController
                 $readAt,
                 $fileId,
                 Support::optionalString($request->getBody('comment')),
-                $this->actorMemberId()
-            );
+                $this->actorMemberId(),
+                $this->arrivalTickedByHand($booking)
+            ));
 
             FlashMessage::set('success', 'Relevé enregistré.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/inventaire — one checklist line (§6.23).
-     *
-     * @param array<string, string> $params
-     */
-    public function recordInventory(Request $request, array $params): Response
-    {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
-            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
-            $state = InventoryState::tryFrom((string) $request->getBody('state', ''));
-            if ($phase === null || $state === null) {
-                throw new RentalException("Cet état n'existe pas.");
-            }
-
-            $this->stayService?->setInventoryState(
-                $booking,
-                (int) $request->getBody('inventory_id', 0),
-                $phase,
-                $state,
-                Support::optionalString($request->getBody('note'))
-            );
-
-            FlashMessage::set('success', "État des lieux mis à jour.");
         });
     }
 
@@ -2996,16 +3168,14 @@ class RentalManagementController extends AbstractController
      */
     public function reportIncident(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->reportIncident(
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->reportIncident(
                 $booking,
                 (string) $request->getBody('description', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
                 $fileId,
                 $this->actorMemberId()
-            );
+            ));
 
             FlashMessage::set(
                 'success',
@@ -3021,7 +3191,7 @@ class RentalManagementController extends AbstractController
      */
     public function decideIncident(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
             $decision = IncidentDecision::tryFrom((string) $request->getBody('decision', ''));
             if ($decision === null) {
                 throw new RentalException("Cette décision n'existe pas.");
@@ -3849,6 +4019,7 @@ class RentalManagementController extends AbstractController
         'changes' => '@rental/management/booking_changes.html.twig',
         'finances' => '@rental/management/booking_finances.html.twig',
         'documents' => '@rental/management/booking_documents.html.twig',
+        'inventory' => '@rental/management/booking_inventory.html.twig',
         'mail' => '@rental/management/booking_mail.html.twig',
     ];
 

@@ -12136,7 +12136,17 @@ if ($isEnabled('rental')) {
             $rentalSignedContractService,
             $rentalSignatureRepository,
             // A contract the booking has outgrown is marked void (#708, IT-20).
-            $rentalContractValidity
+            $rentalContractValidity,
+            // « Valider l'état des lieux », its PDF and its e-mail (#708,
+            // IT-17).
+            new \Modules\Rental\Service\RentalInventoryValidationService(
+                $rentalStayService,
+                $rentalDocumentService,
+                $rentalBookingMailService,
+                new \Core\Pdf\DocumentPdfService(),
+                $settingService,
+                $rentalBookingAudit
+            )
         )
     );
     $frontController->registerController(

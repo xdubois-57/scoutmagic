@@ -32,6 +32,7 @@ final class BookingPageTest extends TestCase
         $this->assertSame([], BookingPage::CHANGES->boxes());
         $this->assertSame([BookingBox::PRICE, BookingBox::PAYMENT], BookingPage::FINANCES->boxes());
         $this->assertSame([BookingBox::DOCUMENTS], BookingPage::DOCUMENTS->boxes());
+        $this->assertSame([BookingBox::INVENTORY], BookingPage::INVENTORY->boxes());
         $this->assertSame([BookingBox::MAIL], BookingPage::MAIL->boxes());
     }
 
@@ -64,7 +65,7 @@ final class BookingPageTest extends TestCase
         $this->assertSame($suffixes, array_unique($suffixes));
         foreach (BookingPage::cases() as $page) {
             if ($page !== BookingPage::DASHBOARD) {
-                $this->assertMatchesRegularExpression('#^/[a-z]+$#', $page->pathSuffix());
+                $this->assertMatchesRegularExpression('#^/[a-z]+(-[a-z]+)*$#', $page->pathSuffix());
             }
         }
     }
@@ -79,12 +80,16 @@ final class BookingPageTest extends TestCase
         $this->assertSame(self::BOOKING . '/documents#dossier-documents', BookingBox::DOCUMENTS->href(self::BOOKING));
         $this->assertSame(self::BOOKING . '#dossier-history', BookingBox::HISTORY->href(self::BOOKING));
         $this->assertSame(self::BOOKING . '/sejour', BookingBox::STAY->href(self::BOOKING));
+        $this->assertSame(
+            self::BOOKING . '/etat-des-lieux#dossier-inventory',
+            BookingBox::INVENTORY->href(self::BOOKING)
+        );
     }
 
     public function testEachPageHasAFrenchLabel(): void
     {
         $this->assertSame(
-            ['Tableau de bord', 'Modifications', 'Finances', 'Documents', 'Courrier'],
+            ['Tableau de bord', 'Modifications', 'Finances', 'Documents', 'État des lieux', 'Courrier'],
             array_map(static fn(BookingPage $page): string => $page->label(), BookingPage::cases())
         );
     }

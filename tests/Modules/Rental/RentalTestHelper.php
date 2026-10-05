@@ -343,11 +343,22 @@ class RentalTestHelper
             kind TEXT NOT NULL DEFAULT "quantity",
             expected_count INTEGER,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            arrival_state TEXT NOT NULL DEFAULT "not_checked",
-            departure_state TEXT NOT NULL DEFAULT "not_checked",
+            arrival_value TEXT,
+            departure_value TEXT,
             arrival_note TEXT,
             departure_note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_inventory_validations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            phase TEXT NOT NULL,
+            validated_at TEXT NOT NULL,
+            validated_by_member_id INTEGER,
+            document_id INTEGER,
+            UNIQUE (booking_id, phase),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
