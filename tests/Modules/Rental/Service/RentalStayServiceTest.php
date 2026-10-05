@@ -738,6 +738,42 @@ class RentalStayServiceTest extends TestCase
         $this->assertArrayHasKey('arrival', $this->service->inventoryValidations($booking->id));
     }
 
+    /**
+     * An arrival ticked by hand is frozen by the departure's validation:
+     * its meter readings must be in by then, or the consumption could
+     * never be billed. A validated arrival is not asked again.
+     */
+    public function testTheDepartureAsksForTheArrivalReadingsOfAnArrivalTickedByHand(): void
+    {
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $this->service->recordReading(
+            $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1500', $this->now(), null, null, 1, true
+        );
+
+        $this->assertSame(
+            ['Électricité (entrée)'],
+            $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::DEPARTURE)
+        );
+        try {
+            $this->validationService()->validate(
+                $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne', $this->now(), true
+            );
+            $this->fail('A departure froze an arrival still missing its reading.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('Il manque le relevé de : Électricité (entrée)', $e->getMessage());
+        }
+
+        // Once the arrival is validated with its reading, nothing more is asked of it.
+        $other = $this->createBooking('LOC-2027-0002');
+        $this->service->recordReading($other, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1);
+        $this->assertTrue($this->service->recordInventoryValidation($other, ReadingPhase::ARRIVAL, $this->now(), 1));
+        $this->assertSame(
+            ['Électricité'],
+            $this->validationService()->missingReadings($other, $this->assetId, ReadingPhase::DEPARTURE)
+        );
+    }
+
     public function testAMeterWithoutItsReadingBlocksTheValidation(): void
     {
         $this->addMeter();

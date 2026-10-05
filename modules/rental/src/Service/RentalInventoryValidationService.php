@@ -48,12 +48,25 @@ class RentalInventoryValidationService
     /**
      * The meters still lacking their reading for this phase.
      *
-     * @return list<string> their labels
+     * At the departure, the arrival's too when the arrival has no
+     * validation of its own (ticked by hand): validating the departure
+     * freezes the arrival with it (`ReadingPhase::frozenBy()`), and an
+     * arrival reading missing then could never be taken — the meter's
+     * consumption never billed. A validated arrival already required its
+     * readings, so a meter added since does not block the departure.
+     *
+     * @return list<string> their labels, « (entrée) » marking an arrival one
      */
     public function missingReadings(RentalBooking $booking, int $assetId, ReadingPhase $phase): array
     {
+        $arrivalToo = $phase === ReadingPhase::DEPARTURE
+            && !isset($this->stay->inventoryValidations($booking->id)[ReadingPhase::ARRIVAL->value]);
+
         $missing = [];
         foreach ($this->stay->consumptionsFor($booking, $assetId) as $consumption) {
+            if ($arrivalToo && $consumption->arrival === null) {
+                $missing[] = $consumption->meter->label . ' (entrée)';
+            }
             $reading = $phase === ReadingPhase::ARRIVAL ? $consumption->arrival : $consumption->departure;
             if ($reading === null) {
                 $missing[] = $consumption->meter->label;
