@@ -131,10 +131,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.40.0 draws a booking reference at random and drops the counter it
      * used to come from (`rental_reference_sequences`) (#720, step 9).
+     *
+     * 1.41.0 makes « Courrier » one booking's own mail on every booking, with
+     * « Détacher » final for it, and retires the triage screen, the
+     * propositions and their notification (#720, steps 1 and 7).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.40.0', $this->manifest->version);
+        $this->assertSame('1.41.0', $this->manifest->version);
     }
 
     /**

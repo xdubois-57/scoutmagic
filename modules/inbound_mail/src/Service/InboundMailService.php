@@ -383,7 +383,9 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool {
         // Read once, before the association goes: the consumer is told
         // about the message it filed things from, and after the removal
@@ -391,6 +393,13 @@ class InboundMailService implements InboundMailInterface
         $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
         if ($stored === null) {
             return false;
+        }
+
+        // Before the link goes: a synchronisation running between the two
+        // writes would otherwise find an unlinked message with nothing yet
+        // to keep it off this object.
+        if ($excludeFromAnalysis) {
+            $this->messageRepository->excludeReference($messageId, $consumerId, $businessReference, $userAccountId);
         }
 
         if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
@@ -805,8 +814,12 @@ class InboundMailService implements InboundMailInterface
             $applied = $applier->applyAndReport($message->id, $results);
             $notifier->notify($message->id, $applied->links, $applied->candidates);
 
+            // What was WRITTEN, not what was said: a link to an object the
+            // message was detached from for good is dropped by the applier
+            // (#720), and counting it would report a filing that never
+            // happened.
+            $linked += count($applied->links);
             foreach ($results as $result) {
-                $linked += count($result->links);
                 $proposed += count($result->candidates);
             }
         }

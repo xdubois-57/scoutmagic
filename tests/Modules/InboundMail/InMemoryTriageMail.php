@@ -44,6 +44,15 @@ final class InMemoryTriageMail implements InboundMailInterface
     public int $reanalyses = 0;
 
     /**
+     * Whether a box gathers mail for the consumers asking
+     * (`listMailboxSummariesFor()`).
+     */
+    public bool $collects = true;
+
+    /** @var list<array{string, string, int}> the detaches made final: consumer, reference, message */
+    public array $exclusions = [];
+
+    /**
      * Files a message under an object, as the automatic rules would have —
      * the state a test starts from.
      */
@@ -120,6 +129,26 @@ final class InMemoryTriageMail implements InboundMailInterface
         return array_slice($list, 0, $limit);
     }
 
+    /** @return InboundMessage[] oldest first, as the real store answers */
+    public function findForReference(string $consumerId, string $businessReference): array
+    {
+        $found = [];
+        foreach (array_keys($this->messages) as $messageId) {
+            $message = $this->findOneForReference($consumerId, $businessReference, $messageId);
+            if ($message !== null) {
+                $found[] = $message;
+            }
+        }
+        usort($found, static fn(InboundMessage $a, InboundMessage $b): int => $a->sentAt <=> $b->sentAt);
+
+        return $found;
+    }
+
+    public function listMailboxSummariesFor(string $consumerId): array
+    {
+        return $this->collects ? [1 => ['name' => 'Boîte ' . $consumerId, 'state' => 'OK', 'is_enabled' => true]] : [];
+    }
+
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage
     {
         foreach ($this->links[$messageId] ?? [] as $link) {
@@ -142,8 +171,19 @@ final class InMemoryTriageMail implements InboundMailInterface
         return true;
     }
 
-    public function detach(string $consumerId, string $businessReference, int $messageId, array $preserveFileIds = []): bool
+    public function detach(
+        string $consumerId,
+        string $businessReference,
+        int $messageId,
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
+    ): bool
     {
+        if ($excludeFromAnalysis) {
+            $this->exclusions[] = [$consumerId, $businessReference, $messageId];
+        }
+
         $before = count($this->links[$messageId] ?? []);
         $this->links[$messageId] = array_values(array_filter(
             $this->links[$messageId] ?? [],

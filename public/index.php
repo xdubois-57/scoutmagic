@@ -12013,26 +12013,9 @@ if ($isEnabled('rental')) {
                     AuthSession::isAuthenticated() ? AuthSession::getEmail() : null,
                     // « Rattacher à… » on the chief's screen names a
                     // booking by its asset (Api\ReferenceDirectory).
-                    $rentalAssetRepository,
-                    // The model as a last resort between two bookings of
-                    // one renter — it orders the propositions and never
-                    // associates (§8.59). Null without the connector.
-                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null),
-                    // The asset's managers learn of a proposition from a
-                    // notification, not from opening the booking.
-                    new \Modules\Rental\Mail\RentalMailNotifier(
-                        $notificationService,
-                        $rentalManagerRepository,
-                        $memberYearRepo,
-                        $userAccountRepo,
-                        $rentalAssetRepository
-                    )
+                    $rentalAssetRepository
                 )
         );
-
-        // « Du courrier attend une décision sur une réservation » on the
-        // attention page (§8.79).
-        $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider($inboundMailForOthers);
     }
 
     // The stay itself (§6.21–§6.23): meters, inventory, incidents and the

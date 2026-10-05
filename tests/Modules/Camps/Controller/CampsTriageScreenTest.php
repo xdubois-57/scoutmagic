@@ -22,8 +22,8 @@ use Tests\Modules\InboundMail\TriageScreenScenario;
 
 /**
  * The camps' side of the shared triage screen (issue #462, IT-03): the
- * scenario the rentals' screen runs too (`TriageScreenScenario`), driven
- * through CampsMailController.
+ * shared scenario (`TriageScreenScenario`), driven through
+ * CampsMailController.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class CampsTriageScreenTest extends TestCase

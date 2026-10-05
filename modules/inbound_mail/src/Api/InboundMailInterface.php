@@ -273,6 +273,13 @@ interface InboundMailInterface
      * arrived in. A consumer that names a file here becomes responsible for
      * it, `files.owner_id` included; only it knows what it did with them.
      *
+     * `$excludeFromAnalysis` makes it final for THIS object (#720): no
+     * automatic path — arrival, deferred pass, re-analysis — files the
+     * message under it again, while another object of the same consumer
+     * stays open to it. Without it, a detached message is merely unlinked,
+     * and the next re-analysis may put it straight back. `$userAccountId`
+     * names who decided, for that record only.
+     *
      * @param int[] $preserveFileIds
      * @return bool false when the message does not belong to that reference
      */
@@ -280,7 +287,9 @@ interface InboundMailInterface
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool;
 
     /**

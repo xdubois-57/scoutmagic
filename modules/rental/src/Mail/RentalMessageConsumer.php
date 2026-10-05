@@ -15,7 +15,6 @@ use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\ReferenceDirectory;
@@ -51,25 +50,18 @@ use Modules\Rental\Service\RentalDocumentService;
  * matching the sender inside the window means no attachment at all —
  * putting a renter's email on whichever of their two stays sorted first is
  * worse than leaving it in their mailbox, because the manager reading the
- * wrong file has no way to know it is wrong.
+ * wrong file has no way to know it is wrong. Nor is anybody asked to choose
+ * (#720): there is no proposition and no screen to sort the rest — the
+ * message simply appears on no booking.
  *
  * **A cancelled or archived booking still matches.** The correspondence
  * about why a stay fell through belongs on that stay.
  */
 class RentalMessageConsumer implements
     MessageConsumerInterface,
-    ReferenceDirectory,
-    \Modules\InboundMail\Api\PropositionListener
+    ReferenceDirectory
 {
     public const CONSUMER_ID = 'rental';
-
-    /**
-     * How many propositions one ambiguous message may produce. A renter
-     * with a standing booking every month would otherwise turn a single
-     * email into a wall nobody reads — which is a different way of saying
-     * nothing at all.
-     */
-    public const MAX_PROPOSITIONS = 5;
 
     /**
      * How far either side of a stay a sender-matched message is still
@@ -103,52 +95,8 @@ class RentalMessageConsumer implements
          * reached through its asset's slug. Null on the scheduled path,
          * where nobody searches.
          */
-        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null,
-        /**
-         * The model as a last resort between several bookings of one
-         * renter (`Mail\BookingChoiceByModel`). Null, or no model on the
-         * cheap tier, leaves the propositions exactly as the rules made
-         * them.
-         */
-        private ?BookingChoiceByModel $modelChoice = null,
-        /**
-         * Who tells the asset's managers that a message waits for their
-         * decision (`Mail\RentalMailNotifier`). Null: nobody is told, and
-         * the proposition still waits on the booking's page.
-         */
-        private ?RentalMailNotifier $notifier = null
+        private ?\Modules\Rental\Repository\RentalAssetRepository $assetRepository = null
     ) {
-    }
-
-    /**
-     * A message proposed towards bookings of this module: the managers
-     * of each booking's asset are told (`Api\PropositionListener`).
-     *
-     * @param \Modules\InboundMail\Api\MessageCandidate[] $candidates
-     */
-    public function onProposed(InboundMessage $message, array $candidates): void
-    {
-        if ($this->notifier === null) {
-            return;
-        }
-
-        $bookings = [];
-        $labels = [];
-        $urls = [];
-        foreach ($candidates as $candidate) {
-            $booking = $this->bookingRepository->findByReference($candidate->businessReference);
-            if ($booking === null || isset($labels[$booking->reference])) {
-                continue;
-            }
-            $bookings[] = $booking;
-            $labels[$booking->reference] = $this->labelFor($booking);
-            $url = $this->referenceUrl($booking->reference);
-            if ($url !== null) {
-                $urls[$booking->reference] = $url;
-            }
-        }
-
-        $this->notifier->proposed($bookings, $labels, $urls);
     }
 
     // ── Api\ReferenceDirectory: the bookings as a person names them ────
@@ -262,25 +210,17 @@ class RentalMessageConsumer implements
         // resolved sender, and the camps one keeps its weakest rule behind
         // `mailboxDedicatedTo`.
         //
-        // So the reference alone no longer LINKS: it links when the sender
-        // is the renter of that booking, and otherwise it becomes a
-        // proposition a human confirms — which loses nothing, because the
-        // message is still shown, named and one click from being filed.
+        // So the reference alone does not LINK: it links when the sender
+        // is the renter of that booking, and otherwise it files nothing —
+        // there is no proposition for a person to confirm any more (#720),
+        // and a stranger quoting a reference must not reach a booking's
+        // thread on that alone.
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
         $referenced = $reference !== null ? $this->bookingRepository->findByReference($reference) : null;
         if ($referenced !== null) {
-            if ($this->isRenterOf($referenced, $message->fromEmail)) {
-                return AnalysisResult::linkedTo(self::CONSUMER_ID, $referenced->reference, LinkOrigin::REFERENCE);
-            }
-
-            return AnalysisResult::proposing(new MessageCandidate(
-                businessReference: $referenced->reference,
-                label: $this->labelFor($referenced),
-                evidenceType: 'reference',
-                explanation: 'Le message cite la référence de cette réservation, mais il ne vient pas de '
-                    . "l'adresse du locataire. Une référence est séquentielle et imprimée sur le contrat : "
-                    . 'ScoutMagic ne rattache pas sans confirmation.'
-            ));
+            return $this->isRenterOf($referenced, $message->fromEmail)
+                ? AnalysisResult::linkedTo(self::CONSUMER_ID, $referenced->reference, LinkOrigin::REFERENCE)
+                : AnalysisResult::nothing();
         }
 
         $threaded = $this->inboundMail->findReferenceByThread(
@@ -297,16 +237,13 @@ class RentalMessageConsumer implements
 
     /**
      * The sender-and-window level, which produces a link when it is sure
-     * and **propositions when it is not**.
+     * and **nothing when it is not** (#720).
      *
-     * Ambiguity used to be answered with silence: several bookings of the
-     * same renter in range meant no association at all. That was right
-     * about not choosing — putting a renter's email on whichever of their
-     * two bookings sorted first is worse than not attaching it, because
-     * the manager reading the wrong file has no way to know — and wrong
-     * about stopping there. The module knows something; it just does not
-     * know which. Saying so, and letting a human pick, is what a
-     * proposition is for.
+     * Several bookings of the same renter in range mean no association: a
+     * renter's email on whichever of their two bookings sorted first is
+     * worse than none, because the manager reading the wrong file has no
+     * way to know. Nobody is asked to pick either — the propositions that
+     * once did are gone, with the screen that showed them.
      */
     private function fromSender(CandidateMessage $message): AnalysisResult
     {
@@ -345,55 +282,8 @@ class RentalMessageConsumer implements
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $inWindow[0]->reference, LinkOrigin::SENDER);
         }
 
-        if ($inWindow === []) {
-            return AnalysisResult::nothing();
-        }
-
-        // By arrival date, because that is the order a person compares
-        // them in. The repository's own order is about listing bookings,
-        // not about choosing between two of them, and inheriting it here
-        // would make the list arbitrary for the one reader who has to pick.
-        usort(
-            $inWindow,
-            static fn(RentalBooking $a, RentalBooking $b) => $a->arrivalDate <=> $b->arrivalDate
-        );
-
-        // Bounded. A renter with a standing booking every month would
-        // otherwise turn one email into a wall of propositions nobody
-        // reads, which is a different way of saying nothing.
-        $shortlist = array_slice($inWindow, 0, self::MAX_PROPOSITIONS);
-
-        // The model, last, and only to ORDER the list: its pick leads,
-        // says so, and the others stay — it never associates (§8.59).
-        $options = [];
-        foreach ($shortlist as $booking) {
-            $options[$booking->reference] = $this->labelFor($booking);
-        }
-        $picked = $this->modelChoice?->choose($message->subject . "\n" . $message->bodyText, $options);
-        if ($picked !== null) {
-            usort(
-                $shortlist,
-                static fn(RentalBooking $a, RentalBooking $b): int
-                    => ($a->reference === $picked ? 0 : 1) <=> ($b->reference === $picked ? 0 : 1)
-            );
-        }
-
-        $candidates = [];
-        foreach ($shortlist as $booking) {
-            $isPick = $booking->reference === $picked;
-            $candidates[] = new MessageCandidate(
-                businessReference: $booking->reference,
-                label: $this->labelFor($booking),
-                evidenceType: $isPick ? 'ai' : 'sender_window',
-                explanation: ($isPick ? 'Le modèle suggère cette réservation d\'après le contenu du message. ' : '')
-                    . 'L\'adresse de l\'expéditeur est celle du locataire, et le message est '
-                    . 'arrivé pendant la période de cette réservation. '
-                    . count($inWindow) . ' réservations de ce locataire correspondent : '
-                    . 'ScoutMagic n\'en choisit aucune.'
-            );
-        }
-
-        return new AnalysisResult([], $candidates);
+        // None in the window, or several: nothing is filed.
+        return AnalysisResult::nothing();
     }
 
     /**
@@ -424,26 +314,6 @@ class RentalMessageConsumer implements
     }
 
     /**
-     * A booking as a manager recognises it — the reference alone is an
-     * identifier, not something anybody reads at a glance.
-     */
-    private function labelFor(RentalBooking $booking): string
-    {
-        // Built here rather than through the `date_fr` Twig filter: this
-        // string is stored (encrypted) on the proposition row, so it has to
-        // exist before any template does.
-        $arrival = DateInput::iso($booking->arrivalDate);
-        $departure = DateInput::iso($booking->departureDate);
-
-        if ($arrival === null || $departure === null) {
-            return $booking->reference;
-        }
-
-        return $booking->reference . ' — du ' . $arrival->format('d/m/Y')
-            . ' au ' . $departure->format('d/m/Y');
-    }
-
-    /**
      * Nothing to add once the message is on disk.
      *
      * Everything this module recognises is in the subject, the thread
@@ -471,8 +341,8 @@ class RentalMessageConsumer implements
             'référence de location explicite dans l\'objet ou le corps',
             'réponse dans une conversation déjà rattachée à une location',
             'adresse du locataire, entre la demande et quelques semaines après le départ',
-            'plusieurs réservations du même locataire dans la période : une proposition par réservation, '
-                . 'aucune n\'est choisie',
+            'plusieurs réservations du même locataire dans la période : aucune n\'est choisie, '
+                . 'le message n\'est rattaché à aucune',
         ];
     }
 

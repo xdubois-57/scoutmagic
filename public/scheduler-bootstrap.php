@@ -554,22 +554,6 @@ function scoutmagicBootstrapScheduler(
                             $settingService,
                             $journalService,
                             $storagePath
-                        ),
-                        // The model as a last resort between two bookings
-                        // of one renter (§8.59): orders the propositions,
-                        // never associates. Null without the connector.
-                        modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
-                            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
-                        ),
-                        // THIS is the path that tells the managers: the
-                        // relève runs from the scheduler. Null without a
-                        // notification service (cron.php without one).
-                        notifier: $notificationService === null ? null : new \Modules\Rental\Mail\RentalMailNotifier(
-                            $notificationService,
-                            new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
-                            new \Core\Import\MemberYearRepository($pdo),
-                            $userAccountRepo,
-                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService)
                         )
                     ));
                 }

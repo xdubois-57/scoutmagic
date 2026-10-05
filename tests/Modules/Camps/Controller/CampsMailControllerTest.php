@@ -976,7 +976,9 @@ class RecordingInboundMail implements InboundMailInterface
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool {
         $this->detaches[] = [$consumerId, $businessReference, $messageId];
 

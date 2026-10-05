@@ -599,7 +599,7 @@ class RentalMessageConsumerTest extends TestCase
      * sender, camps keeps its weakest rule behind a dedicated mailbox);
      * this one now does too.
      */
-    public function testAReferenceFromSomebodyElseIsProposedRatherThanFiled(): void
+    public function testAReferenceFromSomebodyElseFilesNothing(): void
     {
         $booking = $this->createBooking();
         $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example');
@@ -607,14 +607,11 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->assertSame(0, $this->countRentalAssociations(), 'the reference alone was enough to file the message');
         $this->assertSame([], $this->communicationService->timeline($booking));
-
-        // Nothing is lost: the message is kept and named, one click from
-        // being filed by a human.
-        $candidates = $this->inboundMail->findCandidatesFor(
+        // And no proposition stands in for the decision (#720).
+        $this->assertSame([], $this->inboundMail->findCandidatesFor(
             RentalMessageConsumer::CONSUMER_ID,
             $this->storedMessageIds()
-        );
-        $this->assertNotSame([], $candidates);
+        ));
     }
 
     public function testTheRenterQuotingTheirOwnReferenceIsStillFiledStraightAway(): void
@@ -762,7 +759,7 @@ class RentalMessageConsumerTest extends TestCase
         );
     }
 
-    // ── Ambiguity produces propositions, not silence (IT-07) ────────────
+    // ── Ambiguity files nothing and proposes nothing (#720) ─────────────
 
     public function testOneBookingInTheWindowIsStillAnAssociation(): void
     {
@@ -775,54 +772,21 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $result->candidates);
     }
 
-    public function testTwoBookingsInTheWindowProduceTwoPropositionsAndNoAssociation(): void
+    public function testTwoBookingsInTheWindowFileNothingAndProposeNothing(): void
     {
-        // Silence used to be the answer here. It was right about not
-        // choosing — filing a renter's email under whichever of their two
-        // bookings sorted first is worse than not filing it, because the
-        // manager reading the wrong one has no way to know — and wrong
-        // about stopping there.
+        // Filing a renter's email under whichever of their two bookings
+        // sorted first is worse than not filing it — and nobody is asked
+        // to pick any more: the message appears on no booking.
         $this->createBooking(reference: 'LOC-2027-0042');
         $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
 
         $result = $this->plainConsumer()->analyze($this->senderMessage());
 
         $this->assertSame([], $result->links, 'ScoutMagic chooses neither');
-        $this->assertSame(
-            ['LOC-2027-0042', 'LOC-2027-0051'],
-            array_map(static fn($c) => $c->businessReference, $result->candidates)
-        );
+        $this->assertSame([], $result->candidates);
     }
 
-    public function testAPropositionSaysWhatItRestsOnAndNamesTheBookingReadably(): void
-    {
-        $this->createBooking(reference: 'LOC-2027-0042');
-        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
-
-        $candidate = $this->plainConsumer()->analyze($this->senderMessage())->candidates[0];
-
-        // The reference alone is an identifier; a manager recognises dates.
-        $this->assertStringContainsString('LOC-2027-0042', $candidate->label);
-        $this->assertStringContainsString('01/07/2027', $candidate->label);
-        $this->assertStringContainsString('2 réservations', $candidate->explanation);
-        $this->assertStringContainsString('choisit aucune', $candidate->explanation);
-    }
-
-    public function testAWallOfPropositionsIsBounded(): void
-    {
-        // A renter with a standing booking every month would otherwise
-        // turn one email into a list nobody reads, which is a different
-        // way of saying nothing.
-        for ($i = 1; $i <= RentalMessageConsumer::MAX_PROPOSITIONS + 3; $i++) {
-            $this->createBooking(reference: 'LOC-2027-' . str_pad((string) $i, 4, '0', STR_PAD_LEFT));
-        }
-
-        $result = $this->plainConsumer()->analyze($this->senderMessage());
-
-        $this->assertCount(RentalMessageConsumer::MAX_PROPOSITIONS, $result->candidates);
-    }
-
-    public function testAnExplicitReferenceStillWinsOverEveryProposition(): void
+    public function testAnExplicitReferenceStillDecidesBetweenTwoBookings(): void
     {
         $this->createBooking(reference: 'LOC-2027-0042');
         $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
@@ -833,129 +797,19 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $result->candidates);
     }
 
-    private function plainConsumer(
-        ?\Modules\Rental\Mail\BookingChoiceByModel $modelChoice = null,
-        ?\Modules\Rental\Mail\RentalMailNotifier $notifier = null
-    ): RentalMessageConsumer {
+    public function testTheConsumerNoLongerListensForPropositions(): void
+    {
+        $this->assertNotInstanceOf(\Modules\InboundMail\Api\PropositionListener::class, $this->plainConsumer());
+    }
+
+    private function plainConsumer(): RentalMessageConsumer
+    {
         return new RentalMessageConsumer(
             $this->bookingRepository,
             $this->inboundMail,
             $this->documentService,
-            assetRepository: $this->assetRepository,
-            modelChoice: $modelChoice,
-            notifier: $notifier
+            assetRepository: $this->assetRepository
         );
-    }
-
-    // ── The managers are told of a proposition (Api\PropositionListener) ──
-
-    public function testAPropositionTellsTheManagersWhichBookingsAndWhere(): void
-    {
-        $first = $this->createBooking('LOC-2027-0042');
-        $this->createBooking('LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
-        $notifier = $this->createMock(\Modules\Rental\Mail\RentalMailNotifier::class);
-        $notifier->expects($this->once())->method('proposed')->with(
-            $this->callback(static fn(array $bookings): bool
-                => array_map(static fn(RentalBooking $b) => $b->reference, $bookings) === ['LOC-2027-0042', 'LOC-2027-0051']),
-            $this->callback(static fn(array $labels): bool
-                => str_contains($labels['LOC-2027-0042'] ?? '', '01/07/2027')),
-            $this->callback(static fn(array $urls): bool
-                => str_contains($urls['LOC-2027-0042'] ?? '', '/local-saint-georges/'))
-        );
-
-        $consumer = $this->plainConsumer(notifier: $notifier);
-        $consumer->onProposed(
-            $this->storedUnattached(),
-            array_map(
-                static fn(string $ref) => new \Modules\InboundMail\Api\MessageCandidate($ref, $ref, 'sender_window', 'parce que'),
-                ['LOC-2027-0042', 'LOC-2027-0051', 'LOC-2027-0042']
-            )
-        );
-        unset($first);
-    }
-
-    public function testAPropositionNamingNoBookingTellsNobody(): void
-    {
-        $notifier = $this->createMock(\Modules\Rental\Mail\RentalMailNotifier::class);
-        $notifier->expects($this->once())->method('proposed')->with([], [], []);
-
-        $this->plainConsumer(notifier: $notifier)->onProposed(
-            $this->storedUnattached(),
-            [new \Modules\InboundMail\Api\MessageCandidate('LOC-2020-0001', 'x', 'sender_window', 'parce que')]
-        );
-    }
-
-    private function storedUnattached(): \Modules\InboundMail\Api\InboundMessage
-    {
-        return new \Modules\InboundMail\Api\InboundMessage(
-            1, $this->mailboxId, '', '', LinkOrigin::SENDER, 'Bonjour', 'jeanne@example.be', null,
-            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
-        );
-    }
-
-    // ── The model, last, and only to order (§8.59) ──────────────────────
-
-    public function testTheModelsPickLeadsThePropositionsAndAssociatesNothing(): void
-    {
-        $this->createBooking(reference: 'LOC-2027-0042');
-        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
-        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0051');
-
-        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
-            ->analyze($this->senderMessage('Nos dates de fin juillet'));
-
-        $this->assertSame([], $result->links, 'the model never associates');
-        $this->assertSame(
-            ['LOC-2027-0051', 'LOC-2027-0042'],
-            array_map(static fn($c) => $c->businessReference, $result->candidates),
-            'its pick leads, the other stays'
-        );
-        $this->assertSame('ai', $result->candidates[0]->evidenceType);
-        $this->assertStringContainsString('Le modèle suggère', $result->candidates[0]->explanation);
-        $this->assertSame('sender_window', $result->candidates[1]->evidenceType);
-        $this->assertSame(1, $llm->calls);
-        $this->assertStringContainsString('LOC-2027-0042', $llm->lastRequest?->prompt ?? '');
-    }
-
-    public function testAnAnswerNamingNoOfferedBookingChangesNothing(): void
-    {
-        $this->createBooking(reference: 'LOC-2027-0042');
-        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
-        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-9999');
-
-        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
-            ->analyze($this->senderMessage('Nos dates'));
-
-        $this->assertSame(
-            ['LOC-2027-0042', 'LOC-2027-0051'],
-            array_map(static fn($c) => $c->businessReference, $result->candidates)
-        );
-        $this->assertSame(['sender_window', 'sender_window'], array_map(static fn($c) => $c->evidenceType, $result->candidates));
-    }
-
-    public function testTheModelIsNotAskedWhenTheRulesAlreadyDecided(): void
-    {
-        $this->createBooking(reference: 'LOC-2027-0042');
-        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0042');
-
-        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
-            ->analyze($this->senderMessage());
-
-        $this->assertCount(1, $result->links);
-        $this->assertSame(0, $llm->calls);
-    }
-
-    public function testWithoutAModelOnTheCheapTierTheListIsWhatTheRulesMade(): void
-    {
-        $this->createBooking(reference: 'LOC-2027-0042');
-        $this->createBooking(reference: 'LOC-2027-0051', arrival: '2027-07-20', departure: '2027-07-23');
-        $llm = new \Tests\Modules\InboundMail\ScriptedLlm('LOC-2027-0051', available: false);
-
-        $result = $this->plainConsumer(new \Modules\Rental\Mail\BookingChoiceByModel($llm))
-            ->analyze($this->senderMessage('Nos dates'));
-
-        $this->assertSame(0, $llm->calls);
-        $this->assertSame(['sender_window', 'sender_window'], array_map(static fn($c) => $c->evidenceType, $result->candidates));
     }
 
     private function senderMessage(string $subject = 'Bonjour'): \Modules\InboundMail\Api\CandidateMessage
@@ -1559,51 +1413,40 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::MANUAL, $this->communicationService->timeline($to)[0]->linkOrigin);
     }
 
-    // ── The manager answers the module's propositions ───────────────────
+    // ── « Détacher » is final for the booking (#720) ────────────────────
 
-    public function testAnAmbiguousSenderIsProposedOnEachBookingAndAnsweredOnOne(): void
+    public function testADetachedMessageIsNotFiledBackByTheNextAnalysis(): void
     {
-        // Two bookings of one renter inside the window: no association,
-        // one proposition on each. The manager of the first says yes
-        // there — and the second stops asking, since the question is
-        // answered.
-        $first = $this->createBooking('LOC-2027-0042');
-        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-07-10', departure: '2027-07-12');
-        $this->deliver(10, 'Une question');
+        // The only booking of its sender: the rules file the message there
+        // every time they are asked. Once a manager says it does not
+        // concern this booking, they must not file it there again.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Une question', from: 'jeanne@example.be');
         $this->sync();
+        $messageId = $this->communicationService->timeline($booking)[0]->id;
 
-        $rows = $this->communicationService->propositions($first);
-        $this->assertCount(1, $rows);
-        $this->assertSame('LOC-2027-0042', $rows[0]['candidates'][0]->businessReference);
-        $this->assertCount(1, $this->communicationService->propositions($second));
+        $this->assertTrue($this->communicationService->detach($booking, $messageId, null, 7));
+        $this->inboundMail->reanalyzeUnlinked(RentalMessageConsumer::CONSUMER_ID);
 
-        $message = $rows[0]['message'];
-        $this->assertTrue(
-            $this->communicationService->confirmProposition($first, $message->id, $rows[0]['candidates'][0]->id, 7)
-        );
-
-        $timeline = $this->communicationService->timeline($first);
-        $this->assertCount(1, $timeline);
-        $this->assertSame(LinkOrigin::MANUAL, $timeline[0]->linkOrigin);
-        $this->assertSame([], $this->communicationService->propositions($first));
-        $this->assertSame([], $this->communicationService->propositions($second), 'the sibling proposition is settled too');
+        $this->assertSame([], $this->communicationService->timeline($booking));
     }
 
-    public function testAPropositionTowardsAnotherBookingCannotBeConfirmedFromThisOne(): void
+    public function testADetachedMessageMayStillLandOnAnotherBooking(): void
     {
+        // It quotes a booking that does not exist yet, so the sender rule
+        // files it under the renter's only booking — the wrong one. Once
+        // detached, and once the booking it quotes exists, it goes there.
         $first = $this->createBooking('LOC-2027-0042');
-        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-07-10', departure: '2027-07-12');
-        $this->deliver(10, 'Une question');
+        $this->deliver(10, 'Re: [LOC-2027-0043] le week-end de septembre', from: 'jeanne@example.be');
         $this->sync();
+        $messageId = $this->communicationService->timeline($first)[0]->id;
+        $this->communicationService->detach($first, $messageId);
 
-        $rows = $this->communicationService->propositions($second);
-        $candidate = $rows[0]['candidates'][0];
+        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-09-10', departure: '2027-09-12');
+        $this->inboundMail->reanalyzeUnlinked(RentalMessageConsumer::CONSUMER_ID);
 
-        // The screen of the FIRST booking posting the SECOND's proposition.
-        $this->assertFalse(
-            $this->communicationService->confirmProposition($first, $rows[0]['message']->id, $candidate->id, 7)
-        );
         $this->assertSame([], $this->communicationService->timeline($first));
+        $this->assertCount(1, $this->communicationService->timeline($second));
     }
 
     // ── The directory the chief's screen files through ──────────────────
@@ -1640,7 +1483,7 @@ class RentalMessageConsumerTest extends TestCase
 
     // ── Degrading without the module (§7.5) ─────────────────────────────
 
-    public function testWithoutInboundMailTheTabIsNotOffered(): void
+    public function testWithoutInboundMailNothingIsCollectedAndNothingDetaches(): void
     {
         $service = new RentalCommunicationService(
             $this->bookingRepository,
@@ -1651,16 +1494,54 @@ class RentalMessageConsumerTest extends TestCase
 
         $booking = $this->createBooking();
 
-        $this->assertFalse($service->isAvailable());
+        $this->assertFalse($service->collects());
         $this->assertSame([], $service->timeline($booking));
         $this->assertFalse($service->detach($booking, 1));
     }
 
-    public function testWithEveryMailboxDisabledTheTabIsNotOfferedEither(): void
+    /**
+     * @return array<string, array{array<int, array{name: string, state: string, is_enabled: bool}>, bool}>
+     */
+    public static function mailboxesInScope(): array
     {
-        $this->mailboxRepository->setEnabled($this->mailboxId, false);
+        return [
+            'an enabled box open to rentals' => [[1 => ['name' => 'Unité', 'state' => 'OK', 'is_enabled' => true]], true],
+            'only a disabled one' => [[1 => ['name' => 'Unité', 'state' => 'OK', 'is_enabled' => false]], false],
+            'none' => [[], false],
+        ];
+    }
 
-        $this->assertFalse($this->communicationService->isAvailable());
+    /**
+     * Whether replies reach the page is the boxes open to rentals that are
+     * enabled — dedicated or shared alike (#720).
+     *
+     * @param array<int, array{name: string, state: string, is_enabled: bool}> $summaries
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxesInScope')]
+    public function testTheModuleCollectsWhenAnEnabledBoxIsOpenToIt(array $summaries, bool $collects): void
+    {
+        $inbound = new class ($summaries) implements \Modules\InboundMail\Api\InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @param array<int, array{name: string, state: string, is_enabled: bool}> $summaries */
+            public function __construct(private readonly array $summaries)
+            {
+            }
+
+            public function listMailboxSummariesFor(string $consumerId): array
+            {
+                return $consumerId === 'rental' ? $this->summaries : [];
+            }
+        };
+        $service = new RentalCommunicationService(
+            $this->bookingRepository,
+            $this->documentRepository,
+            $this->authorizationService,
+            new JournalService(new JournalRepository($this->pdo)),
+            $inbound
+        );
+
+        $this->assertSame($collects, $service->collects());
     }
 
     public function testADisabledMailboxCollectsNothing(): void

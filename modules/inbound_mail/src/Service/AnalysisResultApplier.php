@@ -25,6 +25,13 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
  * id of the consumer that returned it: without that, a module could quietly
  * file a message under another module's reference, and the access rules of
  * §8.58 would be answering about an association its own module never made.
+ *
+ * **Nor under an object it was taken off for good.** A consumer that
+ * detached a message with `$excludeFromAnalysis` (#720) recorded that this
+ * message does not concern that object; every automatic path — arrival,
+ * deferred content pass, re-analysis — comes through here, so this is the
+ * one place that has to read it. A link or a proposition to an excluded
+ * object is dropped; one to another object of the same consumer is not.
  */
 class AnalysisResultApplier
 {
@@ -63,6 +70,10 @@ class AnalysisResultApplier
 
         foreach ($resultsByConsumer as $consumerId => $result) {
             foreach ($result->links as $link) {
+                if ($this->messageRepository->isExcluded($messageId, $consumerId, $link->businessReference)) {
+                    continue;
+                }
+
                 $wasCreated = $this->messageRepository->addLink(
                     $messageId,
                     $consumerId,
@@ -87,6 +98,10 @@ class AnalysisResultApplier
             }
 
             foreach ($result->candidates as $candidate) {
+                if ($this->messageRepository->isExcluded($messageId, $consumerId, $candidate->businessReference)) {
+                    continue;
+                }
+
                 // Refuses to re-create a proposition somebody set aside —
                 // `dismissed_at` is final (A3/D10).
                 if ($this->messageRepository->addCandidate($messageId, $consumerId, $candidate)) {
