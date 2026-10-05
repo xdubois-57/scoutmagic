@@ -794,7 +794,7 @@ class InboundMailService implements InboundMailInterface
     /**
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
     {
         $none = ['examined' => 0, 'linked' => 0, 'proposed' => 0];
         $consumer = $this->consumerRegistry?->find($consumerId);
@@ -845,8 +845,12 @@ class InboundMailService implements InboundMailInterface
         }
 
         // And the slow half, for the hourly task: an attachment's text and
-        // a model call are readings a request cannot afford to wait for.
-        $this->messageRepository->queueForStoredAnalysis($ids);
+        // a model call are readings a request cannot afford to wait for —
+        // unless the caller is a consumer re-reading after its own decision,
+        // which must not hand every unlinked message a fresh model call.
+        if ($requeueStoredPass) {
+            $this->messageRepository->queueForStoredAnalysis($ids);
+        }
 
         return ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed];
     }

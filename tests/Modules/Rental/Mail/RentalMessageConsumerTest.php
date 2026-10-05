@@ -1219,6 +1219,25 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertStringContainsString('les draps', $llm->lastRequest->prompt);
     }
 
+    public function testAFilingNeverHandsTheRestOfTheMailAFreshModelCall(): void
+    {
+        // A message the model already declined, and another a manager then
+        // files by hand: the learning re-runs the rules on the rest, and
+        // leaves the first one's deferred reading answered.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Une offre', from: 'vendeur@ailleurs.example', messageId: 'offer@ailleurs.example');
+        $this->deliver(11, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->sync();
+        [$declined, $filed] = $this->storedMessageIds();
+        $now = new \DateTimeImmutable();
+        $this->messageRepository->markStoredAnalysisDone($declined, $now);
+        $this->messageRepository->markStoredAnalysisDone($filed, $now);
+
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $filed, 7);
+
+        $this->assertSame([], $this->messageRepository->findMessagesAwaitingStoredAnalysis(10));
+    }
+
     public function testAMessageCannotStepOutOfItsTagsIntoTheBookingList(): void
     {
         // #231's sender again, now writing to the model: whatever the text

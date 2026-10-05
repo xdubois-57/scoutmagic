@@ -116,7 +116,7 @@ trait InertInboundMail
     /**
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
     {
         return ['examined' => 0, 'linked' => 0, 'proposed' => 0];
     }
