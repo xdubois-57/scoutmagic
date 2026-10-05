@@ -35,6 +35,9 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     /** @var array<string, int> */
     private array $uidValidityByFolder = [];
 
+    /** @var array<string, true> */
+    private array $sentFolders = [];
+
     private bool $connected = false;
 
     /** @var list<string> */
@@ -62,6 +65,18 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     public function setUidValidity(string $folder, int $uidValidity): void
     {
         $this->uidValidityByFolder[$folder] = $uidValidity;
+    }
+
+    /**
+     * Have the server mark $folder `\Sent` (RFC 6154), as most do for the
+     * folder their webmail files sent mail in. The folder exists, empty,
+     * even before a message is added to it.
+     */
+    public function markSent(string $folder): void
+    {
+        $this->sentFolders[$folder] = true;
+        $this->foldersByPath[$folder] ??= [];
+        $this->uidValidityByFolder[$folder] ??= 1;
     }
 
     public function failNextConnect(\Throwable $failure): void
@@ -97,13 +112,16 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     }
 
     /**
-     * @return string[]
+     * @return RemoteFolder[]
      */
     public function listFolders(): array
     {
         $this->calls[] = 'listFolders';
 
-        return array_keys($this->foldersByPath);
+        return array_map(
+            fn(string $path): RemoteFolder => new RemoteFolder($path, isset($this->sentFolders[$path])),
+            array_keys($this->foldersByPath)
+        );
     }
 
     public function folderState(string $folder): FolderState

@@ -112,12 +112,30 @@ class RentalBookingMailService
                 ['Message-ID' => $messageId]
             );
         } catch (\Throwable $e) {
-            $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_FAILED, $retrying);
+            $this->record(
+                $booking,
+                $kind,
+                $email,
+                $attachments,
+                $messageId,
+                $trackingToken,
+                SentEmail::STATUS_FAILED,
+                $retrying
+            );
 
             throw $e;
         }
 
-        $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_SENT, $retrying);
+        $this->record(
+            $booking,
+            $kind,
+            $email,
+            $attachments,
+            $messageId,
+            $trackingToken,
+            SentEmail::STATUS_SENT,
+            $retrying
+        );
     }
 
     /**
@@ -160,10 +178,7 @@ class RentalBookingMailService
                 $email->subject,
                 $this->masked($booking, $email->bodyText, $trackingToken, false),
                 $this->masked($booking, $email->bodyHtml, $trackingToken, true),
-                array_values(array_filter(array_map(
-                    static fn(array $a): ?int => $a['document_id'] ?? null,
-                    $attachments
-                ), static fn(?int $id): bool => $id !== null)),
+                self::documentIdsOf($attachments),
                 $messageId,
                 $status,
                 new \DateTimeImmutable()
@@ -183,6 +198,24 @@ class RentalBookingMailService
                 // exception.
             }
         }
+    }
+
+    /**
+     * The booking documents among these attachments, by id.
+     *
+     * @param list<array{path: string, name: string, document_id?: int|null}> $attachments
+     * @return list<int>
+     */
+    private static function documentIdsOf(array $attachments): array
+    {
+        $ids = [];
+        foreach ($attachments as $attachment) {
+            if (isset($attachment['document_id'])) {
+                $ids[] = $attachment['document_id'];
+            }
+        }
+
+        return $ids;
     }
 
     /**
@@ -246,14 +279,20 @@ class RentalBookingMailService
         foreach ($sent->documentIds as $documentId) {
             $file = $attachmentOf($documentId);
             if ($file === null) {
-                throw new RentalException("Une pièce jointe de cet e-mail n'existe plus : il ne peut pas être renvoyé tel quel.");
+                throw new RentalException(
+                    "Une pièce jointe de cet e-mail n'existe plus : il ne peut pas être renvoyé tel quel."
+                );
             }
             $attachments[] = $file + ['document_id' => $documentId];
         }
 
         $email = new RenderedEmail(
             $sent->subject,
-            str_replace(SentEmail::MASKED_LINK, htmlspecialchars($link, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $sent->bodyHtml),
+            str_replace(
+                SentEmail::MASKED_LINK,
+                htmlspecialchars($link, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                $sent->bodyHtml
+            ),
             str_replace(SentEmail::MASKED_LINK, $link, $sent->bodyText)
         );
 
@@ -276,10 +315,6 @@ class RentalBookingMailService
     }
 
     /**
-     * A fresh Message-ID for a message about this booking, remembered so
-     * the reply to it is recognised.
-     */
-    /**
      * The signed reply address of this booking (§8.58), so a bare
      * « Répondre » comes back naming it — null without `inbound_mail`,
      * when the operator turned it off, or when no box can receive it,
@@ -299,6 +334,12 @@ class RentalBookingMailService
         );
     }
 
+    /**
+     * A fresh Message-ID for a message about this booking, remembered so
+     * the reply to it is recognised — and so its copy in the box's
+     * « Envoyés », if the provider files one there, is known for what it
+     * is (#720).
+     */
     private function messageIdFor(RentalBooking $booking): string
     {
         $messageId = $this->newMessageId();

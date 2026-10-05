@@ -818,6 +818,39 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Rattachement incertain', $body);
     }
 
+    public function testWhatTheUnitSentFromItsBoxIsShownAsSentToTheRenter(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aSentMessage(10, 'Les clés')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(9, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::REFERENCE);
+        $mail->linkAs(10, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::RECIPIENT);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertMatchesRegularExpression('#data-mail-entry="10" data-mail-direction="sent"#', $body);
+        $this->assertMatchesRegularExpression('#data-mail-entry="9" data-mail-direction="received"#', $body);
+        $this->assertStringContainsString('À : j.leroy@example.be', $body);
+        $this->assertStringContainsString('Rattachement incertain · Adresse du destinataire', $body);
+    }
+
+    public function testAMessageTheUnitSentIsNeverAnUnreadOne(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aSentMessage(10, 'Les clés')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(10, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::RECIPIENT);
+
+        $this->assertSame([], $mail->countLinksAfter('rental', [$booking->reference => 0]));
+    }
+
     public function testDetachAsksFirst(): void
     {
         [, $mine] = $this->mailAcrossTwoAssets();

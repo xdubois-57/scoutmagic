@@ -449,6 +449,15 @@ interface InboundMailInterface
     public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void;
 
     /**
+     * Whether $messageId is one this consumer recorded as sent by the site
+     * (`recordOutboundMessageId()`) — the copy a provider files in the
+     * box's « Envoyés » when the site sends through it (#720). Certain,
+     * since the site minted the id; a consumer that keeps its own log of
+     * what it sent reads this to avoid showing one e-mail twice.
+     */
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool;
+
+    /**
      * The address a consumer puts in the `Reply-To` of what it sends about
      * one of its objects, so that a bare « Répondre » comes back naming
      * that object (`CandidateMessage::$addressedTo`, §8.58). Signed by
