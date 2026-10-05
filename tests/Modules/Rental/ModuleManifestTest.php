@@ -128,10 +128,13 @@ class ModuleManifestTest extends TestCase
      * 1.39.0 replaces the inventory's states with what was found
      * (`arrival_value`, `departure_value`) and freezes each phase once
      * validated (`rental_inventory_validations`) (#708, IT-17).
+     *
+     * 1.40.0 draws a booking reference at random and drops the counter it
+     * used to come from (`rental_reference_sequences`) (#720, step 9).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.39.0', $this->manifest->version);
+        $this->assertSame('1.40.0', $this->manifest->version);
     }
 
     /**

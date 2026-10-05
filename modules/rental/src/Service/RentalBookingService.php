@@ -13,6 +13,7 @@ use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
+use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
@@ -44,6 +45,8 @@ class RentalBookingService implements OccupancyProvider
      */
     public const DEFAULT_AUTOMATIC_HOLD_DAYS = 30;
 
+    private BookingReference $references;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private JournalService $journal,
@@ -55,8 +58,10 @@ class RentalBookingService implements OccupancyProvider
          * booking expires and its pending requests stay pending.
          */
         private ?RentalChangeRequestRepository $changeRequestRepository = null,
-        private ?BookingAudit $bookingAudit = null
+        private ?BookingAudit $bookingAudit = null,
+        ?BookingReference $references = null
     ) {
+        $this->references = $references ?? BookingReference::secure();
     }
 
     /**
@@ -193,15 +198,15 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * Writes the booking, retrying **once** with a freshly claimed
-     * reference if the first one collided.
+     * Writes the booking under a freshly drawn reference, drawing again
+     * when the draw collides with one already spent.
      *
-     * `claimNextReferenceSequence()` takes a row lock, so the collision
-     * this covers is the narrow one it cannot: a reference already spent
-     * by a row the counter does not know about (a restored backup, a
-     * hand-inserted booking, a counter reset). One retry, not a loop — a
-     * second failure is a broken counter rather than contention, and
-     * hammering the table would only make it worse.
+     * A collision is one chance in 887 million per pair of requests in a
+     * year ({@see BookingReference}), so a second draw almost never
+     * happens and a third practically never does. The bound is there for
+     * the case that is not chance at all — a broken random source handing
+     * out the same value — where looping forever would hang the visitor's
+     * request instead of refusing it.
      *
      * **No `PDOException` may reach the visitor.** This runs on the public
      * request form, where a driver-level message would be both a 500 and a
@@ -215,20 +220,23 @@ class RentalBookingService implements OccupancyProvider
      */
     private function writeWithFreshReference(callable $write, \DateTimeImmutable $now): array
     {
-        try {
-            return $write($this->allocateReference($now));
-        } catch (\PDOException $first) {
-            if (!self::isDuplicateKey($first)) {
-                throw new RentalException(self::SUBMISSION_FAILED, 0, $first);
+        $collision = null;
+        for ($draw = 0; $draw < self::REFERENCE_DRAWS; $draw++) {
+            try {
+                return $write($this->allocateReference($now));
+            } catch (\PDOException $e) {
+                if (!self::isDuplicateKey($e)) {
+                    throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+                }
+                $collision = $e;
             }
         }
 
-        try {
-            return $write($this->allocateReference($now));
-        } catch (\PDOException $second) {
-            throw new RentalException(self::SUBMISSION_FAILED, 0, $second);
-        }
+        throw new RentalException(self::SUBMISSION_FAILED, 0, $collision);
     }
+
+    /** How many references one request may draw before it gives up. */
+    private const REFERENCE_DRAWS = 3;
 
     /**
      * What the visitor is told when the write cannot be completed. One
@@ -253,24 +261,15 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * Claims the next `LOC-YYYY-NNNN` for the year of $now.
+     * A fresh `LOC-YYYY-XXXXXX` for a request made at $now.
      *
-     * The number comes from a forward-only counter, never from a MAX() over
-     * the surviving bookings: a deleted or purged booking must not free its
-     * number, or two rentals end up quoting the same reference to two
-     * renters. The year is when the request was *made*, so a reference stays
-     * stable even for a stay in a later year.
-     *
-     * The read takes a row lock, so two concurrent submissions queue rather
-     * than race; the `UNIQUE` constraint on the column remains the backstop
-     * against a number spent by a row the counter never saw, and
-     * `writeWithFreshReference()` is what retries on it.
+     * The year is when the request was *made*, so a reference stays stable
+     * even for a stay in a later year. Uniqueness is the `UNIQUE` index's
+     * job, and `writeWithFreshReference()` draws again when it refuses one.
      */
     public function allocateReference(\DateTimeImmutable $now): string
     {
-        $year = (int) $now->format('Y');
-
-        return sprintf('LOC-%04d-%04d', $year, $this->bookingRepository->claimNextReferenceSequence($year));
+        return $this->references->draw($now);
     }
 
     /**

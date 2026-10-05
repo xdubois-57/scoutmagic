@@ -8,16 +8,19 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Mail;
 
+use Modules\Rental\Booking\BookingReference;
+
 /**
  * Finding a booking reference inside text a stranger wrote (§7.6, level 1).
  *
- * The reference is `LOC-YYYY-NNNN`, which is deliberately distinctive: it
- * is put in every subject line the module sends precisely so a reply
- * carries it back, and it looks like nothing else anybody would type by
- * accident.
+ * The reference is `LOC-YYYY-XXXXXX` ({@see BookingReference}), which is
+ * deliberately distinctive: it is put in every subject line the module
+ * sends precisely so a reply carries it back, and it looks like nothing
+ * else anybody would type by accident. A booking made while references were
+ * still counted keeps its `LOC-YYYY-NNNN`, and both forms are recognised.
  *
- * **Bracketed first, bare second.** `[LOC-2027-0042]` is a reference the
- * module itself put there; a bare `LOC-2027-0042` in a body is more likely
+ * **Bracketed first, bare second.** `[LOC-2027-K7Q2MX]` is a reference the
+ * module itself put there; a bare `LOC-2027-K7Q2MX` in a body is more likely
  * to be someone quoting a number, which is still usually right but is not
  * the same claim. Both are accepted — a client that strips the brackets
  * from a subject should not cost the unit the match — and the subject is
@@ -30,11 +33,13 @@ namespace Modules\Rental\Mail;
 class BookingReferenceMatcher
 {
     /**
-     * `LOC-` then a four-digit year, then the sequence. Anchored on a
-     * non-word boundary so `XLOC-2027-0042` does not match.
+     * `LOC-`, a four-digit year, then the random part or the old sequence.
+     * Anchored on word boundaries so `XLOC-2027-K7Q2MX` and
+     * `LOC-2027-K7Q2MXA` do not match; case-insensitive, because a renter
+     * retyping a reference does not keep its capitals.
      */
-    private const PATTERN = '/\bLOC-(\d{4})-(\d{1,6})\b/i';
-    private const BRACKETED_PATTERN = '/\[\s*(LOC-\d{4}-\d{1,6})\s*\]/i';
+    private const PATTERN = '/\b' . BookingReference::PATTERN . '\b/i';
+    private const BRACKETED_PATTERN = '/\[\s*(' . BookingReference::PATTERN . ')\s*\]/i';
 
     /**
      * The single reference this text names, or null when it names none or

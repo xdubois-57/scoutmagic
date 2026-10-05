@@ -8,6 +8,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\Rental\Audit\BookingAudit;
+use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
@@ -131,39 +132,113 @@ class RentalBookingServiceTest extends TestCase
 
     // ── Reference allocation ────────────────────────────────────────────
 
-    public function testTheFirstBookingOfAYearIsNumberOne(): void
+    public function testAReferenceIsTheYearThenSixCharactersOfTheDictationAlphabet(): void
     {
         $booking = $this->submit()['booking'];
 
-        $this->assertSame('LOC-2027-0001', $booking->reference);
+        $this->assertMatchesRegularExpression('/^LOC-2027-[2-9A-HJKMNP-Z]{6}$/', $booking->reference);
     }
 
-    public function testReferencesIncrementWithinAYear(): void
+    public function testTwoRequestsDoNotGetNeighbouringReferences(): void
     {
-        $first = $this->submit()['booking'];
-        $second = $this->submit()['booking'];
-        $third = $this->submit()['booking'];
+        // The point of #720 step 9: one reference must not tell its holder
+        // where the next one is. Twenty draws out of 887 million values
+        // never repeat in practice, and never count up.
+        $references = [];
+        for ($i = 0; $i < 20; $i++) {
+            $references[] = $this->submit()['booking']->reference;
+        }
 
-        $this->assertSame(['LOC-2027-0001', 'LOC-2027-0002', 'LOC-2027-0003'], [
-            $first->reference,
-            $second->reference,
-            $third->reference,
-        ]);
+        $this->assertCount(20, array_unique($references));
+        $this->assertNotSame(self::sorted($references), $references, 'The references must not come out in order.');
     }
 
-    public function testACollidingReferenceIsRetriedRatherThanShownToTheVisitor(): void
+    public function testACollidingReferenceIsDrawnAgainRatherThanShownToTheVisitor(): void
     {
-        // The counter can hand out a number a row already holds — a
-        // restored backup, a hand-inserted booking, a reset counter. The
-        // visitor on the public request form must never meet the driver's
-        // "Integrity constraint violation" as a 500.
-        $service = new RentalBookingService(
-            $this->repositoryHandingOut([1, 2]),
-            new JournalService($this->silentJournal())
+        // A collision is one chance in 887 million, but it is the UNIQUE
+        // index that decides, and the visitor on the public request form
+        // must never meet the driver's "Integrity constraint violation" as
+        // a 500.
+        $this->serviceDrawing([0, 0, 0, 0, 0, 0])->createFromPublicRequest(...$this->request());
+
+        $result = $this->serviceDrawing([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
+            ->createFromPublicRequest(...$this->request());
+
+        $this->assertSame('LOC-2027-333333', $result['booking']->reference);
+    }
+
+    public function testARandomSourceStuckOnATakenReferenceRefusesInFrenchNeverWithAPdoException(): void
+    {
+        // Three collisions in a row is a broken random source, not bad
+        // luck. The visitor still gets one French sentence, and the
+        // driver's message goes to the journal through $previous.
+        $this->serviceDrawing([0, 0, 0, 0, 0, 0])->createFromPublicRequest(...$this->request());
+
+        try {
+            $this->serviceDrawing(array_fill(0, 18, 0))->createFromPublicRequest(...$this->request());
+            $this->fail('The third collision must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("n'a pas pu être enregistrée", $e->getMessage());
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+    }
+
+    public function testTheYearComesFromWhenTheRequestWasMade(): void
+    {
+        $next = $this->submit(['now' => '2028-01-05 09:00:00'])['booking'];
+
+        $this->assertStringStartsWith('LOC-2028-', $next->reference);
+    }
+
+    public function testTheYearComesFromWhenTheRequestWasMadeNotFromTheStayDates(): void
+    {
+        // A reference must stay stable, and a request made in 2027 for a 2028
+        // camp is a 2027 request.
+        $booking = $this->submit(['arrival' => '2028-07-17', 'departure' => '2028-07-20'])['booking'];
+
+        $this->assertStringStartsWith('LOC-2027-', $booking->reference);
+    }
+
+    public function testTheReferenceColumnIsUniqueSoAConcurrentDuplicateCannotLand(): void
+    {
+        $taken = $this->submit()['booking']->reference;
+
+        $this->expectException(\PDOException::class);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rental_bookings (asset_id, reference, arrival_date, departure_date,
+                renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $this->submit();
+        $stmt->execute([$this->assetId, $taken, '2027-08-01', '2027-08-03', 'x', 'y', 'z', 'h']);
+    }
 
-        $result = $service->createFromPublicRequest(
+    /**
+     * A service whose reference draws follow $draws, so a collision can be
+     * reproduced without waiting for one in 887 million.
+     *
+     * @param int[] $draws indexes into BookingReference::ALPHABET
+     */
+    private function serviceDrawing(array $draws): RentalBookingService
+    {
+        return new RentalBookingService(
+            $this->repository,
+            new JournalService($this->silentJournal()),
+            null,
+            null,
+            new BookingReference(static function () use (&$draws): int {
+                return (int) (array_shift($draws) ?? 30);
+            })
+        );
+    }
+
+    /**
+     * The arguments of a valid public request, in order.
+     *
+     * @return list<mixed>
+     */
+    private function request(): array
+    {
+        return [
             $this->assetId,
             '2027-08-01',
             '2027-08-04',
@@ -175,80 +250,19 @@ class RentalBookingServiceTest extends TestCase
             null,
             ['conditions_version' => '2027-01', 'conditions_text' => 'x',
              'privacy_version' => '2027-01', 'privacy_text' => 'y'],
-            $this->now()
-        );
-
-        $this->assertSame('LOC-2027-0002', $result['booking']->reference);
-    }
-
-    public function testACounterStuckOnATakenNumberRefusesInFrenchNeverWithAPdoException(): void
-    {
-        // Two failures in a row is a broken counter, not contention. The
-        // visitor still gets one French sentence, and the driver's message
-        // goes to the journal through $previous.
-        $service = new RentalBookingService(
-            $this->repositoryHandingOut([1, 1]),
-            new JournalService($this->silentJournal())
-        );
-        $this->submit();
-
-        try {
-            $service->createFromPublicRequest(
-                $this->assetId,
-                '2027-08-01',
-                '2027-08-04',
-                1,
-                20,
-                null,
-                ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => '0470 12 34 56',
-                 'organisation' => null, 'purpose' => 'Week-end de section', 'comment' => null],
-                null,
-                ['conditions_version' => '2027-01', 'conditions_text' => 'x',
-                 'privacy_version' => '2027-01', 'privacy_text' => 'y'],
-                $this->now()
-            );
-            $this->fail('The second collision must be refused.');
-        } catch (RentalException $e) {
-            $this->assertStringContainsString("n'a pas pu être enregistrée", $e->getMessage());
-            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
-        }
-    }
-
-    public function testTheSequenceClaimTakesARowLockOutsideSqlite(): void
-    {
-        // SQLite has no row locks and does not need them — its
-        // transactions are whole-database. MySQL does, and without the
-        // lock two submissions read the same last_sequence.
-        $source = file_get_contents(
-            dirname(__DIR__, 4) . '/modules/rental/src/Repository/RentalBookingRepository.php'
-        );
-        $this->assertNotFalse($source);
-        $this->assertStringContainsString("\$sql .= ' FOR UPDATE';", $source);
+            $this->now(),
+        ];
     }
 
     /**
-     * A repository whose counter hands out $sequences in order, so a
-     * collision can be reproduced without two real processes.
-     *
-     * @param int[] $sequences
+     * @param string[] $values
+     * @return string[]
      */
-    private function repositoryHandingOut(array $sequences): RentalBookingRepository
+    private static function sorted(array $values): array
     {
-        return new class ($this->pdo, $this->encryption, $sequences) extends RentalBookingRepository {
-            /** @param int[] $sequences */
-            public function __construct(
-                \PDO $pdo,
-                EncryptionService $encryption,
-                private array $sequences
-            ) {
-                parent::__construct($pdo, $encryption);
-            }
+        sort($values);
 
-            public function claimNextReferenceSequence(int $year): int
-            {
-                return (int) (array_shift($this->sequences) ?? 99);
-            }
-        };
+        return $values;
     }
 
     private function silentJournal(): JournalRepository
@@ -269,51 +283,6 @@ class RentalBookingServiceTest extends TestCase
             ): void {
             }
         };
-    }
-
-    public function testTheSequenceRestartsInANewYear(): void
-    {
-        $this->submit();
-        $next = $this->submit(['now' => '2028-01-05 09:00:00'])['booking'];
-
-        $this->assertSame('LOC-2028-0001', $next->reference);
-    }
-
-    public function testTheYearComesFromWhenTheRequestWasMadeNotFromTheStayDates(): void
-    {
-        // A reference must stay stable, and a request made in 2027 for a 2028
-        // camp is a 2027 request.
-        $booking = $this->submit(['arrival' => '2028-07-17', 'departure' => '2028-07-20'])['booking'];
-
-        $this->assertSame('LOC-2027-0001', $booking->reference);
-    }
-
-    public function testADeletedBookingNeverFreesItsNumberForReuse(): void
-    {
-        // Two rentals quoting the same reference to two renters is the bug
-        // this guards against — which is why the sequence reads the stored
-        // references and never counts rows.
-        $first = $this->submit()['booking'];
-        $second = $this->submit()['booking'];
-        $this->repository->deleteById($second->id);
-
-        $third = $this->submit()['booking'];
-
-        $this->assertSame('LOC-2027-0001', $first->reference);
-        $this->assertSame('LOC-2027-0003', $third->reference);
-    }
-
-    public function testTheReferenceColumnIsUniqueSoAConcurrentDuplicateCannotLand(): void
-    {
-        $this->submit();
-
-        $this->expectException(\PDOException::class);
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_bookings (asset_id, reference, arrival_date, departure_date,
-                renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([$this->assetId, 'LOC-2027-0001', '2027-08-01', '2027-08-03', 'x', 'y', 'z', 'h']);
     }
 
     // ── Personal data is encrypted ──────────────────────────────────────
@@ -413,7 +382,7 @@ class RentalBookingServiceTest extends TestCase
 
     public function testTheJournalRecordsTheReferenceButNeverTheRenter(): void
     {
-        $this->submit();
+        $reference = $this->submit()['booking']->reference;
 
         $this->assertNotSame([], $this->journalEntries);
         foreach ($this->journalEntries as $entry) {
@@ -424,7 +393,7 @@ class RentalBookingServiceTest extends TestCase
         }
 
         $this->assertSame('rental_booking_received', $this->journalEntries[0]['type']);
-        $this->assertStringContainsString('LOC-2027-0001', $this->journalEntries[0]['description']);
+        $this->assertStringContainsString($reference, $this->journalEntries[0]['description']);
     }
 
     // ── Tracking token (§13 of the conventions) ─────────────────────────

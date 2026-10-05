@@ -375,11 +375,16 @@ CREATE TABLE IF NOT EXISTS rental_fees (
 CREATE TABLE IF NOT EXISTS rental_bookings (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
-    -- Stable, human-quotable reference in the form LOC-YYYY-NNNN, allocated
-    -- once at submission and never reused. It is what a renter quotes on the
-    -- phone, what the contract carries, and what an inbound email's subject
-    -- is matched on (§7.6) — so it must survive everything, including the
-    -- booking being refused.
+    -- Stable, human-quotable reference in the form LOC-YYYY-XXXXXX: the
+    -- year the request was made, then six characters drawn at random from
+    -- an alphabet without 0/O or 1/I/L, so it can be read out on the phone
+    -- (Modules\Rental\Booking\BookingReference). Random rather than counted
+    -- so that one reference does not point at its neighbours (#231) — it is
+    -- harder to guess, not a secret. Drawn once at submission and never
+    -- changed. It is what a renter quotes on the phone, what the contract
+    -- carries, and what an inbound email's subject is matched on (§7.6) — so
+    -- it must survive everything, including the booking being refused. A
+    -- booking made before #720 keeps its sequential LOC-YYYY-NNNN.
     reference VARCHAR(20) NOT NULL,
 
     arrival_date DATE NOT NULL,
@@ -510,7 +515,7 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- The version counter for this booking's settlements. Forward-only,
     -- never MAX(version) over the surviving rows: a deleted v2 must not
     -- make the next settlement v2 again, since v2 may already have been
-    -- sent. Same reasoning as document versions and booking references.
+    -- sent. Same reasoning as document versions.
     settlement_last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     -- Whether the inventory checklist has been copied in from the asset
     -- (§6.23). A flag rather than "are there rows?", because an asset with
@@ -583,23 +588,6 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     KEY idx_rental_bookings_email (renter_email_blind_index),
     CONSTRAINT fk_rental_bookings_asset
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Reference counter, one row per year.
---
--- The next LOC-YYYY-NNNN cannot be derived from the surviving bookings: a
--- booking deleted by mistake — or, from the retention policy onward, purged
--- on schedule — would free its number, and two different rentals would end
--- up quoting the same reference to two different renters. The counter only
--- ever moves forward, so a number is spent the moment it is handed out and
--- never comes back.
-CREATE TABLE IF NOT EXISTS rental_reference_sequences (
-    -- The year a request was MADE in, not the year of the stay: a reference
-    -- has to stay stable, and a 2027 request for a 2028 camp is a 2027
-    -- request.
-    year SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
-    last_sequence INT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─────────────────────────────────────────────────────────────────────
@@ -877,8 +865,7 @@ CREATE TABLE IF NOT EXISTS rental_booking_document_texts (
     -- documents. Deleting v2 must not make the next generation v2 again:
     -- v2 may already have been emailed, and two different PDFs under one
     -- version number is exactly the confusion versioning exists to
-    -- prevent. Same reasoning, and the same shape, as
-    -- `rental_reference_sequences`.
+    -- prevent.
     last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

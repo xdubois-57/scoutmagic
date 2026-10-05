@@ -125,8 +125,7 @@ class RentalDocumentRepository implements AttachedFileRepository
      * **Never `MAX(version)` over the surviving documents.** Deleting v2
      * must not make the next generation v2 again: v2 may already have been
      * emailed, and two different PDFs under one version number is exactly
-     * the confusion versioning exists to prevent. Same reasoning — and the
-     * same shape — as `rental_reference_sequences` for booking references.
+     * the confusion versioning exists to prevent.
      *
      * The counter lives on the booking's own template copy, which is the
      * row that already exists once per (booking, type) and is created at

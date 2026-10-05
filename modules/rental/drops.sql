@@ -79,3 +79,9 @@ ALTER TABLE rental_blocks DROP COLUMN units;
 -- is a test one.
 ALTER TABLE rental_booking_inventory DROP COLUMN arrival_state;
 ALTER TABLE rental_booking_inventory DROP COLUMN departure_state;
+
+-- The booking reference counter. A reference is now drawn at random
+-- (LOC-YYYY-XXXXXX, issue #720) instead of counted, so a counter has
+-- nothing left to count. A booking that already carries a sequential
+-- reference keeps it; nothing is renumbered.
+DROP TABLE IF EXISTS rental_reference_sequences;

@@ -113,4 +113,38 @@ class BookingReferenceMatcherTest extends TestCase
             $this->matcher->match('Une question', "Objet : [LOC-2027-0042]\nVoir aussi LOC-2026-0007")
         );
     }
+
+    // ── The random form (#720, step 9) ──────────────────────────────────
+
+    public function testARandomReferenceInTheSubjectIsFound(): void
+    {
+        $this->assertSame(
+            'LOC-2027-K7Q2MX',
+            $this->matcher->match('Re: Votre réservation [LOC-2027-K7Q2MX]', 'Bonjour,')
+        );
+        $this->assertSame('LOC-2027-K7Q2MX', $this->matcher->match('Re: reservation LOC-2027-K7Q2MX', ''));
+    }
+
+    public function testARandomReferenceRetypedInLowerCaseIsFoundAndCanonicalised(): void
+    {
+        // The booking is looked up by the stored, upper-case form.
+        $this->assertSame(
+            'LOC-2027-K7Q2MX',
+            $this->matcher->match('Une question', 'Bonjour, ma réservation loc-2027-k7q2mx :')
+        );
+    }
+
+    public function testAReferenceTooLongOrWithACharacterNoDrawUsesIsNotOne(): void
+    {
+        $this->assertNull($this->matcher->match('LOC-2027-K7Q2MXA', ''));
+        $this->assertNull($this->matcher->match('LOC-2027-K7Q2MO', ''));
+        $this->assertNull($this->matcher->match('LOC-2027-K7Q2', ''));
+    }
+
+    public function testAnOldAndANewReferenceTogetherStillMeanNoMatch(): void
+    {
+        $this->assertNull(
+            $this->matcher->match('Une question', 'Comme pour LOC-2027-0042 et LOC-2027-K7Q2MX…')
+        );
+    }
 }
