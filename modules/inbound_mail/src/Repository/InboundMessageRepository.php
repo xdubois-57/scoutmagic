@@ -240,6 +240,50 @@ class InboundMessageRepository
         return $stmt->rowCount();
     }
 
+    /**
+     * Record that no automatic path may file this message under this
+     * object again (`inbound_message_exclusions`, #720).
+     *
+     * Idempotent: a second detach of the same message from the same object
+     * is the state the caller asked for, not an error.
+     */
+    public function excludeReference(
+        int $messageId,
+        string $consumerId,
+        string $businessReference,
+        ?int $userAccountId = null
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inbound_message_exclusions
+                (message_id, consumer_id, business_reference, excluded_by_user_account_id)
+             VALUES (?, ?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([$messageId, $consumerId, $businessReference, $userAccountId]);
+        } catch (\PDOException $e) {
+            // Narrowed to the unique index, as dismissMessageForConsumer()
+            // is: a dropped connection wrote nothing, and saying otherwise
+            // would let the next re-analysis file the message right back.
+            if (!self::isDuplicateKey($e)) {
+                throw $e;
+            }
+        }
+    }
+
+    /** Whether a consumer took this message off this object for good. */
+    public function isExcluded(int $messageId, string $consumerId, string $businessReference): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_message_exclusions
+              WHERE message_id = ? AND consumer_id = ? AND business_reference = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$messageId, $consumerId, $businessReference]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function hasLink(
         int $messageId,
         string $consumerId,

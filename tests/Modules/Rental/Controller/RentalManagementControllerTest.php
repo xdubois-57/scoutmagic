@@ -87,7 +87,6 @@ use Core\Member\Repository\MemberProfileRepository;
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RentalManagementControllerTest extends TestCase
 {
-    use \Tests\Modules\InboundMail\TriageScreenScenario;
 
     private \PDO $pdo;
     private Environment $twig;
@@ -652,16 +651,15 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Makes « Courrier » available: a mailbox collects. Set on the
+     * A mailbox gathers mail for the rentals. Set on the
      * controller the setUp built rather than on a second one, so every
      * other collaborator stays the one the other tests use.
      */
     private function withCollectingMailbox(): \Modules\InboundMail\Api\InboundMailInterface&\PHPUnit\Framework\MockObject\MockObject
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('isCollecting')->willReturn(true);
-        $inbound->method('dedicatedMailboxesFor')->willReturn([
-            new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
+        $inbound->method('listMailboxSummariesFor')->willReturn([
+            3 => ['name' => 'Locations', 'state' => 'OK', 'is_enabled' => true],
         ]);
         $this->withMailbox($inbound);
 
@@ -692,268 +690,11 @@ class RentalManagementControllerTest extends TestCase
             ->setValue($this->controller, $service);
     }
 
-    // ── The shared triage screen, rentals' side (issue #462, IT-03) ─────
-
-    private ?RentalBooking $triageBooking = null;
+    // ── « Courrier », one booking's own mail (#720) ─────────────────────
 
     /**
-     * The booking the scenario's page belongs to, and the one object the
-     * manager files message 7 under.
-     */
-    private function triageBooking(): RentalBooking
-    {
-        if ($this->triageBooking === null) {
-            $this->loginAsManager();
-            // Message 7 names no booking, so only somebody who manages
-            // every asset may sort it (RentalCommunicationService::withinReach()).
-            $this->addManager($this->otherAssetId, 'manager@test.be');
-            $this->withMailbox(new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage()));
-            $this->triageBooking = $this->createBooking();
-        }
-
-        return $this->triageBooking;
-    }
-
-    /**
-     * **The component widens no scope.** The list is read with the
-     * references of the bookings this manager may reach, and only those —
-     * never another asset's, whatever booking the page belongs to.
-     */
-    public function testTheTriageListIsReadWithTheManagersReferencesOnly(): void
-    {
-        $this->loginAsManager();
-        $inbound = $this->withCollectingMailbox();
-        $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
-
-        // And narrowed in the query, not after it: this manager does not
-        // run every asset, so the box read in full is left out before the
-        // limit (InboundMailInterface::findForTriage(), $ownReferencesOnly).
-        $inbound->expects($this->atLeastOnce())->method('triageRows')
-            ->with('rental', $this->callback(
-                static fn(array $references): bool => in_array($mine->reference, $references, true)
-                    && !in_array($theirs->reference, $references, true)
-            ), $this->anything(), $this->anything(), true)
-            ->willReturn([]);
-
-        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getStatusCode());
-    }
-
-    /**
-     * A booking of an asset the manager does not run is not a place to file
-     * mail, whatever a hand-made form says.
-     */
-    public function testMailCannotBeFiledUnderABookingOutsideTheScope(): void
-    {
-        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage());
-        $this->loginAsManager();
-        $this->withMailbox($mail);
-        $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
-
-        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '7',
-            'booking_reference' => $theirs->reference,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
-        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    /**
-     * A box dedicated to rentals is read in full by the MODULE, and its
-     * managers are not one audience: a manager of one asset reads the mail
-     * filed or proposed under their own bookings, and not what belongs to
-     * another asset's — nor what nothing attributes yet, which may be
-     * about any asset.
-     */
-    public function testAManagerOfOneAssetReadsOnlyTheMailOfTheirOwnBookings(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'tous'])->getBody();
-
-        $this->assertStringContainsString('data-triage-message="9"', $body, 'filed under their own booking');
-        $this->assertStringContainsString('data-triage-message="10"', $body, 'proposed for their own booking');
-        $this->assertStringNotContainsString('data-triage-message="8"', $body, "filed under another asset's booking");
-        $this->assertStringNotContainsString('data-triage-message="7"', $body, 'attributed to nobody yet');
-        $this->assertStringNotContainsString($theirs->reference, $body);
-    }
-
-    /**
-     * What is not on a manager's list cannot be reached by posting its id.
-     */
-    public function testMailOutsideTheReachCannotBeAttachedOrSetAside(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
-
-        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', $form + [
-            'message_id' => '8',
-            'booking_reference' => $mine->reference,
-        ]);
-        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', $form + ['message_id' => '7']);
-
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 8));
-        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
-    }
-
-    /**
-     * A set-aside is the module's, not one manager's: a message proposed
-     * for their booking AND for another asset's is not theirs alone to
-     * write off, or it would vanish from the other managers' lists.
-     */
-    public function testAMessageAlsoProposedForAnotherAssetCannotBeSetAside(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $mail->propose(10, 'rental', $theirs->reference);
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
-        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-        ]);
-
-        $this->assertStringContainsString('data-triage-message="10"', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/ecarter', $body);
-        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
-    }
-
-    /**
-     * The service's own guard, beneath the controller's: a target booking
-     * outside the references it is given is refused even for a message
-     * that IS on the requester's list.
-     */
-    public function testTheServiceRefusesATargetOutsideTheReferencesItIsGiven(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $service = (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
-            ->getValue($this->controller);
-        $this->assertInstanceOf(\Modules\Rental\Service\RentalCommunicationService::class, $service);
-
-        $this->assertFalse($service->attachToBooking($theirs, 9, [$mine->reference], false, null));
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 9));
-    }
-
-    /**
-     * The same message, set aside by somebody who manages both assets, is
-     * still a set-aside message on the one-asset manager's « Écartés » tab:
-     * shown as such, never as work to sort, and not theirs to put back.
-     */
-    public function testASharedSetAsideMessageStaysSetAsideForAOneAssetManager(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $mail->propose(10, 'rental', $theirs->reference);
-        $this->assertTrue($mail->dismissMessage('rental', [$mine->reference, $theirs->reference], 10));
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'ecartes'])->getBody();
-
-        $this->assertStringContainsString('data-triage-message="10"', $body);
-        $this->assertStringNotContainsString('Remettre dans la liste', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/proposition/confirmation', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/rattacher', $body);
-    }
-
-    public function testWhoeverManagesEveryAssetSortsTheUnattributedMail(): void
-    {
-        [, $mine] = $this->mailAcrossTwoAssets();
-        $this->addManager($this->otherAssetId, 'manager@test.be');
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
-
-        $this->assertStringContainsString('data-triage-message="7"', $body);
-    }
-
-    public function testAPropositionIsConfirmedFromTheCourrierPage(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-
-        $this->assertNotNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    public function testAPropositionIsDismissedFromTheCourrierPage(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/proposition/rejet', 'triageReject', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame([], $mail->findCandidatesFor('rental', [10]));
-    }
-
-    public function testAPropositionForAnotherAssetsBookingIsRefused(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $foreign = $mail->propose(7, 'rental', $theirs->reference);
-
-        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '7',
-            'candidate_id' => (string) $foreign,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
-        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    public function testRelancerLAnalyseSaysWhatItFound(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-        ]);
-
-        $this->assertSame(1, $mail->reanalyses);
-        $this->assertStringContainsString('réexaminé', \Core\Http\FlashMessage::get()['message'] ?? '');
-    }
-
-    /**
-     * The routes are `identified`, and that is not the protection: somebody
-     * who manages nothing is answered 404, and nothing is decided.
-     */
-    public function testTheCourrierActionsAreNotFoundForSomebodyWhoManagesNothing(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-        AuthSession::login(2, 'personne@test.be', 'identified');
-        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
-
-        $confirm = $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', $form + [
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-        $reanalyze = $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', $form);
-
-        $this->assertSame(404, $confirm->getStatusCode());
-        $this->assertSame(404, $reanalyze->getStatusCode());
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame(0, $mail->reanalyses);
-    }
-
-    private int $proposition = 0;
-
-    /**
-     * A box holding four messages, for a manager of the first asset only:
-     * 7 attributed to nobody, 8 filed under the other asset's booking, 9
-     * filed under theirs, 10 proposed for theirs.
+     * Messages 7 (filed nowhere), 8 (filed under the other asset's
+     * booking) and 9 (filed under this manager's), and the two bookings.
      *
      * @return array{\Tests\Modules\InboundMail\InMemoryTriageMail, RentalBooking, RentalBooking}
      */
@@ -961,71 +702,181 @@ class RentalManagementControllerTest extends TestCase
     {
         $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
             \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(7, 'Une question'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(8, 'Pour le local des autres'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(10, 'Peut-être pour le local')
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(8, 'Pour le chalet'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local')
         );
         $this->loginAsManager();
         $this->withMailbox($mail);
         $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-K7Q2MX');
         $mail->link(8, 'rental', $theirs->reference);
         $mail->link(9, 'rental', $mine->reference);
-        $this->proposition = $mail->propose(10, 'rental', $mine->reference);
 
         return [$mail, $mine, $theirs];
     }
 
-    protected function triageScreen(string $status = ''): string
+    /**
+     * @return array<string, array{bool}>
+     */
+    public static function mailboxConfigurations(): array
     {
-        $booking = $this->triageBooking();
-
-        return (string) $this->filePage(
-            BookingPage::MAIL,
-            'local-saint-georges',
-            $booking->id,
-            $status === '' ? [] : ['statut' => $status]
-        )->getBody();
+        return [
+            'a box gathering mail for rentals, dedicated or shared' => [true],
+            'no box gathering mail for rentals' => [false],
+        ];
     }
 
     /**
-     * @param array<string, string> $body
+     * The page is there whatever the mailbox configuration (#720):
+     * dedicated, shared or none — and without a box it says how replies
+     * would reach it rather than disappearing.
      */
-    private function triagePost(string $path, string $action, int $id, array $body = []): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxConfigurations')]
+    public function testTheCourrierPageIsThereWhateverTheMailboxes(bool $collects): void
     {
-        $booking = $this->triageBooking();
-        $response = $this->post($path, $action, $body + [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $booking->id,
-            'booking_page' => 'mail',
-            'message_id' => (string) $id,
-        ]);
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+        $mail->collects = $collects;
+
+        $dashboard = (string) $this->bookingPage('local-saint-georges', $mine->id)->getBody();
+        $this->assertStringContainsString('/reservations/' . $mine->id . '/courrier"', $dashboard);
+
+        $response = $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+        $this->assertSame(200, $response->getStatusCode());
+        $body = (string) $response->getBody();
+        if ($collects) {
+            $this->assertStringNotContainsString('data-mail-not-collected', $body);
+        } else {
+            $this->assertStringContainsString('Aucune boîte e-mail ne relève le courrier des locations', $body);
+        }
+        $this->assertStringNotContainsString('Cette page existe', $body);
+    }
+
+    public function testWithoutTheInboundMailModuleThePageIsStillThereAndSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString("Le module « Courrier entrant » n'est pas actif", (string) $response->getBody());
+        // Nothing of that module's own templates: they are not registered
+        // on a site without it, and including one would be a 500.
+        $this->assertStringNotContainsString('mail-message-modal', (string) $response->getBody());
+        $this->assertStringContainsString('Aucun message n&#039;est rattaché à cette réservation.', (string) $response->getBody());
+    }
+
+    /**
+     * Only what the rules filed under THIS booking: not the other asset's
+     * mail, not the mail filed nowhere — and nothing to sort, attach,
+     * set aside or confirm.
+     */
+    public function testThePageShowsThisBookingsMailAndNothingElse(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+
+        $this->assertStringContainsString('data-mail-entry="9"', $body);
+        $this->assertStringNotContainsString('data-mail-entry="8"', $body);
+        $this->assertStringNotContainsString('data-mail-entry="7"', $body);
+        $this->assertStringContainsString('Reçu', $body);
+        $this->assertStringContainsString('Lire le message', $body);
+        // Filed on the reference here: certain, so no warning.
+        $this->assertStringNotContainsString('Rattachement incertain', $body);
+        foreach (['Rattacher', 'Écarter', "Relancer l'analyse", 'Propositions', '/mes-locations/courrier/rattacher'] as $gone) {
+            $this->assertStringNotContainsString($gone, $body);
+        }
+    }
+
+    public function testAMessageFiledOnTheSenderAloneSaysItIsAGuess(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(9, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::SENDER);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Rattachement incertain', $body);
+    }
+
+    public function testDetachAsksFirst(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form method="post" action="/mes-locations/courrier/detacher"\s+data-confirm="Ce message ne concerne pas cette réservation \?#',
+            $body
+        );
+    }
+
+    /**
+     * « Détacher » takes the message off this booking for good: the
+     * exclusion is asked of inbound_mail, and the page no longer shows it.
+     */
+    public function testDetachingTakesTheMessageOffThisBookingForGood(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $response = $this->detachPost($mine, 9);
+
         $this->assertSame(302, $response->getStatusCode());
         $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertSame([['rental', $mine->reference, 9]], $mail->exclusions);
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->assertStringNotContainsString('data-mail-entry="9"', $body);
     }
 
-    protected function triageAttach(int $id): void
+    public function testAMessageOfAnotherBookingCannotBeDetachedFromThisOne(): void
     {
-        $this->triagePost('/mes-locations/courrier/rattacher', 'triageAttach', $id, [
-            'booking_reference' => $this->triageBooking()->reference,
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+
+        $this->detachPost($mine, 8);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $mail->exclusions);
+        $this->assertNotNull($mail->findOneForReference('rental', $theirs->reference, 8));
+    }
+
+    public function testABookingOfAnAssetTheyDoNotManageIsNotFound(): void
+    {
+        [$mail, , $theirs] = $this->mailAcrossTwoAssets();
+
+        $response = $this->detachPost($theirs, 8);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $mail->exclusions);
+    }
+
+    /** The routes of the old triage screen are gone, the detach stays. */
+    public function testTheTriageRoutesAreGone(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $paths = array_column($manifest['routes'], 'path');
+
+        $this->assertContains('/mes-locations/courrier/detacher', $paths);
+        foreach (['rattacher', 'ecarter', 'reprendre', 'relancer', 'proposition/confirmation', 'proposition/rejet'] as $gone) {
+            $this->assertNotContains('/mes-locations/courrier/' . $gone, $paths);
+        }
+    }
+
+    private function detachPost(RentalBooking $booking, int $messageId): Response
+    {
+        return $this->post('/mes-locations/courrier/detacher', 'detachMessage', [
+            'asset_id' => (string) $booking->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'message_id' => (string) $messageId,
         ]);
-    }
-
-    protected function triageDetach(int $id): void
-    {
-        $this->triagePost('/mes-locations/courrier/detacher', 'triageDetach', $id, [
-            'business_reference' => $this->triageBooking()->reference,
-        ]);
-    }
-
-    protected function triageSetAside(int $id): void
-    {
-        $this->triagePost('/mes-locations/courrier/ecarter', 'triageSetAside', $id);
-    }
-
-    protected function triageRestore(int $id): void
-    {
-        $this->triagePost('/mes-locations/courrier/reprendre', 'triageRestore', $id);
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -3850,8 +3701,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->never())->method('triageRows');
-        $inbound->expects($this->never())->method('findForTriage');
+        $inbound->expects($this->never())->method('findForReference');
         foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
             $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
         }
@@ -3863,76 +3713,8 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->exactly(2))->method('triageRows')->willReturn([]);
+        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
         $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * Without a mailbox, « Courrier » does not exist: no chip — a chip that
-     * does nothing is worse than none — and the page answers 404.
-     */
-    public function testCourrierIsAbsentWhereNoMailboxCollects(): void
-    {
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertStringNotContainsString('/courrier"', $body);
-        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
-        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * « Courrier » exists for rentals' own mailbox and for nothing else
-     * (issue #462, D8): a box that collects but is not dedicated to rentals
-     * gives no page, and neither do two dedicated ones — the page shows ONE
-     * box's whole mail, and picking between two would be arbitrary.
-     *
-     * @return array<string, array{list<\Modules\InboundMail\Api\DedicatedMailbox>}>
-     */
-    public static function mailboxesThatGiveNoPage(): array
-    {
-        return [
-            'a collecting box, dedicated to nobody' => [[]],
-            'two boxes dedicated to rentals' => [[
-                new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
-                new \Modules\InboundMail\Api\DedicatedMailbox(4, 'Chalet', 'chalet@unite.be'),
-            ]],
-        ];
-    }
-
-    /**
-     * @param list<\Modules\InboundMail\Api\DedicatedMailbox> $boxes
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxesThatGiveNoPage')]
-    public function testCourrierNeedsExactlyOneDedicatedMailbox(array $boxes): void
-    {
-        $this->loginAsManager();
-        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('isCollecting')->willReturn(true);
-        $inbound->method('dedicatedMailboxesFor')->willReturn($boxes);
-        $this->withMailbox($inbound);
-        $booking = $this->createBooking();
-
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
-        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * With its one box, the page says which box it is and that renters
-     * answer to it.
-     */
-    public function testTheCourrierPageNamesItsMailbox(): void
-    {
-        $this->loginAsManager();
-        $this->withCollectingMailbox();
-        $booking = $this->createBooking();
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
-
-        $this->assertStringContainsString('<strong>locations@unite.be</strong>', $body);
-        $this->assertStringContainsString('arrive dans cette boîte', $body);
     }
 
     /**

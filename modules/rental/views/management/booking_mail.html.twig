@@ -1,73 +1,113 @@
 {% extends '@rental/management/_booking_frame.html.twig' %}
 {#
-  « Courrier » — the mail of rentals' own mailbox (Booking\BookingPage::MAIL),
-  offered only when exactly one box is dedicated to them (issue #462, D8),
-  on the triage screen the camps use too (@inbound_mail/partials/triage.html.twig,
-  issue #462, D9): one component, two modules, so the two screens cannot
-  drift apart.
+  « Courrier » — this booking's mail and nothing else (Booking\BookingPage::MAIL,
+  #720), most recent first (Mail\BookingMailTimeline). Always there, whatever
+  the mailbox configuration: what the module's rules filed under the booking
+  is shown, what they could not attribute is shown nowhere in the rentals.
 
-  Its scope is the manager's, not the page's booking: the mail of every
-  booking of every asset they manage (RentalCommunicationService::
-  triageBookings()), recomputed on every action. The booking the page
-  belongs to is the picker's default, nothing more.
-
-  Every form carries the page's own context (asset, booking, page), so an
-  action answers through bookingAction() like every other form of the
-  file — asynchronously, the panel below re-rendered in place — and,
-  without JavaScript, comes back here.
+  One action on a message: « Détacher », final for this booking
+  (RentalCommunicationService::detach()). Its form carries the page's own
+  context (asset, booking, page), so it answers through bookingAction() like
+  every other form of the file — asynchronously, the panel below re-rendered
+  in place — and, without JavaScript, comes back here.
 #}
 {% block booking_content %}
-    {# The page exists only because rentals have a mailbox of their own
-       (issue #462, D8), so it says so — and says what follows from it:
-       whose mail of that box this manager sees
-       (RentalCommunicationService::withinReach()), and the address renters
-       answer. #}
-    <div class="card mb-3">
-        <div class="card-body small text-body-secondary">
-            Cette page existe parce que les locations disposent d'une boîte dédiée,
-            <strong>{{ mailbox_address ?: mailbox_name }}</strong>. Elle en montre le courrier des
-            réservations des biens que vous gérez{% if sorts_unattributed %}, et ce que rien ne
-            rattache encore{% endif %}.
-            {# The signed reply address when the operator allows it, the box's
-               own otherwise: both land in this box, which is what is said. #}
-            {% if mailbox_address %}
-                Quand un locataire répond à un e-mail du site, sa réponse
-                arrive dans cette boîte.
+    {% if not mail_module_active %}
+        <p class="small text-body-secondary">
+            Le module « Courrier entrant » n'est pas actif sur ce site : les réponses des
+            locataires arrivent dans la boîte de l'unité, sans apparaître ici.
+        </p>
+    {% elseif not mail_collected %}
+        {# Said once, above the list, rather than in place of it: the
+           page has its use without a box. #}
+        <p class="small text-body-secondary" data-mail-not-collected>
+            Aucune boîte e-mail ne relève le courrier des locations : les réponses des locataires
+            n'apparaissent pas ici. Un superadministrateur peut ouvrir une boîte aux Locations depuis
+            <em>Configuration &gt; Courrier entrant</em>, sous « Portée ».
+        </p>
+    {% endif %}
+
+    <div id="{{ boxes.mail.anchor }}">
+        <div data-booking-panel="mail">
+            {% if mail_entries is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: "Aucun message n'est rattaché à cette réservation.",
+                    icon: 'bi-envelope',
+                } only %}
+            {% else %}
+                <div class="d-flex flex-column gap-3" data-mail-timeline>
+                    {% for entry in mail_entries %}
+                        {% set message = entry.message %}
+                        <div class="card" data-mail-entry="{{ message.id }}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                                    <div class="min-w-0">
+                                        <div class="fw-semibold">
+                                            <span class="badge bg-body-tertiary border text-body-secondary me-1">Reçu</span>
+                                            {{ message.subject ?: 'Sans objet' }}
+                                        </div>
+                                        <div class="small text-body-secondary">{{ message.displayFrom() }}</div>
+                                        {# How it was filed, when that is a guess: a message
+                                           matched on the sender's address alone may still be
+                                           somebody else's (§22.9). #}
+                                        {% if not message.linkOrigin.isCertain %}
+                                            <span class="badge text-bg-warning mt-1">Rattachement incertain · {{ message.linkOrigin.label }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <span class="small text-body-secondary text-nowrap">{{ message.sentAt|datetime_fr }}</span>
+                                </div>
+
+                                {% if entry.has_body %}
+                                    <div class="small text-body-secondary text-truncate mt-2">{{ entry.excerpt }}</div>
+                                    {# The body is rendered HERE, hidden, and MOVED into
+                                       the dialog on opening (mail-message-dialog.js): no
+                                       HTML string travels through an attribute or
+                                       innerHTML. #}
+                                    <div class="d-none mail-message-body" id="mail-message-body-{{ message.id }}">
+                                        {% include '@inbound_mail/partials/message_body.html.twig' with { message: message } only %}
+                                    </div>
+                                {% endif %}
+
+                                {% if message.hasAttachments or message.hasOmittedAttachments %}
+                                    <div class="mt-2">
+                                        {% include '@inbound_mail/partials/attachments.html.twig' with { message: message, downloadable: true } only %}
+                                    </div>
+                                {% endif %}
+
+                                <div class="d-flex flex-wrap gap-2 mt-3">
+                                    {% if entry.has_body %}
+                                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                                data-mail-message-open="mail-message-body-{{ message.id }}"
+                                                data-mail-message-title="{{ message.subject ?: 'Sans objet' }}"
+                                                data-mail-message-meta="{{ message.displayFrom() }} · {{ message.sentAt|datetime_fr }}">
+                                            <i class="bi bi-envelope-open" aria-hidden="true"></i> Lire le message
+                                        </button>
+                                    {% endif %}
+                                    <form method="post" action="/mes-locations/courrier/detacher"
+                                          data-confirm="Ce message ne concerne pas cette réservation ? Il la quitte, avec ses pièces jointes encore « Non classé », et n'y sera plus jamais rattaché automatiquement.">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                        <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                                        <input type="hidden" name="message_id" value="{{ message.id }}">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                                aria-label="Détacher « {{ message.subject ?: 'Sans objet' }} »">
+                                            <i class="bi bi-x-lg" aria-hidden="true"></i> Détacher
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
             {% endif %}
         </div>
     </div>
-
-    <div id="{{ boxes.mail.anchor }}">
-        <div data-booking-panel="communications">
-            {% include '@inbound_mail/partials/triage.html.twig' with {
-                messages: messages, status: status, counts: counts,
-                include_bulk: include_bulk, bulk_count: bulk_count,
-                triage_ui: {
-                    has_inbound_mail: true,
-                    filter_url: booking_page.url(booking_url),
-                    urls: {
-                        reanalyze: '/mes-locations/courrier/relancer',
-                        attach: '/mes-locations/courrier/rattacher',
-                        detach: '/mes-locations/courrier/detacher',
-                        dismiss: '/mes-locations/courrier/ecarter',
-                        restore: '/mes-locations/courrier/reprendre',
-                        confirm: '/mes-locations/courrier/proposition/confirmation',
-                        reject: '/mes-locations/courrier/proposition/rejet',
-                    },
-                    hidden: { asset_id: asset.id, booking_id: booking.id, booking_page: booking_page.value },
-                    list_name: 'des locations',
-                    noun_from: 'de la réservation',
-                    attach_other: 'Rattacher à une autre réservation',
-                    attach_also: 'Rattacher aussi à une autre réservation',
-                    labels: triage_labels,
-                    reference_urls: triage_urls,
-                    booking_options: triage_booking_options,
-                    picker_template: '@rental/management/_triage_picker.html.twig',
-                },
-            } only %}
-        </div>
-    </div>
-    {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {# Only with the module: its templates are not registered without it,
+       and the page must still say so rather than fail. #}
+    {% if mail_module_active %}
+        {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {% endif %}
 {% endblock %}
 
 {% block booking_scripts %}

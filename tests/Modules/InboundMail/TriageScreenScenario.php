@@ -6,8 +6,9 @@ namespace Tests\Modules\InboundMail;
 
 /**
  * One scenario, run by every screen built on the shared triage component
- * (`@inbound_mail/partials/triage.html.twig`, issue #462, D9): the camps'
- * and the rentals'.
+ * (`@inbound_mail/partials/triage.html.twig`, issue #462, D9) — the camps'
+ * today; the rentals' « Courrier » page left it for one booking's own mail
+ * (#720).
  *
  * The roadmap's promise is that an attach, a detach and a set-aside end in
  * the same state on both sides. Written once, used by both test classes,

@@ -42,7 +42,9 @@ trait InertInboundMail
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool {
         return false;
     }

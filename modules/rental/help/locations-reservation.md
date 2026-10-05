@@ -16,7 +16,7 @@ son titre : **Tableau de bord**, **Modifications**, **Finances**,
 **Documents**, **État des lieux**, **Facture** et **Courrier**. La pastille
 « État des lieux » est toujours là : sans modèle d'état des lieux ni
 compteurs, la page ne garde que les incidents. La pastille « Courrier »
-n'apparaît que si une boîte e-mail est dédiée aux locations, et une seule.
+aussi, quelle que soit la configuration des boîtes e-mail.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
 d'Ariane en haut de la page : chacune de ses étapes est un lien.

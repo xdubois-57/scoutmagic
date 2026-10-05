@@ -48,10 +48,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.13.0 tells a module which boxes are its own, and warns on the list
      * of boxes when two are dedicated to the same one (issue #462, IT-04).
+     *
+     * 1.14.0 lets a consumer detach a message for good: an exclusion per
+     * (message, consumer, object) that no automatic path writes past
+     * (`inbound_message_exclusions`, #720).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.13.0', $this->manifest->version);
+        $this->assertSame('1.14.0', $this->manifest->version);
     }
 
     /**

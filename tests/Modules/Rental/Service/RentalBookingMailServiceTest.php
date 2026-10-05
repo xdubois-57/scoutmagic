@@ -152,28 +152,12 @@ final class RentalBookingMailServiceTest extends TestCase
     }
 
     /**
-     * Signed addresses switched off: the renter's answer still has to reach
-     * the box the Courrier page reads, not the site's general reply address
-     * MailService would otherwise fall back on (issue #462, IT-04). Two
-     * dedicated boxes are no box at all — which one would be arbitrary.
-     *
-     * @return array<string, array{list<?string>, ?string}>
+     * Signed addresses switched off: no box of the rentals' own to fall
+     * back on (#720) — a dedicated box is no longer something rentals look
+     * at — so the mail goes out with no Reply-To, even with one box
+     * dedicated to them.
      */
-    public static function dedicatedBoxes(): array
-    {
-        return [
-            'one box: its address' => [['locations@unite.be'], 'locations@unite.be'],
-            'two boxes: none' => [['locations@unite.be', 'chalet@unite.be'], null],
-            'no box: none' => [[], null],
-            'one box on a bare login: none' => [[null], null],
-        ];
-    }
-
-    /**
-     * @param list<?string> $addresses
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('dedicatedBoxes')]
-    public function testWithoutASignedAddressTheReplyGoesToRentalsOwnBox(array $addresses, ?string $expected): void
+    public function testWithoutASignedAddressTheMailGoesOutWithNoReplyToEvenWithADedicatedBox(): void
     {
         $replyTos = [];
         $mail = $this->createStub(MailService::class);
@@ -182,22 +166,12 @@ final class RentalBookingMailServiceTest extends TestCase
                 $replyTos[] = $replyTo;
             }
         );
-        $inboundMail = new class ($addresses) implements \Modules\InboundMail\Api\InboundMailInterface {
+        $inboundMail = new class implements \Modules\InboundMail\Api\InboundMailInterface {
             use \Tests\Modules\InboundMail\InertInboundMail;
-
-            /** @param list<?string> $addresses */
-            public function __construct(private readonly array $addresses)
-            {
-            }
 
             public function dedicatedMailboxesFor(string $consumerId): array
             {
-                return $consumerId !== 'rental' ? [] : array_map(
-                    static fn (?string $address, int $i): \Modules\InboundMail\Api\DedicatedMailbox
-                        => new \Modules\InboundMail\Api\DedicatedMailbox($i + 1, 'Boîte ' . $i, $address),
-                    $this->addresses,
-                    array_keys($this->addresses)
-                );
+                return [new \Modules\InboundMail\Api\DedicatedMailbox(1, 'Locations', 'locations@unite.be')];
             }
         };
         $settings = $this->createStub(SettingService::class);
@@ -212,7 +186,7 @@ final class RentalBookingMailServiceTest extends TestCase
 
         $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
 
-        $this->assertSame([$expected], $replyTos);
+        $this->assertSame([null], $replyTos);
     }
 
     private function recordingMailService(bool $succeeds = true): MailService

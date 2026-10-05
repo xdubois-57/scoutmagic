@@ -2102,7 +2102,7 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **The booking file acts without reloading.** Its sixteen POST forms all funnel through `RentalManagementController::bookingAction()`, so one branch there — `X-Requested-With: XMLHttpRequest` answers `{success, type, message}` (the flash, consumed, since nothing is going to render it) instead of redirecting — makes the whole page asynchronous with no per-handler change. `public/assets/js/rental-booking.js` posts each form with `fetch`, toasts that message, then **re-fetches the page and swaps the contents of every `[data-booking-panel]` wrapper**. Re-rendering rather than patching is deliberate: one action moves several panels at once — sending the contract also ticks a milestone and writes a history line — and a client-side guess about which is how a page starts lying. The wrappers are always present even when what they hold is conditional, so a card that appears or disappears swaps like any other. Without JavaScript every form still posts, redirects and renders its flash exactly as before.
 
-**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier needs the rentals' own mailbox, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
+**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier always, whatever the mailboxes, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
 
 **The dashboard leads with the journey, and the journey is the checklist staged** (`Booking\BookingJourney`). It takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the phases and their lines cannot tell different stories because there is only one derivation. Its header states where the booking stands (`headline()`), offers the one step that moves it on (`primaryAction()`) and the status's other decisions beside it (`otherDecisions()`) — **every status decision is rendered once on the page**, in that header, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below it the phases are listed step by step; a phase after the current one whose booking is not yet confirmed is shown as future and offers nothing.
 
@@ -2252,7 +2252,7 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **Camps' reserved `unsorted` reference is gone.** It was a business object that was not one — a bucket masquerading as a stay, with its own retention setting, its own screen and its own nightly purge task, all duplicating what this module now does once for every consumer. A dedicated mailbox no longer produces an association for mail nobody could attribute: the message is stored like any other, the chief sees it in the unit's mail, and the module's own users see it too because a dedicated box grants them `ReadMode::ALL`. The migration is a `DELETE` of those association rows and nothing else — the messages stay, become "nothing points at this", and fall under the retention they should always have been under. Automatic stay creation moved with it, from `onLinked()` (which hung off the `unsorted` association) to `analyzeStored()`, where a stored message and a bounded hourly pass already meet — `StayFromMailService` reads the body and may call the AI connector, neither of which `CandidateMessage` can carry.
 
-**Ambiguity produces propositions now, where it used to produce silence.** Several bookings of one renter in range, or several stays of one contact, used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a renter with a standing booking every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing.
+**Ambiguity produces propositions — for the consumers that want them.** Several stays of one contact used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a contact with a stay every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing. `rental` no longer proposes (#720, §8.59): its ambiguity files nothing.
 
 **Orienting is confirming a proposition or naming a target, and both live on `/courrier`.** A consumer that wants the chief to be able to file a message under one of its objects implements `Api\ReferenceDirectory`, an optional companion of the consumer contract in the same family as `MessageRetentionPreference`: `searchReferences()` answers « quel séjour, quelle réservation, quel compte ? » as a person would name them, and `referenceUrl()` says where each one lives. The screen offers « Rattacher à… » only towards modules that publish a directory, and accepts an association only towards a reference that module's own search returned — which is what stops a hand-crafted POST filing a message under an object that does not exist, without `inbound_mail` learning what a reference looks like. Every rattachement on the message page links to its object through the same directory. Camps, Locations and Finances all publish one; a consumer that does not is exactly what it was.
 
@@ -2266,7 +2266,9 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **`Rafraîchir maintenant` runs a synchronisation inside the request, behind an expiring lock.** Two clicks a second apart would open two IMAP sessions on one box and race on the cursor — and the loser's write moves it *backwards*, so the next scheduled run re-reads what was already read. The lock is a setting rather than a table (one row, no schema, readable from the scheduled path too) and it expires after ten minutes, because a request killed by `max_execution_time` never clears it and a permanently locked button is a feature that silently stopped existing. `Service\ManualRefreshService` takes a **closure**, not the sync service: it is constructed on every page view so the button can exist, and assembling a synchronisation graph is the one thing a page view must never do.
 
-**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further — rentals do (§8.59); the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail and the rentals' « Courrier » page are its two callers today. `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
+**A consumer may also detach a message for good** (#720): `detach(…, excludeFromAnalysis: true)` writes `inbound_message_exclusions` — one row per (message, consumer, object) — before removing the link, and `Service\AnalysisResultApplier`, which every automatic path goes through (arrival, deferred pass, « Relancer l'analyse »), drops a link or a proposition towards an excluded object. Without it a detached message is merely unlinked, and the next re-analysis files it under the very object a person just took it off. Narrower than a dismissal on purpose: the message stays open to the consumer's other objects, and a person attaching it by hand on `/courrier` decides past it. Camps detach without the flag and keep their behaviour.
+
+**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further; the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail is its caller today; the rentals' « Courrier » page shows one booking's own mail instead (§8.59). `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
 
 **The inter-module API is scoped to one consumer and one business reference on every call** (`Api\InboundMailInterface`). There is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement: a manager who may open a booking must not thereby gain a window onto the unit's whole mailbox. Detaching removes **one association**, and stops there. It used to destroy the message once the last association went, which meant that correcting a mis-filing destroyed the thing being corrected — the message could never reach the right booking. It now falls back into the general mail and lives out the retention. `purgeReference()` is the one that still destroys, and the distinction is the point: it is a consumer's RGPD erasure of a business object, where the promise made to the person concerned is that the mail attached to their file goes with the file. A file the consumer re-classified is *released* from the message (`AttachmentOmission::RECLASSIFIED`) rather than left pointing at it, so the retention purge ninety days on cannot take a booking's signed contract away with the email it arrived in; the consumer that names it takes over `files.owner_id` with it. What this module cannot check is whether the *user* may reach the reference — only the consumer knows its own authorisation rules, so that check stays in the consumer's controller and the interface says so.
 
@@ -2276,7 +2278,7 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The site's own mail carries a signed reply address, and a bare « Répondre » names its object** (`Service\ReplyAddressService`, `LinkOrigin::REPLY_ADDRESS`). Every other rule reads something the correspondent wrote, and each fails on an ordinary day — a subject rewritten, the group's treasurer answering instead of the renter. What the site puts in the `Reply-To` of what it sends (`locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`) comes back untouched: the gateway verifies the twelve-character keyed hash before any consumer is asked, hands the object over as `CandidateMessage::$addressedTo`, and the consumer only checks the object still exists. Signed over the **lowercase** form because the IMAP layer lowercases recipients, so the consumer canonicalises the reference's case itself. Minted through `InboundMailInterface::replyAddressFor()` — the box dedicated to the consumer, else the first enabled box it analyses whose account is an address, else nothing — behind a setting on by default (`inbound_mail_reply_addressing`), since a provider that rejects `+tag` addresses would bounce every reply; recognition ignores the setting, because mail sent while it was on keeps being answered for months. Consumers of it today: `Modules\Rental\Service\RentalBookingMailService`, on every mail about a booking.
 
-**A consumer that wants to hear of its own propositions says so** (`Api\PropositionListener`, the same optional-companion shape as `ReferenceDirectory`). `AnalysisResultApplier::applyAndReport()` reports the candidates that were actually NEW, and `Service\LinkedMessageNotifier` — the one owner of the callbacks on all three passes — calls `onProposed()` once per message and consumer with them, catching and journalling what the listener throws. That is what turns a proposition into a notification to the people who settle it (`rental.mail_proposition` to the asset's managers, `camps.mail_proposition` and `camps.stay_from_mail` to the stay's chiefs, `finance.mail_proposition` to the treasurers), each declared in its module's manifest, each carrying the object's name and never the sender or the subject. And what the attention page counts (§8.79): `countCandidatesFor()` feeds one provider per module, so a proposition nobody settles is visible at the unit's level and not only on the booking of a manager who is away.
+**A consumer that wants to hear of its own propositions says so** (`Api\PropositionListener`, the same optional-companion shape as `ReferenceDirectory`). `AnalysisResultApplier::applyAndReport()` reports the candidates that were actually NEW, and `Service\LinkedMessageNotifier` — the one owner of the callbacks on all three passes — calls `onProposed()` once per message and consumer with them, catching and journalling what the listener throws. That is what turns a proposition into a notification to the people who settle it (`camps.mail_proposition` and `camps.stay_from_mail` to the stay's chiefs, `finance.mail_proposition` to the treasurers), each declared in its module's manifest, each carrying the object's name and never the sender or the subject. And what the attention page counts (§8.79): `countCandidatesFor()` feeds one provider per module, so a proposition nobody settles is visible at the unit's level and not only on the booking of a manager who is away.
 
 **The thread rule knows what the site sent, not only what it received** (`inbound_outbound_message_ids`). The ordinary first reply — « Re: votre demande », the reference gone from the subject, sent from the group's treasurer rather than the renter — answers a message the SITE wrote; looking only at inbound Message-IDs meant the thread rule recognised a reply to a reply and never the reply itself. A consumer records the ids of what it sends about an object (`InboundMailInterface::recordOutboundMessageId()`, called by `Modules\Rental\Service\RentalBookingMailService` on every booking mail), stored as a blind index — never the content, never an address — and `findReferenceByThread()` consults both tables. `LinkOrigin::IBAN` joined the origins for the same reason `PERIOD` did: an association a consumer makes on a fact in the text, labelled as such on every screen, and « pas certain » because a text can be wrong.
 
@@ -2312,9 +2314,10 @@ answer:**
    only for a booking that still exists. It comes before the reference
    below: the site minted it for one booking and the gateway verified it,
    while a subject can quote any reference.
-1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
-   there itself, so a reply carrying it back is as close to certain as
-   automatic attachment gets. Bracketed beats bare, and the subject beats
+1. **A reference in the subject** (`[LOC-2027-K7Q2MX]`), **from the
+   renter's own address** — the module put it there itself, so the
+   renter's reply carrying it back is as close to certain as automatic
+   attachment gets; a stranger quoting it files nothing (#231). Bracketed beats bare, and the subject beats
    the body, because a body is full of quoted history. **Two different
    references means no match**: a renter forwarding one booking's email
    while asking about another leaves both in the text.
@@ -2334,21 +2337,18 @@ answer:**
    must fall between the request and some weeks after the departure of
    one of them, and a booking the unit refused, cancelled or let lapse
    does not compete with the live one — left in, a group refused once and
-   booked again had every message turned into two propositions.
+   booked again had every message filed nowhere.
 
-**Ambiguity is answered with propositions, never with a choice.** Two
-live bookings matching the sender inside the window attach nothing — a
-manager reading the wrong file has no way to know it is the wrong file,
-which makes a wrong attachment worse than none — but each of them becomes a
-`MessageCandidate` (§8.58), bounded at `RentalMessageConsumer::MAX_PROPOSITIONS`,
-so the module says what it knows and leaves the choice to a person. **The
-model comes last, and only to order** (`Mail\BookingChoiceByModel`): with
-the connector present and a model on the cheap tier, the subject and body
-go to it with the shortlist, and its pick leads the list, marked `ai` and
-saying so in its explanation — the other bookings stay proposed, and
-nothing is associated on its word. Without a connector the list is what the
-rules made. **A manual filing teaches the booking the sender's address**
-(`onLinked()` on `LinkOrigin::MANUAL` only) and re-examines the mail
+**Ambiguity is answered with nothing** (#720). Two live bookings matching
+the sender inside the window attach nothing — a manager reading the wrong
+file has no way to know it is the wrong file, which makes a wrong
+attachment worse than none — and nobody is asked to choose either: the
+propositions, the notification that announced them
+(`rental.mail_proposition`) and the attention point that counted them are
+gone with the screen that showed them. The message appears on no booking.
+**A manual filing teaches the booking the sender's address**
+(`onLinked()` on `LinkOrigin::MANUAL` only, which in the rentals now only
+comes from the unit's general mail screen) and re-examines the mail
 nobody could attribute (`REANALYSIS_AFTER_DECISION`), so the treasurer of a
 group writing from their own address is filed by hand once, not on every
 message.
@@ -2362,28 +2362,19 @@ correction, and it refuses generated documents: a contract or invoice is what
 the module produced from a template, and renaming one would break the
 versioning a signed v1 depends on.
 
-**Correcting the automatic rules is bounded by what the manager manages.**
-Detaching removes the association and the `Non classé` documents nobody
+**« Détacher » is the one correction, and it is final for the booking**
+(#720). It removes the association and the `Non classé` documents nobody
 re-classified; the message itself falls back into the unit's general mail
 (§8.58) and a document already filed as a signed contract survives — it is
 the manager's, not the message's, and `onUnlinked()` takes back only what is
-still `Non classé`. Attaching is offered only to bookings of that manager's own
-assets, and the target list is **built from their assets** rather than
-filtered from a global list, so the picker is never itself a window onto the
-unit's other bookings; a hand-crafted POST naming somebody else's booking
-gets the same "not accessible" as one naming a booking that does not exist.
-The screen offers no « move »: changing a message's booking is detaching it
-and attaching it to the right one, as on the camps screen. The service's
+still `Non classé`. `RentalCommunicationService::detach()` asks for the
+exclusion (§8.58, `inbound_message_exclusions`), so the rules never file the
+message under that booking again, while another booking stays open to it.
+There is no attaching by hand in the rentals any more. The service's
 `move()` stays — a moved message takes its documents with it, moved *before*
-the association changes hands, and is recorded as `manual` (D20).
-
-**Attaching by hand is confirming a proposition, or naming an object the
-requester may reach** (`InboundMailInterface::attach()`, `confirmCandidate()`),
-never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
-consumer only the messages it recognised or proposed on. `attach()` leaves the
-authorisation to its caller, so `RentalCommunicationService::attachToBooking()`
-first requires the message to be in the manager's own triage list — attaching
-an arbitrary message id to one's own booking would be reading it.
+the association changes hands, and is recorded as `manual` (D20) — and its
+targets are **built from the manager's own assets** rather than filtered
+from a global list.
 
 **Which mailboxes feed the module is the mailbox configuration's answer, and
 nothing of the module's own.** `rental` used to keep its own list of box ids
@@ -2396,66 +2387,31 @@ module's box: `listMailboxSummariesFor('rental')` is the whole of what
 crosses that boundary (issue #748) — and points at the scope screen for the
 rest.
 
-**The « Courrier » page is the camps' triage screen, not a look-alike**
-(issue #462). Both modules render `@inbound_mail/partials/triage.html.twig`
-over `triageRows()` and `Api\TriageScreen` (§8.58): the same tabs and counts (« À trier »,
-« Rattachés », « Tous », « Écartés »), the same dialog for reading a message,
-the same propositions to confirm or dismiss, the same attach, detach, set
-aside, restore and « Relancer l'analyse ». What differs is passed in
-`triage_ui` — the name of the module's objects, its action URLs, its picker —
-and one scenario (`TriageScreenScenario`) is played against both screens so
-they cannot drift into two behaviours. The rentals' list is the manager's
-scope, not the page's: every booking of every asset they manage
-(`triageBookings()`), recomputed on each action rather than trusted from the
-form; the booking of the page is only the picker's default.
+**The « Courrier » page is one booking's own mail** (#720). It lists what
+the rules filed under that booking — `findForReference()`, nothing wider —
+most recent first (`Mail\BookingMailTimeline`), each entry marked by its
+direction and opened in the same dialog as the inbound mail screens. It is
+offered on every booking, whatever the mailboxes: dedicated or shared makes
+no difference to the rentals any more, while the configuration keeps the
+distinction for the other modules. `RentalCommunicationService::collects()`
+— an enabled box whose scope opens it to `rental` — only decides whether the
+page says that nothing gathers renters' replies. The old triage screen, its
+tabs, the attach, set aside, restore and « Relancer l'analyse » routes and
+the propositions are gone; `POST /mes-locations/courrier/detacher` is the
+one form left, through `bookingAction()` like every form of the booking.
 
-**A manager reads only the mail within their reach**
-(`RentalCommunicationService::withinReach()`). On a box dedicated to
-rentals, `findForTriage()` answers for the *module*, which reads the whole
-box; a manager is narrower than the module. A row stays when a link or a
-proposition names one of their own bookings — and then carries only those,
-so another booking's reference never reaches the page — or when nothing
-attributes it and they manage every asset
-(`RentalAuthorizationService::managesEveryAsset()`: the Staff d'U, or a
-manager named on each), since such a message may be about any of them.
-Attach, set aside and restore check a posted message id against that same
-list: what a manager cannot see, they cannot act on. For somebody who does
-not manage every asset the narrowing starts in the query
-(`findForTriage(…, ownReferencesOnly: true)` leaves the box read in full
-out), before the screenful's limit: the whole box's hundred most recent
-messages are not a sample of anybody's own. The seven
-`/mes-locations/courrier/*` routes go through `bookingAction()` like every
-form of the booking.
+**A renter's « Répondre » names the booking.** Every booking mail carries
+the signed reply address when the operator allows it
+(`ReplyAddressService::mailboxFor()` mints it on a box dedicated to rentals,
+else on the first shared box that analyses them). With signed addresses
+off, nothing is passed and the site's ordinary reply address applies: the
+rentals have no box of their own to fall back on (#720), and a reply quoting
+the reference is still matched wherever it lands. The mass mail module never
+goes through `RentalBookingMailService` and is untouched.
 
-**The page exists only for rentals' own mailbox, and only when there is
-exactly one.** `InboundMailInterface::dedicatedMailboxesFor()` names the
-enabled boxes dedicated to a consumer; `dedicatedMailbox()` answers one only
-when the list holds exactly one. Two boxes dedicated to rentals give **no**
-page: the page shows one box's mail, and choosing between two would be
-arbitrary — the incoming-mail configuration list says so where it can be
-fixed (`Service\MailboxAdminService::dedicationConflicts()`), and the
-change that brings a box into the case is journaled once
-(`inbound_mailbox_dedication_conflict`) — compared by box id, so a rename
-or a later save that leaves the case as it was writes nothing. A shared
-box feeds the automatic
-filing and the booking's history, never this page.
-
-**A renter's « Répondre » reaches that box.** Every booking mail carries the
-signed reply address when the operator allows it
-(`ReplyAddressService::mailboxFor()` mints it on the box dedicated to
-rentals, else on the first shared box that analyses them). With signed
-addresses off, it carries the dedicated box's own address when there is
-exactly one, passed explicitly: `MailService` would fall back on the site's
-reply address, and the answer would go to the unit's general inbox instead
-of the page that reads it. Otherwise — signed addresses off and no dedicated
-box, or two — nothing is passed and the site's ordinary reply address
-applies. The mass mail module never goes through `RentalBookingMailService`
-and is untouched.
-
-**Without `inbound_mail` the booking page loses its « Courrier » chip and
-nothing else.** `RentalCommunicationService` takes the API as a nullable
-dependency and answers as though no message ever arrived, which is exactly
-true.
+**Without `inbound_mail` the « Courrier » page says so and shows nothing
+else.** `RentalCommunicationService` takes the API as a nullable dependency
+and answers as though no message ever arrived, which is exactly true.
 
 ### 8.60 The paperwork register and the reminders (`Modules\Rental\Compliance`, `Modules\Rental\Reminder`)
 
