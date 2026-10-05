@@ -78,7 +78,7 @@ class AnalysisJournalTest extends TestCase
             'Unité',
             ['camps', 'rental', 'finance'],
             [
-                'rental' => AnalysisResult::linkedTo('rental', 'LOC-2027-0042', LinkOrigin::SENDER),
+                'rental' => AnalysisResult::linkedTo('rental', 'LOC-K7Q2M4', LinkOrigin::SENDER),
                 'finance' => AnalysisResult::proposing(new MessageCandidate('mvt-9', 'Un mouvement', 'amount', 'x')),
             ],
             AnalysisJournal::PASS_ARRIVAL

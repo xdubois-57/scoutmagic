@@ -35,7 +35,7 @@ class MessageCandidate
         /**
          * What the target IS, in French and readable — « Location du
          * 12 juillet, Groupe Saint-Michel ». The reference alone
-         * (`LOC-2027-0042`) is an identifier, not something a chief can
+         * (`LOC-K7Q2M4`) is an identifier, not something a chief can
          * recognise at a glance.
          */
         public readonly string $label,

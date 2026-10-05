@@ -98,7 +98,7 @@ class ReceivablesOverviewServiceTest extends TestCase
 
     public function testTheSourceModulesOwnTextWins(): void
     {
-        // « Caution LOC-2027-0012 — Jean Dupont » says more than a name:
+        // « Caution LOC-D4E5F6 — Jean Dupont » says more than a name:
         // the module wrote it because it knew something this page does not.
         $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Caution — Jean Dupont', 42);
 
@@ -187,7 +187,7 @@ class ReceivablesOverviewServiceTest extends TestCase
      * Finance knows a source instance only as a numeric id — that is what
      * lets this page work for any future module — so the group used to be
      * headed « Rental #45 »: a primary key, in English, above rows already
-     * reading « LOC-2027-0012 — Jean Dupont ».
+     * reading « LOC-D4E5F6 — Jean Dupont ».
      */
     public function testTheSourceModuleNamesItsOwnGroupAndItsOwnInstances(): void
     {
@@ -196,14 +196,14 @@ class ReceivablesOverviewServiceTest extends TestCase
         $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
             'rental',
             'Locations',
-            static fn(int $id): ?string => $id === 45 ? 'LOC-2027-0012 — Jean Dupont' : null
+            static fn(int $id): ?string => $id === 45 ? 'LOC-D4E5F6 — Jean Dupont' : null
         )])->buildOverview(Role::INTENDANT);
 
         $this->assertSame('Locations', $overview[0]['source_label']);
         // A booking and its deposit share a source_reference_id, so the
         // middle level does group here — and now says what it groups.
         $this->assertTrue($overview[0]['groups_instances']);
-        $this->assertSame('LOC-2027-0012 — Jean Dupont', $overview[0]['instances'][0]['instance_label']);
+        $this->assertSame('LOC-D4E5F6 — Jean Dupont', $overview[0]['instances'][0]['instance_label']);
     }
 
     public function testASourceWithNoDescriberKeepsTheOldNames(): void
@@ -261,7 +261,7 @@ class ReceivablesOverviewServiceTest extends TestCase
         $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
             'rental',
             'Locations',
-            static fn(int $id): ?string => 'LOC-2027-0012 — Jean Dupont'
+            static fn(int $id): ?string => 'LOC-D4E5F6 — Jean Dupont'
         )])->buildOverview(Role::INTENDANT);
 
         $byModule = array_column($overview, 'source_label', 'source_module');
@@ -271,8 +271,8 @@ class ReceivablesOverviewServiceTest extends TestCase
 
     private function givenARentalBookingWithItsDeposit(): void
     {
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-2027-0012 — Jean Dupont');
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-2027-0012 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-D4E5F6 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-D4E5F6 — Jean Dupont');
     }
 
     /**

@@ -129,7 +129,7 @@ final class SentEmailLogTest extends TestCase
         $this->assertSame('camille@example.test', $logged[0]->recipient);
         $this->assertSame($this->outbox[0]['subject'], $logged[0]->subject);
         $this->assertSame(SentEmail::STATUS_SENT, $logged[0]->status);
-        $this->assertStringContainsString('[LOC-2027-K7Q2MX]', $logged[0]->subject);
+        $this->assertStringContainsString('[LOC-K7Q2MX]', $logged[0]->subject);
         // The token is never kept, wherever the e-mail carried it.
         $this->assertStringNotContainsString(self::TOKEN, $logged[0]->bodyText . $logged[0]->bodyHtml);
     }
@@ -142,7 +142,7 @@ final class SentEmailLogTest extends TestCase
         $this->assertIsArray($raw);
         foreach (['recipient_encrypted', 'subject_encrypted', 'body_text_encrypted', 'body_html_encrypted'] as $column) {
             $this->assertStringNotContainsString('camille@example.test', (string) $raw[$column]);
-            $this->assertStringNotContainsString('LOC-2027-K7Q2MX', (string) $raw[$column]);
+            $this->assertStringNotContainsString('LOC-K7Q2MX', (string) $raw[$column]);
         }
         // The Message-ID stays readable: it is what a copy in « Envoyés » is
         // recognised by.
@@ -382,7 +382,7 @@ final class SentEmailLogTest extends TestCase
         return new RentalBooking(
             id: $id,
             assetId: 7,
-            reference: 'LOC-2027-K7Q2MX',
+            reference: 'LOC-K7Q2MX',
             arrivalDate: '2027-08-14',
             departureDate: '2027-08-17',
             units: 1,

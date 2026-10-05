@@ -142,7 +142,7 @@ class RentalContractValidityServiceTest extends TestCase
     {
         $created = $this->bookingRepository->create(
             $this->assetId,
-            'LOC-2027-0042',
+            'LOC-K7Q2M4',
             '2027-07-01',
             '2027-07-04',
             1,

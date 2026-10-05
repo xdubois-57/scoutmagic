@@ -122,7 +122,7 @@ class RentalStayServiceTest extends TestCase
     }
 
     private function createBooking(
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         ?int $assetId = null,
         int $persons = 40
     ): RentalBooking {
@@ -609,7 +609,7 @@ class RentalStayServiceTest extends TestCase
         $this->service->addInventoryItem($this->assetId, 'Clés');
         $this->assertTrue($this->service->keepsInventoryFor($booking), 'not copied yet: the template decides');
 
-        $empty = $this->createBooking('LOC-2027-0002');
+        $empty = $this->createBooking('LOC-A2B3C5');
         $this->service->snapshotInventory($empty, $this->otherAssetId);
         $this->assertFalse($this->service->keepsInventoryFor($empty));
 
@@ -626,8 +626,8 @@ class RentalStayServiceTest extends TestCase
     public function testAnInventoryLineOfAnotherBookingCannotBeWritten(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $this->service->snapshotInventory($other, $this->assetId);
         $foreignLine = $this->service->inventoryFor($other->id)[0];
 
@@ -791,7 +791,7 @@ class RentalStayServiceTest extends TestCase
         }
 
         // Once the arrival is validated with its reading, nothing more is asked of it.
-        $other = $this->createBooking('LOC-2027-0002');
+        $other = $this->createBooking('LOC-A2B3C5');
         $this->service->recordReading($other, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1);
         $this->assertTrue($this->service->recordInventoryValidation($other, ReadingPhase::ARRIVAL, $this->now(), 1));
         $this->assertSame(
@@ -856,7 +856,7 @@ class RentalStayServiceTest extends TestCase
         $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, null, 1);
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
-        $this->assertStringContainsString('LOC-2027-0001', $journal);
+        $this->assertStringContainsString('LOC-A2B3C4', $journal);
         $this->assertStringNotContainsString('Vitre cassée', $journal);
         $this->assertStringNotContainsString('Jeanne Martin', $journal);
     }
@@ -902,8 +902,8 @@ class RentalStayServiceTest extends TestCase
 
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
     {
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $foreignId = $this->service->reportIncident($other, 'Vitre cassée', 5000, null, 1);
 
         $this->expectException(RentalException::class);
@@ -1013,8 +1013,8 @@ class RentalStayServiceTest extends TestCase
 
     public function testASettlementOfAnotherBookingCannotBeValidatedHere(): void
     {
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $foreign = $this->service->recordSettlement($other, $this->assetId, 28, [], 1);
 
         $this->expectException(RentalException::class);

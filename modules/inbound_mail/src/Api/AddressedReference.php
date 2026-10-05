@@ -11,7 +11,7 @@ namespace Modules\InboundMail\Api;
 /**
  * The business object a message was **addressed to**, read off a signed
  * reply address the site itself put in the `Reply-To` of what it sent
- * (`locations+rental.LOC-2027-0042.9f3a…@unite.be`, §8.58).
+ * (`locations+rental.LOC-K7Q2M4.9f3a…@unite.be`, §8.58).
  *
  * As certain as the reference in the subject: the address was minted by
  * this site, carries a signature nobody else can compute, and a renter

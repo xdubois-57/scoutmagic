@@ -77,10 +77,10 @@ class DetachForGoodTest extends TestCase
 
     public function testADetachedForGoodMessageIsNotFiledBackUnderTheSameObject(): void
     {
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->consumerFiling('LOC-2027-K7Q2MX');
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->consumerFiling('LOC-K7Q2MX');
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true, 7));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true, 7));
         $report = $this->service->reanalyzeUnlinked('rental');
 
         $this->assertSame(0, $report['linked']);
@@ -91,24 +91,24 @@ class DetachForGoodTest extends TestCase
     {
         // « Ce message ne concerne pas CETTE réservation » — it may well
         // concern the renter's other one.
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->consumerFiling('LOC-2027-K7Q2MX', 'LOC-2027-P4W8ZA');
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->consumerFiling('LOC-K7Q2MX', 'LOC-P4W8ZA');
 
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
         $this->service->reanalyzeUnlinked('rental');
 
         $links = $this->messages->findLinksForMessage($messageId);
         $this->assertCount(1, $links);
-        $this->assertSame('LOC-2027-P4W8ZA', $links[0]->businessReference);
+        $this->assertSame('LOC-P4W8ZA', $links[0]->businessReference);
     }
 
     public function testAnOrdinaryDetachLeavesTheMessageOpenToTheSameObject(): void
     {
         // Camps detach without the flag, and nothing changes for them.
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->consumerFiling('LOC-2027-K7Q2MX');
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->consumerFiling('LOC-K7Q2MX');
 
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId);
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId);
         $this->service->reanalyzeUnlinked('rental');
 
         $this->assertCount(1, $this->messages->findLinksForMessage($messageId));
@@ -118,11 +118,11 @@ class DetachForGoodTest extends TestCase
     {
         // Another module filing the same message under a reference that
         // happens to read the same is not what rentals ruled out.
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
 
         $applied = (new AnalysisResultApplier($this->messages))->applyAndReport($messageId, [
-            'camps' => new AnalysisResult([new MessageLink('camps', 'LOC-2027-K7Q2MX', LinkOrigin::REFERENCE)]),
+            'camps' => new AnalysisResult([new MessageLink('camps', 'LOC-K7Q2MX', LinkOrigin::REFERENCE)]),
         ]);
 
         $this->assertCount(1, $applied->links);
@@ -130,12 +130,12 @@ class DetachForGoodTest extends TestCase
 
     public function testNoPropositionIsMadeTowardsTheExcludedObjectEither(): void
     {
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
 
         $applied = (new AnalysisResultApplier($this->messages))->applyAndReport($messageId, [
             'rental' => AnalysisResult::proposing(
-                new MessageCandidate('LOC-2027-K7Q2MX', 'Réservation', 'sender_window', 'parce que')
+                new MessageCandidate('LOC-K7Q2MX', 'Réservation', 'sender_window', 'parce que')
             ),
         ]);
 
@@ -146,34 +146,34 @@ class DetachForGoodTest extends TestCase
     {
         // What the rentals' model asks before weighing two bookings: the one
         // a person took the message off is not on the list (#720, step 6).
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->assertFalse($this->service->isExcluded('rental', $messageId, 'LOC-2027-K7Q2MX'));
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->assertFalse($this->service->isExcluded('rental', $messageId, 'LOC-K7Q2MX'));
 
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
 
-        $this->assertTrue($this->service->isExcluded('rental', $messageId, 'LOC-2027-K7Q2MX'));
+        $this->assertTrue($this->service->isExcluded('rental', $messageId, 'LOC-K7Q2MX'));
         $this->assertFalse($this->service->isExcluded('rental', $messageId, 'LOC-2027-AAAAAA'));
-        $this->assertFalse($this->service->isExcluded('camps', $messageId, 'LOC-2027-K7Q2MX'));
+        $this->assertFalse($this->service->isExcluded('camps', $messageId, 'LOC-K7Q2MX'));
     }
 
     public function testDetachingTwiceForGoodIsOneDecisionAndNoError(): void
     {
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-K7Q2MX', LinkOrigin::MANUAL);
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2MX', LinkOrigin::MANUAL);
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true));
-        $this->assertTrue($this->messages->isExcluded($messageId, 'rental', 'LOC-2027-K7Q2MX'));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true));
+        $this->assertTrue($this->messages->isExcluded($messageId, 'rental', 'LOC-K7Q2MX'));
     }
 
     public function testAPersonMayStillAttachItByHand(): void
     {
         // Only automatic paths read the exclusion: a person on the unit's
         // general mail screen decides past it, as a person may.
-        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
-        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+        $messageId = $this->linkedMessage('LOC-K7Q2MX');
+        $this->service->detach('rental', 'LOC-K7Q2MX', $messageId, [], true);
 
-        $this->assertTrue($this->service->attach('rental', 'LOC-2027-K7Q2MX', $messageId, 7));
+        $this->assertTrue($this->service->attach('rental', 'LOC-K7Q2MX', $messageId, 7));
         $this->assertCount(1, $this->messages->findLinksForMessage($messageId));
     }
 

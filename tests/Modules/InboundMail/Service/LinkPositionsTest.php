@@ -51,43 +51,43 @@ class LinkPositionsTest extends TestCase
 
     public function testNothingFiledIsPositionZeroAndNothingAfterIt(): void
     {
-        $this->assertSame(0, $this->service->latestLinkPosition('rental', 'LOC-2027-K7Q2MX'));
-        $this->assertSame([], $this->service->countLinksAfter('rental', ['LOC-2027-K7Q2MX' => 0]));
+        $this->assertSame(0, $this->service->latestLinkPosition('rental', 'LOC-K7Q2MX'));
+        $this->assertSame([], $this->service->countLinksAfter('rental', ['LOC-K7Q2MX' => 0]));
         $this->assertSame([], $this->service->countLinksAfter('rental', []));
     }
 
     public function testWhatWasFiledAfterAPositionIsCountedPerObject(): void
     {
-        $this->file('LOC-2027-K7Q2MX');
-        $read = $this->service->latestLinkPosition('rental', 'LOC-2027-K7Q2MX');
-        $this->file('LOC-2027-K7Q2MX');
-        $this->file('LOC-2027-K7Q2MX');
-        $this->file('LOC-2027-P4W8ZA');
+        $this->file('LOC-K7Q2MX');
+        $read = $this->service->latestLinkPosition('rental', 'LOC-K7Q2MX');
+        $this->file('LOC-K7Q2MX');
+        $this->file('LOC-K7Q2MX');
+        $this->file('LOC-P4W8ZA');
 
         $this->assertSame(
-            ['LOC-2027-K7Q2MX' => 2, 'LOC-2027-P4W8ZA' => 1],
-            $this->service->countLinksAfter('rental', ['LOC-2027-K7Q2MX' => $read, 'LOC-2027-P4W8ZA' => 0])
+            ['LOC-K7Q2MX' => 2, 'LOC-P4W8ZA' => 1],
+            $this->service->countLinksAfter('rental', ['LOC-K7Q2MX' => $read, 'LOC-P4W8ZA' => 0])
         );
     }
 
     public function testReadingUpToTheLatestLeavesNothing(): void
     {
-        $this->file('LOC-2027-K7Q2MX');
-        $this->file('LOC-2027-K7Q2MX');
+        $this->file('LOC-K7Q2MX');
+        $this->file('LOC-K7Q2MX');
 
-        $latest = $this->service->latestLinkPosition('rental', 'LOC-2027-K7Q2MX');
+        $latest = $this->service->latestLinkPosition('rental', 'LOC-K7Q2MX');
 
-        $this->assertSame([], $this->service->countLinksAfter('rental', ['LOC-2027-K7Q2MX' => $latest]));
+        $this->assertSame([], $this->service->countLinksAfter('rental', ['LOC-K7Q2MX' => $latest]));
     }
 
     public function testAnotherModulesAssociationsAndAttachmentLevelOnesDoNotCount(): void
     {
-        $messageId = $this->file('LOC-2027-K7Q2MX');
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-K7Q2MX', LinkOrigin::SENDER, 42);
+        $messageId = $this->file('LOC-K7Q2MX');
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2MX', LinkOrigin::SENDER, 42);
         $other = $this->store();
-        $this->messages->addLink($other, 'camps', 'LOC-2027-K7Q2MX', LinkOrigin::REFERENCE);
+        $this->messages->addLink($other, 'camps', 'LOC-K7Q2MX', LinkOrigin::REFERENCE);
 
-        $this->assertSame(['LOC-2027-K7Q2MX' => 1], $this->service->countLinksAfter('rental', ['LOC-2027-K7Q2MX' => 0]));
+        $this->assertSame(['LOC-K7Q2MX' => 1], $this->service->countLinksAfter('rental', ['LOC-K7Q2MX' => 0]));
     }
 
     private function file(string $reference): int

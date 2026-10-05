@@ -159,7 +159,7 @@ class RentalPaymentServiceTest extends TestCase
         );
     }
 
-    private function createBooking(int $totalCents = 46750, string $reference = 'LOC-2027-0001'): RentalBooking
+    private function createBooking(int $totalCents = 46750, string $reference = 'LOC-A2B3C4'): RentalBooking
     {
         $created = $this->bookingRepository->create(
             $this->assetId,
@@ -710,7 +710,7 @@ class RentalPaymentServiceTest extends TestCase
         );
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
-        $this->assertStringContainsString('LOC-2027-0001', $journal);
+        $this->assertStringContainsString('LOC-A2B3C4', $journal);
         $this->assertStringNotContainsString('état déplorable', $journal);
         $this->assertStringNotContainsString('Jeanne Martin', $journal);
     }

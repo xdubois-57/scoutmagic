@@ -295,9 +295,9 @@ test.describe('Rentals — running an asset', () => {
         await waitOutHumanCheckDelay(page);
         await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
-        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/ });
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
-        const reference = (await heading.textContent()).match(/LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/)[0];
+        const reference = (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
 
         // ── And the unit answers it ─────────────────────────────────────
         await loginAsAdmin(page);

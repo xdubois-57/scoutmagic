@@ -714,7 +714,7 @@ class AvailabilityCalculatorTest extends TestCase
 
     public function testAnUnavailablePeriodIsRefusedWithoutSayingWhy(): void
     {
-        $occupancies = [new Occupancy('2027-07-18', '2027-07-19', 1, 'LOC-2027-0042')];
+        $occupancies = [new Occupancy('2027-07-18', '2027-07-19', 1, 'LOC-K7Q2M4')];
 
         $errors = $this->calculator->validateRange(
             $this->date('2027-07-17'), $this->date('2027-07-20'), 1, 1, $occupancies,
@@ -722,7 +722,7 @@ class AvailabilityCalculatorTest extends TestCase
         );
 
         $this->assertSame(["Cette période n'est pas disponible."], $errors);
-        $this->assertStringNotContainsString('LOC-2027-0042', implode(' ', $errors));
+        $this->assertStringNotContainsString('LOC-K7Q2M4', implode(' ', $errors));
     }
 
     public function testRequestingMoreUnitsThanExistIsRefused(): void
