@@ -548,12 +548,13 @@ class RentalMessageConsumer implements
         $options = [];
         foreach ($bookings as $booking) {
             $asset = $this->assetRepository?->findById($booking->assetId);
-            $options[$booking->reference] = implode(' · ', array_filter([
+            $parts = [
                 $asset?->name,
                 'du ' . $booking->arrivalDate . ' au ' . $booking->departureDate,
                 $booking->renterOrganisation ?? $booking->renterName,
                 $booking->status->label(),
-            ]));
+            ];
+            $options[$booking->reference] = implode(' · ', array_filter($parts));
         }
 
         return $options;
@@ -574,8 +575,9 @@ class RentalMessageConsumer implements
             'référence de location explicite dans l\'objet ou le corps',
             'réponse dans une conversation déjà rattachée à une location',
             'adresse du locataire, entre la demande et quelques semaines après le départ',
-            'plusieurs réservations du même locataire dans la période, ou une référence citée par une adresse '
-                . 'inconnue : l\'IA tranche parmi elles si elle est disponible, sinon le message n\'est rattaché à aucune',
+            'plusieurs réservations du même locataire dans la période, ou une référence citée par une '
+                . 'adresse inconnue : l\'IA tranche parmi elles si elle est disponible, '
+                . 'sinon le message n\'est rattaché à aucune',
         ];
     }
 
