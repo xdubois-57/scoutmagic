@@ -365,6 +365,17 @@ rattaché automatiquement à cette réservation** — il peut l'être à une
 autre. Un document déjà reclassé, un contrat signé par exemple, reste sur
 la réservation.
 
+En haut de la page, les **« Autres adresses du locataire »** : le
+trésorier du groupe, un conjoint, une adresse de travail. Un e-mail venant
+de l'une d'elles, ou envoyé à l'une d'elles, est reconnu comme s'il
+s'agissait du locataire. Vous en ajoutez ou en retirez une ; chaque
+changement figure dans l'historique de la réservation, et les messages
+déjà rattachés restent quand vous en retirez une. Quand quelqu'un
+rattache un message à la main depuis le courrier général de l'unité,
+l'adresse de l'expéditeur (ou le destinataire unique d'un e-mail envoyé)
+s'ajoute d'elle-même, marquée « ajoutée automatiquement » ; détacher ce
+message la retire.
+
 ## 12. Le registre de conformité
 
 Par bien : un intitulé libre, un document, une échéance, une remarque.

@@ -1015,6 +1015,108 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $this->bookingRepository->findByRenterEmail('locations@unite.be'));
     }
 
+    // ── « Autres adresses du locataire » (#720, step 5) ─────────────────
+
+    public function testAnAddressTheManagerTypedInIsTheRentersForTheReferenceRule(): void
+    {
+        // The treasurer quoting the reference is the renter's
+        // correspondence as much as the renter doing it.
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'tresorier@groupe.example');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REFERENCE, $messages[0]->linkOrigin);
+    }
+
+    public function testWhatTheUnitWroteToAnotherAddressOfTheRenterLandsToo(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+
+        $this->deliverSent(1, 'Votre réservation [LOC-2027-0042]', to: 'tresorier@groupe.example');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REFERENCE, $messages[0]->linkOrigin);
+    }
+
+    public function testALearnedAddressRemembersTheMessageThatTaughtIt(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->sync();
+        $stored = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $stored[0], 7);
+
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertCount(1, $others);
+        $this->assertSame('tresorier@groupe.example', $others[0]->email);
+        $this->assertSame($stored[0], $others[0]->learnedFromMessageId);
+        $this->assertTrue($others[0]->wasLearned());
+    }
+
+    public function testAnAiDecisionTeachesTheAddressLikeAPersonsDoes(): void
+    {
+        $booking = $this->createBooking();
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
+        );
+
+        $this->plainConsumer()->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+        );
+
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertCount(1, $others);
+        $this->assertSame(41, $others[0]->learnedFromMessageId);
+    }
+
+    public function testASentMessageTeachesItsRecipientOnlyWhenThereIsOne(): void
+    {
+        $booking = $this->createBooking();
+        $sent = fn(int $id, array $to): \Modules\InboundMail\Api\InboundMessage => new \Modules\InboundMail\Api\InboundMessage(
+            $id, $this->mailboxId, '', '', LinkOrigin::MANUAL, 'Les clés', 'locations@unite.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            toEmails: $to,
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        $link = new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::MANUAL);
+
+        // To the renter and the caretaker: nothing says which is the renter's.
+        $this->plainConsumer()->onLinked($sent(1, ['concierge@salle.example', 'tresorier@groupe.example']), $link);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+
+        $this->plainConsumer()->onLinked($sent(2, ['tresorier@groupe.example']), $link);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertCount(1, $others);
+        $this->assertSame('tresorier@groupe.example', $others[0]->email);
+        $this->assertSame(2, $others[0]->learnedFromMessageId);
+    }
+
+    public function testDetachingTheMessageForgetsTheAddressItTaughtAndOnlyThatOne(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', messageId: 'one@groupe.example');
+        $this->sync();
+        $stored = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $stored[0], 7);
+        $this->assertCount(2, $this->bookingRepository->otherRenterEmails($booking->id));
+
+        $this->assertTrue($this->communicationService->detach($booking, $stored[0]));
+
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['partenaire@maison.example'], array_map(static fn($o) => $o->email, $others));
+        $this->assertFalse($others[0]->wasLearned());
+    }
+
     // ── Attachments become documents (§7.8) ─────────────────────────────
 
     private function deliverWithPdf(int $uid, string $subject, string $filename = 'contrat.pdf'): void

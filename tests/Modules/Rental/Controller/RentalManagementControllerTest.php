@@ -916,6 +916,156 @@ class RentalManagementControllerTest extends TestCase
         }
     }
 
+    // ── « Autres adresses du locataire » (#720, step 5) ─────────────────
+
+    /** The service with its journal, as public/index.php wires it. */
+    private function withAuditedBookingService(): void
+    {
+        (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
+            $this->controller,
+            new RentalBookingService(
+                $this->bookingRepository,
+                new JournalService(new JournalRepository($this->pdo)),
+                null,
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            )
+        );
+    }
+
+    /** @param array<string, string> $fields */
+    private function addressPost(string $action, RentalBooking $booking, array $fields): Response
+    {
+        $path = $action === 'addOtherRenterEmail' ? '/mes-locations/courrier/adresse-ajouter' : '/mes-locations/courrier/adresse-retirer';
+
+        return $this->post($path, $action, [
+            'asset_id' => (string) $booking->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+        ] + $fields);
+    }
+
+    public function testTheCourrierPageListsTheOtherAddressesAndWhichWereLearned(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Autres adresses du locataire', $body);
+        $this->assertStringContainsString('partenaire@maison.example', $body);
+        $this->assertStringContainsString('tresorier@groupe.example', $body);
+        $this->assertSame(1, substr_count($body, 'ajoutée automatiquement'));
+        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+        $this->assertMatchesRegularExpression(
+            '#action="/mes-locations/courrier/adresse-retirer" class="ms-auto"\s+data-confirm="Retirer partenaire@maison.example \?#',
+            $body
+        );
+    }
+
+    public function testWithNoOtherAddressThePageSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Aucune autre adresse.', $body);
+    }
+
+    public function testAManagerAddsAnAddressAndTheHistorySaysSo(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => ' Tresorier@Groupe.example ']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
+        $this->assertFalse($others[0]->wasLearned());
+
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $last = end($history);
+        $this->assertNotFalse($last);
+        $this->assertSame(\Modules\Rental\Audit\BookingAudit::OTHER_EMAIL_CHANGED, $last->fieldKey);
+        $this->assertNull($last->fromValue);
+        $this->assertSame('tresorier@groupe.example', $last->toValue);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function refusedAddresses(): array
+    {
+        return [
+            'not an address' => ['tresorier'],
+            "the renter's own" => ['JEANNE@example.be'],
+            'already listed' => ['partenaire@maison.example'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedAddresses')]
+    public function testAnAddressThatAddsNothingIsRefused(string $email): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => $email]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerRemovesALearnedAddress(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $id = $this->bookingRepository->otherRenterEmails($booking->id)[0]->id;
+
+        $this->addressPost('removeOtherRenterEmail', $booking, ['other_email_id' => (string) $id]);
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+        $this->assertSame([], $this->bookingRepository->findByRenterEmail('tresorier@groupe.example'));
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $last = end($history);
+        $this->assertNotFalse($last);
+        $this->assertSame('tresorier@groupe.example', $last->fromValue);
+        $this->assertNull($last->toValue);
+    }
+
+    public function testAnAddressOfAnotherBookingCannotBeRemovedThroughThisOne(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $mine = $this->createBooking();
+        $other = $this->createBooking(null, 'LOC-2027-0002');
+        $this->bookingRepository->addRenterEmail($other->id, 'tresorier@groupe.example');
+        $id = $this->bookingRepository->otherRenterEmails($other->id)[0]->id;
+
+        $this->addressPost('removeOtherRenterEmail', $mine, ['other_email_id' => (string) $id]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($other->id));
+    }
+
+    public function testNobodyAddsAnAddressToABookingOfAnAssetTheyDoNotManage(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-K7Q2MX');
+
+        $response = $this->addressPost('addOtherRenterEmail', $theirs, ['email' => 'intrus@ailleurs.example']);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($theirs->id));
+    }
+
     // ── What the site sent the renter (#720, step 2) ────────────────────
 
     private function withSentLog(): \Modules\Rental\Repository\RentalSentEmailRepository

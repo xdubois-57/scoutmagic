@@ -2316,8 +2316,8 @@ answer:**
    only for a booking that still exists. It comes before the reference
    below: the site minted it for one booking and the gateway verified it,
    while a subject can quote any reference.
-1. **A reference in the subject** (`[LOC-2027-K7Q2MX]`), **from the
-   renter's own address** — the module put it there itself, so the
+1. **A reference in the subject** (`[LOC-2027-K7Q2MX]`), **from one of the
+   renter's addresses** (their own or one of the booking's others, below) — the module put it there itself, so the
    renter's reply carrying it back is as close to certain as automatic
    attachment gets; a stranger quoting it files nothing (#231). Bracketed beats bare, and the subject beats
    the body, because a body is full of quoted history. **Two different
@@ -2331,9 +2331,9 @@ answer:**
    look inside the other module's storage. The reference still wins when
    both point, since a thread can be hijacked by replying to an old email
    about a different booking.
-3. **The sender's address** — the renter's own, or one a manager taught the
-   booking by filing a message from it by hand (`rental_booking_emails`,
-   blind-indexed like the renter's). A renter with **exactly one booking**
+3. **The sender's address** — the renter's own, or one of the booking's
+   « Autres adresses du locataire » (`rental_booking_emails`,
+   blind-indexed like the renter's, below). A renter with **exactly one booking**
    is attached whatever the date: the window exists to tell two bookings
    apart, and there is nothing to tell apart. With several, the message
    must fall between the request and some weeks after the departure of
@@ -2352,7 +2352,7 @@ address level reads the recipients (`LinkOrigin::RECIPIENT`, shown as
 uncertain) with the same window and the same silence on ambiguity. There
 is no reply-address level: that is something the renter writes to. A sent
 message is never announced and never teaches the booking an address — its
-sender is the unit.
+sender is the unit — unless a person or the AI filed it, below.
 
 **Ambiguity is answered with nothing** (#720). Two live bookings matching
 the sender inside the window attach nothing — a manager reading the wrong
@@ -2361,12 +2361,26 @@ attachment worse than none — and nobody is asked to choose either: the
 propositions, the notification that announced them
 (`rental.mail_proposition`) and the attention point that counted them are
 gone with the screen that showed them. The message appears on no booking.
-**A manual filing teaches the booking the sender's address**
-(`onLinked()` on `LinkOrigin::MANUAL` only, which in the rentals now only
-comes from the unit's general mail screen) and re-examines the mail
-nobody could attribute (`REANALYSIS_AFTER_DECISION`), so the treasurer of a
-group writing from their own address is filed by hand once, not on every
-message.
+
+**« Autres adresses du locataire »** (#720, step 5, `rental_booking_emails`).
+The booking's other addresses — the treasurer, a partner, a work address —
+count wherever the renter's own does: for the reference of level 1, for
+the sender of level 3, and for the recipients of a sent message
+(`RentalBookingRepository::isAddressOfBooking()`, which every one of those
+reads). The Courrier page lists them; a manager adds or removes one
+(`POST /mes-locations/courrier/adresse-ajouter` and `adresse-retirer`,
+through `bookingAction()` and `RentalBookingService`, recorded in the
+booking's history as `other_email_changed`). Removing one leaves the
+messages already filed where they are. **A decision teaches an address**:
+`onLinked()` on `LinkOrigin::MANUAL` — the unit's general mail screen — or
+`LinkOrigin::AI` adds the sender, or for a sent message its recipient when
+there is exactly one, with `learned_from_message_id` naming the message;
+the page marks it « ajoutée automatiquement », and « Détacher » on that
+message forgets it (`forgetEmailsLearnedFrom()`, in `onUnlinked()`) while
+an address typed by hand or taught by another message stays. A decision
+then re-examines the mail nobody could attribute
+(`REANALYSIS_AFTER_DECISION`, the rules only), so the treasurer is filed
+once, not on every message.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
 pointing at the very file `UploadHandler` stored rather than a copy. Never

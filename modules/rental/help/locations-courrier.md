@@ -10,7 +10,7 @@ question: Pourquoi un e-mail du locataire n'apparaît-il pas sur sa réservation
 question: Que devient un message quand je le détache d'une réservation ?
 question: Pourquoi voit-on les e-mails que nous avons écrits au locataire ?
 paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/courrier
-related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
+related: gerer-les-locations, locations-adresses, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
 Chaque réservation a une page « Courrier ». Elle montre le courrier de
