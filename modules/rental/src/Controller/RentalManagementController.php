@@ -3129,8 +3129,10 @@ class RentalManagementController extends AbstractController
             return false;
         }
 
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
         return !isset($this->stayService->inventoryValidations($booking->id)['departure'])
-            && !isset(($this->milestoneMarkService?->marksFor($booking->id) ?? [])[BookingMilestones::DEPARTURE_INVENTORY]);
+            && !isset($marks[BookingMilestones::DEPARTURE_INVENTORY]);
     }
 
     /**
@@ -3298,7 +3300,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordSettlement(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->stayService === null) {
                 throw new RentalException('Le décompte final n\'est pas disponible.');
             }
