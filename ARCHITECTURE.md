@@ -2378,9 +2378,11 @@ asked and the message appears on no booking. The text read is anybody's
 forward. **The reference case is the weak one, and it is deliberate**
 (the chantier asks for it): there the rules put forward one booking only
 because the message named it, so the model is confirming, not choosing. Two
-things bound it. The reference is random since #720 step 9 (six characters
-out of 31, about 887 million) and travels only in that booking's own mail,
-so quoting it means having seen that mail — the treasurer the renter
+things bound it. Only a random reference qualifies
+(`BookingReference::isUnguessable()`, #720 step 9: six characters out of
+31, about 887 million) — a sequential one a booking made before then still
+carries can be enumerated, so it never reaches the model — and it travels
+only in that booking's own mail, so quoting it means having seen that mail — the treasurer the renter
 forwarded it to, which is the case this exists for. And what it obtains is
 a message, and an address, filed under the booking for its managers alone:
 nothing is sent to the sender, the attachments stay `Non classé` and

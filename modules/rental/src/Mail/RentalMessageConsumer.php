@@ -22,6 +22,7 @@ use Modules\InboundMail\Api\ReferenceDirectory;
 use Modules\InboundMail\Api\ReferenceSuggestion;
 use Modules\LlmConnector\Api\LlmException;
 use Core\Service\TextNormalizerService;
+use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\OtherRenterEmail;
 use Modules\Rental\Booking\RentalBooking;
@@ -511,8 +512,12 @@ class RentalMessageConsumer implements
                 }
             }
 
-            // A reference quoted by an address the booking does not know.
-            return [$referenced];
+            // A reference quoted by an address the booking does not know —
+            // only a random one: a sequential reference from before #720
+            // step 9 can be enumerated, and the model, handed the one
+            // booking the message itself names, would only rubber-stamp it
+            // (#231).
+            return BookingReference::isUnguessable($referenced->reference) ? [$referenced] : [];
         }
 
         [$decided, $standing] = $this->addressMatch($people, $message->sentAt);

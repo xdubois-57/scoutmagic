@@ -1338,18 +1338,33 @@ class RentalMessageConsumerTest extends TestCase
 
     public function testAReferenceQuotedByAnUnknownAddressIsTheModelsToConfirm(): void
     {
-        $this->createBooking();
+        $this->createBooking('LOC-2027-K7Q2MX');
         $this->createBooking('LOC-2027-0043', 'marc@example.be');
-        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'tresorier@groupe.example', body: 'Je suis le trésorier du groupe de Jeanne.');
+        $this->deliver(10, 'Re: [LOC-2027-K7Q2MX]', from: 'tresorier@groupe.example', body: 'Je suis le trésorier du groupe de Jeanne.');
         $this->sync();
-        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-K7Q2MX');
 
         $result = $consumer->analyzeStored($this->storedMessage());
 
-        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
+        $this->assertSame('LOC-2027-K7Q2MX', $result->links[0]->businessReference);
         $this->assertSame(LinkOrigin::AI, $result->links[0]->origin);
         $this->assertNotNull($llm->lastRequest);
         $this->assertStringNotContainsString('LOC-2027-0043', $llm->lastRequest->prompt, 'only the booking the reference names');
+    }
+
+    public function testASequentialReferenceFromAnUnknownAddressNeverReachesTheModel(): void
+    {
+        // A booking made before references were random still carries
+        // LOC-2027-0042, which a stranger can enumerate: handed the one
+        // booking the message names, the model could only rubber-stamp it
+        // (#231).
+        $this->createBooking('LOC-2027-0042');
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example', body: 'Je suis le trésorier.');
+        $this->sync();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $this->assertTrue($consumer->analyzeStored($this->storedMessage())->isEmpty());
+        $this->assertSame(0, $llm->calls);
     }
 
     public function testABookingTheMessageWasDetachedFromIsNeverOffered(): void
@@ -1400,15 +1415,15 @@ class RentalMessageConsumerTest extends TestCase
         // End to end: the stranger quoting the reference is filed nowhere
         // on arrival; the hourly pass asks the model, files its choice
         // as « ai », and the booking learns the treasurer's address.
-        $booking = $this->createBooking();
-        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'tresorier@groupe.example', body: 'Le trésorier de Jeanne.');
+        $booking = $this->createBooking('LOC-2027-K7Q2MX');
+        $this->deliver(10, 'Re: [LOC-2027-K7Q2MX]', from: 'tresorier@groupe.example', body: 'Le trésorier de Jeanne.');
         $this->sync();
         $this->assertSame(0, $this->countRentalAssociations());
 
         // The pass asks only the modules a box is open to; this one is
         // the rentals' own.
         $this->mailboxRepository->setPurpose($this->mailboxId, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
-        [$consumer] = $this->modelConsumer('LOC-2027-0042');
+        [$consumer] = $this->modelConsumer('LOC-2027-K7Q2MX');
         $registry = new MessageConsumerRegistry();
         $registry->register($consumer);
         (new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($registry))->handle([], new \Core\Scheduler\TaskContext(

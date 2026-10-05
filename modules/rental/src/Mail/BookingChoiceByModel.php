@@ -25,8 +25,9 @@ use Modules\LlmConnector\Api\LlmTier;
  * only ever picks among the bookings the rules put forward. For a reference
  * quoted by an address the booking does not know, that list is the one
  * booking the message named: the model confirms rather than chooses, and
- * what bounds it is the reference being random and sent only to that
- * booking's own correspondents (ARCHITECTURE.md §8.59). Either way the
+ * what bounds it is the reference being random — a sequential one never
+ * gets this far — and sent only to that booking's own correspondents
+ * (ARCHITECTURE.md §8.59). Either way the
  * filing is visible to the managers alone and « Détacher » undoes it.
  *
  * Optional everywhere (§7.5): without the connector, or without a model on
