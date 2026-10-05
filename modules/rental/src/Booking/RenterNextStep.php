@@ -73,7 +73,8 @@ final class RenterNextStep
                 true
             ),
             BookingStatus::PROPOSED => new self(
-                'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.' . self::hold($booking, $now),
+                'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.'
+                . self::hold($booking, $now),
                 true
             ),
             BookingStatus::REFUSED => new self("Rien à faire de votre côté : votre demande n'a pas pu être acceptée."),
