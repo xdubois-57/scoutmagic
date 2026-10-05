@@ -22,6 +22,7 @@ use Modules\InboundMail\Api\ReferenceDirectory;
 use Modules\InboundMail\Api\ReferenceSuggestion;
 use Core\Service\TextNormalizerService;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\OtherRenterEmail;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -265,7 +266,8 @@ class RentalMessageConsumer implements
      */
     private function analyzeSent(CandidateMessage $message): AnalysisResult
     {
-        if ($message->messageId !== '' && $this->inboundMail->wasSentByThisSite(self::CONSUMER_ID, $message->messageId)) {
+        $messageId = $message->messageId;
+        if ($messageId !== '' && $this->inboundMail->wasSentByThisSite(self::CONSUMER_ID, $messageId)) {
             return AnalysisResult::nothing();
         }
 
@@ -371,11 +373,12 @@ class RentalMessageConsumer implements
      * and trimmed — and never a substring: an address is equal to the
      * renter's or it is not.
      */
-    private function isRenterOf(RentalBooking $booking, string $fromEmail): bool
+    private function isRenterOf(RentalBooking $booking, string $email): bool
     {
-        $from = mb_strtolower(trim($fromEmail));
-
-        return $from !== '' && $from === mb_strtolower(trim($booking->renterEmail));
+        // The renter's own address or one of the booking's other ones
+        // (#720, step 5): the treasurer quoting the reference is the
+        // renter's correspondence as much as the renter doing it.
+        return $this->bookingRepository->isAddressOfBooking($booking, $email);
     }
 
     /**
@@ -459,14 +462,16 @@ class RentalMessageConsumer implements
             return;
         }
 
-        // What the unit sent is neither news to its managers nor a new
-        // address of the renter's: the sender of a sent message is the
-        // unit itself.
-        if (!$message->isSent()) {
-            if ($link->origin === LinkOrigin::MANUAL) {
-                $this->learnFrom($message, $booking);
-            }
+        // Only a decision is worth learning from — a person's, or the AI's
+        // among bookings the rules could not tell apart (#720, step 5). An
+        // address the rules matched on their own is already known, and
+        // the thread rule's may be anybody in the conversation.
+        if ($link->attachmentId === 0 && in_array($link->origin, [LinkOrigin::MANUAL, LinkOrigin::AI], true)) {
+            $this->learnFrom($message, $booking);
+        }
 
+        // What the unit sent is no news to its managers.
+        if (!$message->isSent()) {
             $this->announce($booking, $link);
         }
 
@@ -526,23 +531,27 @@ class RentalMessageConsumer implements
     }
 
     /**
-     * What a manager's decision teaches the module, and what it does with
-     * it at once.
+     * What a decision teaches the module, and what it does with it at once.
      *
-     * The sender's address becomes one of the booking's addresses — the
-     * renter writing from work, the partner answering from home — so the
-     * next message from it is recognised without anybody's help. And the
-     * unattributed mail is offered to this module again straight away:
-     * the rest of that thread, and every earlier message from that
-     * address, just became attributable. Bounded, and never inside a
-     * synchronisation — a manual association only ever happens in a
-     * request.
+     * The sender's address becomes one of the booking's « Autres adresses
+     * du locataire » — the renter writing from work, the partner answering
+     * from home — marked as learned from this message, so the next one
+     * from it is recognised without anybody's help, the manager sees it
+     * « ajoutée automatiquement », and « Détacher » takes it back. For a
+     * message the unit SENT the person is the recipient, and only when
+     * there is exactly one: a message to the renter and the caretaker
+     * says nothing about which of the others is the renter's.
+     *
+     * And the unattributed mail is offered to this module again straight
+     * away: the rest of that thread, and every earlier message from that
+     * address, just became attributable. Bounded; it re-runs only the
+     * rules, never the AI, so a decision cannot set off another.
      */
     private function learnFrom(InboundMessage $message, RentalBooking $booking): void
     {
-        $sender = RentalBookingRepository::normalizeEmail($message->fromEmail);
-        if ($sender !== '' && $sender !== RentalBookingRepository::normalizeEmail($booking->renterEmail)) {
-            $this->bookingRepository->addRenterEmail($booking->id, $sender);
+        $address = self::taughtAddress($message);
+        if ($address !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
+            $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
         }
 
         try {
@@ -554,11 +563,63 @@ class RentalMessageConsumer implements
         }
     }
 
+    /**
+     * The address a decision about this message teaches: its sender, or
+     * for a sent message its recipient when there is exactly one —
+     * normalised, '' when there is none.
+     */
+    private static function taughtAddress(InboundMessage $message): string
+    {
+        $address = $message->isSent()
+            ? (count($message->toEmails) === 1 ? $message->toEmails[0] : '')
+            : $message->fromEmail;
+
+        return RentalBookingRepository::normalizeEmail($address);
+    }
+
+    /**
+     * Forget what this message taught the booking: « Détacher » says it was
+     * not about the booking, so neither is the address it came from —
+     * unless another message still filed there by a decision teaches the
+     * same address, in which case the address now hangs off that one. Only
+     * one row exists per address (the unique index), so without that
+     * hand-over detaching either of two teachers forgot it for both.
+     */
+    private function forgetWhatItTaught(RentalBooking $booking, InboundMessage $message): void
+    {
+        $learned = array_values(array_filter(
+            $this->bookingRepository->otherRenterEmails($booking->id),
+            static fn(OtherRenterEmail $other): bool => $other->learnedFromMessageId === $message->id
+        ));
+        if ($learned === []) {
+            return;
+        }
+
+        $teachers = [];
+        foreach ($this->inboundMail->findForReference(self::CONSUMER_ID, $booking->reference) as $filed) {
+            if ($filed->id !== $message->id
+                && in_array($filed->linkOrigin, [LinkOrigin::MANUAL, LinkOrigin::AI], true)
+            ) {
+                $teachers[self::taughtAddress($filed)] ??= $filed->id;
+            }
+        }
+
+        foreach ($learned as $other) {
+            $teacher = $teachers[RentalBookingRepository::normalizeEmail($other->email)] ?? null;
+            if ($teacher === null) {
+                $this->bookingRepository->removeRenterEmail($booking->id, $other->id);
+            } else {
+                $this->bookingRepository->repointLearnedEmail($booking->id, $other->id, $teacher);
+            }
+        }
+    }
+
     /** How many unattributed messages one manual decision re-examines. */
     public const REANALYSIS_AFTER_DECISION = 50;
 
     /**
-     * Take back the documents `onLinked()` filed on that booking.
+     * Take back what `onLinked()` filed on that booking: the address the
+     * message taught it, and its documents.
      *
      * **This is the bug that made the callback necessary.** Reassigning a
      * message from one booking to another left its `RentalDocument` rows
@@ -580,12 +641,17 @@ class RentalMessageConsumer implements
      */
     public function onUnlinked(InboundMessage $message, MessageLink $link): void
     {
-        if ($message->attachments === []) {
+        $booking = $this->bookingRepository->findByReference($link->businessReference);
+        if ($booking === null) {
             return;
         }
 
-        $booking = $this->bookingRepository->findByReference($link->businessReference);
-        if ($booking === null) {
+        // The message was not about this booking, so neither is the address
+        // its filing taught it (#720, step 5). Only that one: an address a
+        // manager typed in, or another message taught, stays.
+        $this->forgetWhatItTaught($booking, $message);
+
+        if ($message->attachments === []) {
             return;
         }
 

@@ -53,6 +53,13 @@ final class BookingAudit
     public const CHANGE_DECIDED = 'change_decided';
     public const COMMENT_ADDED = 'comment_added';
     public const STEP_MARKED = 'step_marked';
+    /**
+     * One of the « Autres adresses du locataire » added or removed by a
+     * manager (#720, step 5): the address in `to` for an addition, in
+     * `from` for a removal. An address a filing taught is not recorded
+     * here — the message on the Courrier page is its record.
+     */
+    public const OTHER_EMAIL_CHANGED = 'other_email_changed';
 
     /**
      * What a reader sees instead of the raw key. A key with no entry falls
@@ -72,6 +79,7 @@ final class BookingAudit
         self::CHANGE_DECIDED => 'Décision sur la modification',
         self::COMMENT_ADDED => 'Commentaire',
         self::STEP_MARKED => 'Étape cochée à la main',
+        self::OTHER_EMAIL_CHANGED => 'Autre adresse du locataire',
     ];
 
     public function __construct(

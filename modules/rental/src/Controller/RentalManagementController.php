@@ -1369,6 +1369,51 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * POST /mes-locations/courrier/adresse-ajouter — one more of the
+     * « Autres adresses du locataire » (#720, step 5).
+     *
+     * @param array<string, string> $params
+     */
+    public function addOtherRenterEmail(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->otherRenterEmailService()->addOtherRenterEmail(
+                $booking,
+                (string) $request->getBody('email', ''),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Adresse ajoutée.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/courrier/adresse-retirer — one of them goes,
+     * whether a manager typed it or a filing taught it.
+     *
+     * @param array<string, string> $params
+     */
+    public function removeOtherRenterEmail(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->otherRenterEmailService()->removeOtherRenterEmail(
+                $booking,
+                (int) $request->getBody('other_email_id', 0),
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Adresse retirée.');
+        });
+    }
+
+    /** @throws RentalException */
+    private function otherRenterEmailService(): RentalBookingService
+    {
+        return $this->bookingService
+            ?? throw new RentalException('Les adresses du locataire ne sont pas modifiables ici.');
+    }
+
+    /**
      * POST /mes-locations/courrier/renvoyer — « Renvoyer » an e-mail the
      * log shows as not sent (#720, step 2): the same text, with the
      * booking's current tracking link and its attachments read from the
@@ -1480,6 +1525,10 @@ class RentalManagementController extends AbstractController
             ),
             'mail_module_active' => $this->communicationService !== null,
             'mail_collected' => $this->communicationService?->collects() ?? false,
+            // Listed whether or not a box collects: they are the renter's
+            // addresses either way, and adding one before the box is
+            // opened is how its first message is filed straight away.
+            'other_renter_emails' => $this->bookingRepository->otherRenterEmails($booking->id),
         ];
     }
 

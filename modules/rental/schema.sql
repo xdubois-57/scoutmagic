@@ -657,9 +657,12 @@ CREATE TABLE IF NOT EXISTS rental_blocks (
 --
 -- A renter writes from work, their partner answers from home, the group's
 -- secretary takes over: the booking knows one address and the sender rule
--- (§7.6, level 3) only that one. Each time a manager files such a message
--- by hand, the sender's address is remembered here, so the next one from
--- it is recognised without anybody's help. Encrypted like the renter's own
+-- (§7.6, level 3) only that one. These are the « Autres adresses du
+-- locataire » (#720, step 5): a manager adds or removes one on the
+-- booking's Courrier page, and a filing a person or the AI decided teaches
+-- the sender's address (the recipient's, for a sent message), marked as
+-- learned from that message. Matched like the renter's own, for received
+-- and sent mail alike. Encrypted like the renter's own
 -- address, matched through the same blind index, and erased with the
 -- booking.
 CREATE TABLE IF NOT EXISTS rental_booking_emails (
@@ -667,8 +670,12 @@ CREATE TABLE IF NOT EXISTS rental_booking_emails (
     booking_id INT UNSIGNED NOT NULL,
     email_encrypted BLOB NOT NULL,
     email_blind_index VARCHAR(64) NOT NULL,
+    -- The message whose filing taught this address (#720, step 5); NULL
+    -- when a manager typed it in. « Détacher » that message forgets it.
+    learned_from_message_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_rental_booking_emails_unique (booking_id, email_blind_index),
+    INDEX idx_rental_booking_emails_learned (booking_id, learned_from_message_id),
     INDEX idx_rental_booking_emails_blind (email_blind_index),
     CONSTRAINT fk_rental_booking_emails_booking FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

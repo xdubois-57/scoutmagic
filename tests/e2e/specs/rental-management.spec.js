@@ -43,7 +43,7 @@ import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
-import { openModal } from '../support/modal.js';
+import { closeModal, openModal } from '../support/modal.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -359,6 +359,20 @@ test.describe('Rentals — running an asset', () => {
             sent.first().getByRole('button', { name: 'Lire le message' }).click()
         );
         await expect(dialog.locator('#mail-message-modal-body')).not.toContainText(/[0-9a-f]{64}/);
+        await closeModal(page, 'mail-message-modal', () =>
+            dialog.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click());
+
+        // « Autres adresses du locataire » (#720, step 5): added and
+        // removed in place, through the page's own asynchronous forms.
+        await page.getByLabel('Ajouter une adresse').fill('tresorier@groupe.example');
+        await page.getByRole('button', { name: 'Ajouter', exact: true }).click();
+        await expect(page.getByText('Adresse ajoutée.')).toBeVisible();
+        const other = page.locator('[data-other-renter-email]');
+        await expect(other).toHaveCount(1);
+        await expect(other).toContainText('tresorier@groupe.example');
+        await page.getByRole('button', { name: 'Retirer tresorier@groupe.example' }).click();
+        expect(await answerConfirmation(page)).toContain('Les messages déjà rattachés restent');
+        await expect(other).toHaveCount(0);
 
         // ── The confirmed stay now holds its dates against everybody
         //    else, with no more reason given than the block was. ──────────

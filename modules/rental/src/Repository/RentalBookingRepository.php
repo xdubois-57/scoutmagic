@@ -13,6 +13,7 @@ use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
+use Modules\Rental\Booking\OtherRenterEmail;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\PriceQuote;
 
@@ -1039,11 +1040,13 @@ class RentalBookingRepository
     }
 
     /**
-     * Teach a booking one more address its correspondence comes from.
+     * Teach a booking one more address its correspondence comes from —
+     * typed by a manager, or learned from the message whose filing taught
+     * it (`$learnedFromMessageId`), which « Détacher » then takes back.
      *
      * @return bool whether the address was new to this booking
      */
-    public function addRenterEmail(int $bookingId, string $email): bool
+    public function addRenterEmail(int $bookingId, string $email, ?int $learnedFromMessageId = null): bool
     {
         $normalized = self::normalizeEmail($email);
         if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
@@ -1051,7 +1054,8 @@ class RentalBookingRepository
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO rental_booking_emails (booking_id, email_encrypted, email_blind_index) VALUES (?, ?, ?)'
+            'INSERT INTO rental_booking_emails (booking_id, email_encrypted, email_blind_index, learned_from_message_id)
+             VALUES (?, ?, ?, ?)'
         );
 
         try {
@@ -1059,12 +1063,80 @@ class RentalBookingRepository
                 $bookingId,
                 $this->encryption->encrypt($normalized, self::CTX_EMAIL),
                 $this->encryption->blindIndex($normalized, self::BLIND_INDEX_PURPOSE),
+                $learnedFromMessageId,
             ]);
         } catch (\PDOException) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * The booking's other addresses, in the order they were added (#720,
+     * step 5) — « Autres adresses du locataire ».
+     *
+     * @return list<OtherRenterEmail>
+     */
+    public function otherRenterEmails(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, email_encrypted, learned_from_message_id FROM rental_booking_emails
+              WHERE booking_id = ? ORDER BY id'
+        );
+        $stmt->execute([$bookingId]);
+
+        return array_map(
+            fn(array $row): OtherRenterEmail => new OtherRenterEmail(
+                (int) $row['id'],
+                $this->encryption->decrypt((string) $row['email_encrypted'], self::CTX_EMAIL),
+                $row['learned_from_message_id'] === null ? null : (int) $row['learned_from_message_id']
+            ),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /** @return bool whether the address was this booking's to remove */
+    public function removeRenterEmail(int $bookingId, int $id): bool
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM rental_booking_emails WHERE id = ? AND booking_id = ?');
+        $stmt->execute([$id, $bookingId]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Hand a learned address over to another message that teaches it too,
+     * so detaching the first one no longer takes it away (#720, step 5).
+     */
+    public function repointLearnedEmail(int $bookingId, int $id, int $messageId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_booking_emails SET learned_from_message_id = ? WHERE id = ? AND booking_id = ?'
+        );
+        $stmt->execute([$messageId, $id, $bookingId]);
+    }
+
+    /**
+     * Whether this address is the renter's or one of the booking's other
+     * addresses — compared as the mail layer hands addresses over.
+     */
+    public function isAddressOfBooking(RentalBooking $booking, string $email): bool
+    {
+        $normalized = self::normalizeEmail($email);
+        if ($normalized === '') {
+            return false;
+        }
+        if ($normalized === self::normalizeEmail($booking->renterEmail)) {
+            return true;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM rental_booking_emails WHERE booking_id = ? AND email_blind_index = ? LIMIT 1'
+        );
+        $stmt->execute([$booking->id, $this->encryption->blindIndex($normalized, self::BLIND_INDEX_PURPOSE)]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /**
