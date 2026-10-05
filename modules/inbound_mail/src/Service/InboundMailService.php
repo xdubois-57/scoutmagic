@@ -654,6 +654,11 @@ class InboundMailService implements InboundMailInterface
         $this->messageRepository->recordOutboundMessageId($consumerId, $businessReference, $messageId);
     }
 
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool
+    {
+        return $this->messageRepository->isExcluded($messageId, $consumerId, $businessReference);
+    }
+
     public function wasSentByThisSite(string $consumerId, string $messageId): bool
     {
         return $this->messageRepository->isOutboundMessageId($consumerId, $messageId);

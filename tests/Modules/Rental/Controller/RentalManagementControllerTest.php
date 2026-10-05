@@ -1252,6 +1252,34 @@ class RentalManagementControllerTest extends TestCase
         $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
     }
 
+    public function testAnAnonymousVisitorCannotAddAnAddressToABooking(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        AuthSession::logout();
+
+        $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'intrus@ailleurs.example']);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAnAnonymousVisitorCannotRemoveAnAddressFromABooking(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $id = $this->bookingRepository->otherRenterEmails($booking->id)[0]->id;
+        AuthSession::logout();
+
+        $response = $this->addressPost('removeOtherRenterEmail', $booking, ['other_email_id' => (string) $id]);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
     public function testAnAnonymousVisitorCannotResendAnything(): void
     {
         $this->loginAsManager();

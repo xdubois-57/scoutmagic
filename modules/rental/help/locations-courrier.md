@@ -42,8 +42,8 @@ la même façon, d'après ses destinataires : il apparaît « À : » suivi de
 l'adresse. Un e-mail du site n'y apparaît jamais deux fois, même si la
 boîte en garde une copie dans ses envoyés.
 
-Quand le site hésite entre plusieurs réservations, il ne rattache
-rien : le message n'apparaît sur aucune, et vous n'avez rien à trier.
+Quand le site hésite, l'IA tranche dans l'heure si elle est configurée,
+en le signalant ; sinon le message n'apparaît sur aucune réservation.
 
 ## Être prévenu
 

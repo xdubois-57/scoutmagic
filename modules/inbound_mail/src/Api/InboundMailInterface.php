@@ -316,6 +316,16 @@ interface InboundMailInterface
     ): bool;
 
     /**
+     * Whether a person detached this message from this object for good
+     * (`detach()` with `$excludeFromAnalysis`, #720). The applier already
+     * refuses such a link whatever a consumer answers; this lets a consumer
+     * leave the object out of what it weighs in the first place — a model
+     * asked to choose between two bookings must not spend its one answer on
+     * the one the message was taken off.
+     */
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool;
+
+    /**
      * Move a message from one business object to another **within the same
      * consumer**. The caller is responsible for having checked that the
      * user may reach BOTH references (§7.7) — this module cannot know a
