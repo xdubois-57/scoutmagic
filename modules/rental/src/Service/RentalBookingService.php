@@ -388,6 +388,64 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
+     * A manager adds one of the « Autres adresses du locataire » (#720,
+     * step 5): mail from or to it is matched like the renter's own.
+     *
+     * @throws RentalException
+     */
+    public function addOtherRenterEmail(RentalBooking $booking, string $email, ?int $actorMemberId): void
+    {
+        $normalized = RentalBookingRepository::normalizeEmail($email);
+        if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
+            throw new RentalException("Cette adresse e-mail n'est pas valide.");
+        }
+        if ($this->bookingRepository->isAddressOfBooking($booking, $normalized)) {
+            throw new RentalException('Cette adresse est déjà celle du locataire pour cette réservation.');
+        }
+        if (!$this->bookingRepository->addRenterEmail($booking->id, $normalized)) {
+            throw new RentalException("L'adresse n'a pas pu être ajoutée.");
+        }
+
+        $this->bookingAudit?->record(
+            $booking->id,
+            BookingAudit::OTHER_EMAIL_CHANGED,
+            null,
+            $normalized,
+            null,
+            $actorMemberId
+        );
+    }
+
+    /**
+     * A manager removes one of them — typed in by hand or « ajoutée
+     * automatiquement ». The messages already filed stay where they are;
+     * only the next ones are no longer matched through it.
+     *
+     * @throws RentalException
+     */
+    public function removeOtherRenterEmail(RentalBooking $booking, int $id, ?int $actorMemberId): void
+    {
+        $removed = null;
+        foreach ($this->bookingRepository->otherRenterEmails($booking->id) as $other) {
+            if ($other->id === $id) {
+                $removed = $other;
+            }
+        }
+        if ($removed === null || !$this->bookingRepository->removeRenterEmail($booking->id, $id)) {
+            throw new RentalException("Cette adresse n'appartient pas à cette réservation.");
+        }
+
+        $this->bookingAudit?->record(
+            $booking->id,
+            BookingAudit::OTHER_EMAIL_CHANGED,
+            $removed->email,
+            null,
+            null,
+            $actorMemberId
+        );
+    }
+
+    /**
      * When a request's automatic hold ends: `$days` after it arrived, but
      * **never past the start of the stay** (#708, IT-01) — a request
      * received on 1 October for a stay on the 10th must not be told « nous

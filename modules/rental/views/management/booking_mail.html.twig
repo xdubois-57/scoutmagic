@@ -10,6 +10,11 @@
   context (asset, booking, page), so it answers through bookingAction() like
   every other form of the file — asynchronously, the panel below re-rendered
   in place — and, without JavaScript, comes back here.
+
+  Above the list, the « Autres adresses du locataire » (#720, step 5): mail
+  from or to one of them is matched like the renter's own. A manager adds
+  or removes one; an address a filing taught carries « ajoutée
+  automatiquement », and « Détacher » on that message takes it back.
 #}
 {% block booking_content %}
     {% if not mail_module_active %}
@@ -26,6 +31,58 @@
             <em>Configuration &gt; Courrier entrant</em>, sous « Portée ».
         </p>
     {% endif %}
+
+    <section class="mb-4" aria-labelledby="other-renter-emails-title">
+        <h2 class="h6" id="other-renter-emails-title">Autres adresses du locataire</h2>
+        <p class="small text-body-secondary mb-2">
+            Un message venant de l'une de ces adresses, ou envoyé à l'une d'elles, est rattaché à
+            cette réservation comme s'il venait de {{ booking.renterEmail }}.
+        </p>
+        <div data-booking-panel="mail-addresses">
+            {% if other_renter_emails is empty %}
+                <p class="small text-body-secondary mb-2" data-other-renter-emails-empty>Aucune autre adresse.</p>
+            {% else %}
+                <ul class="list-unstyled mb-2" data-other-renter-emails>
+                    {% for other in other_renter_emails %}
+                        <li class="d-flex align-items-center gap-2 flex-wrap py-1" data-other-renter-email="{{ other.id }}">
+                            <span class="text-break">{{ other.email }}</span>
+                            {% if other.wasLearned() %}
+                                <span class="badge bg-body-tertiary border text-body-secondary">ajoutée automatiquement</span>
+                            {% endif %}
+                            <form method="post" action="/mes-locations/courrier/adresse-retirer" class="ms-auto"
+                                  data-confirm="Retirer {{ other.email }} ? Les messages déjà rattachés restent ; les suivants, de ou vers cette adresse, ne le seront plus automatiquement.">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                                <input type="hidden" name="other_email_id" value="{{ other.id }}">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                        aria-label="Retirer {{ other.email }}">
+                                    <i class="bi bi-x-lg" aria-hidden="true"></i> Retirer
+                                </button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            {# Inside the panel so the re-render after an addition hands
+               back an empty field. #}
+            <form method="post" action="/mes-locations/courrier/adresse-ajouter" class="d-flex gap-2 flex-wrap align-items-end">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+                <div class="flex-grow-1" style="min-width: 14rem;">
+                    <label for="other-renter-email" class="form-label small mb-1">Ajouter une adresse</label>
+                    <input type="email" class="form-control form-control-sm" id="other-renter-email" name="email"
+                           required autocomplete="off" placeholder="tresorier@groupe.be">
+                </div>
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter
+                </button>
+            </form>
+        </div>
+    </section>
 
     <div id="{{ boxes.mail.anchor }}">
         <div data-booking-panel="mail">

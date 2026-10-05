@@ -439,6 +439,7 @@ class RentalTestHelper
             booking_id INTEGER NOT NULL,
             email_encrypted BLOB NOT NULL,
             email_blind_index TEXT NOT NULL,
+            learned_from_message_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (booking_id, email_blind_index),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE

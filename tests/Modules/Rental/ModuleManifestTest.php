@@ -146,10 +146,14 @@ class ModuleManifestTest extends TestCase
      * 1.44.0 files what the unit wrote to the renter from its own box,
      * read in its « Envoyés » and matched on the recipients (#720, steps
      * 3 and 4).
+     *
+     * 1.45.0 remembers which message taught a booking one of its « Autres
+     * adresses du locataire » (`rental_booking_emails.learned_from_message_id`),
+     * so « Détacher » takes it back (#720, step 5).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.44.0', $this->manifest->version);
+        $this->assertSame('1.45.0', $this->manifest->version);
     }
 
     /**
