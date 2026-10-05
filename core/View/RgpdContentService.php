@@ -842,13 +842,18 @@ fait que ce soit un autre module qui déclenche l'appel : il doit donc apparaît
 UE/EEE, en section 5.2, avec le mécanisme de garantie applicable (voir aussi les règles 21 et 26). Conserve en
 particulier que **l'IA ne décide jamais** : aucune acceptation ou refus de réservation, aucune modification de prix
 convenu, aucune imputation de dégât, aucune retenue de caution, aucun remboursement, aucun changement de statut
-financier définitif — chaque proposition est validée ou écartée par un gestionnaire. Si "llm_connector" n'est PAS
+financier définitif — chaque proposition est validée ou écartée par un gestionnaire, à l'unique exception du
+rattachement d'un e-mail par le modèle, que tu dois nommer comme telle. Si "llm_connector" n'est PAS
 actif, retire uniquement ces deux paragraphes et garde le reste de la sous-section. **Courrier** : si "inbound_mail"
-est aussi actif, conserve le paragraphe « Ce qu'un rattachement fait à la main apprend au site » tel quel — une
-adresse apprise par un rattachement manuel, protégée comme celle du locataire et supprimée avec le dossier ;
-l'empreinte des identifiants des emails envoyés, qui n'est ni un contenu ni une adresse — et conserve le paragraphe «
-Aide du modèle pour départager » si "llm_connector" est actif (l'objet et le corps d'un message y sont transmis au
-fournisseur d'IA, qui ne rattache jamais rien : même statut de sous-traitant), retire-le sinon.
+est aussi actif, conserve le paragraphe « Ce qu'un rattachement décidé apprend au site » tel quel — une adresse
+apprise par un rattachement manuel ou par le modèle, protégée comme celle du locataire, visible et retirable par les
+gestionnaires, supprimée avec le dossier ; l'empreinte des identifiants des emails envoyés, qui n'est ni un contenu ni
+une adresse — et conserve le paragraphe « Aide du modèle pour départager » si "llm_connector" est actif (l'objet, la
+date et le texte d'un message y sont transmis au fournisseur d'IA avec le bien, les dates, le groupe et le statut des
+réservations possibles ; le modèle choisit seulement parmi elles et son choix **rattache** le message, visiblement
+et de façon réversible : même statut de sous-traitant), retire-le sinon. Si "llm_connector" n'est pas actif, retire
+aussi, dans le paragraphe sur les emails rattachés et dans celui sur ce qu'un rattachement apprend, la mention du
+modèle d'IA.
 29. **Module Courrier entrant (module inbound_mail)** : Si "inbound_mail" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), retire entièrement la sous-section "Module Courrier entrant" de la section 2.4 ainsi que la
 ligne correspondante en section 3.1. Si "inbound_mail" est actif, conserve-la intégralement et sans l'édulcorer.

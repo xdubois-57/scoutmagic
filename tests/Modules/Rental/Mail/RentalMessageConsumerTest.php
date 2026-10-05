@@ -1371,7 +1371,9 @@ class RentalMessageConsumerTest extends TestCase
 
         $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
         $this->assertNotNull($llm->lastRequest);
-        $this->assertStringContainsString("Envoyé par l'unité à : jeanne@example.be", $llm->lastRequest->prompt);
+        $this->assertStringContainsString("Envoyé par l'unité au locataire", $llm->lastRequest->prompt);
+        $this->assertStringNotContainsString('jeanne@example.be', $llm->lastRequest->prompt, 'no address is sent out');
+        $this->assertStringNotContainsString('Jeanne Martin', $llm->lastRequest->prompt, 'nor the renter\'s name');
     }
 
     public function testTheDeferredPassFilesTheModelsChoiceAndLearnsTheAddress(): void
