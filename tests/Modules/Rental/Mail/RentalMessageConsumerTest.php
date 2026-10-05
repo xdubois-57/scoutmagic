@@ -29,6 +29,8 @@ use Modules\InboundMail\Service\MessageContentSanitizer;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
+use Modules\LlmConnector\Api\LlmException;
+use Modules\Rental\Mail\BookingChoiceByModel;
 use Modules\Rental\Mail\RentalMessageConsumer;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -40,6 +42,7 @@ use Modules\Rental\Service\RentalException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
+use Tests\Modules\InboundMail\ScriptedLlm;
 use Tests\Modules\Rental\RentalTestHelper;
 use Core\Member\Repository\MemberProfileRepository;
 
@@ -1142,6 +1145,241 @@ class RentalMessageConsumerTest extends TestCase
         // And once the second goes too, nothing teaches it any more.
         $this->assertTrue($this->communicationService->detach($booking, $second));
         $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testWhatTheUnitWroteToAnotherAddressWithoutAReferenceUsesTheRecipientRule(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+
+        $this->deliverSent(1, 'Les clés', to: 'tresorier@groupe.example');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::RECIPIENT, $messages[0]->linkOrigin);
+    }
+
+    // ── The model settles what the rules could not (#720, step 6) ───────
+
+    /**
+     * @return array{RentalMessageConsumer, ScriptedLlm}
+     */
+    private function modelConsumer(?string $choice, bool $available = true, ?LlmException $throw = null): array
+    {
+        $llm = new ScriptedLlm($choice, $available, $throw);
+
+        return [
+            new RentalMessageConsumer(
+                $this->bookingRepository,
+                $this->inboundMail,
+                $this->documentService,
+                assetRepository: $this->assetRepository,
+                modelChoice: new BookingChoiceByModel($llm)
+            ),
+            $llm,
+        ];
+    }
+
+    /** The one message the sync stored, as the deferred pass reads it. */
+    private function storedMessage(): \Modules\InboundMail\Api\InboundMessage
+    {
+        $ids = $this->storedMessageIds();
+        $this->assertCount(1, $ids);
+        $message = $this->messageRepository->findAnyForAnalysis($ids[0]);
+        $this->assertNotNull($message);
+
+        return $message;
+    }
+
+    /** Two live bookings of Jeanne's, both in range of a July message. */
+    private function twoBookingsOfOneRenter(): void
+    {
+        $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be', body: 'Pour le séjour d\'août : les draps ?');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations(), 'the rules leave it to the model');
+    }
+
+    public function testTheModelSettlesTwoBookingsOfOneRenter(): void
+    {
+        $this->twoBookingsOfOneRenter();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0043');
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertCount(1, $result->links);
+        $this->assertSame('LOC-2027-0043', $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::AI, $result->links[0]->origin);
+        $this->assertSame(1, $llm->calls);
+        $this->assertNotNull($llm->lastRequest);
+        $this->assertStringContainsString('LOC-2027-0042 : Local Saint-Georges · du 2027-07-01 au 2027-07-04', $llm->lastRequest->prompt);
+        $this->assertStringContainsString('LOC-2027-0043', $llm->lastRequest->prompt);
+        $this->assertStringContainsString('les draps', $llm->lastRequest->prompt);
+    }
+
+    public function testTheModelAnsweringInLowerCaseStillNamesTheBooking(): void
+    {
+        $this->twoBookingsOfOneRenter();
+        [$consumer] = $this->modelConsumer(' loc-2027-0042 ');
+
+        $this->assertSame('LOC-2027-0042', $consumer->analyzeStored($this->storedMessage())->links[0]->businessReference);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function answersThatFileNothing(): array
+    {
+        return [
+            'the model declines' => [''],
+            'a booking off the list' => ['LOC-2027-9999'],
+            'not a reference at all' => ['la première'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('answersThatFileNothing')]
+    public function testAnAnswerThatIsNotOneOfTheBookingsFilesNothing(string $answer): void
+    {
+        $this->twoBookingsOfOneRenter();
+        [$consumer] = $this->modelConsumer($answer);
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertTrue($result->isEmpty());
+        $this->assertFalse($result->readingFailed, 'an answer, even « aucune », is not asked again');
+    }
+
+    public function testACallThatFailedIsAskedAgainLater(): void
+    {
+        $this->twoBookingsOfOneRenter();
+        [$consumer] = $this->modelConsumer(null, throw: new LlmException('timeout'));
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertSame([], $result->links);
+        $this->assertTrue($result->readingFailed);
+    }
+
+    public function testWithoutAModelNothingIsAskedAndNothingFiled(): void
+    {
+        $this->twoBookingsOfOneRenter();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0043', available: false);
+
+        $this->assertTrue($consumer->analyzeStored($this->storedMessage())->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
+    public function testAMessageTheRulesFiledIsNeverAskedAbout(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'jeanne@example.be');
+        $this->sync();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $this->assertTrue($consumer->analyzeStored($this->storedMessage())->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
+    public function testAStrangerWithNoBookingCostsNoCall(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Une offre', from: 'vendeur@ailleurs.example');
+        $this->sync();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $this->assertTrue($consumer->analyzeStored($this->storedMessage())->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
+    public function testAReferenceQuotedByAnUnknownAddressIsTheModelsToConfirm(): void
+    {
+        $this->createBooking();
+        $this->createBooking('LOC-2027-0043', 'marc@example.be');
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'tresorier@groupe.example', body: 'Je suis le trésorier du groupe de Jeanne.');
+        $this->sync();
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
+        $this->assertSame(LinkOrigin::AI, $result->links[0]->origin);
+        $this->assertNotNull($llm->lastRequest);
+        $this->assertStringNotContainsString('LOC-2027-0043', $llm->lastRequest->prompt, 'only the booking the reference names');
+    }
+
+    public function testABookingTheMessageWasDetachedFromIsNeverOffered(): void
+    {
+        [$first] = [$this->createBooking('LOC-2027-0042', 'jeanne@example.be')];
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $this->deliver(10, 'Une question sans référence', from: 'jeanne@example.be');
+        $this->sync();
+        $id = $this->storedMessageIds()[0];
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $first->reference, $id, 7);
+        $this->assertTrue($this->communicationService->detach($first, $id));
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0043');
+
+        $result = $consumer->analyzeStored($this->storedMessage());
+
+        $this->assertSame('LOC-2027-0043', $result->links[0]->businessReference);
+        $this->assertNotNull($llm->lastRequest);
+        $this->assertStringNotContainsString('LOC-2027-0042', $llm->lastRequest->prompt);
+    }
+
+    public function testWhatTheUnitSentToARenterOfTwoBookingsIsTheModelsToSettle(): void
+    {
+        // A sent message the rules file nowhere is not kept by the sync, so
+        // this one is kept because it is filed elsewhere — by another
+        // module — and the rentals still have it to settle.
+        $this->createBooking('LOC-2027-0042', 'jeanne@example.be');
+        $this->createBooking('LOC-2027-0043', 'jeanne@example.be', arrival: '2027-08-01', departure: '2027-08-04');
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::MANUAL, 'Les clés', 'locations@unite.be', null,
+            'unit-1@unite.be', null, new \DateTimeImmutable('2027-07-02 09:30:00'), 'Bonjour Jeanne,', '',
+            toEmails: ['jeanne@example.be'],
+            links: [new MessageLink('camps', 'CAMP-1', LinkOrigin::MANUAL)],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-0042');
+
+        $result = $consumer->analyzeStored($sent);
+
+        $this->assertSame('LOC-2027-0042', $result->links[0]->businessReference);
+        $this->assertNotNull($llm->lastRequest);
+        $this->assertStringContainsString("Envoyé par l'unité à : jeanne@example.be", $llm->lastRequest->prompt);
+    }
+
+    public function testTheDeferredPassFilesTheModelsChoiceAndLearnsTheAddress(): void
+    {
+        // End to end: the stranger quoting the reference is filed nowhere
+        // on arrival; the hourly pass asks the model, files its choice
+        // as « ai », and the booking learns the treasurer's address.
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'tresorier@groupe.example', body: 'Le trésorier de Jeanne.');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+
+        // The pass asks only the modules a box is open to; this one is
+        // the rentals' own.
+        $this->mailboxRepository->setPurpose($this->mailboxId, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
+        [$consumer] = $this->modelConsumer('LOC-2027-0042');
+        $registry = new MessageConsumerRegistry();
+        $registry->register($consumer);
+        (new \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler($registry))->handle([], new \Core\Scheduler\TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $this->createStub(\Core\Mail\MailService::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+            new \Core\Security\UserAccountRepository($this->pdo, $this->encryption),
+            sys_get_temp_dir()
+        ));
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::AI, $messages[0]->linkOrigin);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
+        $this->assertTrue($others[0]->wasLearned());
     }
 
     // ── Attachments become documents (§7.8) ─────────────────────────────

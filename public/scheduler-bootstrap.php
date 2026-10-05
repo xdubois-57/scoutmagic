@@ -577,7 +577,16 @@ function scoutmagicBootstrapScheduler(
                                 ),
                                 new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService),
                                 $journalService
-                            )
+                            ),
+                        // Names each booking by its asset when the model
+                        // is asked to choose between them.
+                        assetRepository: new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService),
+                        // The deferred pass asks the model what the rules
+                        // could not settle (#720, step 6). Without the
+                        // connector, or a cheap model, nothing is asked.
+                        modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
+                            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
+                        )
                     ));
                 }
 

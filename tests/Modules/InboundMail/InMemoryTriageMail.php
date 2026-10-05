@@ -238,6 +238,11 @@ final class InMemoryTriageMail implements InboundMailInterface
         return count($this->links[$messageId]) < $before;
     }
 
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool
+    {
+        return in_array([$consumerId, $businessReference, $messageId], $this->exclusions, true);
+    }
+
     public function dismissMessage(string $consumerId, array $ownReferences, int $messageId, ?int $userAccountId = null): bool
     {
         if (!isset($this->messages[$messageId]) || $this->withLinks($this->messages[$messageId])->linksFor($consumerId) !== []) {

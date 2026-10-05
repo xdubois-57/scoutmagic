@@ -83,6 +83,11 @@ trait InertInboundMail
     {
     }
 
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool
+    {
+        return false;
+    }
+
     public function wasSentByThisSite(string $consumerId, string $messageId): bool
     {
         return false;

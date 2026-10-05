@@ -142,6 +142,20 @@ class DetachForGoodTest extends TestCase
         $this->assertSame([], $applied->candidates);
     }
 
+    public function testAConsumerCanAskWhetherItWasRuledOut(): void
+    {
+        // What the rentals' model asks before weighing two bookings: the one
+        // a person took the message off is not on the list (#720, step 6).
+        $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
+        $this->assertFalse($this->service->isExcluded('rental', $messageId, 'LOC-2027-K7Q2MX'));
+
+        $this->service->detach('rental', 'LOC-2027-K7Q2MX', $messageId, [], true);
+
+        $this->assertTrue($this->service->isExcluded('rental', $messageId, 'LOC-2027-K7Q2MX'));
+        $this->assertFalse($this->service->isExcluded('rental', $messageId, 'LOC-2027-AAAAAA'));
+        $this->assertFalse($this->service->isExcluded('camps', $messageId, 'LOC-2027-K7Q2MX'));
+    }
+
     public function testDetachingTwiceForGoodIsOneDecisionAndNoError(): void
     {
         $messageId = $this->linkedMessage('LOC-2027-K7Q2MX');
