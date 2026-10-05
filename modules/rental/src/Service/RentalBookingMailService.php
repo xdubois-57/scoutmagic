@@ -201,10 +201,6 @@ class RentalBookingMailService
     }
 
     /**
-     * The body with the tracking link — and the bare token, wherever else
-     * it could appear — replaced by `SentEmail::MASKED_LINK`.
-     */
-    /**
      * The booking documents among these attachments, by id.
      *
      * @param list<array{path: string, name: string, document_id?: int|null}> $attachments
@@ -222,6 +218,10 @@ class RentalBookingMailService
         return $ids;
     }
 
+    /**
+     * The body with the tracking link — and the bare token, wherever else
+     * it could appear — replaced by `SentEmail::MASKED_LINK`.
+     */
     private function masked(RentalBooking $booking, string $body, ?string $trackingToken, bool $isHtml): string
     {
         if ($trackingToken === null || $trackingToken === '') {

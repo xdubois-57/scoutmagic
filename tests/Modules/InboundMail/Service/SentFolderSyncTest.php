@@ -209,6 +209,23 @@ class SentFolderSyncTest extends TestCase
         $this->assertSame(MessageDirection::RECEIVED, $stored[0]->direction);
     }
 
+    public function testTheSameMessageReadSentFirstEndsUpReceivedToo(): void
+    {
+        // The other order: the sent copy is filed on one pass, the inbox
+        // copy arrives on a later one. Still one row, and received.
+        $this->client->markSent('Envoyés');
+        $this->addMessage('Envoyés', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
+        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::REFERENCE));
+        $this->sync();
+        $this->assertSame(MessageDirection::SENT, $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX')[0]->direction);
+
+        $this->addMessage('INBOX', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
+        $this->sync();
+
+        $this->assertSame(1, $this->countMessages());
+        $this->assertSame(MessageDirection::RECEIVED, $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX')[0]->direction);
+    }
+
     public function testTheSentFolderHasItsOwnCursor(): void
     {
         $this->client->markSent('Envoyés');

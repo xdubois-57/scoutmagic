@@ -997,6 +997,17 @@ class InboundMessageRepository
         }
     }
 
+    /**
+     * A message stored from the box's « Envoyés » that the box turns out to
+     * have received as well: kept once, as received (#720). No-op on a row
+     * that already is.
+     */
+    public function markReceived(int $messageId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET direction = ? WHERE id = ? AND direction = ?');
+        $stmt->execute([MessageDirection::RECEIVED->value, $messageId, MessageDirection::SENT->value]);
+    }
+
     public function isOutboundMessageId(string $consumerId, string $messageId): bool
     {
         if (trim($messageId, "<> \t") === '') {
