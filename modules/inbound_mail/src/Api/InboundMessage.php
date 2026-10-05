@@ -71,8 +71,15 @@ class InboundMessage
          * a notification (`Mime\BulkMailDetector`). A triage screen folds
          * these away behind their count (`Api\TriageScreen::of()`).
          */
-        public readonly bool $isBulk = false
+        public readonly bool $isBulk = false,
+        /** Received, or sent from the box (#720). */
+        public readonly MessageDirection $direction = MessageDirection::RECEIVED
     ) {
+    }
+
+    public function isSent(): bool
+    {
+        return $this->direction === MessageDirection::SENT;
     }
 
     /**

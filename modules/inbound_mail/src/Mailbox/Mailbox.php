@@ -49,7 +49,12 @@ class Mailbox
          */
         public readonly MailboxPurpose $purpose = MailboxPurpose::SHARED,
         /** The consumer a dedicated box belongs to; null on a shared one. */
-        public readonly ?string $dedicatedTo = null
+        public readonly ?string $dedicatedTo = null,
+        /**
+         * The folder the operator named as the box's sent mail, for a
+         * server that marks none `\Sent` (#720). Null: the server's mark.
+         */
+        public readonly ?string $sentFolder = null
     ) {
     }
 
@@ -68,6 +73,21 @@ class Mailbox
     public function watchedFolders(): array
     {
         return $this->folders === [] ? ['INBOX'] : $this->folders;
+    }
+
+    /**
+     * The folder read as the box's sent mail: the one the operator named,
+     * otherwise the one the server marks `\Sent` — never one already
+     * watched, whose messages are read as received and must not be read
+     * twice in two directions.
+     *
+     * @param string|null $markedByServer what the folder listing says
+     */
+    public function sentFolderAmong(?string $markedByServer): ?string
+    {
+        $folder = $this->sentFolder ?? $markedByServer;
+
+        return $folder !== null && !in_array($folder, $this->watchedFolders(), true) ? $folder : null;
     }
 
     /**

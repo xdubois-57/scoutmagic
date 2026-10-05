@@ -14,6 +14,8 @@ use Core\File\UploadHandler;
 use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\HandlesOutboundMail;
+use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessagePayload;
 use Modules\InboundMail\Api\PruningConsumerInterface;
@@ -24,6 +26,7 @@ use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Client\PruningMailboxClientInterface;
+use Modules\InboundMail\Client\RemoteFolder;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -176,23 +179,33 @@ class MailboxSyncService
             $client->connect($mailbox, $credentials);
 
             foreach ($mailbox->watchedFolders() as $folder) {
-                $folderState = $client->folderState($folder);
-                $cursor = $this->mailboxRepository
-                    ->findCursor($mailbox->id, $folder)
-                    ->forUidValidity($folderState->uidValidity);
+                [$folderSeen, $folderStored] = $this->readFolder(
+                    $mailbox,
+                    $client,
+                    $folder,
+                    $consumers,
+                    MessageDirection::RECEIVED
+                );
+                $seen += $folderSeen;
+                $stored += $folderStored;
+            }
 
-                foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
-                    $seen++;
-                    if ($this->store($mailbox, $message, $consumers, $client)) {
-                        $stored++;
-                    }
-
-                    // Advanced for every message, claimed or not — see the
-                    // class docblock.
-                    $cursor = $cursor->advancedTo($message->uid);
-                }
-
-                $this->mailboxRepository->saveCursor($cursor);
+            // **The box's sent mail, for the consumers that asked for it**
+            // (#720) — and only for them. A box opened to none of them
+            // never has its « Envoyés » listed, let alone read: Camps and
+            // Finance see exactly what they always saw.
+            $outbound = self::outboundConsumers($consumers);
+            $sentFolder = $outbound === [] ? null : $this->sentFolderOf($mailbox, $client);
+            if ($sentFolder !== null) {
+                [$folderSeen, $folderStored] = $this->readFolder(
+                    $mailbox,
+                    $client,
+                    $sentFolder,
+                    $outbound,
+                    MessageDirection::SENT
+                );
+                $seen += $folderSeen;
+                $stored += $folderStored;
             }
         } catch (\Throwable $e) {
             // \Throwable, not the two exception classes this used to name:
@@ -219,6 +232,68 @@ class MailboxSyncService
     }
 
     /**
+     * Read one folder from its cursor, and move the cursor past everything
+     * read.
+     *
+     * @param MessageConsumerInterface[] $consumers
+     * @return array{0: int, 1: int} messages seen, messages stored
+     */
+    private function readFolder(
+        Mailbox $mailbox,
+        IncomingMailboxClientInterface $client,
+        string $folder,
+        array $consumers,
+        MessageDirection $direction
+    ): array {
+        $folderState = $client->folderState($folder);
+        $cursor = $this->mailboxRepository
+            ->findCursor($mailbox->id, $folder)
+            ->forUidValidity($folderState->uidValidity);
+
+        $seen = 0;
+        $stored = 0;
+        foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
+            $seen++;
+            if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
+                $stored++;
+            }
+
+            // Advanced for every message, claimed or not — see the
+            // class docblock.
+            $cursor = $cursor->advancedTo($message->uid);
+        }
+
+        $this->mailboxRepository->saveCursor($cursor);
+
+        return [$seen, $stored];
+    }
+
+    /**
+     * @param MessageConsumerInterface[] $consumers
+     * @return MessageConsumerInterface[]
+     */
+    private static function outboundConsumers(array $consumers): array
+    {
+        return array_values(array_filter(
+            $consumers,
+            static fn(MessageConsumerInterface $consumer): bool => $consumer instanceof HandlesOutboundMail
+        ));
+    }
+
+    /**
+     * The folder to read as this box's sent mail: the one the operator
+     * named, otherwise the one the server marks `\Sent` (RFC 6154). The
+     * listing is asked for only when the operator named none — it is one
+     * LIST, read-only like the rest (§7.5).
+     */
+    private function sentFolderOf(Mailbox $mailbox, IncomingMailboxClientInterface $client): ?string
+    {
+        return $mailbox->sentFolderAmong(
+            $mailbox->sentFolder === null ? RemoteFolder::sentAmong($client->listFolders()) : null
+        );
+    }
+
+    /**
      * Store the message, and offer it to the consumers this box lets look
      * at it.
      *
@@ -230,8 +305,10 @@ class MailboxSyncService
         Mailbox $mailbox,
         FetchedMessage $message,
         array $consumers,
-        IncomingMailboxClientInterface $client
+        IncomingMailboxClientInterface $client,
+        MessageDirection $direction = MessageDirection::RECEIVED
     ): bool {
+        $isSent = $direction === MessageDirection::SENT;
         $candidate = new CandidateMessage(
             mailboxId: $mailbox->id,
             subject: $message->subject,
@@ -259,7 +336,8 @@ class MailboxSyncService
             // written to the row below; it simply never crossed to the
             // consumers, and for a seed mailbox that folder name IS the
             // measurement (roadmap IT-07).
-            folder: $message->folder
+            folder: $message->folder,
+            direction: $direction
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the
@@ -296,7 +374,9 @@ class MailboxSyncService
             // installation — inbound mail on, no payload consumer — that
             // is work done on every synced message for a list nobody
             // takes.
-            $this->consumerRegistry->wantsPayloads($consumers)
+            // Never for sent mail: the machine feeds are reports a
+            // provider sends TO the unit.
+            !$isSent && $this->consumerRegistry->wantsPayloads($consumers)
                 ? $this->consumerRegistry->analyzeAllPayloads(
                     $candidate,
                     $this->payloadsOf($message),
@@ -346,7 +426,15 @@ class MailboxSyncService
         // the message is gone from the mailbox, so a stored row would
         // point at nothing, could never be re-read, and would only ever
         // be a copy of a mailing the unit already has.
-        if ($this->pruneIfAsked($client, $message, $candidate, $consumers)) {
+        if (!$isSent && $this->pruneIfAsked($client, $message, $candidate, $consumers)) {
+            return false;
+        }
+
+        // **Sent mail is stored only when a consumer files it** (#720) —
+        // the reverse of received mail, kept whatever the analysis said.
+        // The unit's sent mail is the unit's business; only what concerns
+        // one of a module's objects has any reason to be on this site.
+        if ($isSent && !self::filesSomething($results)) {
             return false;
         }
 
@@ -357,6 +445,14 @@ class MailboxSyncService
         $existingId = $message->messageId !== ''
             ? $this->messageRepository->findIdByMessageId($mailbox->id, $message->messageId)
             : null;
+
+        // A message the unit sent to its own box is in both folders under
+        // one Message-ID. It is kept once, as the box received it: the
+        // received copy is the one every consumer was asked about, and a
+        // second reading from the other side would only re-file it.
+        if ($existingId !== null && $isSent) {
+            return false;
+        }
 
         if ($existingId !== null) {
             $this->notifyApplied($existingId, $this->applier->applyAndReport($existingId, $results));
@@ -402,7 +498,8 @@ class MailboxSyncService
             sentAt: $message->sentAt,
             toEmails: $message->toEmails,
             isBulk: $message->isBulk,
-            rawHeaders: $keepHeaders ? $message->rawHeaders : null
+            rawHeaders: $keepHeaders ? $message->rawHeaders : null,
+            direction: $direction
         );
 
         $applied = $this->applier->applyAndReport($storedId, $results);
@@ -431,6 +528,22 @@ class MailboxSyncService
         $this->notifyApplied($storedId, $applied);
 
         return true;
+    }
+
+    /**
+     * Whether any consumer associated the message with one of its objects.
+     *
+     * @param array<string, \Modules\InboundMail\Api\AnalysisResult> $results
+     */
+    private static function filesSomething(array $results): bool
+    {
+        foreach ($results as $result) {
+            if ($result->links !== []) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

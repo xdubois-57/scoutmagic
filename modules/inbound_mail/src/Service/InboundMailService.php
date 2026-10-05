@@ -654,6 +654,11 @@ class InboundMailService implements InboundMailInterface
         $this->messageRepository->recordOutboundMessageId($consumerId, $businessReference, $messageId);
     }
 
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool
+    {
+        return $this->messageRepository->isOutboundMessageId($consumerId, $messageId);
+    }
+
     /**
      * @return array<int, array{name: string, state: string, is_enabled: bool}>
      */
@@ -904,7 +909,8 @@ class InboundMailService implements InboundMailInterface
             ),
             rawHeaders: $message->rawHeaders,
             mailboxDedicatedTo: $dedicatedTo,
-            addressedTo: $this->replyAddresses?->resolve($message->toEmails)
+            addressedTo: $this->replyAddresses?->resolve($message->toEmails),
+            direction: $message->direction
         );
     }
 }

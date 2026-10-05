@@ -84,6 +84,13 @@ enum LinkOrigin: string
      */
     case REPLY_ADDRESS = 'reply_address';
 
+    /**
+     * The recipient of a message the unit SENT (#720): the address it went
+     * to is the person's, inside the same window as the sender rule. A guess
+     * of the same strength, from the other end.
+     */
+    case RECIPIENT = 'recipient';
+
     public function label(): string
     {
         return match ($this) {
@@ -91,6 +98,7 @@ enum LinkOrigin: string
             self::REPLY_ADDRESS => 'Adresse de réponse signée',
             self::THREAD => 'Réponse dans la conversation',
             self::SENDER => 'Adresse de l\'expéditeur',
+            self::RECIPIENT => 'Adresse du destinataire',
             self::PERIOD => 'Période annoncée dans le message',
             self::IBAN => 'IBAN du compte cité dans le message',
             self::AI => 'Suggestion automatique',

@@ -7,7 +7,7 @@ role_min: superadmin
 question: Comment brancher une boîte e-mail de l'unité sur le site ?
 question: Le site peut-il envoyer ou effacer des mails de la boîte ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-portee, courrier-reponse, courrier-unite, gerer-les-locations
+related: courrier-portee, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
 ---
 
 Le courrier entrant relie une ou plusieurs boîtes e-mail de l'unité au
@@ -39,7 +39,7 @@ compte : c'est la voie prévue, le mot de passe habituel ne
 fonctionnera pas.
 
 Après l'ajout, **testez la connexion** : le test annonce le nombre de
-dossiers visibles, ou une explication en clair — certificat non
+dossiers visibles et, s'il le reconnaît, le dossier des envoyés, ou une explication en clair — certificat non
 vérifié, authentification refusée, serveur muet. Un certificat
 invalide bloque toujours : il n'existe pas d'option pour l'ignorer.
 

@@ -10,6 +10,7 @@ namespace Modules\InboundMail\Service;
 
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\HandlesOutboundMail;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessagePayload;
 use Modules\InboundMail\Api\MessageConsumerInterface;
@@ -149,6 +150,10 @@ class MessageConsumerRegistry
         $results = [];
 
         foreach ($only ?? $this->all() as $consumer) {
+            if ($message->isSent() && !$consumer instanceof HandlesOutboundMail) {
+                continue;
+            }
+
             try {
                 $result = $consumer->analyze($message);
             } catch (\Throwable $e) {
@@ -292,6 +297,10 @@ class MessageConsumerRegistry
         $results = [];
 
         foreach ($only ?? $this->all() as $consumer) {
+            if ($message->isSent() && !$consumer instanceof HandlesOutboundMail) {
+                continue;
+            }
+
             try {
                 $result = $consumer->analyzeStored($message);
             } catch (\Throwable $e) {
