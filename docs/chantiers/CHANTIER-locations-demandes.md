@@ -1266,8 +1266,8 @@ sortie et tranchés après ; Séjour sans compteurs, état des lieux ni incident
 - **« Générer la facture » n'est possible qu'une fois l'état des lieux de sortie complété** — validé
   (IT-17) ou coché à la main (IT-14). Avant, le bouton est remplacé par une phrase qui dit pourquoi,
   avec un lien vers l'État des lieux.
-- Un bien **sans état des lieux ni compteurs** — qui n'a donc pas de sous-page « État des lieux » —
-  n'attend rien : il n'y a rien à compléter.
+- Un bien **sans état des lieux ni compteurs** — dont la sous-page « État des lieux » ne garde que
+  les incidents (IT-17) — n'attend rien : il n'y a rien à compléter.
 - La règle est vérifiée **côté serveur** aussi, pas seulement par l'affichage.
 
 **La fin de la page Séjour**

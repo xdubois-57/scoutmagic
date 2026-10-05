@@ -14,9 +14,9 @@ related: locations-parcours, locations-etat-des-lieux, locations-finances, gerer
 Une réservation tient en plusieurs pages, reliées par les onglets sous
 son titre : **Tableau de bord**, **Modifications**, **Finances**,
 **Documents**, **État des lieux** et **Courrier**. La pastille
-« État des lieux » n'apparaît que si le bien a un modèle d'état des
-lieux ou des compteurs ; la pastille « Courrier », que si une boîte e-mail est dédiée
-aux locations, et une seule.
+« État des lieux » est toujours là : sans modèle d'état des lieux ni
+compteurs, la page ne garde que les incidents. La pastille « Courrier »
+n'apparaît que si une boîte e-mail est dédiée aux locations, et une seule.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
 d'Ariane en haut de la page : chacune de ses étapes est un lien.
