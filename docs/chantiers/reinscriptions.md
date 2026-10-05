@@ -249,14 +249,17 @@ dialogue. Les deux lisent le même plan et le même texte.
   `ReenrollmentSavePlanner::families()` que le plan d'envoi. Il lit le
   dernier rappel parti et le prochain prévu dans la même chronologie que la
   boîte.
-- **E-mails désactivés.** Chaque étape dit « Désactivé » et le bouton est
-  grisé, avec « Les réactiver dans les réglages ».
+- **E-mails désactivés.** Chaque étape pas encore partie dit « Désactivé »
+  (une étape déjà partie garde sa date) et le bouton est grisé, avec
+  « Les réactiver dans les réglages ».
 
 **Écart avec la maquette.** La ligne « Campagne précédente » s'affiche tant
 que la campagne de l'année visée n'a pas commencé : entre deux campagnes,
 mais aussi juste avant l'ouverture. La maquette ne la montre que dans la
 situation « Entre deux campagnes ». Elle reste vraie et utile jusqu'à
-l'ouverture ; le test ne l'exclut donc pas avant l'ouverture.
+l'ouverture ; le test ne l'exclut donc pas avant l'ouverture. Elle ne
+s'affiche que si une campagne précédente a réellement eu lieu (dernier
+marqueur de clôture enregistré), et donne le jour de sa clôture réelle.
 
 **Tests.**
 
