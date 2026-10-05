@@ -626,6 +626,27 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * Stores the optional photo, then writes what it illustrates — and
+     * takes the photo back when that write is refused (a frozen phase, a
+     * value that does not parse): nothing would ever reference it.
+     *
+     * @param callable(?int): mixed $write
+     * @throws RentalException
+     */
+    private function withOptionalPhoto(Request $request, RentalBooking $booking, callable $write): void
+    {
+        $fileId = $this->uploadOptionalPhoto($request, $booking);
+        try {
+            $write($fileId);
+        } catch (\Throwable $e) {
+            if ($fileId !== null) {
+                $this->documentService?->discardUnusedUpload($fileId);
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * GET /mes-locations — every asset the visitor manages (§6.5).
      *
      * @param array<string, string> $params
@@ -3123,9 +3144,7 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->recordReading(
+            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->recordReading(
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
@@ -3136,7 +3155,7 @@ class RentalManagementController extends AbstractController
                 Support::optionalString($request->getBody('comment')),
                 $this->actorMemberId(),
                 $this->arrivalTickedByHand($booking)
-            );
+            ));
 
             FlashMessage::set('success', 'Relevé enregistré.');
         });
@@ -3150,15 +3169,13 @@ class RentalManagementController extends AbstractController
     public function reportIncident(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->reportIncident(
+            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->reportIncident(
                 $booking,
                 (string) $request->getBody('description', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
                 $fileId,
                 $this->actorMemberId()
-            );
+            ));
 
             FlashMessage::set(
                 'success',

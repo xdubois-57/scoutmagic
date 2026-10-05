@@ -4501,6 +4501,75 @@ class RentalManagementControllerTest extends TestCase
 
     /** An asset with nothing to walk has no such page, nor a chip for it. */
     /**
+     * A photo stored for a reading or an incident whose own row is then
+     * refused — a frozen phase, a value that does not parse — is taken
+     * back: nothing would ever reference it.
+     */
+    public function testARefusedReadingOrIncidentLeavesNoPhotoBehind(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        $booking = $this->createBooking();
+        $files = fn(): int => (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+        $before = $files();
+
+        // A value that does not parse, on an open phase.
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => 'beaucoup',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        // A frozen phase: the arrival validated, then the departure.
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null);
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => '1234',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::DEPARTURE, new \DateTimeImmutable(), null);
+        $this->postWithPhoto('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Vitre cassée', 'amount' => '',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        // And an accepted one keeps its photo.
+        $other = $this->createBooking(null, 'LOC-2027-0077');
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => '1234',
+        ], $other);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before + 1, $files());
+    }
+
+    /** @param array<string, string> $body */
+    private function postWithPhoto(string $path, string $action, array $body, ?RentalBooking $booking = null): void
+    {
+        $booking ??= $this->bookingRepository->findByReference('LOC-2027-0001');
+        $this->assertNotNull($booking);
+        $image = imagecreatetruecolor(32, 32);
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'photo-');
+        imagepng($image, $temporary);
+        $_FILES['photo'] = [
+            'name' => 'compteur.png',
+            'type' => 'image/png',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($temporary),
+        ];
+
+        $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+        unset($_FILES['photo']);
+    }
+
+    /**
      * An asset with nothing to walk keeps the page all the same, reduced to
      * the incidents: they live there, and such an asset can be damaged too.
      * No inventory to fill in, no validation to press.

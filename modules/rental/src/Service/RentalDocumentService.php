@@ -603,6 +603,16 @@ class RentalDocumentService
     }
 
     /**
+     * Removes a photo stored for a reading or an incident whose own row
+     * was then refused (#708, IT-17): the bytes and the `files` row exist,
+     * nothing references them and nothing ever will.
+     */
+    public function discardUnusedUpload(int $fileId): void
+    {
+        $this->fileRemover->removeOrphan($fileId);
+    }
+
+    /**
      * Removes a document, and its file ONLY when this module owns the
      * bytes and nothing else points at them.
      *

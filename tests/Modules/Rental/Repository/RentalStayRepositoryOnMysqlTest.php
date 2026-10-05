@@ -184,6 +184,21 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
         $this->assertSame('4', $this->repository->findBookingInventory($this->bookingId)[0]['arrival_value']);
     }
 
+    /**
+     * Only the unique key reads as « already validated »: a foreign-key
+     * failure shares SQLSTATE 23000 and must surface, not be told to the
+     * manager as a validation that never happened.
+     */
+    public function testOnlyTheUniqueKeyReadsAsAlreadyValidated(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-17 19:00:00');
+        $this->assertTrue($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+        $this->assertFalse($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+
+        $this->expectException(\PDOException::class);
+        $this->repository->recordInventoryValidation($this->bookingId + 1000, ReadingPhase::ARRIVAL, $at, null);
+    }
+
     public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
     {
         $this->validate(ReadingPhase::ARRIVAL);

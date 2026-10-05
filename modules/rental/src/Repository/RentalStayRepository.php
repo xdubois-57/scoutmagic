@@ -540,7 +540,9 @@ class RentalStayRepository
                  VALUES (?, ?, ?, ?)'
             )->execute([$bookingId, $phase->value, $at->format('Y-m-d H:i:s'), $memberId]);
         } catch (\PDOException $e) {
-            if ((string) $e->getCode() === '23000') {
+            // The unique key only: an FK failure shares SQLSTATE 23000 and
+            // must not be read as « already validated ».
+            if (\Core\Database\ConstraintViolation::isDuplicateKey($e)) {
                 return false;
             }
             throw $e;
