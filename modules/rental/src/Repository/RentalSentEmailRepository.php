@@ -92,18 +92,31 @@ class RentalSentEmailRepository
     }
 
     /**
-     * The Message-IDs of what the site sent about this booking — what tells
-     * a copy of one of them, found in the mailbox, from a message somebody
-     * wrote by hand.
-     *
-     * @return list<string>
+     * A new attempt at an e-mail already in the log (« Renvoyer »): the
+     * same row, so the page shows one e-mail that eventually went out, or
+     * still did not — never a second entry per click. The text and the
+     * documents stay as they were; who it went to, when, under which
+     * Message-ID and how it ended are the new attempt's.
      */
-    public function messageIdsForBooking(int $bookingId): array
-    {
-        $stmt = $this->pdo->prepare('SELECT message_id FROM rental_booking_sent_emails WHERE booking_id = ?');
-        $stmt->execute([$bookingId]);
-
-        return array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    public function recordAttempt(
+        int $id,
+        string $recipient,
+        string $messageId,
+        string $status,
+        \DateTimeImmutable $sentAt
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_booking_sent_emails
+                SET recipient_encrypted = ?, message_id = ?, status = ?, sent_at = ?
+              WHERE id = ?'
+        );
+        $stmt->execute([
+            $this->encryption->encrypt($recipient, self::CTX_RECIPIENT),
+            $messageId,
+            $status,
+            $sentAt->format('Y-m-d H:i:s'),
+            $id,
+        ]);
     }
 
     /**

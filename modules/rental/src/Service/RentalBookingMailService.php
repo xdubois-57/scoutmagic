@@ -96,7 +96,8 @@ class RentalBookingMailService
         RenderedEmail $email,
         array $attachments,
         string $messageId,
-        ?string $trackingToken
+        ?string $trackingToken,
+        ?int $retrying = null
     ): void {
         try {
             $this->mailService->send(
@@ -111,12 +112,12 @@ class RentalBookingMailService
                 ['Message-ID' => $messageId]
             );
         } catch (\Throwable $e) {
-            $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_FAILED);
+            $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_FAILED, $retrying);
 
             throw $e;
         }
 
-        $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_SENT);
+        $this->record($booking, $kind, $email, $attachments, $messageId, $trackingToken, SentEmail::STATUS_SENT, $retrying);
     }
 
     /**
@@ -132,13 +133,26 @@ class RentalBookingMailService
         array $attachments,
         string $messageId,
         ?string $trackingToken,
-        string $status
+        string $status,
+        ?int $retrying = null
     ): void {
         if ($this->sentEmails === null) {
             return;
         }
 
         try {
+            if ($retrying !== null) {
+                $this->sentEmails->recordAttempt(
+                    $retrying,
+                    $booking->renterEmail,
+                    $messageId,
+                    $status,
+                    new \DateTimeImmutable()
+                );
+
+                return;
+            }
+
             $this->sentEmails->record(
                 $booking->id,
                 $kind,
@@ -187,8 +201,9 @@ class RentalBookingMailService
     /**
      * « Renvoyer » (#720): the logged e-mail again, as it was written —
      * with the booking's CURRENT tracking link where the old one was masked,
-     * and its attachments read from the documents they are. Recorded as a
-     * new entry of the log, sent or failed.
+     * and its attachments read from the documents they are. Only a failed
+     * e-mail, and recorded on its own entry of the log, sent or still
+     * failed: one e-mail on the page, however many clicks it took.
      *
      * @param \Closure(int): ?array{path: string, name: string} $attachmentOf the
      *     booking's document as a file to attach, null when it is gone
@@ -203,6 +218,12 @@ class RentalBookingMailService
     ): void {
         if ($sent->bookingId !== $booking->id) {
             throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
+        }
+
+        // Only what did not go out: an e-mail the renter already received
+        // is not sent twice by a crafted request, whatever the page offers.
+        if (!$sent->failed()) {
+            throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
         }
 
         $link = '';
@@ -230,7 +251,15 @@ class RentalBookingMailService
             str_replace(SentEmail::MASKED_LINK, $link, $sent->bodyText)
         );
 
-        $this->deliver($booking, $sent->kind, $email, $attachments, $this->messageIdFor($booking), $trackingToken);
+        $this->deliver(
+            $booking,
+            $sent->kind,
+            $email,
+            $attachments,
+            $this->messageIdFor($booking),
+            $trackingToken,
+            $sent->id
+        );
     }
 
     /**

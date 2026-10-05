@@ -22,7 +22,7 @@ l'unité lui a écrits depuis une boîte de l'unité ouverte aux Locations.
 
 Un e-mail du site qui n'a pas pu partir est marqué « Non envoyé » :
 « Renvoyer » le fait repartir tel quel, avec le lien de suivi actuel de
-la réservation.
+la réservation. Une fois parti, il n'est plus marqué.
 
 Les e-mails arrivent depuis les boîtes de l'unité ouvertes aux Locations.
 Si aucune ne l'est, la page le dit : un superadministrateur peut en

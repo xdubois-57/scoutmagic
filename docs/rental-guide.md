@@ -316,8 +316,10 @@ accusé de réception, décisions, contrat, facture, rappels —, marqué
 Un e-mail du site qui n'a pas pu partir apparaît en rouge, « Non
 envoyé », avec un bouton **Renvoyer** : il repart tel qu'il avait été
 écrit, avec ses pièces jointes, et le lien de suivi actuel de la
-réservation à la place de celui qu'il portait. Ce lien n'est jamais
-conservé : la page affiche « [lien de suivi masqué] » à sa place.
+réservation à la place de celui qu'il portait. Une fois parti, il perd
+sa marque rouge : la page garde un seul e-mail, quel que soit le nombre
+d'essais. Ce lien n'est jamais conservé : la page affiche « [lien de
+suivi masqué] » à sa place.
 
 Avec le module Courrier entrant, les réponses du locataire y remontent
 automatiquement, depuis toute boîte ouverte aux Locations — qu'elle leur

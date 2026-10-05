@@ -187,10 +187,64 @@ final class SentEmailLogTest extends TestCase
         $this->assertStringContainsString(self::FRESH_TOKEN, $this->outbox[0]['html']);
         $this->assertStringNotContainsString(SentEmail::MASKED_LINK, $this->outbox[0]['text'] . $this->outbox[0]['html']);
 
+        // One e-mail on the page, that eventually went out: the entry it
+        // retried, not a second one next to a red « Non envoyé ».
         $logged = $this->log->findForBooking(42);
-        $this->assertCount(2, $logged);
-        $this->assertSame(SentEmail::STATUS_SENT, $logged[1]->status);
-        $this->assertStringNotContainsString(self::FRESH_TOKEN, $logged[1]->bodyText . $logged[1]->bodyHtml);
+        $this->assertCount(1, $logged);
+        $this->assertSame($failed->id, $logged[0]->id);
+        $this->assertSame(SentEmail::STATUS_SENT, $logged[0]->status);
+        $this->assertNotSame($failed->messageId, $logged[0]->messageId, 'the attempt that went out is the one recorded');
+        $this->assertStringNotContainsString(self::FRESH_TOKEN, $logged[0]->bodyText . $logged[0]->bodyHtml);
+    }
+
+    public function testARenvoyerThatFailsAgainAddsNoSecondEntry(): void
+    {
+        $this->smtpUp = false;
+        $this->service->sendTrackingLink($this->booking(), $this->asset(), self::TOKEN);
+        $failed = $this->log->findForBooking(42)[0];
+
+        try {
+            $this->service->resend($failed, $this->booking(), self::FRESH_TOKEN, static fn(int $id): ?array => null);
+            $this->fail('The second failure still reaches the manager.');
+        } catch (MailException) {
+        }
+
+        $logged = $this->log->findForBooking(42);
+        $this->assertCount(1, $logged);
+        $this->assertTrue($logged[0]->failed());
+    }
+
+    public function testAnEmailThatWentOutIsNotSentAgain(): void
+    {
+        // The page only offers « Renvoyer » on a failure; the server says
+        // the same thing to a request naming an e-mail that went out.
+        $this->service->sendTrackingLink($this->booking(), $this->asset(), self::TOKEN);
+        $sent = $this->log->findForBooking(42)[0];
+        $this->assertFalse($sent->failed());
+
+        try {
+            $this->service->resend($sent, $this->booking(), self::FRESH_TOKEN, static fn(int $id): ?array => null);
+            $this->fail('An e-mail already received must not be sent twice.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('déjà parti', $e->getMessage());
+        }
+
+        $this->assertCount(1, $this->outbox);
+    }
+
+    public function testAnAttemptRewritesOnlyWhoWhenHowAndWhichId(): void
+    {
+        $id = $this->log->record(42, 'rental.tracking_link', 'ancienne@example.be', 'Objet', 'Texte', '<p>Texte</p>', [5], '<a@site>', SentEmail::STATUS_FAILED, new \DateTimeImmutable('2027-07-01 10:00:00'));
+
+        $this->log->recordAttempt($id, 'jeanne@example.be', '<b@site>', SentEmail::STATUS_SENT, new \DateTimeImmutable('2027-07-02 11:00:00'));
+
+        $entry = $this->log->findById($id);
+        $this->assertNotNull($entry);
+        $this->assertSame('jeanne@example.be', $entry->recipient);
+        $this->assertSame('<b@site>', $entry->messageId);
+        $this->assertSame(SentEmail::STATUS_SENT, $entry->status);
+        $this->assertSame('2027-07-02 11:00:00', $entry->sentAt->format('Y-m-d H:i:s'));
+        $this->assertSame(['Objet', 'Texte', [5]], [$entry->subject, $entry->bodyText, $entry->documentIds]);
     }
 
     public function testRenvoyerWithoutALinkToPutBackIsRefusedInFrench(): void

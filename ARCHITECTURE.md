@@ -2425,12 +2425,14 @@ tracking link is masked BEFORE encryption (`SentEmail::MASKED_LINK`, the URL
 raw and HTML-escaped and the bare token wherever else it appears), because a
 copy of a credential in a log outlives the regeneration that killed it.
 Attachments are the booking's documents, named by id, never copied. The
-Message-ID stays in clear: it is what will tell a copy in the box's
-« Envoyés » folder from a message somebody wrote. « Renvoyer »
-(`resend()`, `POST /mes-locations/courrier/renvoyer`) sends the logged text
-again with the booking's CURRENT link in place of the mask and the
-documents re-read from disk, refusing in French when the link or a
-document is gone, and is logged as a new entry. The page shows the plain
+Message-ID stays in clear: the id the renter's reply will quote.
+« Renvoyer » (`resend()`, `POST /mes-locations/courrier/renvoyer`) applies
+to a failed e-mail only — the server checks it, not just the page — and
+sends the logged text again with the booking's CURRENT link in place of
+the mask and the documents re-read from disk, refusing in French when the
+link or a document is gone. It updates the entry it retries
+(`recordAttempt()`) rather than adding one: the page shows one e-mail
+that eventually went out, or still did not, however many clicks it took. The page shows the plain
 text, never the stored HTML, in its own dialog — so the sent half needs
 nothing of `inbound_mail` and is there without it.
 

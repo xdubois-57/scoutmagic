@@ -1383,6 +1383,11 @@ class RentalManagementController extends AbstractController
             if ($sent === null || $sent->bookingId !== $booking->id || $this->mailService === null) {
                 throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
             }
+            // The button is only on a failure; a request naming an e-mail
+            // that went out is refused here too, not merely not offered.
+            if (!$sent->failed()) {
+                throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
+            }
 
             try {
                 $this->mailService->resend(
