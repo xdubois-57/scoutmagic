@@ -11911,7 +11911,10 @@ if ($isEnabled('rental')) {
         $rentalStayService,
         $rentalMilestoneMarkService,
         $rentalDocumentService,
-        $rentalPaymentService
+        $rentalPaymentService,
+        // A proposal of the unit waits on the renter without a status of
+        // its own: their « Et maintenant ? » must say so (#708, IT-15).
+        $rentalChangeRequestRepository
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
         $mailService,

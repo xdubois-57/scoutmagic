@@ -172,6 +172,12 @@ final class BookingJourney
         return $this->next;
     }
 
+    /** A proposal of the unit the renter has not answered yet (IT-20). */
+    public function proposalWaiting(): bool
+    {
+        return $this->proposalWaiting;
+    }
+
     public function isComplete(): bool
     {
         return $this->next === null;

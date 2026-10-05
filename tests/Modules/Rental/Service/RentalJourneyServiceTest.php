@@ -10,6 +10,8 @@ namespace Tests\Modules\Rental\Service;
 
 use Core\Security\EncryptionService;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\ChangeRequestKind;
+use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Pricing\BillingUnit;
 use Modules\Rental\Pricing\PriceLine;
@@ -17,6 +19,7 @@ use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalJourneyService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -32,6 +35,7 @@ final class RentalJourneyServiceTest extends TestCase
     private RentalBookingRepository $bookings;
     private RentalAsset $asset;
     private RentalJourneyService $service;
+    private RentalChangeRequestRepository $changeRequests;
 
     protected function setUp(): void
     {
@@ -44,7 +48,8 @@ final class RentalJourneyServiceTest extends TestCase
         $this->assertNotNull($asset);
         $this->asset = $asset;
         $this->bookings = new RentalBookingRepository($pdo, $encryption);
-        $this->service = new RentalJourneyService($this->bookings);
+        $this->changeRequests = new RentalChangeRequestRepository($pdo, $encryption);
+        $this->service = new RentalJourneyService($this->bookings, changeRequests: $this->changeRequests);
     }
 
     private function booking(): RentalBooking
@@ -107,6 +112,48 @@ final class RentalJourneyServiceTest extends TestCase
         $step = $this->service->renterNextStep($stale, $this->asset, new \DateTimeImmutable('2027-01-02'));
 
         $this->assertStringStartsWith('À vous : répondez à notre question', $step->sentence);
+        $this->assertTrue($step->onTrackingPage);
+    }
+
+    /**
+     * A proposal of the unit is a change request, not a status: the booking
+     * stays « reçue » while the renter owes an answer. Their sentence says
+     * so, as the manager's « Prochaine action » does — and a change the
+     * renter asked for themselves is not one they have to answer.
+     */
+    public function testAProposalWaitingOnTheRenterIsTheirs(): void
+    {
+        $booking = $this->booking();
+        $now = new \DateTimeImmutable('2027-01-02');
+        $this->changeRequests->create(
+            $booking->id,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null
+        );
+
+        $theirs = $this->service->renterNextStep($booking, $this->asset, $now);
+        $this->assertStringStartsWith("Rien à faire de votre côté pour l'instant", $theirs->sentence);
+
+        $this->changeRequests->create(
+            $booking->id,
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            25,
+            null,
+            null
+        );
+
+        $step = $this->service->renterNextStep($booking, $this->asset, $now);
+        $this->assertStringStartsWith('À vous : acceptez ou refusez notre proposition', $step->sentence);
         $this->assertTrue($step->onTrackingPage);
     }
 

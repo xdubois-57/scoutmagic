@@ -213,6 +213,26 @@ final class RenterNextStepTest extends TestCase
         );
     }
 
+    /** A proposal recorded without a status of its own is the renter's to answer too. */
+    public function testAProposalWaitingWithoutItsStatusIsTheRenters(): void
+    {
+        $booking = $this->booking(BookingStatus::RECEIVED, '2027-02-01');
+        $journey = BookingJourney::of(
+            BookingMilestones::for($booking, $this->now(), [], [], [], []),
+            $booking->status,
+            proposalWaiting: true
+        );
+
+        $step = RenterNextStep::of($booking, $journey, $this->now());
+
+        $this->assertSame(
+            'À vous : acceptez ou refusez notre proposition depuis votre page de suivi.'
+            . " Les dates vous sont réservées jusqu'au 01/02/2027.",
+            $step->sentence
+        );
+        $this->assertTrue($step->onTrackingPage);
+    }
+
     public function testAQuestionOrAProposalIsTheRentersWhateverTheNextStep(): void
     {
         $info = $this->booking(BookingStatus::INFO_REQUESTED);
