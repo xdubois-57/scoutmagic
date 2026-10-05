@@ -571,7 +571,8 @@ function scoutmagicBootstrapScheduler(
                                     new \Core\Config\ScoutYearService($pdo)
                                 )
                             ),
-                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService)
+                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService),
+                            $journalService
                         )
                     ));
                 }

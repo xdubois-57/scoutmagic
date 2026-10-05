@@ -12019,7 +12019,8 @@ if ($isEnabled('rental')) {
                     new \Modules\Rental\Mail\NewMessageNotifier(
                         $notificationService,
                         $rentalManagerRecipients,
-                        $rentalAssetRepository
+                        $rentalAssetRepository,
+                        $journalService
                     )
                 )
         );

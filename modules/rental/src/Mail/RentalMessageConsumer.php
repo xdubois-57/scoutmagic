@@ -431,9 +431,9 @@ class RentalMessageConsumer implements
      * the booking — the association of the message itself, not one per
      * attachment.
      *
-     * Never in the way of the filing: a notification that cannot go out is
-     * the notification system's to journal, and the attachments below must
-     * still become documents of the booking.
+     * Never in the way of the filing: the notifier journals its own
+     * failures (`NewMessageNotifier::messageFiled()`), and the attachments
+     * below must still become documents of the booking.
      */
     private function announce(RentalBooking $booking, MessageLink $link): void
     {
@@ -444,7 +444,8 @@ class RentalMessageConsumer implements
         try {
             $this->newMessageNotifier->messageFiled($booking);
         } catch (\Throwable) {
-            // See above: the message is filed whether or not anybody is told.
+            // Only reached when the journal itself failed: the message is
+            // filed whether or not anybody is told.
         }
     }
 
