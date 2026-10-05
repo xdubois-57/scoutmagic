@@ -3172,7 +3172,7 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->recordReading(
+            $record = fn(?int $fileId) => $this->stayService?->recordReading(
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
@@ -3183,7 +3183,8 @@ class RentalManagementController extends AbstractController
                 Support::optionalString($request->getBody('comment')),
                 $this->actorMemberId(),
                 $this->arrivalTickedByHand($booking)
-            ));
+            );
+            $this->withOptionalPhoto($request, $booking, $record);
 
             FlashMessage::set('success', 'Relevé enregistré.');
         });
@@ -3197,13 +3198,14 @@ class RentalManagementController extends AbstractController
     public function reportIncident(Request $request, array $params): Response
     {
         return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
-            $this->withOptionalPhoto($request, $booking, fn(?int $fileId) => $this->stayService?->reportIncident(
+            $report = fn(?int $fileId) => $this->stayService?->reportIncident(
                 $booking,
                 (string) $request->getBody('description', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
                 $fileId,
                 $this->actorMemberId()
-            ));
+            );
+            $this->withOptionalPhoto($request, $booking, $report);
 
             FlashMessage::set(
                 'success',
