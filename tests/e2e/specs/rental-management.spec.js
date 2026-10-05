@@ -352,6 +352,9 @@ test.describe('Rentals — running an asset', () => {
         // URL already matches.
         await expect(sent.nth(1)).toBeVisible();
         await expect(sent.filter({ hasText: 'Votre demande de location' }).first()).toBeVisible();
+        // The dialog's script is deferred: its listener may not be bound
+        // yet when Bootstrap already is.
+        await page.waitForFunction(() => document.documentElement.classList.contains('mail-message-js'));
         const dialog = await openModal(page, 'mail-message-modal', () =>
             sent.first().getByRole('button', { name: 'Lire le message' }).click()
         );
