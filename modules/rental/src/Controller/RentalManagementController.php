@@ -2961,8 +2961,12 @@ class RentalManagementController extends AbstractController
 
         $validations = $this->stayService->inventoryValidations($booking->id);
         $arrivalByHand = $this->arrivalTickedByHand($booking);
+        // A validated departure freezes the arrival too (frozenBy): unticking
+        // a hand-ticked arrival afterwards must not reopen a form whose every
+        // save would be refused.
         $phase = match (true) {
-            !isset($validations['arrival']) && !$arrivalByHand => ReadingPhase::ARRIVAL,
+            !isset($validations['arrival']) && !$arrivalByHand && !isset($validations['departure'])
+                => ReadingPhase::ARRIVAL,
             !isset($validations['departure']) => ReadingPhase::DEPARTURE,
             default => null,
         };

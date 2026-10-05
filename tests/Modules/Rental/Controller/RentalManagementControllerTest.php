@@ -4658,6 +4658,28 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
+     * A validated departure freezes the arrival with it: unticking the
+     * hand-ticked arrival afterwards does not reopen an arrival form whose
+     * every save would be refused.
+     */
+    public function testUntickingTheArrivalAfterTheDepartureReopensNothing(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->confirm($booking);
+        $this->markStep($booking, 'arrival_inventory');
+        $this->validateInventoryPhase($booking, 'departure');
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+
+        $this->markStep($booking, 'arrival_inventory', false);
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringNotContainsString("Valider l'état des lieux d'entrée", $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+        $this->assertStringContainsString('État des lieux validé', $body);
+    }
+
+    /**
      * An arrival ticked by hand was never read through the page: its meter
      * readings are offered beside the departure's until the departure is
      * validated, or the consumption could never be billed. Only then.
