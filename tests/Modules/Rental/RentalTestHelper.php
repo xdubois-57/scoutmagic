@@ -133,12 +133,6 @@ class RentalTestHelper
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE rental_reference_sequences (
-            year INTEGER NOT NULL PRIMARY KEY,
-            last_sequence INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-
         $pdo->exec('CREATE TABLE rental_bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             asset_id INTEGER NOT NULL,

@@ -232,7 +232,7 @@ final class RentalSeeder
     {
         $now = new \DateTimeImmutable($declared['arrival'] . ' 00:00:00');
         // The request is made well before the stay, which is what makes the
-        // reference's year (LOC-YYYY-NNNN) the year of the REQUEST rather
+        // reference's year (LOC-YYYY-XXXXXX) the year of the REQUEST rather
         // than of the stay — the module's own rule, and one a fixture where
         // every booking was made on the day would never show.
         $now = $now->modify('-60 days');

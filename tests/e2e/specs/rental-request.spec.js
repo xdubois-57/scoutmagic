@@ -225,9 +225,9 @@ test.describe('Rentals', () => {
         // line carries back (§7.6, level 1) — and the tracking page itself,
         // reached with no account and no session at all: the link in their
         // acknowledgement IS the authorisation (§6.26).
-        const heading = renter.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        const heading = renter.getByRole('heading', { name: /Votre demande LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
-        const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
+        const reference = (await heading.textContent()).match(/LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/)[0];
 
         // The dates are held while the unit answers, and the page says
         // until when rather than leaving the visitor guessing (specifications.md §22.5)
@@ -258,7 +258,7 @@ test.describe('Rentals', () => {
         // closed notification menu would otherwise answer first, hidden.
         const content = page.locator('#main-content');
         await expect(content.getByText(ASSET_NAME).first()).toBeVisible();
-        await expect(content.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+        await expect(content.getByText(/LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/).first()).toBeVisible();
 
         // --- What the renter never sees of it. ---
         // A manager's internal comment is the one thing §6.6 is most
