@@ -760,6 +760,9 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString("Le module « Courrier entrant » n'est pas actif", (string) $response->getBody());
+        // Nothing of that module's own templates: they are not registered
+        // on a site without it, and including one would be a 500.
+        $this->assertStringNotContainsString('mail-message-modal', (string) $response->getBody());
         $this->assertStringContainsString('Aucun message n&#039;est rattaché à cette réservation.', (string) $response->getBody());
     }
 
@@ -779,9 +782,26 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('data-mail-entry="7"', $body);
         $this->assertStringContainsString('Reçu', $body);
         $this->assertStringContainsString('Lire le message', $body);
+        // Filed on the reference here: certain, so no warning.
+        $this->assertStringNotContainsString('Rattachement incertain', $body);
         foreach (['Rattacher', 'Écarter', "Relancer l'analyse", 'Propositions', '/mes-locations/courrier/rattacher'] as $gone) {
             $this->assertStringNotContainsString($gone, $body);
         }
+    }
+
+    public function testAMessageFiledOnTheSenderAloneSaysItIsAGuess(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(9, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::SENDER);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Rattachement incertain', $body);
     }
 
     public function testDetachAsksFirst(): void

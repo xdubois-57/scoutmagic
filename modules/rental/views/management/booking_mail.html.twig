@@ -47,6 +47,12 @@
                                             {{ message.subject ?: 'Sans objet' }}
                                         </div>
                                         <div class="small text-body-secondary">{{ message.displayFrom() }}</div>
+                                        {# How it was filed, when that is a guess: a message
+                                           matched on the sender's address alone may still be
+                                           somebody else's (§22.9). #}
+                                        {% if not message.linkOrigin.isCertain %}
+                                            <span class="badge text-bg-warning mt-1">Rattachement incertain · {{ message.linkOrigin.label }}</span>
+                                        {% endif %}
                                     </div>
                                     <span class="small text-body-secondary text-nowrap">{{ message.sentAt|datetime_fr }}</span>
                                 </div>
@@ -97,7 +103,11 @@
             {% endif %}
         </div>
     </div>
-    {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {# Only with the module: its templates are not registered without it,
+       and the page must still say so rather than fail. #}
+    {% if mail_module_active %}
+        {% include '@inbound_mail/partials/triage_dialog.html.twig' %}
+    {% endif %}
 {% endblock %}
 
 {% block booking_scripts %}

@@ -58,7 +58,13 @@ final class InMemoryTriageMail implements InboundMailInterface
      */
     public function link(int $messageId, string $consumerId, string $businessReference): void
     {
-        $this->links[$messageId][] = new MessageLink($consumerId, $businessReference, LinkOrigin::REFERENCE);
+        $this->linkAs($messageId, $consumerId, $businessReference, LinkOrigin::REFERENCE);
+    }
+
+    /** The same, naming the rule that filed it. */
+    public function linkAs(int $messageId, string $consumerId, string $businessReference, LinkOrigin $origin): void
+    {
+        $this->links[$messageId][] = new MessageLink($consumerId, $businessReference, $origin);
     }
 
     /**
@@ -153,7 +159,9 @@ final class InMemoryTriageMail implements InboundMailInterface
     {
         foreach ($this->links[$messageId] ?? [] as $link) {
             if ($link->consumerId === $consumerId && $link->businessReference === $businessReference) {
-                return $this->withLinks($this->messages[$messageId]);
+                // As the real store answers: the message seen through ONE
+                // association carries that association's origin.
+                return $this->withLinks($this->messages[$messageId], $link->origin);
             }
         }
 
@@ -311,14 +319,14 @@ final class InMemoryTriageMail implements InboundMailInterface
         return false;
     }
 
-    private function withLinks(InboundMessage $message): InboundMessage
+    private function withLinks(InboundMessage $message, ?LinkOrigin $origin = null): InboundMessage
     {
         return new InboundMessage(
             id: $message->id,
             mailboxId: $message->mailboxId,
             consumerId: $message->consumerId,
             businessReference: $message->businessReference,
-            linkOrigin: $message->linkOrigin,
+            linkOrigin: $origin ?? $message->linkOrigin,
             subject: $message->subject,
             fromEmail: $message->fromEmail,
             fromName: $message->fromName,
