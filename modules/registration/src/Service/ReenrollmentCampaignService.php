@@ -562,31 +562,43 @@ class ReenrollmentCampaignService
             // Between two campaigns, one grey line says how the last one
             // ended — what the box used to show in full, as if current.
             'previous' => !$started && $previousKey !== null
-                ? ['label' => $this->targetLabelOf($previousKey), 'closed_on' => $previousKey]
+                ? ['label' => $this->targetLabelOf($previousKey['key']), 'closed_on' => $previousKey['on']]
                 : null,
         ];
     }
 
     /**
-     * The close date of the last campaign that really closed before the one
-     * keyed `$key`, as recorded — by the clock's closing or by its closing
-     * e-mail — never worked out from today's settings: a unit that has never
-     * run a campaign has no previous one to speak of, and one that has moved
-     * its close date since must not have the old campaign restated with the
-     * new one. A campaign the switch closed by hand leaves no mark, and so
-     * no line: a wrong answer looks worse than none.
+     * The last campaign that really closed before the one keyed `$key`, as
+     * recorded — by the clock's closing or by its closing e-mail — never
+     * worked out from today's settings: a unit that has never run a campaign
+     * has no previous one to speak of, and one that has moved its close date
+     * since must not have the old campaign restated with the new one.
+     *
+     * `on` is the day the closing really happened, as its marker recorded it
+     * — a campaign closed by hand ahead of its date, with the e-mails on,
+     * leaves its closing e-mail and so reads the day the switch was turned
+     * off, not the scheduled one. The scheduled date is the fallback when a
+     * marker carries no moment. A campaign closed by hand with the e-mails
+     * off leaves no mark, and so no line: a wrong answer looks worse than
+     * none.
+     *
+     * @return array{key: string, on: string}|null
      */
-    private function lastClosedCampaignBefore(string $key): ?string
+    private function lastClosedCampaignBefore(string $key): ?array
     {
-        $recorded = [];
+        $last = null;
         foreach ([self::MARKER_CLOSED, self::emailMarker(self::EMAIL_CLOSING)] as $marker) {
             $value = (string) $this->settingService->get($marker, 'registration', '');
-            if ($value !== '' && $value < $key) {
-                $recorded[] = $value;
+            if ($value === '' || $value >= $key || ($last !== null && $value <= $last['key'])) {
+                continue;
             }
+            $last = [
+                'key' => $value,
+                'on' => $this->doneAt($marker, $value)?->format('Y-m-d') ?? $value,
+            ];
         }
 
-        return $recorded === [] ? null : max($recorded);
+        return $last;
     }
 
     /**

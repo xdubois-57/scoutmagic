@@ -592,7 +592,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
      */
     public function testBetweenTwoCampaignsTheBoxIsTheNextOneAndOneLineTheLast(): void
     {
-        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15');
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15', new \DateTimeImmutable('2026-05-15 23:30'));
 
         $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
         $this->assertNotNull($timeline);
@@ -632,6 +632,25 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertTrue($timeline['started']);
         $this->assertTrue($timeline['opened_early'], 'opened by the switch before its date, with no marker to show it');
         $this->assertNull($timeline['previous']);
+    }
+
+    /**
+     * A campaign closed by hand ahead of its date, e-mails on, leaves its
+     * closing e-mail: the grey line says the day it really closed, not the
+     * scheduled one.
+     */
+    public function testAPreviousCampaignClosedByHandIsDatedByItsClosingEmail(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker('closing'),
+            '2026-05-15',
+            new \DateTimeImmutable('2026-03-02 10:00')
+        );
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertSame(['label' => '2026-2027', 'closed_on' => '2026-03-02'], $timeline['previous']);
     }
 
     public function testAReminderIsDueItsConfiguredNumberOfDaysBeforeTheClose(): void
