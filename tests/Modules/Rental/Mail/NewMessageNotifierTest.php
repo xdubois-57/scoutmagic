@@ -114,6 +114,29 @@ class NewMessageNotifierTest extends TestCase
         $this->assertNotContains('rental.mail_proposition', array_column($manifest['notifications'], 'id'));
     }
 
+    public function testAFailureIsJournaledWithoutItsTextAndNeverThrown(): void
+    {
+        $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
+        $this->manager($assetId, 'gestionnaire@unite.be');
+        $booking = $this->booking($assetId, 'LOC-2027-K7Q2MX');
+
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willThrowException(
+            new \RuntimeException('SMTP refused jeanne@example.be')
+        );
+
+        $this->notifier($notifications)->messageFiled($booking);
+
+        $row = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'rental_new_message_not_sent'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row, 'the failure must leave a trace an operator can find');
+        $this->assertSame('error', $row['level']);
+        $this->assertStringContainsString('LOC-2027-K7Q2MX', (string) $row['description']);
+        $this->assertStringContainsString('RuntimeException', (string) $row['description']);
+        $this->assertStringNotContainsString('jeanne@example.be', (string) $row['description'] . $row['context']);
+    }
+
     private function notifier(NotificationService $notifications): NewMessageNotifier
     {
         return new NewMessageNotifier(
@@ -124,7 +147,8 @@ class NewMessageNotifierTest extends TestCase
                 $this->accounts,
                 new JournalService(new JournalRepository($this->pdo))
             ),
-            $this->assets
+            $this->assets,
+            new JournalService(new JournalRepository($this->pdo))
         );
     }
 

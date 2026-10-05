@@ -137,33 +137,11 @@ class RentalMessageConsumerTest extends TestCase
         ));
 
         $this->client = new FakeMailboxClient();
-        $factory = new MailboxClientFactory();
-        $factory->register(ProviderType::FAKE, $this->client);
 
         $this->storagePath = sys_get_temp_dir() . '/rental-inbound-test-' . bin2hex(random_bytes(6));
         mkdir($this->storagePath, 0777, true);
 
-        $this->syncService = new MailboxSyncService(
-            $this->mailboxRepository,
-            $this->messageRepository,
-            $this->registry,
-            new MessageContentSanitizer(new HtmlSanitizer()),
-            new AttachmentPolicy(),
-            new MailboxErrorFormatter(),
-            $factory,
-            new \Modules\InboundMail\Service\AnalysisResultApplier($this->messageRepository),
-            new UploadHandler($fileRepository, $this->storagePath),
-            null,
-            null,
-            null,
-            null,
-            // The signed reply addresses the site mints (§8.58), read off
-            // the recipients before the consumer is asked.
-            $this->replyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
-                $this->mailboxRepository,
-                $this->encryption
-            )
-        );
+        $this->syncService = $this->syncServiceFor($this->registry);
 
         $this->communicationService = new RentalCommunicationService(
             $this->bookingRepository,
@@ -204,6 +182,34 @@ class RentalMessageConsumerTest extends TestCase
     }
 
     // ── Fixtures ────────────────────────────────────────────────────────
+
+    private function syncServiceFor(MessageConsumerRegistry $registry): MailboxSyncService
+    {
+        $factory = new MailboxClientFactory();
+        $factory->register(ProviderType::FAKE, $this->client);
+
+        return new MailboxSyncService(
+            $this->mailboxRepository,
+            $this->messageRepository,
+            $registry,
+            new MessageContentSanitizer(new HtmlSanitizer()),
+            new AttachmentPolicy(),
+            new MailboxErrorFormatter(),
+            $factory,
+            new \Modules\InboundMail\Service\AnalysisResultApplier($this->messageRepository),
+            new UploadHandler(new FileRepository($this->pdo), $this->storagePath),
+            null,
+            null,
+            null,
+            null,
+            // The signed reply addresses the site mints (§8.58), read off
+            // the recipients before the consumer is asked.
+            $this->replyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
+                $this->mailboxRepository,
+                $this->encryption
+            )
+        );
+    }
 
     private function createAsset(string $name, string $slug): int
     {
@@ -845,17 +851,23 @@ class RentalMessageConsumerTest extends TestCase
     {
         // The message is filed whether or not anybody can be told: a push
         // service down must not surface as a failed association, nor stop
-        // the attachments below it from becoming documents.
+        // the attachment from becoming a document. Through the real
+        // linking path, with a notifier that throws past its own journal.
         $booking = $this->createBooking();
         $notifier = $this->createStub(\Modules\Rental\Mail\NewMessageNotifier::class);
         $notifier->method('messageFiled')->willThrowException(new \RuntimeException('push service down'));
+        $this->registry = new MessageConsumerRegistry();
+        $this->registry->register($this->plainConsumer($notifier));
+        $this->syncService = $this->syncServiceFor($this->registry);
 
-        $this->plainConsumer($notifier)->onLinked(
-            $this->storedUnattached(),
-            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER)
-        );
+        $this->deliverWithPdf(10, 'Re: [LOC-2027-0042]');
+        $this->sync();
 
-        $this->addToAssertionCount(1);
+        [$message] = $this->storedMessageAndLink($booking->reference);
+        $this->assertCount(1, $message->attachments);
+        $documents = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $documents);
+        $this->assertSame($message->attachments[0]->fileId, $documents[0]->fileId);
     }
 
     private function storedUnattached(): \Modules\InboundMail\Api\InboundMessage
