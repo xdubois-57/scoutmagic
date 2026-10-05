@@ -93,14 +93,7 @@ final class BookingJourney
             $grouped[$phase->value][] = $milestone;
         }
 
-        $next = null;
-        foreach ($milestones as $milestone) {
-            // A state (« Dates bloquées ») is never the next thing to do.
-            if ($milestone->isOutstanding()) {
-                $next = $milestone;
-                break;
-            }
-        }
+        $next = self::firstOutstanding($milestones);
 
         // The stretch holding that milestone is the one that unfolds. With
         // nothing left to do — a closed file, a refused one — it is the
@@ -141,6 +134,26 @@ final class BookingJourney
             $lateSince,
             $holdLapsedSince
         );
+    }
+
+    /**
+     * The first milestone still waiting, read straight off the list: what
+     * `next()` returns, for a caller that needs it before it has the rest
+     * of the journey to build — the dashboard's lateness (IT-12) is worked
+     * out from it and then handed to `of()`.
+     *
+     * @param list<BookingMilestone> $milestones
+     */
+    public static function firstOutstanding(array $milestones): ?BookingMilestone
+    {
+        foreach ($milestones as $milestone) {
+            // A state (« Dates bloquées ») is never the next thing to do.
+            if ($milestone->isOutstanding()) {
+                return $milestone;
+            }
+        }
+
+        return null;
     }
 
     /**

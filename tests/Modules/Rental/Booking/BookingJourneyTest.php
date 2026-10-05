@@ -735,7 +735,11 @@ class BookingJourneyTest extends TestCase
         );
     }
 
-    /** Every step the checklist knows has its own heading — none falls through. */
+    /**
+     * Every step the checklist knows has its own heading — none falls
+     * through, and no two read alike. The request and the dates it holds
+     * are the one deliberate pair: both wait on the same answer.
+     */
     public function testEveryStepHasAHeadingOfItsOwn(): void
     {
         $sentences = [];
@@ -743,7 +747,31 @@ class BookingJourneyTest extends TestCase
             $sentences[$key] = BookingJourney::stepSentence(new BookingMilestone($key, $key, false));
         }
 
-        $this->assertNotContains('', $sentences);
+        $this->assertSame($sentences['request_received'], $sentences['hold']);
+        unset($sentences['hold']);
+        $this->assertSame(array_values($sentences), array_values(array_unique($sentences)));
+    }
+
+    /** The first step still to do, read off the list, is what the journey calls next. */
+    public function testTheFirstOutstandingStepIsTheJourneysNext(): void
+    {
+        $milestones = [
+            new BookingMilestone('request_received', 'Demande reçue', true),
+            // A state is never next, nor a step that does not apply.
+            new BookingMilestone('hold', 'Dates bloquées', false, isState: true),
+            new BookingMilestone('deposit', 'Acompte', false, isApplicable: false),
+            new BookingMilestone('decision', 'Décision', false),
+            new BookingMilestone('contract_sent', 'Contrat envoyé', false),
+        ];
+
+        $this->assertSame('decision', BookingJourney::firstOutstanding($milestones)?->key);
+        $this->assertSame(
+            BookingJourney::firstOutstanding($milestones),
+            BookingJourney::of($milestones, BookingStatus::RECEIVED)->next()
+        );
+        $this->assertNull(BookingJourney::firstOutstanding([
+            new BookingMilestone('request_received', 'Demande reçue', true),
+        ]));
     }
 
     public function testAFinalBookingOffersNothingToPress(): void

@@ -1645,7 +1645,7 @@ class RentalManagementController extends AbstractController
             }
         }
 
-        $next = BookingJourney::of($milestones, $booking->status)->next();
+        $next = BookingJourney::firstOutstanding($milestones);
         $lateSince = null;
         if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
             $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
