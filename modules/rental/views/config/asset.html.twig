@@ -1,0 +1,512 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ asset.name }} — Biens à louer — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
+{#
+  One asset's administration (issue #748): what belongs to this asset in
+  the park — its general information, its managers, the Finance account its
+  money lands on, its life cycle. Reached from the list « Biens à louer ».
+
+  Two things this page deliberately is not:
+
+  - It is NOT one giant form. Each <form> below owns a disjoint set of
+    fields and posts to its own action, so saving the managers can never
+    blank a general field, and vice versa (roadmap §6.4).
+  - It is NOT where the asset is operated or priced. Booking rules, the
+    tariff, the deposit, the bookings live in the asset's own managed space,
+    reachable by its managers, who are not necessarily chiefs.
+#}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: asset.name,
+            subtitle: "Ce qui appartient à ce bien dans le parc : ses informations, ses gestionnaires, le
+                compte de ses paiements et son archivage. Ses règles de réservation, son tarif et son
+                acompte se règlent dans son espace de gestion.",
+        } only %}
+
+        <p class="mb-4">
+            <a href="/mes-locations/{{ asset.slug }}/reglages">
+                <i class="bi bi-sliders" aria-hidden="true"></i>
+                Règles, tarif et acompte dans l'espace de gestion du bien
+            </a>
+        </p>
+
+        {% if asset.isArchived %}
+            <output class="alert alert-warning d-block">
+                Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
+                réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
+            </output>
+        {% endif %}
+
+        {% if tariff_missing %}
+            {# The setup gap a visitor meets first: public, but priced by
+               nobody. Every estimate answers « Tarif sur demande » until
+               somebody fills the tariff in the asset's own managed space. #}
+            <output class="alert alert-warning d-block">
+                <strong>Ce bien est visible publiquement mais n'a encore aucun tarif.</strong>
+                Les visiteurs voient « Tarif sur demande » à la place d'une estimation. Le tarif
+                se règle par ses gestionnaires (ou par vous) dans
+                <a href="/mes-locations/{{ asset.slug }}/reglages#tarification"
+                   class="alert-link">les réglages du bien</a>.
+            </output>
+        {% endif %}
+
+        {# ── Section: général ─────────────────────────────────────── #}
+        {#
+          A READ card and a dialog rather than a form standing open
+          (design.md §1.9): this page once carried five `btn-primary` at
+          once, which is five ways of saying « the main action is
+          here ». Every edit lives in a dialog and holds the only
+          primary on screen while it is open.
+        #}
+        <div class="card mb-4" id="general">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                    <h2 class="h5 mb-0">Général</h2>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            data-bs-toggle="modal" data-bs-target="#general-edit">
+                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                        Modifier
+                    </button>
+                </div>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Nom</dt>
+                    <dd class="col-sm-8">{{ asset.name }}</dd>
+                    <dt class="col-sm-4">Type</dt>
+                    <dd class="col-sm-8">{{ asset.assetType }}</dd>
+                    <dt class="col-sm-4">Capacité</dt>
+                    <dd class="col-sm-8">{{ asset.capacity ?? '—' }}</dd>
+                    <dt class="col-sm-4">Exemplaires</dt>
+                    <dd class="col-sm-8">{{ asset.quantity }}</dd>
+                    <dt class="col-sm-4">Horaires</dt>
+                    <dd class="col-sm-8">
+                        {% if asset.arrivalTime or asset.departureTime %}
+                            arrivée {{ asset.arrivalTime ?? '—' }} ·
+                            départ {{ asset.departureTime ?? '—' }}
+                        {% else %}
+                            Non précisés
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-4">Numéro d'urgence</dt>
+                    <dd class="col-sm-8">{{ asset.emergencyPhone ?? '—' }}</dd>
+                    <dt class="col-sm-4">Visibilité</dt>
+                    <dd class="col-sm-8 mb-0">
+                        {{ asset.isPublic
+                            ? 'Visible sur le site public'
+                            : 'Non publié — visible seulement de ses gestionnaires' }}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        {% embed 'partials/modal.html.twig' with {
+            id: 'general-edit',
+            title: 'Modifier le bien',
+            section_editor: true,
+            size: 'lg',
+            asset: asset,
+            type_suggestions: type_suggestions,
+        } only %}
+            {% block body %}
+                <form method="post" action="/admin/locations/general" id="asset-general-form">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    {% include '@rental/config/_asset_fields.html.twig' with {
+                        asset: asset,
+                        type_suggestions: type_suggestions,
+                    } %}
+                </form>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" form="asset-general-form" class="btn btn-primary">
+                    Enregistrer le général
+                </button>
+            {% endblock %}
+        {% endembed %}
+
+        {# ── Section: gestionnaires ───────────────────────────────── #}
+        {#
+          A search box, not a checklist. The checklist rendered one row
+          per active member of the unit — three hundred rows to tick two
+          of them, with a second column of checkboxes beside every one.
+          The select below is what a visitor without JavaScript gets,
+          and it is also what the POST always carries: rental-managers.js
+          hides it and drives it, so both paths submit the identical form
+          (the same shape modules/groups' own invite search uses).
+
+          No literal HTML tag in this comment: Twig comments are not HTML
+          comments, so an analyser reading the rendered-source text would
+          take one for a real unlabelled control.
+        #}
+        <div class="card mb-4" id="gestionnaires">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                    <h2 class="h5 mb-0">Gestionnaires</h2>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            data-bs-toggle="modal" data-bs-target="#gestionnaires-edit">
+                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                        Modifier
+                    </button>
+                </div>
+                <p class="text-body-secondary small mb-3">
+                    Les gestionnaires exploitent le bien au quotidien : les demandes, l'argent, les
+                    documents, le séjour, et les réglages du bien (règles, tarif, acompte). Ce ne sont
+                    pas nécessairement des animateurs, et ils ont tous les mêmes droits sur le bien. Le
+                    Staff d'U est gestionnaire de tous les biens sans devoir être ajouté ici.
+                </p>
+
+                {% if managers_unreachable|default(false) %}
+                    <output class="alert alert-warning small d-block" data-managers-unreachable>
+                        Aucun gestionnaire de ce bien ne peut être prévenu : les demandes et les rappels
+                        de ce bien sont envoyés au Staff d'U. Désignez quelqu'un qui a un compte sur le
+                        site, ou demandez à un gestionnaire de s'en créer un.
+                    </output>
+                {% endif %}
+
+                {% if managers is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun gestionnaire désigné. Seul le Staff d\'U gère ce bien.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <ul class="list-group mb-0">
+                        {% for row in managers %}
+                            <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
+                                <span class="me-auto">{{ row.display_name }}</span>
+                                {% if not row.manager.isActive %}
+                                    <span class="badge text-bg-warning">Désactivé</span>
+                                {% endif %}
+                                {% if row.manager.isRenterContact %}
+                                    <span class="badge bg-body-tertiary border text-body-secondary">
+                                        Contact du locataire
+                                    </span>
+                                {% endif %}
+                                {% set unreachable = unreachable_managers[row.manager.memberId]|default(null) %}
+                                {% if unreachable %}
+                                    <span class="small text-warning-emphasis w-100" data-manager-unreachable>
+                                        <i class="bi bi-bell-slash me-1" aria-hidden="true"></i>Ne peut pas être
+                                        prévenu des demandes : {{ unreachable }}.
+                                    </span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        {% embed 'partials/modal.html.twig' with {
+            id: 'gestionnaires-edit',
+            title: 'Gestionnaires du bien',
+            section_editor: true,
+            size: 'lg',
+            scrollable: true,
+            asset: asset,
+            managers: managers,
+            candidates: candidates,
+            manager_minimum_age: manager_minimum_age,
+        } only %}
+            {% block body %}
+                {% set inactive_managers = [] %}
+                {% set current_ids = [] %}
+                {% for row in managers %}
+                    {% set current_ids = current_ids|merge([row.manager.memberId]) %}
+                    {% if not row.manager.isActive %}
+                        {% set inactive_managers = inactive_managers|merge([row]) %}
+                    {% endif %}
+                {% endfor %}
+                {% if inactive_managers is not empty %}
+                    <output class="alert alert-warning small d-block">
+                        {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
+                        dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
+                        l'attribution est conservée : elle se réactive d'elle-même s'ils
+                        réapparaissent dans un import. Les retirer ci-dessous les supprime
+                        définitivement.
+                    </output>
+                {% endif %}
+
+                <form method="post" action="/admin/locations/managers" id="rental-managers-form"
+                      data-search-url="/admin/locations/gestionnaire-recherche">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+
+                    {% if candidates is empty and managers is empty %}
+                        <p class="text-body-secondary fst-italic mb-0">
+                            Aucun membre d'au moins {{ manager_minimum_age }} ans n'est disponible pour
+                            cette année scoute.
+                        </p>
+                    {% else %}
+                        {#
+                          Two controls, one field name. The list below
+                          carries every CURRENT manager with a "Gestionnaire"
+                          checkbox — unticking one is how a grant is
+                          revoked — and the select adds somebody new. Both
+                          post `manager_member_ids[]`, and the server
+                          honours their union.
+
+                          That split is what makes preserving a manager the
+                          last Desk import deactivated structural rather
+                          than a rule to remember: they are not in the
+                          candidate list (they are not on the roster any
+                          more) but they ARE in this list, so a save that
+                          leaves them ticked posts them back.
+                        #}
+                        <div id="rental-manager-selected">
+                            <h3 class="h6">Gestionnaires de ce bien</h3>
+                            <p class="text-body-secondary fst-italic"
+                               id="rental-manager-empty"{{ managers is empty ? '' : ' hidden' }}>
+                                Aucun gestionnaire désigné. Seul le Staff d'U gère ce bien.
+                            </p>
+                            <ul class="list-group mb-3" id="rental-manager-selected-list">
+                                {% for row in managers %}
+                                    <li class="list-group-item d-flex flex-wrap align-items-center gap-3"
+                                        data-member-id="{{ row.manager.memberId }}">
+                                        <div class="form-check m-0 me-auto">
+                                            <input class="form-check-input" type="checkbox"
+                                                   id="manager-{{ row.manager.memberId }}"
+                                                   name="manager_member_ids[]"
+                                                   value="{{ row.manager.memberId }}" checked>
+                                            <label class="form-check-label" for="manager-{{ row.manager.memberId }}">
+                                                {{ row.display_name }}
+                                                {% if not row.manager.isActive %}
+                                                    <span class="badge text-bg-warning">Désactivé</span>
+                                                {% endif %}
+                                            </label>
+                                        </div>
+                                        <div class="form-check form-switch m-0">
+                                            <input class="form-check-input" type="checkbox"
+                                                   id="contact-{{ row.manager.memberId }}"
+                                                   name="renter_contact_member_ids[]"
+                                                   value="{{ row.manager.memberId }}"
+                                                   {{ row.manager.isRenterContact ? 'checked' : '' }}>
+                                            <label class="form-check-label small" for="contact-{{ row.manager.memberId }}">
+                                                Contact du locataire
+                                            </label>
+                                        </div>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <p class="text-body-secondary small">
+                                Décocher « Gestionnaire » retire l'attribution définitivement lors de
+                                l'enregistrement.
+                            </p>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="rental-manager-select">Ajouter un gestionnaire</label>
+                            {#
+                              The no-JS control: every eligible member not
+                              already a manager, as a plain multiple select.
+                              rental-managers.js hides this wrapper and
+                              drives the same field from a search box.
+                            #}
+                            <div id="rental-manager-select-wrapper">
+                                <select class="form-select" id="rental-manager-select"
+                                        name="manager_member_ids[]" multiple size="8">
+                                    {% for candidate in candidates %}
+                                        {% if candidate.memberId not in current_ids %}
+                                            <option value="{{ candidate.memberId }}"
+                                                    data-sublabel="{{ candidate.sublabel() }}">
+                                                {{ candidate.label() }}
+                                            </option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">
+                                    Membres d'au moins {{ manager_minimum_age }} ans. Maintenez Ctrl (ou ⌘)
+                                    pour en sélectionner plusieurs.
+                                </div>
+                            </div>
+                            <label class="visually-hidden" for="rental-manager-search">
+                                Rechercher un gestionnaire à ajouter
+                            </label>
+                            <input type="text" class="form-control d-none" id="rental-manager-search"
+                                   autocomplete="off" placeholder="Nom, prénom ou totem…"
+                                   aria-describedby="rental-manager-search-help">
+                            <div class="form-text d-none" id="rental-manager-search-help">
+                                Tapez au moins deux lettres. Seuls les membres d'au moins
+                                {{ manager_minimum_age }} ans sont proposés.
+                            </div>
+                            <ul class="list-group mt-1 d-none" id="rental-manager-results"
+                                aria-label="Résultats de la recherche"></ul>
+                        </div>
+
+                        <p class="text-body-secondary small">
+                            « Contact du locataire » montre le nom et le téléphone de ce gestionnaire au
+                            locataire sur sa page de suivi et dans l'email d'informations pratiques. Cela
+                            ne les rend jamais publiques.
+                        </p>
+                    {% endif %}
+                </form>
+            {% endblock %}
+            {% block footer %}
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="submit" form="rental-managers-form" class="btn btn-primary">
+                    Enregistrer les gestionnaires
+                </button>
+            {% endblock %}
+        {% endembed %}
+
+        {# ── Section: compte des paiements ────────────────────────── #}
+        {#
+          The one money field that stays with unit staff. Everything else
+          about the money — the deposit, the balance, the security
+          deposit — belongs to the asset's managers, on the asset's own
+          Réglages page. The reason this one did not follow is not taste:
+          the account list carries every account's IBAN and is not
+          filtered by role, while a manager may be a parent or a former
+          leader (SECURITY.md §3).
+        #}
+        <div class="card mb-4" id="compte">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                    <h2 class="h5 mb-0">Compte des paiements</h2>
+                    {% if finance_available %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal" data-bs-target="#compte-edit">
+                            <i class="bi bi-pencil" aria-hidden="true"></i>
+                            Modifier
+                        </button>
+                    {% endif %}
+                </div>
+
+                {% if not finance_available %}
+                    <p class="text-body-secondary small mb-0">
+                        Le module « Finances » n'est pas actif sur ce site. Les locations fonctionnent
+                        normalement sans lui : aucune créance n'est créée et le suivi des paiements se
+                        fait hors ScoutMagic.
+                    </p>
+                {% else %}
+                    <p class="text-body-secondary small mb-3">
+                        Le compte sur lequel les virements de ce bien sont attendus. Les gestionnaires
+                        règlent ensuite l'acompte, le solde et la caution depuis les
+                        <a href="/mes-locations/{{ asset.slug }}/reglages#paiements">réglages du bien</a>
+                        — ils ne voient jamais cette liste, qui porte les IBAN de l'unité.
+                    </p>
+
+                    {# The account's name, never its IBAN: this card is a
+                       statement of which account is in force, and a page
+                       that prints an IBAN in passing is a page somebody
+                       screenshots. #}
+                    <p class="mb-0">
+                        {% set pinned = null %}
+                        {% for account in finance_accounts %}
+                            {% if payment_settings.financeAccountId == account.id %}
+                                {% set pinned = account %}
+                            {% endif %}
+                        {% endfor %}
+                        {% if pinned %}
+                            {{ pinned.name }}
+                            {% if not pinned.iban %}
+                                <span class="form-text d-block">
+                                    Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé
+                                    au locataire.
+                                </span>
+                            {% endif %}
+                        {% else %}
+                            <span class="fst-italic text-body-secondary">Aucun compte associé.</span>
+                        {% endif %}
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if finance_available %}
+            {% embed 'partials/modal.html.twig' with {
+                id: 'compte-edit',
+                title: 'Compte des paiements',
+                section_editor: true,
+                asset: asset,
+                finance_accounts: finance_accounts,
+                payment_settings: payment_settings,
+            } only %}
+                {% block body %}
+                    <form method="post" action="/admin/locations/compte" id="finance-account-form">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <label class="form-label" for="finance-account">Compte</label>
+                        <select class="form-select" id="finance-account" name="finance_account_id">
+                            <option value="">—</option>
+                            {% for account in finance_accounts %}
+                                <option value="{{ account.id }}"
+                                        {{ payment_settings.financeAccountId == account.id ? 'selected' : '' }}>
+                                    {{ account.name }}{% if account.iban %} ({{ account.iban }}){% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
+                        </div>
+                    </form>
+                {% endblock %}
+                {% block footer %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" form="finance-account-form" class="btn btn-primary">
+                        Enregistrer le compte
+                    </button>
+                {% endblock %}
+            {% endembed %}
+        {% endif %}
+
+        {# ── Section: cycle de vie ────────────────────────────────── #}
+        {#
+          Archiving is the ordinary end of an asset's life, offered here and
+          on the list. Deleting for good is not an ordinary action (issue
+          #748): it lives here only, apart, in a zone of its own.
+        #}
+        <div class="card mb-4" id="cycle-de-vie">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Cycle de vie</h2>
+                <p class="text-body-secondary small">
+                    Un bien qui a un historique de réservations s'archive, il ne se supprime pas :
+                    l'historique reste nécessaire à la comptabilité et aux statistiques.
+                </p>
+                {% if asset.isArchived %}
+                    <form method="post" action="/admin/locations/restore">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <button type="submit" class="btn btn-outline-secondary">Désarchiver</button>
+                    </form>
+                {% else %}
+                    <form method="post" action="/admin/locations/archive"
+                          data-confirm="Archiver « {{ asset.name }} » ? Le bien disparaît de la page publique et des écrans courants, et n'accepte plus de demande. Rien n'est supprimé.">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <button type="submit" class="btn btn-outline-secondary">Archiver</button>
+                    </form>
+                {% endif %}
+
+                <div class="border border-danger-subtle rounded p-3 mt-4" id="suppression">
+                    <h3 class="h6 text-danger-emphasis">Supprimer définitivement</h3>
+                    <p class="text-body-secondary small">
+                        Possible seulement pour un bien qui n'a encore aucune réservation. Rien ne
+                        pourra être récupéré.
+                    </p>
+                    <form method="post" action="/admin/locations/delete"
+                          data-confirm="Supprimer définitivement « {{ asset.name }} » ? Cette action ne peut pas être annulée.">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <button type="submit" class="btn btn-outline-danger">Supprimer définitivement</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="{{ asset('/assets/js/select-explanation.js') }}"></script>
+    {# Plain script, no module: it enhances the managers form in place and
+       exports nothing the page needs. Without it the select it hides
+       stays visible and the form works unchanged. No literal HTML tag in
+       this comment: Twig comments are not HTML comments, so an analyser
+       reading the rendered-source text would take one for a real
+       unlabelled control. #}
+    <script src="{{ asset('/assets/js/rental-managers.js') }}"></script>
+    {# Focuses the first field of a « Modifier » dialog when it opens, and
+       opens the one a link names (design.md §1.9). #}
+    <script src="{{ asset('/assets/js/section-editor.js') }}" defer></script>
+{% endblock %}

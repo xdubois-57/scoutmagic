@@ -116,6 +116,14 @@ trait InertInboundMail
     }
 
     /**
+     * @return array<int, array{name: string, state: string, is_enabled: bool}>
+     */
+    public function listMailboxSummariesFor(string $consumerId): array
+    {
+        return [];
+    }
+
+    /**
      * @param string[] $ownReferences
      * @return InboundMessage[]
      */

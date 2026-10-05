@@ -89,6 +89,7 @@ test.describe('Rentals', () => {
         // --- The unit puts a hall online. ---
         await loginAsAdmin(page);
         await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
 
         await expect(page.getByRole('heading', { name: 'Ajouter un bien' })).toBeVisible();
 
@@ -103,7 +104,9 @@ test.describe('Rentals', () => {
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
 
-        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
+        // Straight to the new hall's own page (issue #748).
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name: ASSET_NAME })).toBeVisible();
 
         // --- And designates somebody to look after it. ---
         // Creating a hall does not give anybody the managed space: asset

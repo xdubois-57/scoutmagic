@@ -1545,10 +1545,12 @@ Renting out the unit's own assets — halls, grounds, tents, trailers, equipment
 
 | | Where | `role_min` | What actually protects it |
 |---|---|---|---|
-| Administration of the **park** | `Espace chefs d'U > Locations` (`/admin/locations`) | `admin` | The route guard |
+| Administration of the **park** | `Espace chefs d'U > Biens à louer` (`/admin/locations`, `/admin/locations/nouveau`, `/admin/locations/{id}`) | `admin` | The route guard |
 | Everything about **one asset** | the asset's own managed space, `/mes-locations` | `identified` | `Service\RentalAuthorizationService` |
 
 The managed space's `identified` floor is not an oversight. A manager is explicitly **not** required to be a chief, so the route guard grants nearly everything and the per-asset check is what stands between a logged-in visitor and someone else's bookings. It is re-run server-side on every action; a hidden "Gérer ce bien" button, an absent menu entry and a breadcrumb are presentation, never a boundary (§12).
+
+**The park is a list, an asset a page of its own (issue #748).** `/admin/locations` lists every asset — active ones first, archived ones apart — with « Éditer » and « Archiver » / « Désarchiver » on each line, and keeps below the list only what concerns the module as a whole: the cron warning and the inbound mail. Creating an asset has its own page, and each asset's page carries its four sections (général, gestionnaires, compte, cycle de vie, with deletion apart). The inbound-mail section lists only the boxes whose effective scope lets `rental` analyse them, through `InboundMailInterface::listMailboxSummariesFor()`, never every box on the site.
 
 **There is one authority, not two.** "Manager of this asset" is the only per-object right this module has, and unit staff hold it over every asset by virtue of their function. So the split above is *what is being administered*, never *who is trusted*: the admin page answers "which assets exist and who runs each one", and everything that is a property of one asset — its booking rules, its tariff, its deposit rules, its bookings, its documents, its stay — lives in that asset's own space, reachable by the people who actually run it. Unit staff reach it there as implicit managers rather than through a second, admin-only screen.
 
@@ -2388,9 +2390,11 @@ nothing of the module's own.** `rental` used to keep its own list of box ids
 next to the scope screen's per-box answers, and the two could disagree: a box
 ticked on the rental page that the superadmin had never opened to the module
 produced nothing, and nothing on either screen said why. The list is gone; the
-rental configuration page names the unit's boxes and their state — never a
-host, a port or an account, `listMailboxSummaries()` is the whole of what
-crosses that boundary — and points at the scope screen for the rest.
+rental configuration page names the boxes whose scope opens them to `rental`
+and their state — never a host, a port or an account, and never another
+module's box: `listMailboxSummariesFor('rental')` is the whole of what
+crosses that boundary (issue #748) — and points at the scope screen for the
+rest.
 
 **The « Courrier » page is the camps' triage screen, not a look-alike**
 (issue #462). Both modules render `@inbound_mail/partials/triage.html.twig`

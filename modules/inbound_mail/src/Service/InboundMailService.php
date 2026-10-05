@@ -648,6 +648,22 @@ class InboundMailService implements InboundMailInterface
         return $summaries;
     }
 
+    public function listMailboxSummariesFor(string $consumerId): array
+    {
+        if ($this->scopeService === null) {
+            return [];
+        }
+
+        $summaries = [];
+        foreach ($this->mailboxRepository->findAll() as $mailbox) {
+            if ($this->scopeService->scopeFor($mailbox, $consumerId)->analyzes) {
+                $summaries[$mailbox->id] = $mailbox->publicSummary();
+            }
+        }
+
+        return $summaries;
+    }
+
     public function probeAddressesFor(string $consumerId): array
     {
         $addresses = [];

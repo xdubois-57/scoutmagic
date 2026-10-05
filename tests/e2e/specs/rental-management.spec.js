@@ -73,11 +73,58 @@ function nextDay(day) {
 const ARRIVAL = isoDaysFromNow(200);
 const DEPARTURE = isoDaysFromNow(203);
 
+test.describe('Rentals — the park', () => {
+    /**
+     * The park is a list, an asset a page of its own (issue #748): created
+     * from the header's one action, found again on the list, opened, and
+     * archived from its page — after which the list shows it apart.
+     */
+    test('a chief adds an asset, finds it on the list, opens it and archives it', async ({ page }) => {
+        const name = 'Remorque de camp';
+        await loginAsAdmin(page);
+
+        await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/nouveau$/);
+
+        const creation = page.locator('form[action="/admin/locations/create"]');
+        await creation.locator('input[name="name"]').fill(name);
+        await creation.locator('select[name="asset_type"]').selectOption('Matériel');
+        await creation.getByRole('button', { name: 'Créer le bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+
+        // Back to the list through the breadcrumb, and into the asset again
+        // from its own line.
+        await page.getByRole('navigation', { name: "Fil d'Ariane" }).getByRole('link', { name: 'Biens à louer' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations$/);
+        await page.locator('[data-active-assets]').getByRole('link', { name, exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+
+        // Archiving asks first, and says nothing is deleted.
+        await waitForConfirmReady(page);
+        await page.locator('#cycle-de-vie').getByRole('button', { name: 'Archiver' }).click();
+        const question = await answerConfirmation(page);
+        expect(question).toContain("Rien n'est supprimé.");
+        await expect(page.getByText('Le bien a été archivé.')).toBeVisible();
+
+        await page.goto('/admin/locations');
+        const archived = page.locator('[data-archived-assets]');
+        await expect(archived.getByRole('link', { name, exact: true })).toBeVisible();
+        await expect(archived.getByText('Archivé')).toBeVisible();
+        await expect(archived.getByRole('button', { name: `Désarchiver « ${name} »` })).toBeVisible();
+    });
+});
+
 test.describe('Rentals — running an asset', () => {
     test('a chief configures a hall, blocks a week and answers a request', async ({ page }) => {
         // ── The hall, and a tariff ──────────────────────────────────────
         await loginAsAdmin(page);
+        // Creating an asset has its own page (issue #748), reached from the
+        // park's one primary action.
         await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/nouveau$/);
 
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
@@ -88,10 +135,10 @@ test.describe('Rentals — running an asset', () => {
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
 
-        // The controller redirects to the new asset already selected, so
-        // every form below is the new hall's own.
-        await expect(page).toHaveURL(/\/admin\/locations\?asset_id=\d+/);
-        await expect(page.locator('input[name="name"]').first()).toHaveValue(ASSET_NAME);
+        // The controller redirects to the new asset's own page, so every
+        // form below is the new hall's own.
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name: ASSET_NAME })).toBeVisible();
 
         // The manager grant, which creating the hall does NOT confer —
         // not even on the superadmin who created it (§6.3).

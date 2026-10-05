@@ -32,7 +32,10 @@ qui concerne une personne : le calendrier public dit *loué* ou
 
 ## 2. Créer un bien
 
-`Espace chefs d'U > Locations > Ajouter un bien`.
+`Espace chefs d'U > Biens à louer > Ajouter un bien` — le bouton en haut de
+la liste des biens, qui ouvre une page de création. Le bien créé, on arrive
+sur sa propre page (`/admin/locations/{id}`) : général, gestionnaires,
+compte des paiements, cycle de vie.
 
 Trois choses à décider tout de suite, parce qu'elles changent tout le
 reste :

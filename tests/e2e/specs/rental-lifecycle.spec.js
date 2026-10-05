@@ -151,14 +151,14 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // foot of a very long page; see ../support/cookie-banner.js.
         await answerCookieBanner(page);
 
-        await page.goto('/admin/locations', { waitUntil: 'load' });
+        await page.goto('/admin/locations/nouveau', { waitUntil: 'load' });
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
         await creation.locator('select[name="asset_type"]').selectOption('Local');
         await creation.locator('input[name="capacity"]').fill('40');
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
-        await expect(page).toHaveURL(/\/admin\/locations\?asset_id=\d+/);
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
 
         await grantManagerBySearch(page);
 
