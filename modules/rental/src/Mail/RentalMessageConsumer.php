@@ -22,6 +22,7 @@ use Modules\InboundMail\Api\ReferenceDirectory;
 use Modules\InboundMail\Api\ReferenceSuggestion;
 use Core\Service\TextNormalizerService;
 use Modules\Rental\Booking\BookingStatus;
+use Modules\Rental\Booking\OtherRenterEmail;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
@@ -548,10 +549,8 @@ class RentalMessageConsumer implements
      */
     private function learnFrom(InboundMessage $message, RentalBooking $booking): void
     {
-        $address = $message->isSent()
-            ? (count($message->toEmails) === 1 ? $message->toEmails[0] : '')
-            : $message->fromEmail;
-        if (trim($address) !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
+        $address = self::taughtAddress($message);
+        if ($address !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
             $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
         }
 
@@ -561,6 +560,57 @@ class RentalMessageConsumer implements
             // The association a person just made is already written; a
             // re-run that fails must not undo their click or show them an
             // error about it.
+        }
+    }
+
+    /**
+     * The address a decision about this message teaches: its sender, or
+     * for a sent message its recipient when there is exactly one —
+     * normalised, '' when there is none.
+     */
+    private static function taughtAddress(InboundMessage $message): string
+    {
+        $address = $message->isSent()
+            ? (count($message->toEmails) === 1 ? $message->toEmails[0] : '')
+            : $message->fromEmail;
+
+        return RentalBookingRepository::normalizeEmail($address);
+    }
+
+    /**
+     * Forget what this message taught the booking: « Détacher » says it was
+     * not about the booking, so neither is the address it came from —
+     * unless another message still filed there by a decision teaches the
+     * same address, in which case the address now hangs off that one. Only
+     * one row exists per address (the unique index), so without that
+     * hand-over detaching either of two teachers forgot it for both.
+     */
+    private function forgetWhatItTaught(RentalBooking $booking, InboundMessage $message): void
+    {
+        $learned = array_values(array_filter(
+            $this->bookingRepository->otherRenterEmails($booking->id),
+            static fn(OtherRenterEmail $other): bool => $other->learnedFromMessageId === $message->id
+        ));
+        if ($learned === []) {
+            return;
+        }
+
+        $teachers = [];
+        foreach ($this->inboundMail->findForReference(self::CONSUMER_ID, $booking->reference) as $filed) {
+            if ($filed->id !== $message->id
+                && in_array($filed->linkOrigin, [LinkOrigin::MANUAL, LinkOrigin::AI], true)
+            ) {
+                $teachers[self::taughtAddress($filed)] ??= $filed->id;
+            }
+        }
+
+        foreach ($learned as $other) {
+            $teacher = $teachers[RentalBookingRepository::normalizeEmail($other->email)] ?? null;
+            if ($teacher === null) {
+                $this->bookingRepository->removeRenterEmail($booking->id, $other->id);
+            } else {
+                $this->bookingRepository->repointLearnedEmail($booking->id, $other->id, $teacher);
+            }
         }
     }
 
@@ -599,7 +649,7 @@ class RentalMessageConsumer implements
         // The message was not about this booking, so neither is the address
         // its filing taught it (#720, step 5). Only that one: an address a
         // manager typed in, or another message taught, stays.
-        $this->bookingRepository->forgetEmailsLearnedFrom($booking->id, $message->id);
+        $this->forgetWhatItTaught($booking, $message);
 
         if ($message->attachments === []) {
             return;

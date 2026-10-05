@@ -1106,19 +1106,15 @@ class RentalBookingRepository
     }
 
     /**
-     * Forget what this message taught the booking: « Détacher » says the
-     * message was not about it, so neither is the address it came from.
-     *
-     * @return int how many addresses were forgotten
+     * Hand a learned address over to another message that teaches it too,
+     * so detaching the first one no longer takes it away (#720, step 5).
      */
-    public function forgetEmailsLearnedFrom(int $bookingId, int $messageId): int
+    public function repointLearnedEmail(int $bookingId, int $id, int $messageId): void
     {
         $stmt = $this->pdo->prepare(
-            'DELETE FROM rental_booking_emails WHERE booking_id = ? AND learned_from_message_id = ?'
+            'UPDATE rental_booking_emails SET learned_from_message_id = ? WHERE id = ? AND booking_id = ?'
         );
-        $stmt->execute([$bookingId, $messageId]);
-
-        return $stmt->rowCount();
+        $stmt->execute([$messageId, $id, $bookingId]);
     }
 
     /**
