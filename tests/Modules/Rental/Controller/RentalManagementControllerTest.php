@@ -994,6 +994,49 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('déjà parti', (string) ($flash['message'] ?? ''));
     }
 
+    /**
+     * « Renvoyer » at both sides of its role boundary: the route is
+     * `identified`, and what keeps it to the asset's managers is the
+     * asset check behind it (§22.9).
+     */
+    public function testAnAnonymousVisitorCannotResendAnything(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+        AuthSession::logout();
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertSame([], $this->resends);
+    }
+
+    public function testAnIdentifiedMemberWhoManagesNothingCannotResend(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+        AuthSession::logout();
+        AuthSession::login(9, 'nobody@test.be', 'identified');
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame([], $this->resends);
+        $this->assertNotSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
     // ── « Non lus », per person (#720) ──────────────────────────────────
 
     public function testTheCourrierChipCountsWhatWasFiledSinceThePersonLastLooked(): void

@@ -169,13 +169,19 @@ class RentalBookingMailService
                 new \DateTimeImmutable()
             );
         } catch (\Throwable) {
-            $this->journal->log(
-                'rental',
-                'rental_sent_email_not_recorded',
-                'warning',
-                "Un e-mail envoyé pour " . $booking->reference . " n'a pas pu être inscrit dans son courrier.",
-                ['booking_id' => $booking->id, 'kind' => $kind]
-            );
+            try {
+                $this->journal->log(
+                    'rental',
+                    'rental_sent_email_not_recorded',
+                    'warning',
+                    "Un e-mail envoyé pour " . $booking->reference . " n'a pas pu être inscrit dans son courrier.",
+                    ['booking_id' => $booking->id, 'kind' => $kind]
+                );
+            } catch (\Throwable) {
+                // Neither write may change what the caller hears of the
+                // e-mail itself: sent is sent, failed is the send's own
+                // exception.
+            }
         }
     }
 
@@ -250,6 +256,13 @@ class RentalBookingMailService
             str_replace(SentEmail::MASKED_LINK, htmlspecialchars($link, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $sent->bodyHtml),
             str_replace(SentEmail::MASKED_LINK, $link, $sent->bodyText)
         );
+
+        // Claimed before it goes, by a conditional write: of two clicks —
+        // a double click, two managers at once — one sends and the other
+        // is told, rather than the renter receiving the e-mail twice.
+        if ($this->sentEmails !== null && !$this->sentEmails->claimForRetry($sent->id, new \DateTimeImmutable())) {
+            throw new RentalException("Cet e-mail est déjà en train d'être renvoyé.");
+        }
 
         $this->deliver(
             $booking,

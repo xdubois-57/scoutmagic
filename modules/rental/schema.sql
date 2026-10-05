@@ -727,7 +727,7 @@ CREATE TABLE IF NOT EXISTS rental_booking_sent_emails (
     -- Comma-separated ids of rental_documents, empty when none.
     document_ids VARCHAR(255) NOT NULL DEFAULT '',
     message_id VARCHAR(255) NOT NULL,
-    -- 'sent' or 'failed'.
+    -- 'sent', 'failed', or 'sending' while one « Renvoyer » retries it.
     status VARCHAR(10) NOT NULL,
     sent_at DATETIME NOT NULL,
     KEY idx_rental_booking_sent_emails_booking (booking_id, sent_at),

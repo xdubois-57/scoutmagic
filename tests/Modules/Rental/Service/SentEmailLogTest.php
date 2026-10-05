@@ -43,6 +43,9 @@ final class SentEmailLogTest extends TestCase
     private const FRESH_TOKEN = 'ffffeeeeddddccccbbbbaaaa99998888777766665555444433332222111100aa';
 
     private \PDO $pdo;
+    private MailService $mailService;
+    private SettingService $settings;
+    private \Core\Mail\Template\EmailTemplateRenderer $renderer;
     private RentalSentEmailRepository $log;
     /** @var list<array{to: string, subject: string, html: string, text: string, attachments: array<int, mixed>}> */
     private array $outbox = [];
@@ -60,7 +63,7 @@ final class SentEmailLogTest extends TestCase
             false,
             ['rental' => dirname(__DIR__, 4) . '/modules/rental/views', 'inbound_mail' => dirname(__DIR__, 4) . '/modules/inbound_mail/views']
         );
-        $settings = $this->createStub(SettingService::class);
+        $settings = $this->settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturnCallback(
             static fn (string $key): ?string => match ($key) {
                 'site_name' => 'Unité Test',
@@ -69,7 +72,7 @@ final class SentEmailLogTest extends TestCase
             }
         );
 
-        $mail = $this->createStub(MailService::class);
+        $mail = $this->mailService = $this->createStub(MailService::class);
         $mail->method('send')->willReturnCallback(
             function (string $to, string $subject, string $html, string $text, ?string $replyTo = null, array $attachments = []): void {
                 if (!$this->smtpUp) {
@@ -79,9 +82,10 @@ final class SentEmailLogTest extends TestCase
             }
         );
 
+        $this->renderer = EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'rental');
         $this->service = new RentalBookingMailService(
             $mail,
-            EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'rental'),
+            $this->renderer,
             $settings,
             $this->createStub(JournalService::class),
             sentEmails: $this->log
@@ -229,6 +233,74 @@ final class SentEmailLogTest extends TestCase
             $this->assertStringContainsString('déjà parti', $e->getMessage());
         }
 
+        $this->assertCount(1, $this->outbox);
+    }
+
+    public function testTwoClicksAtOnceSendItOnce(): void
+    {
+        // Both requests read the entry while it was still failed; only the
+        // one that claims it sends.
+        $this->smtpUp = false;
+        $this->service->sendTrackingLink($this->booking(), $this->asset(), self::TOKEN);
+        $first = $this->log->findForBooking(42)[0];
+        $second = $this->log->findById($first->id);
+        $this->assertNotNull($second);
+        $this->smtpUp = true;
+
+        $this->service->resend($first, $this->booking(), self::FRESH_TOKEN, static fn(int $id): ?array => null);
+        try {
+            $this->service->resend($second, $this->booking(), self::FRESH_TOKEN, static fn(int $id): ?array => null);
+            $this->fail('The second click must not send the e-mail again.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('déjà', $e->getMessage());
+        }
+
+        $this->assertCount(1, $this->outbox);
+    }
+
+    public function testAClaimOnlyTakesAFailedEntryOrAnAbandonedOne(): void
+    {
+        $now = new \DateTimeImmutable('2027-07-02 11:00:00');
+        $failed = $this->log->record(42, 'rental.tracking_link', 'jeanne@example.be', 'Objet', 'Texte', '', [], '<a@site>', SentEmail::STATUS_FAILED, new \DateTimeImmutable('2027-07-01 10:00:00'));
+        $sent = $this->log->record(42, 'rental.tracking_link', 'jeanne@example.be', 'Objet', 'Texte', '', [], '<b@site>', SentEmail::STATUS_SENT, new \DateTimeImmutable('2027-07-01 10:00:00'));
+
+        $this->assertTrue($this->log->claimForRetry($failed, $now));
+        $this->assertFalse($this->log->claimForRetry($failed, $now), 'a claim is taken once');
+        $this->assertFalse($this->log->claimForRetry($sent, $now), 'what went out is never claimed');
+
+        $claimed = $this->log->findById($failed);
+        $this->assertNotNull($claimed);
+        $this->assertTrue($claimed->beingResent($now));
+        $this->assertFalse($claimed->failed($now));
+
+        // A request that died after claiming: the entry comes back within reach.
+        $later = $now->modify('+' . (SentEmail::STALE_CLAIM_MINUTES + 1) . ' minutes');
+        $this->assertTrue($claimed->failed($later));
+        $this->assertTrue($this->log->claimForRetry($failed, $later));
+    }
+
+    public function testALogThatCannotBeWrittenNorJournaledLeavesTheResultAlone(): void
+    {
+        // Both writes failing after the e-mail went out must not turn a
+        // delivered e-mail into a failure for the caller.
+        $log = $this->createStub(RentalSentEmailRepository::class);
+        $log->method('record')->willThrowException(new \PDOException('table gone'));
+        $journal = $this->createStub(JournalService::class);
+        $journal->method('log')->willReturnCallback(static function (string $category, string $type): void {
+            // Only the fallback write fails: the one this test is about.
+            if ($type === 'rental_sent_email_not_recorded') {
+                throw new \PDOException('journal gone');
+            }
+        });
+        $service = new RentalBookingMailService(
+            $this->mailService,
+            $this->renderer,
+            $this->settings,
+            $journal,
+            sentEmails: $log
+        );
+
+        $this->assertTrue($service->sendTrackingLink($this->booking(), $this->asset(), self::TOKEN));
         $this->assertCount(1, $this->outbox);
     }
 

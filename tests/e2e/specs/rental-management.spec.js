@@ -348,7 +348,9 @@ test.describe('Rentals — running an asset', () => {
         await page.locator('a[href*="/reservations/"][href$="/courrier"]').first().click();
         await expect(page).toHaveURL(/\/reservations\/\d+\/courrier$/);
         const sent = page.locator('[data-sent-entry]');
-        expect(await sent.count()).toBeGreaterThanOrEqual(2);
+        // A retrying assertion: the page may still be arriving when the
+        // URL already matches.
+        await expect(sent.nth(1)).toBeVisible();
         await expect(sent.filter({ hasText: 'Votre demande de location' }).first()).toBeVisible();
         const dialog = await openModal(page, 'mail-message-modal', () =>
             sent.first().getByRole('button', { name: 'Lire le message' }).click()
