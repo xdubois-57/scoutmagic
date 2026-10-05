@@ -483,6 +483,7 @@ class ReenrollmentCampaignService
      *     opens: ?string,
      *     closes: string,
      *     opened_early_at: ?\DateTimeImmutable,
+     *     opened_early: bool,
      *     started: bool,
      *     steps: list<array{type: string, state: string, date: ?string, at: ?\DateTimeImmutable, manual: bool}>,
      *     previous: ?array{label: string, closed_on: string}
@@ -541,6 +542,11 @@ class ReenrollmentCampaignService
         // else does either — the page's « Ouverte » badge reads isOpen() too.
         $started = $this->hasStarted($key, $now) || $this->isOpen();
         $previousKey = $this->lastClosedCampaignBefore($key);
+        // One answer for every surface of the page: opened before its
+        // scheduled date, by the recorded opening e-mail or, when none was
+        // recorded (the switch writes no marker), by the clock today.
+        $openedEarly = $started && $opens !== null
+            && ($openingAt !== null ? $openingAt->format('Y-m-d') : $now->format('Y-m-d')) < $opens;
 
         return [
             'key' => $key,
@@ -550,6 +556,7 @@ class ReenrollmentCampaignService
             'opened_early_at' => $openingAt !== null && $opens !== null && $openingAt->format('Y-m-d') < $opens
                 ? $openingAt
                 : null,
+            'opened_early' => $openedEarly,
             'started' => $started,
             'steps' => $steps,
             // Between two campaigns, one grey line says how the last one

@@ -115,8 +115,7 @@ class ReenrollmentConfigController extends AbstractController
             'close_date' => $closeDate !== null && $closeDate->format('Y-m-d') >= $now->format('Y-m-d')
                 ? $closeDate->format('d/m/Y')
                 : null,
-            'opened_early' => $isOpen && $timeline !== null && $timeline['opens'] !== null
-                && $now->format('Y-m-d') < $timeline['opens'],
+            'opened_early' => $isOpen && $timeline !== null && $timeline['opened_early'],
             'tracking' => $this->campaign->tracking(),
         ]);
     }

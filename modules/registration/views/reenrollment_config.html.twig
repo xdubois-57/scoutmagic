@@ -75,6 +75,8 @@
                 Campagne pour {{ timeline.label }} :
                 {% if timeline.opened_early_at %}
                     ouverte le {{ timeline.opened_early_at|date_fr }}, fermeture le {{ timeline.closes|date_fr }}
+                {% elseif timeline.opened_early %}
+                    ouverte à la main, fermeture le {{ timeline.closes|date_fr }}
                 {% elseif timeline.opens %}
                     du {{ timeline.opens|date_fr }} au {{ timeline.closes|date_fr }}
                 {% else %}

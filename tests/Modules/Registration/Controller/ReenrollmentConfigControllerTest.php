@@ -806,6 +806,15 @@ class ReenrollmentConfigControllerTest extends TestCase
                 ['Campagne pour 2027-2028 : du 01/03/2027 au 15/05/2027', 'Campagne précédente, pour 2026-2027 : clôturée le 15/05/2026.'], ['2026-2027 : du']],
             'opened by hand' => ['2026-10-04 11:00', $opening('2026-10-04 10:35'),
                 ['ouverte le 04/10/2026, fermeture le 15/05/2027', '(ouverte à la main)', 'Ouverte à la main, avant la date prévue.'], ['Campagne précédente']],
+            // The État card and the box read one answer: opened ahead of its
+            // date, with or without an opening e-mail on record, and still so
+            // once the clock has reached the scheduled date.
+            'opened by hand with the e-mails off' => ['2026-10-04 11:00', static function (self $t): void {
+                $t->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+                $t->campaign->open();
+            }, ['Ouverte à la main, avant la date prévue.', 'ouverte à la main, fermeture le 15/05/2027'], ['du 01/03/2027 au 15/05/2027']],
+            'opened by hand, scheduled date since reached' => ['2027-03-10 10:00', $opening('2026-10-04 10:35'),
+                ['Ouverte à la main, avant la date prévue.', 'ouverte le 04/10/2026, fermeture le 15/05/2027'], []],
             'campaign in progress' => ['2027-04-20 10:00', $opening('2027-03-01 08:04'),
                 ['Envoyé le 01/03/2027 à 08:04', 'prévu le 01/05/2027', 'Clôture prévue le 15/05/2027.'], ['Pas envoyé']],
             'missed date' => ['2027-05-03 10:00', $opening('2027-03-01 08:04'),

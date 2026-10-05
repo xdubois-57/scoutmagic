@@ -630,6 +630,7 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertNotNull($timeline);
 
         $this->assertTrue($timeline['started']);
+        $this->assertTrue($timeline['opened_early'], 'opened by the switch before its date, with no marker to show it');
         $this->assertNull($timeline['previous']);
     }
 
