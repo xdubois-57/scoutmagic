@@ -341,11 +341,17 @@ test.describe('Rentals — running an asset', () => {
         await expect(page.getByText('Le locataire a été prévenu par email.')).toBeVisible();
 
         // « Courrier » is on every booking (#720), whatever the mailboxes:
-        // the booking's own mail, nothing to sort, and an empty page saying
-        // so rather than no page at all.
+        // the booking's own mail, nothing to sort — and what the site sent
+        // the renter is there, the acknowledgement and the confirmation
+        // among it, opened like any message.
         await page.locator('a[href*="/reservations/"][href$="/courrier"]').first().click();
         await expect(page).toHaveURL(/\/reservations\/\d+\/courrier$/);
-        await expect(page.getByText("Aucun message n'est rattaché à cette réservation.")).toBeVisible();
+        const sent = page.locator('[data-sent-entry]');
+        expect(await sent.count()).toBeGreaterThanOrEqual(2);
+        await expect(sent.filter({ hasText: 'Votre demande de location' }).first()).toBeVisible();
+        await sent.first().getByRole('button', { name: 'Lire le message' }).click();
+        await expect(page.locator('#mail-message-modal')).toBeVisible();
+        await expect(page.locator('#mail-message-modal-body')).not.toContainText(/[0-9a-f]{64}/);
 
         // ── The confirmed stay now holds its dates against everybody
         //    else, with no more reason given than the block was. ──────────

@@ -11928,7 +11928,10 @@ if ($isEnabled('rental')) {
         // the conditions they accepted (issue #494).
         $rentalConditionsService,
         // … and with what they have to do next (#708, IT-15).
-        $rentalJourneyService
+        $rentalJourneyService,
+        // Every e-mail to the renter is recorded on the booking's
+        // « Courrier » page, sent or failed (#720, step 2).
+        new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
     );
 
     // The contract's two signatures (#708, IT-16): the renter's copy, the
@@ -12155,7 +12158,9 @@ if ($isEnabled('rental')) {
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
                 $rentalBookingAudit
-            )
+            ),
+            // What the site sent the renter, on « Courrier » (#720, step 2).
+            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
         )
     );
     $frontController->registerController(

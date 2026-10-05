@@ -694,6 +694,47 @@ CREATE TABLE IF NOT EXISTS rental_booking_mail_reads (
         REFERENCES user_accounts (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- What the site itself sent the renter about a booking (#720, step 2): the
+-- other half of the « Courrier » page, which before this kept only a blind
+-- fingerprint of each Message-ID (inbound_outbound_message_ids) — no
+-- subject, no text, no date, and a failed send left nothing but a flash.
+--
+-- **One write point**: RentalBookingMailService::deliver(), which every
+-- e-mail to the renter goes through, records it sent or failed.
+--
+-- The recipient, the subject and both bodies are **encrypted** like the
+-- renter's own fields. The **tracking link is masked** before encryption:
+-- it carries a credential to the renter's page, and a copy of it sitting
+-- in this table would outlive a regeneration. « Renvoyer » puts the
+-- booking's current link back in its place.
+--
+-- Attachments are **not copied**: they are documents of the booking
+-- already (contract, invoice, état des lieux…), named here by id. The
+-- Message-ID is kept in clear, for a copy of the e-mail found in the
+-- mailbox's « Envoyés » folder to be recognised and not shown twice.
+-- Erased with the booking; no retention of its own.
+CREATE TABLE IF NOT EXISTS rental_booking_sent_emails (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    -- The e-mail template it was rendered from (`rental.acknowledgement`,
+    -- `rental.decision`…): what « Renvoyer » sends again.
+    kind VARCHAR(60) NOT NULL,
+    recipient_encrypted BLOB NOT NULL,
+    subject_encrypted BLOB NOT NULL,
+    body_text_encrypted MEDIUMBLOB NOT NULL,
+    body_html_encrypted MEDIUMBLOB NOT NULL,
+    -- Comma-separated ids of rental_documents, empty when none.
+    document_ids VARCHAR(255) NOT NULL DEFAULT '',
+    message_id VARCHAR(255) NOT NULL,
+    -- 'sent' or 'failed'.
+    status VARCHAR(10) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    KEY idx_rental_booking_sent_emails_booking (booking_id, sent_at),
+    KEY idx_rental_booking_sent_emails_message (message_id),
+    CONSTRAINT fk_rental_booking_sent_emails_booking FOREIGN KEY (booking_id)
+        REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rental_booking_comments (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     booking_id INT UNSIGNED NOT NULL,

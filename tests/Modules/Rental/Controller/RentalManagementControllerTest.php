@@ -105,6 +105,9 @@ class RentalManagementControllerTest extends TestCase
     private int $scoutYearId;
     private int $assetId;
     private int $otherAssetId;
+
+    /** @var list<array{sent_id: int, booking_id: int, token: ?string}> what « Renvoyer » asked for */
+    private array $resends = [];
     private string $storagePath;
     private \Core\File\FileRepository $fileRepository;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
@@ -393,6 +396,11 @@ class RentalManagementControllerTest extends TestCase
                 $this->documentEmails[] = ['booking_id' => $booking->id, 'label' => $documentLabel];
 
                 return '<test@scoutmagic>';
+            }
+        );
+        $mock->method('resend')->willReturnCallback(
+            function (\Modules\Rental\Mail\SentEmail $sent, RentalBooking $booking, ?string $trackingToken): void {
+                $this->resends[] = ['sent_id' => $sent->id, 'booking_id' => $booking->id, 'token' => $trackingToken];
             }
         );
         $mock->method('sendTrackingLink')->willReturnCallback(
@@ -762,10 +770,7 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString("Le module « Courrier entrant » n'est pas actif", (string) $response->getBody());
-        // Nothing of that module's own templates: they are not registered
-        // on a site without it, and including one would be a 500.
-        $this->assertStringNotContainsString('mail-message-modal', (string) $response->getBody());
-        $this->assertStringContainsString('Aucun message n&#039;est rattaché à cette réservation.', (string) $response->getBody());
+        $this->assertStringContainsString('Aucun message pour cette réservation.', (string) $response->getBody());
     }
 
     /**
@@ -869,6 +874,105 @@ class RentalManagementControllerTest extends TestCase
         foreach (['rattacher', 'ecarter', 'reprendre', 'relancer', 'proposition/confirmation', 'proposition/rejet'] as $gone) {
             $this->assertNotContains('/mes-locations/courrier/' . $gone, $paths);
         }
+    }
+
+    // ── What the site sent the renter (#720, step 2) ────────────────────
+
+    private function withSentLog(): \Modules\Rental\Repository\RentalSentEmailRepository
+    {
+        $log = new \Modules\Rental\Repository\RentalSentEmailRepository($this->pdo, $this->encryption);
+        (new \ReflectionProperty(RentalManagementController::class, 'sentEmails'))->setValue($this->controller, $log);
+
+        return $log;
+    }
+
+    private function logEmail(
+        \Modules\Rental\Repository\RentalSentEmailRepository $log,
+        RentalBooking $booking,
+        string $status,
+        string $subject = '[LOC-2027-0001] Votre demande de location'
+    ): int {
+        return $log->record(
+            $booking->id,
+            'rental.acknowledgement',
+            'jeanne@example.be',
+            $subject,
+            "Bonjour,\nVotre lien : " . \Modules\Rental\Mail\SentEmail::MASKED_LINK,
+            '<p>Bonjour</p>',
+            [],
+            '<m1@unite.test>',
+            $status,
+            new \DateTimeImmutable('2027-06-01 10:00:00')
+        );
+    }
+
+    public function testWhatTheSiteSentIsOnTheCourrierPageEvenWithoutTheInboundMailModule(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_SENT);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-sent-entry=', $body);
+        $this->assertStringContainsString('Envoyé', $body);
+        $this->assertStringContainsString('À jeanne@example.be', $body);
+        $this->assertStringContainsString('[LOC-2027-0001] Votre demande de location', $body);
+        $this->assertStringContainsString(\Modules\Rental\Mail\SentEmail::MASKED_LINK_LABEL, $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/renvoyer', $body, 'a sent e-mail has nothing to resend');
+        // The page's own dialog: no template of the absent module.
+        $this->assertStringContainsString('id="mail-message-modal"', $body);
+    }
+
+    public function testAnEmailThatFailedIsMarkedAndOffersRenvoyer(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Non envoyé', $body);
+        $this->assertStringContainsString('action="/mes-locations/courrier/renvoyer"', $body);
+        $this->assertStringContainsString('name="sent_email_id" value="' . $id . '"', $body);
+    }
+
+    public function testRenvoyerSendsItAgainWithTheBookingsCurrentLink(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertCount(1, $this->resends);
+        $this->assertSame($id, $this->resends[0]['sent_id']);
+        $this->assertNotNull($this->resends[0]['token'], 'the current tracking link goes back in');
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    public function testAnotherBookingsEmailIsNotResentFromThisOne(): void
+    {
+        $this->loginAsManager();
+        $mine = $this->createBooking();
+        $other = $this->createBooking(null, 'LOC-2027-0002');
+        $id = $this->logEmail($this->withSentLog(), $other, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertSame([], $this->resends);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
     }
 
     // ── « Non lus », per person (#720) ──────────────────────────────────
