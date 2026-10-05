@@ -728,6 +728,8 @@ class RentalConfigControllerTest extends TestCase
         $response = $this->controller->show(new Request('GET', '/admin/locations/999', [], [], [], []), ['id' => '999']);
 
         $this->assertSame(404, $response->getStatusCode());
+        // The site's own 404 page, in French, not a bare "Not Found".
+        $this->assertStringContainsString('Page non trouvée', $response->getBody());
     }
 
     /** With Finance, the account is named on the page and picked in its dialog. */

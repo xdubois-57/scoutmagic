@@ -192,7 +192,7 @@ class RentalConfigController extends AbstractController
     {
         $asset = $this->assetRepository->findById((int) ($params['id'] ?? 0));
         if ($asset === null) {
-            return new Response('Not Found', 404);
+            return $this->notFound();
         }
 
         $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
