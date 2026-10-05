@@ -105,6 +105,11 @@ final class InventoryReport
      * « Chaises : il en manque 1 par rapport à l'entrée », « Cuisine
      * propre : oui à l'entrée, non à la sortie ».
      *
+     * A line found at the departure but never at the arrival — an arrival
+     * ticked by hand leaves them all so — is said, not skipped: silence
+     * would read as « no difference » in the PDF the renter receives,
+     * when there was nothing to compare against.
+     *
      * @param list<Line> $lines
      * @return list<string>
      */
@@ -114,7 +119,12 @@ final class InventoryReport
         foreach ($lines as $line) {
             $before = $line['arrival_value'];
             $after = $line['departure_value'];
-            if ($before === null || $after === null || $before === $after) {
+            if ($after === null || $before === $after) {
+                continue;
+            }
+            if ($before === null) {
+                $differences[] = $line['label'] . ' : ' . mb_strtolower($line['kind']->display($after))
+                    . " à la sortie, sans valeur d'entrée pour comparer";
                 continue;
             }
 

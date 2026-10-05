@@ -96,6 +96,25 @@ final class InventoryReportTest extends TestCase
         ], $differences);
     }
 
+    /**
+     * An arrival ticked by hand leaves no arrival value: the departure's
+     * PDF says so line by line rather than « Aucun », which would read as
+     * « nothing changed » when nothing could be compared.
+     */
+    public function testADepartureWithoutAnArrivalToCompareSaysSo(): void
+    {
+        $differences = InventoryReport::departureDifferences([
+            self::line('Chaises', InventoryKind::QUANTITY, 40, null, '30'),
+            self::line('Cuisine propre', InventoryKind::YES_NO, null, null, 'no'),
+            self::line('Extincteur', InventoryKind::QUANTITY, 1, null, null),
+        ]);
+
+        $this->assertSame([
+            "Chaises : 30 à la sortie, sans valeur d'entrée pour comparer",
+            "Cuisine propre : non à la sortie, sans valeur d'entrée pour comparer",
+        ], $differences);
+    }
+
     public function testThePdfSaysNonVerifieEscapesWhatWasTypedAndNamesWhoValidated(): void
     {
         $html = InventoryReport::html(
