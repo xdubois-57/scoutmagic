@@ -6,28 +6,45 @@ category: Espace chefs d'U
 role_min: admin
 question: Comment mettre un local en location sur le site ?
 question: Comment désigner qui gère les locations d'un bien ?
-paths: /admin/locations
+paths: /admin/locations, /admin/locations/*
 related: gerer-les-locations, locations
 ---
 
-La page « Locations » de l'espace chefs d'U répond à une seule
+La page « Biens à louer » de l'espace chefs d'U répond à une seule
 question : quels biens existent, et qui s'en occupe. Tout le reste —
 tarifs, règles, documents — appartient aux gestionnaires de chaque
 bien, dans « Gérer mes locations ».
 
+## La liste des biens
+
+Une ligne par bien : nom, type, visibilité, et « Tarif manquant » s'il
+est public sans tarif. Son nom ou « Éditer » ouvre sa page ; les biens
+archivés sont regroupés plus bas.
+
+Sous la liste, « Pour toutes les locations » rassemble les rappels
+automatiques et le courrier entrant — seulement les boîtes reliées au
+module Locations, dédiée ou partagée, jamais celles d'autres modules.
+
 ## Créer un bien
 
-« Ajouter un bien » demande son nom, son type, sa capacité, sa
+« Ajouter un bien », en haut de la liste, ouvre sa page. Elle
+demande son nom, son type, sa capacité, sa
 quantité (huit tentes = quantité 8), ses heures d'arrivée et de
 départ, et son **mode de location** : à la nuit (le jour du départ se
 libère) ou à la journée pleine (le jour du retour reste occupé). Ce
 mode se choisit à la création car il gouverne à la fois le calendrier,
-le prix et les disponibilités.
+le prix et les disponibilités. Une fois créé, vous arrivez sur la page
+du nouveau bien.
 
 La case « Rendre ce bien visible publiquement » publie sa page dans la
 liste des locations, du côté visiteur. Un bien sans tarif y répondra
 « Tarif sur demande » — la page vous le signale jusqu'à ce qu'un
 gestionnaire remplisse la tarification.
+
+## La page d'un bien
+
+Informations générales, gestionnaires, compte des paiements et cycle
+de vie, chacun modifié par son bouton « Modifier ».
 
 ## Désigner les gestionnaires
 
@@ -51,5 +68,5 @@ QR de virement ne peut être proposé aux locataires.
 ## Archiver
 
 Un bien qui a un historique s'archive — il disparaît du public et des
-créations, l'historique reste. La suppression définitive n'est
-possible que pour un bien sans passé.
+créations, l'historique reste. La suppression définitive, sur la seule
+page du bien, n'est possible que pour un bien sans passé.

@@ -492,6 +492,56 @@ class RentalRbacTest extends TestCase
         $this->assertContains($this->dispatchConfig()->getStatusCode(), [302, 401, 403]);
     }
 
+    /**
+     * The park's own pages (issue #748): creating an asset and one asset's
+     * page sit at the same `admin` floor as the list, and the level just
+     * below is refused both.
+     */
+    public function testTheCreationAndAssetPagesAreAdminOnly(): void
+    {
+        $assetId = $this->assetRepository->create('Local', 'Local', 'local-rbac', null, 1, null, null, null, true);
+        $pages = [
+            ['/admin/locations/nouveau', '/admin/locations/nouveau', 'newAsset'],
+            ['/admin/locations/{id}', '/admin/locations/' . $assetId, 'show'],
+        ];
+
+        foreach ($pages as [$route, $path, $action]) {
+            AuthSession::login(1, 'admin@test.be', 'admin');
+            $allowed = $this->dispatch($route, $path, RentalConfigController::class, $action, 'admin');
+            $this->assertSame(200, $allowed->getStatusCode(), $path . ' ' . (string) $allowed->getBody());
+
+            AuthSession::login(1, 'chief@test.be', 'chief');
+            $this->assertSame(
+                403,
+                $this->dispatch($route, $path, RentalConfigController::class, $action, 'admin')->getStatusCode(),
+                $path
+            );
+        }
+    }
+
+    /**
+     * The route table itself declares the new pages at `admin` — what the
+     * dispatch above takes as given.
+     */
+    public function testTheManifestDeclaresEveryParkRouteAtAdmin(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $park = array_filter(
+            $manifest['routes'],
+            static fn(array $route) => str_starts_with($route['path'], '/admin/locations')
+        );
+
+        $paths = array_column($park, 'path');
+        $this->assertContains('/admin/locations/nouveau', $paths);
+        $this->assertContains('/admin/locations/{id}', $paths);
+        foreach ($park as $route) {
+            $this->assertSame('admin', $route['role_min'], $route['path']);
+        }
+    }
+
     // ── Managed space: identified + per-asset authorization ─────────────
 
     public function testAnIdentifiedVisitorWhoManagesNothingIsRefusedMyRentals(): void

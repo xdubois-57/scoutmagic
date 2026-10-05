@@ -48,6 +48,9 @@
     "/admin/listes-de-diffusion/lists/{id}": {
       "id": "1"
     },
+    "/admin/locations/{id}": {
+      "id": "1"
+    },
     "/admin/members/{id}": {
       "id": "1",
       "note_id": "1",

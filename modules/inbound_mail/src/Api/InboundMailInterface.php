@@ -442,6 +442,28 @@ interface InboundMailInterface
     public function listMailboxSummaries(): array;
 
     /**
+     * The same summaries, for the boxes ONE consumer is allowed to analyse
+     * and no others — what a module's own screen shows when it says where
+     * its mail comes from (issue #748).
+     *
+     * The effective scope decides, exactly as it decides what the
+     * consumer is offered: a box dedicated to it, and a shared box whose
+     * scope lets it analyse. A box dedicated to another module, or shared
+     * without a row for this one, is absent — a module's page that listed
+     * every box on the site would read as « these are mine ».
+     *
+     * A disabled box in scope stays in the list, flagged by `is_enabled`,
+     * as `listMailboxSummaries()` does: the box is still this module's,
+     * nothing arrives in it for now, and saying so is the point.
+     *
+     * Without a way to read scopes, nothing is in scope — never « all of
+     * them » — as `probeAddressesFor()` answers.
+     *
+     * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
+     */
+    public function listMailboxSummariesFor(string $consumerId): array;
+
+    /**
      * The addresses of the enabled mailboxes this consumer is allowed to
      * analyse — the boxes a diagnostic probe should be sent to
      * (roadmap IT-27).

@@ -762,6 +762,27 @@
       }
     },
     {
+      "path": "/admin/locations/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "newAsset",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Ajouter un bien",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Biens à louer",
+            "path": "/admin/locations"
+          }
+        ]
+      }
+    },
+    {
       "path": "/admin/locations/create",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalConfigController",
@@ -832,6 +853,27 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
+    },
+    {
+      "path": "/admin/locations/{id}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Bien",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Biens à louer",
+            "path": "/admin/locations"
+          }
+        ]
+      }
     },
     {
       "path": "/mes-locations/{slug}/reglages/tarif",

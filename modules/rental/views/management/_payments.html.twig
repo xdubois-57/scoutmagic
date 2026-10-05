@@ -68,7 +68,7 @@
                     <span class="form-text d-block">
                         Le compte sur lequel les virements sont attendus s'associe depuis
                         {% if can_pin_account %}
-                            <a href="/admin/locations?asset_id={{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
+                            <a href="/admin/locations/{{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
                         {% else %}
                             « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité de l'associer.
                         {% endif %}
