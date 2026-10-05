@@ -883,6 +883,126 @@ class RentalMessageConsumerTest extends TestCase
         );
     }
 
+    // ── What the unit sent, read in the box's « Envoyés » (#720) ────────
+
+    /**
+     * @param array<string, string> $extraHeaders
+     */
+    private function deliverSent(
+        int $uid,
+        string $subject,
+        string $to = 'jeanne@example.be',
+        string $messageId = 'sent-1@unite.be',
+        array $extraHeaders = []
+    ): void {
+        $this->client->markSent('Envoyés');
+        $this->client->addRawMessage('Envoyés', $uid, InboundMailTestHelper::rawMessage(array_merge([
+            'From' => 'Les Scouts <locations@unite.be>',
+            'To' => $to,
+            'Subject' => $subject,
+            'Message-ID' => '<' . $messageId . '>',
+            'Date' => 'Mon, 12 Jul 2027 11:00:00 +0200',
+            'Content-Type' => 'text/plain; charset=UTF-8',
+        ], $extraHeaders), 'Bonjour Jeanne,'));
+    }
+
+    public function testWhatTheUnitWroteToTheRenterLandsOnTheirBooking(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliverSent(1, 'Les clés');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertTrue($messages[0]->isSent());
+        $this->assertSame(LinkOrigin::RECIPIENT, $messages[0]->linkOrigin);
+        $this->assertFalse($messages[0]->linkOrigin->isCertain(), 'Matched on an address alone: shown as uncertain.');
+    }
+
+    public function testARecipientWithTwoBookingsInTheWindowFilesNothingAndKeepsNothing(): void
+    {
+        $this->createBooking('LOC-2027-0042');
+        $this->createBooking('LOC-2027-0043', arrival: '2027-07-20', departure: '2027-07-22');
+        $this->deliverSent(1, 'Les clés');
+        $this->sync();
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testAReferenceSentToTheRenterDecidesBetweenTwoBookings(): void
+    {
+        $this->createBooking('LOC-2027-0042');
+        $second = $this->createBooking('LOC-2027-0043', arrival: '2027-07-20', departure: '2027-07-22');
+        $this->deliverSent(1, 'Votre réservation [LOC-2027-0043]');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($second);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REFERENCE, $messages[0]->linkOrigin);
+    }
+
+    public function testAReferenceSentToSomebodyElseIsNotTheRentersCorrespondence(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliverSent(1, 'Réservation [LOC-2027-0042] : la chaudière', to: 'concierge@example.be');
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    public function testAnAnswerInTheRentersThreadLandsWhoeverItIsAddressedTo(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Une question', messageId: 'question@example.be');
+        $this->deliverSent(1, 'Re: Une question', to: 'autre@example.be', extraHeaders: [
+            'In-Reply-To' => '<question@example.be>',
+        ]);
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(2, $messages);
+        $sent = array_values(array_filter($messages, static fn($m) => $m->isSent()));
+        $this->assertSame(LinkOrigin::THREAD, $sent[0]->linkOrigin);
+    }
+
+    public function testTheCopyOfAnEmailTheSiteSentIsNotShownTwice(): void
+    {
+        // The provider filed what the site sent through the box in
+        // « Envoyés ». The page shows it from the site's own log already.
+        $booking = $this->createBooking();
+        $this->inboundMail->recordOutboundMessageId(
+            RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            '<site-42@unite.be>'
+        );
+        $this->deliverSent(1, 'Votre réservation [LOC-2027-0042]', messageId: 'site-42@unite.be');
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
+    }
+
+    public function testWhatTheUnitSentIsNeitherAnnouncedNorLearnedFrom(): void
+    {
+        $booking = $this->createBooking();
+        $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->expects($this->never())->method('messageFiled');
+
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::MANUAL, 'Les clés', 'locations@unite.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            toEmails: ['jeanne@example.be'],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        $this->plainConsumer($notifier)->onLinked(
+            $sent,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::MANUAL)
+        );
+
+        // The unit's own address never becomes one of the renter's.
+        $this->assertSame([], $this->bookingRepository->findByRenterEmail('locations@unite.be'));
+    }
+
     // ── Attachments become documents (§7.8) ─────────────────────────────
 
     private function deliverWithPdf(int $uid, string $subject, string $filename = 'contrat.pdf'): void

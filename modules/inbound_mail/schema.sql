@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- Newline-separated folder paths, in the server's own naming. Empty
     -- means INBOX.
     folders TEXT NULL,
+    -- The box's « Envoyés » folder, when the operator had to name it (#720):
+    -- read for the consumers that handle sent mail (Api\HandlesOutboundMail).
+    -- Empty means the folder the server marks \Sent (RFC 6154), found on
+    -- its own; this is only the correction for a server that marks none.
+    sent_folder VARCHAR(255) NULL,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,
     -- 'shared' | 'dedicated'. **The first question the configuration
     -- screen asks, and the one that determines every other answer.**
@@ -212,6 +217,10 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- message wrongly flagged becomes visible again the moment it carries
     -- an association or a proposition.
     is_bulk TINYINT(1) NOT NULL DEFAULT 0,
+    -- 'received' | 'sent' (#720): sent means read in the box's « Envoyés »
+    -- folder, and stored only because a consumer handling sent mail filed it
+    -- (Api\HandlesOutboundMail).
+    direction VARCHAR(10) NOT NULL DEFAULT 'received',
 
     -- When this message last stopped being associated with anything.
     --
