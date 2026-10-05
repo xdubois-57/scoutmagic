@@ -781,6 +781,10 @@ class BookingJourneyTest extends TestCase
 
             $this->assertNull($journey->primaryAction(), $status->value);
             $this->assertSame([], $journey->otherDecisions(), $status->value);
+
+            // Not even a change request that survived the final sweep.
+            $lingering = BookingJourney::of($this->milestones($status, [], null), $status, 'du 08/07/2027 au 11/07/2027');
+            $this->assertNull($lingering->primaryAction(), $status->value);
         }
     }
 

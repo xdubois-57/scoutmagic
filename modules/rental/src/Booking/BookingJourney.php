@@ -310,6 +310,13 @@ final class BookingJourney
      */
     public function primaryAction(): ?MilestoneAction
     {
+        // A final booking offers nothing, not even a change request that
+        // outlived the sweep of its final transition — the headline already
+        // says it can no longer change (BookingAttention guards the same).
+        if ($this->status->isFinal()) {
+            return null;
+        }
+
         if ($this->changeRequested !== null) {
             return MilestoneAction::openPage('Répondre à la demande', BookingPage::CHANGES);
         }
