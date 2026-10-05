@@ -4657,6 +4657,32 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('Les deux états des lieux sont validés', $body);
     }
 
+    /**
+     * An arrival ticked by hand was never read through the page: its meter
+     * readings are offered beside the departure's until the departure is
+     * validated, or the consumption could never be billed. Only then.
+     */
+    public function testAnArrivalTickedByHandKeepsItsMeterReadingsReachable(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        [$booking] = $this->bookingWithAnInventory();
+        $this->confirm($booking);
+
+        // Before the tick: the arrival's own page, its own readings only.
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
+        $this->assertStringNotContainsString('aria-label="Relevé sortie — Électricité"', $body);
+
+        $this->markStep($booking, 'arrival_inventory');
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
+        $this->assertStringContainsString('aria-label="Relevé sortie — Électricité"', $body);
+    }
+
     private function templatesPage(): string
     {
         return (string) $this->get(

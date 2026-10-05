@@ -2,50 +2,55 @@
   The meters, read for the inventory's own phase (#708, IT-17): the
   arrival reading in the arrival inventory, the departure reading in the
   departure one — each validated with its inventory, and none missing.
-  Moved here from the Séjour page.
+  Moved here from the Séjour page. An arrival ticked by hand adds its own
+  readings beside the departure's (`phases` holds both): nowhere else
+  could they be taken.
 
-  Requires `consumptions`, `phase` (a Stay\ReadingPhase), `asset` and
+  Requires `consumptions`, `phases` (Stay\ReadingPhase[]), `asset` and
   `booking`.
 #}
-{% if consumptions is not empty %}
+{% if consumptions is not empty and phases is not empty %}
     <h3 class="h6 mt-2">Compteurs</h3>
     {% for consumption in consumptions %}
-        {% set reading = phase.value == 'arrival' ? consumption.arrival : consumption.departure %}
-        <form method="post" action="/mes-locations/releve" enctype="multipart/form-data"
-              class="row g-2 align-items-end border-bottom py-2 mx-0">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-            <input type="hidden" name="booking_page" value="inventory">
-            <input type="hidden" name="meter_id" value="{{ consumption.meter.id }}">
-            <input type="hidden" name="phase" value="{{ phase.value }}">
-            <div class="col-12 col-md-4">
-                <label class="form-label mb-0 fw-semibold" for="reading-{{ consumption.meter.id }}">
-                    {{ consumption.meter.label }}
-                </label>
-                <span class="d-block small text-body-secondary">
-                    {{ consumption.meter.kind.label }}{% if consumption.meter.displayUnit %} · {{ consumption.meter.displayUnit }}{% endif %}
-                    {% if phase.value == 'departure' and consumption.arrival %}
-                        · entrée : {{ consumption.arrival.formatted }}
-                    {% endif %}
-                </span>
-            </div>
-            <div class="col-6 col-md-3">
-                <input type="text" inputmode="decimal" class="form-control form-control-sm"
-                       id="reading-{{ consumption.meter.id }}" name="value"
-                       value="{{ reading ? reading.formatted : '' }}" placeholder="1234,567"
-                       aria-label="Relevé {{ phase.label|lower }} — {{ consumption.meter.label }}">
-            </div>
-            <div class="col-6 col-md-3">
-                <label class="visually-hidden" for="reading-photo-{{ consumption.meter.id }}">
-                    Photo — {{ consumption.meter.label }}
-                </label>
-                <input type="file" class="form-control form-control-sm" id="reading-photo-{{ consumption.meter.id }}"
-                       name="photo" accept="image/*">
-            </div>
-            <div class="col-12 col-md-2">
-                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Enregistrer</button>
-            </div>
-        </form>
+        {% for phase in phases %}
+            {% set reading = phase.value == 'arrival' ? consumption.arrival : consumption.departure %}
+            {% set field_id = 'reading-' ~ consumption.meter.id ~ '-' ~ phase.value %}
+            <form method="post" action="/mes-locations/releve" enctype="multipart/form-data"
+                  class="row g-2 align-items-end border-bottom py-2 mx-0">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                <input type="hidden" name="booking_page" value="inventory">
+                <input type="hidden" name="meter_id" value="{{ consumption.meter.id }}">
+                <input type="hidden" name="phase" value="{{ phase.value }}">
+                <div class="col-12 col-md-4">
+                    <label class="form-label mb-0 fw-semibold" for="{{ field_id }}">
+                        {{ consumption.meter.label }}{% if phases|length > 1 %} — {{ phase.label|lower }}{% endif %}
+                    </label>
+                    <span class="d-block small text-body-secondary">
+                        {{ consumption.meter.kind.label }}{% if consumption.meter.displayUnit %} · {{ consumption.meter.displayUnit }}{% endif %}
+                        {% if phase.value == 'departure' and consumption.arrival %}
+                            · entrée : {{ consumption.arrival.formatted }}
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="col-6 col-md-3">
+                    <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                           id="{{ field_id }}" name="value"
+                           value="{{ reading ? reading.formatted : '' }}" placeholder="1234,567"
+                           aria-label="Relevé {{ phase.label|lower }} — {{ consumption.meter.label }}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="visually-hidden" for="{{ field_id }}-photo">
+                        Photo — {{ consumption.meter.label }}
+                    </label>
+                    <input type="file" class="form-control form-control-sm" id="{{ field_id }}-photo"
+                           name="photo" accept="image/*">
+                </div>
+                <div class="col-12 col-md-2">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Enregistrer</button>
+                </div>
+            </form>
+        {% endfor %}
     {% endfor %}
 {% endif %}

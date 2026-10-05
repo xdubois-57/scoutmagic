@@ -101,7 +101,7 @@
                         {% endif %}
 
                         {% include '@rental/management/_inventory_meters.html.twig' with {
-                            consumptions: consumptions, phase: phase, asset: asset, booking: booking,
+                            consumptions: consumptions, phases: meter_phases, asset: asset, booking: booking,
                         } only %}
 
                         {% if missing_readings is not empty %}

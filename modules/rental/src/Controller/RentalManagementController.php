@@ -2996,6 +2996,16 @@ class RentalManagementController extends AbstractController
                 ? ($this->inventoryValidation?->missingReadings($booking, $asset->id, $phase) ?? [])
                 : [],
             'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
+            // An arrival ticked by hand was never read through this page:
+            // its meter readings stay to be taken beside the departure's
+            // until the departure is validated, or the consumption could
+            // never be billed.
+            'meter_phases' => match (true) {
+                $phase === ReadingPhase::DEPARTURE && $arrivalByHand && !isset($validations['arrival'])
+                    => [ReadingPhase::ARRIVAL, ReadingPhase::DEPARTURE],
+                $phase !== null => [$phase],
+                default => [],
+            },
             'incidents' => $this->stayService->incidentsFor($booking->id),
             'incident_decisions' => IncidentDecision::decidable(),
             'incidents_open' => !isset($validations['departure']),
