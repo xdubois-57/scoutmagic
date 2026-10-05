@@ -142,10 +142,14 @@ class ModuleManifestTest extends TestCase
      *
      * 1.43.0 keeps what the site sent the renter, sent or failed, with
      * « Renvoyer » (`rental_booking_sent_emails`) (#720, step 2).
+     *
+     * 1.44.0 files what the unit wrote to the renter from its own box,
+     * read in its « Envoyés » and matched on the recipients (#720, steps
+     * 3 and 4).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.43.0', $this->manifest->version);
+        $this->assertSame('1.44.0', $this->manifest->version);
     }
 
     /**

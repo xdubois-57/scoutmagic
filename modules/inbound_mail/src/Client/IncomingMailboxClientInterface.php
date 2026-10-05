@@ -38,9 +38,11 @@ interface IncomingMailboxClientInterface
 
     /**
      * The folders actually present, so the configuration page can show what
-     * is there rather than making the operator type folder names blind.
+     * is there rather than making the operator type folder names blind —
+     * and which of them the server marks as the box's sent mail, which the
+     * synchronisation reads for the consumers that ask for it (#720).
      *
-     * @return string[]
+     * @return RemoteFolder[]
      */
     public function listFolders(): array;
 

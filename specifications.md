@@ -1121,6 +1121,8 @@ With the Courrier entrant module, replies are attached to the right booking auto
 
 **Each new message is announced, and counted until read.** When an e-mail is filed under a booking, its asset's managers receive « Nouveau message du locataire » — the booking and a link to its « Courrier » page, never the sender or the subject. Each person has their own unread count: « Courrier (2) » on the booking's rail, the booking under « Nouveaux messages » on the asset's overview and a count on its « À traiter » line. It drops when that person opens the page, not when someone else does.
 
+**What the unit wrote to the renter from its own box is there too.** On a box opened to the rentals, the folder the server marks as sent mail — or the one the operator names under « Dossier des envoyés » — is read as well, and an e-mail sent from it is matched the same way from its recipients: the reference when a recipient is the renter, the thread, then the recipient's address inside the window. It is shown « Envoyé », addressed « À : » the renter, never announced and never counted as unread. A sent e-mail filed under no booking is not kept, and the copy a provider keeps of an e-mail the site sent is never shown twice. Other modules never see sent mail.
+
 **A renter's « Répondre » names the booking.** Every e-mail about a booking carries the signed reply address when the operator allows it. With signed addresses off, the site's ordinary reply address applies, and a reply quoting the reference is still matched. Mass mailings are not affected.
 
 ### 22.10 The paperwork register

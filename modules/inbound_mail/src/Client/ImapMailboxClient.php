@@ -103,21 +103,21 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     }
 
     /**
-     * @return string[]
+     * The raw LIST, rather than `getFolders()`: the library builds its
+     * `Folder` objects from the same answer but keeps only the attributes
+     * it knows, and `\Sent` (RFC 6154) is not one of them. Same command,
+     * same read — only nothing is thrown away.
+     *
+     * @return RemoteFolder[]
      */
     public function listFolders(): array
     {
         $client = $this->requireClient();
 
         try {
-            $paths = [];
-            foreach ($client->getFolders(false) as $folder) {
-                if ($folder instanceof Folder) {
-                    $paths[] = $folder->path;
-                }
-            }
+            $listing = $client->getConnection()->folders('', '*')->validatedData();
 
-            return $paths;
+            return RemoteFolder::fromListing(is_array($listing) ? $listing : []);
         } catch (\Throwable $e) {
             throw new MailboxConnectionException(self::safeReason($e), 0, $e);
         }

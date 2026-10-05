@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Service;
 
 use Modules\InboundMail\Client\MailboxConnectionException;
+use Modules\InboundMail\Client\RemoteFolder;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
@@ -139,9 +140,10 @@ class MailboxAdminService
         string $username,
         string $password,
         array $folders,
-        bool $isEnabled
+        bool $isEnabled,
+        string $sentFolder = ''
     ): int {
-        return $this->repository->create(
+        $id = $this->repository->create(
             $name,
             // The manifest offers IMAP and only IMAP (§7.2); the enum's
             // other case exists for tests, and letting it be chosen here
@@ -155,11 +157,15 @@ class MailboxAdminService
             $folders,
             $isEnabled
         );
+        $this->repository->setSentFolder($id, $sentFolder);
+
+        return $id;
     }
 
     /**
      * @param string[] $folders
      * @param string $password blank leaves the stored one untouched
+     * @param string $sentFolder blank: the folder the server marks `\Sent`
      */
     public function update(
         int $id,
@@ -170,7 +176,8 @@ class MailboxAdminService
         string $username,
         string $password,
         array $folders,
-        bool $isEnabled
+        bool $isEnabled,
+        string $sentFolder = ''
     ): void {
         $this->repository->update(
             $id,
@@ -182,6 +189,7 @@ class MailboxAdminService
             $folders,
             $isEnabled
         );
+        $this->repository->setSentFolder($id, $sentFolder);
 
         if ($password !== '') {
             $this->repository->setPassword($id, $password);
@@ -207,7 +215,7 @@ class MailboxAdminService
      * should not have to remember which of the two produced the error they
      * are looking at.
      *
-     * @return array{ok: bool, message: string, folders: string[]}
+     * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
      */
     public function testConnection(int $id, \DateTimeImmutable $now): array
     {
@@ -222,7 +230,7 @@ class MailboxAdminService
 
         try {
             $client->connect($mailbox, $credentials);
-            $folders = $client->listFolders();
+            $listed = $client->listFolders();
             $client->disconnect();
         } catch (MailboxConnectionException | \RuntimeException $e) {
             $reason = $this->errorFormatter->format($e);
@@ -236,8 +244,9 @@ class MailboxAdminService
 
         return [
             'ok' => true,
-            'message' => 'Connexion réussie. ' . count($folders) . ' dossier(s) visible(s).',
-            'folders' => $folders,
+            'message' => self::successMessage($listed),
+            'folders' => RemoteFolder::paths($listed),
+            'sent_folder' => RemoteFolder::sentAmong($listed),
         ];
     }
 
@@ -255,7 +264,7 @@ class MailboxAdminService
      * dashboard stays current even after a manual test. For a brand-new
      * box (no id), there is nothing to record against.
      *
-     * @return array{ok: bool, message: string, folders: string[]}
+     * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
      */
     public function testConnectionFromParams(
         string $host,
@@ -296,7 +305,7 @@ class MailboxAdminService
 
         try {
             $client->connect($mailbox, $credentials);
-            $folders = $client->listFolders();
+            $listed = $client->listFolders();
             $client->disconnect();
         } catch (MailboxConnectionException | \RuntimeException $e) {
             $reason = $this->errorFormatter->format($e);
@@ -315,8 +324,9 @@ class MailboxAdminService
 
         return [
             'ok' => true,
-            'message' => 'Connexion réussie. ' . count($folders) . ' dossier(s) visible(s).',
-            'folders' => $folders,
+            'message' => self::successMessage($listed),
+            'folders' => RemoteFolder::paths($listed),
+            'sent_folder' => RemoteFolder::sentAmong($listed),
         ];
     }
 
@@ -342,5 +352,22 @@ class MailboxAdminService
         $folders = array_map('trim', preg_split('/[\r\n]+/', $raw) ?: []);
 
         return array_values(array_unique(array_filter($folders, static fn(string $f) => $f !== '')));
+    }
+
+    /**
+     * « Connexion réussie », how many folders, and — when the server marks
+     * one `\Sent` — which one is the box's sent mail, so an operator sees
+     * whether the « Dossier des envoyés » field needs filling at all.
+     *
+     * @param RemoteFolder[] $listed
+     */
+    private static function successMessage(array $listed): string
+    {
+        $message = 'Connexion réussie. ' . count($listed) . ' dossier(s) visible(s).';
+        $sent = RemoteFolder::sentAmong($listed);
+
+        return $sent !== null
+            ? $message . ' Dossier des envoyés reconnu : « ' . $sent . ' ».'
+            : $message;
     }
 }

@@ -1,22 +1,24 @@
 ---
 id: locations-courrier
 title: Le courrier des locations
-summary: La page Courrier d'une réservation — les e-mails reçus pour cette réservation, et « Détacher ».
+summary: La page Courrier d'une réservation — les e-mails reçus et envoyés pour cette réservation, et « Détacher ».
 category: Espace membres
 role_min: identified
 discovery: 3
 question: Où voir les e-mails d'un locataire sur sa réservation ?
 question: Pourquoi un e-mail du locataire n'apparaît-il pas sur sa réservation ?
 question: Que devient un message quand je le détache d'une réservation ?
+question: Pourquoi voit-on les e-mails que nous avons écrits au locataire ?
 paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/courrier
 related: gerer-les-locations, courrier-entrant, courrier-reponse, courrier-unite
 ---
 
 Chaque réservation a une page « Courrier ». Elle montre le courrier de
 **cette** réservation, du plus récent au plus ancien, et rien d'autre :
-les e-mails du locataire, marqués « Reçu », et ceux que le site lui a
-envoyés, marqués « Envoyé ». « Lire le message » ouvre un message en
-entier.
+les e-mails du locataire, marqués « Reçu », et ceux qui lui ont été
+envoyés, marqués « Envoyé » : ceux du site, et ceux qu'un membre de
+l'unité lui a écrits depuis une boîte de l'unité ouverte aux Locations.
+« Lire le message » ouvre un message en entier.
 
 Un e-mail du site qui n'a pas pu partir est marqué « Non envoyé » :
 « Renvoyer » le fait repartir tel quel, avec le lien de suivi actuel de
@@ -34,6 +36,11 @@ réponse signée qu'il porte. Un message du locataire qui cite la
 référence de sa réservation y est rattaché. Un locataire qui n'a qu'une
 réservation chez l'unité voit tous ses messages y arriver ; s'il en a
 plusieurs, le message doit tomber dans la période de l'une d'elles.
+
+Un e-mail écrit au locataire depuis la boîte de l'unité se reconnaît de
+la même façon, d'après ses destinataires : il apparaît « À : » suivi de
+l'adresse. Un e-mail du site n'y apparaît jamais deux fois, même si la
+boîte en garde une copie dans ses envoyés.
 
 Quand le site hésite entre plusieurs réservations, il ne rattache
 rien : le message n'apparaît sur aucune, et vous n'avez rien à trier.

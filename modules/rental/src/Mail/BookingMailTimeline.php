@@ -27,7 +27,8 @@ final class BookingMailTimeline
     public const EXCERPT_LENGTH = 160;
 
     /**
-     * @param InboundMessage[] $received the messages filed under the booking
+     * @param InboundMessage[] $received the messages filed under the booking,
+     *     received or read in the box's « Envoyés »
      * @param SentEmail[] $sent what the site sent the renter about it
      * @param array<int, string> $documentNames the booking's documents, by id,
      *     for the attachments a sent e-mail names
@@ -42,7 +43,11 @@ final class BookingMailTimeline
         foreach ($received as $message) {
             $body = self::flatten($message->bodyText);
             $entries[] = [
-                'direction' => 'received',
+                // Read in the box: received, or sent from its « Envoyés »
+                // by somebody of the unit — not by the site, whose own
+                // e-mails come from its log below and are never filed
+                // twice (`RentalMessageConsumer::analyzeSent()`).
+                'direction' => $message->isSent() ? 'sent' : 'received',
                 'at' => $message->sentAt,
                 'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
                 'has_body' => $body !== '' || trim($message->bodyHtml) !== '',
