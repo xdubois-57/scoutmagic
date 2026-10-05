@@ -710,8 +710,9 @@ CREATE TABLE IF NOT EXISTS rental_booking_mail_reads (
 --
 -- Attachments are **not copied**: they are documents of the booking
 -- already (contract, invoice, état des lieux…), named here by id. The
--- Message-ID is kept in clear, for a copy of the e-mail found in the
--- mailbox's « Envoyés » folder to be recognised and not shown twice.
+-- Message-ID is kept in clear, the id the renter's reply will quote.
+-- « Renvoyer » updates the row it retries rather than adding one: one
+-- e-mail, that eventually went out or still did not.
 -- Erased with the booking; no retention of its own.
 CREATE TABLE IF NOT EXISTS rental_booking_sent_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

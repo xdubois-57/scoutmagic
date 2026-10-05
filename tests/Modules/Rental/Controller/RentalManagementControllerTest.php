@@ -975,6 +975,25 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
     }
 
+    public function testAnEmailThatWentOutCannotBeResentByARequestNamingIt(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_SENT);
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertSame([], $this->resends);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('déjà parti', (string) ($flash['message'] ?? ''));
+    }
+
     // ── « Non lus », per person (#720) ──────────────────────────────────
 
     public function testTheCourrierChipCountsWhatWasFiledSinceThePersonLastLooked(): void
