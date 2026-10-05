@@ -105,32 +105,14 @@
         {# ── 3. Le dossier ─────────────────────────────────────────── #}
         {#
           What the booking gathered that is neither money, papers nor mail:
-          the stay, the internal comments and the history. Folded, each line
-          carrying its figure. The renter's requests have a page of their
-          own, « Modifications » (#708, IT-20).
+          the internal comments and the history. Folded, each line carrying
+          its figure. The renter's requests, the inventories and the invoice
+          have pages of their own (#708, IT-20, IT-17, IT-18).
         #}
         <h2 class="h5 mb-2">Le dossier</h2>
         <p class="text-body-secondary small">
             Chaque boîte s'ouvre d'un clic ; le chiffre à côté de son nom dit ce qu'elle contient.
         </p>
-
-        {#
-          The stay is a page of its own, so its line is a link rather than a
-          fold — the only one in the list, and it says so by carrying an
-          arrow instead of a chevron.
-        #}
-        <div class="card mb-3" id="{{ boxes.stay.anchor }}">
-            <a class="card-body d-flex justify-content-between align-items-center gap-2 text-decoration-none"
-               href="{{ boxes.stay.href(booking_url) }}">
-                <span>
-                    <span class="h6 mb-0">{{ boxes.stay.label }}</span>
-                    <span class="text-body-secondary small d-block">
-                        Relevés de compteurs, état des lieux, incidents et décompte final.
-                    </span>
-                </span>
-                <i class="bi bi-box-arrow-up-right text-body-tertiary" aria-hidden="true"></i>
-            </a>
-        </div>
 
         {% include '@rental/management/_box_comments.html.twig' %}
         {% include '@rental/management/_box_history.html.twig' %}

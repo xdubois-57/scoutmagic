@@ -594,21 +594,6 @@
       }
     },
     {
-      "path": "/mes-locations/{slug}/reservations/{id}/sejour",
-      "method": "GET",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "stay",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": "",
-      "breadcrumb": {
-        "label": "Séjour",
-        "parents": [
-          "Espace membres"
-        ]
-      }
-    },
-    {
       "path": "/mes-locations/{slug}/reservations/{id}/document/{type}",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -723,6 +708,21 @@
       "label": "",
       "breadcrumb": {
         "label": "État des lieux",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/facture",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingInvoice",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Facture",
         "parents": [
           "Espace membres"
         ]

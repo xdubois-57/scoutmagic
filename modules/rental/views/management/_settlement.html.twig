@@ -1,0 +1,144 @@
+{#
+  The final settlement (§6.21), moved as it was from the stay page to
+  « Facture » (#708, IT-18): its own lines — consumptions, decided
+  incidents, the security deposit — which never change the agreed price.
+
+  Requires `asset`, `booking`, `settlements`, `final_persons`, `preview`,
+  `decided_incidents` and `inventory_url` (null where the asset keeps no
+  inventory page).
+#}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Décompte final</h2>
+        <p class="text-body-secondary small">
+            Le décompte a ses propres lignes. <strong>Il ne modifie jamais le prix convenu</strong> :
+            celui-ci reste le témoin de ce qui a été négocié.
+        </p>
+
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <caption class="visually-hidden">Aperçu du décompte final</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Ligne</th>
+                        <th scope="col" class="text-end">Montant</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in preview.lines %}
+                        <tr>
+                            <td>
+                                {{ line.label }}
+                                {% if line.detail %}
+                                    <span class="text-body-secondary small d-block">{{ line.detail }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">{{ line.amountCents|money_cents }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <td>Total</td>
+                        <td class="text-end">{{ preview.total_cents|money_cents }}</td>
+                    </tr>
+                    <tr>
+                        <td>Solde {{ preview.balance_cents < 0 ? 'à rembourser' : 'restant dû' }}</td>
+                        <td class="text-end">
+                            {{ preview.balance_cents|abs|money_cents }}
+                        </td>
+                    </tr>
+                    {% if preview.security_deposit_return_cents or preview.security_deposit_withheld_cents %}
+                        <tr>
+                            <td>Caution à restituer</td>
+                            <td class="text-end">
+                                {{ preview.security_deposit_return_cents|money_cents }}
+                                {% if preview.security_deposit_withheld_cents %}
+                                    <span class="text-body-secondary small d-block">
+                                        dont {{ preview.security_deposit_withheld_cents|money_cents }}
+                                        retenus
+                                    </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tfoot>
+            </table>
+        </div>
+
+        {#
+      The amounts decided on « État des lieux », read only here: the
+      settlement takes them as they were decided, and the decision is
+      changed where it was made.
+    #}
+    {% if decided_incidents is not empty %}
+        <h3 class="h6">Incidents tranchés</h3>
+        <ul class="list-unstyled small mb-2" data-decided-incidents>
+            {% for incident in decided_incidents %}
+                <li class="d-flex justify-content-between gap-2 border-bottom py-1">
+                    <span>
+                        {{ incident.description }}
+                        <span class="text-body-secondary d-block">{{ incident.decision.label }}</span>
+                    </span>
+                    <span class="text-end text-nowrap">{{ (incident.decidedAmountCents ?? 0)|money_cents }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+        {% if inventory_url %}
+            <p class="small"><a href="{{ inventory_url }}">Changer une décision sur l'état des lieux</a></p>
+        {% endif %}
+    {% endif %}
+
+    <form method="post" action="/mes-locations/decompte" class="row g-2 align-items-end mb-3">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="invoice">
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="final-persons">Participants réels</label>
+                <input type="number" inputmode="numeric" min="0" class="form-control form-control-sm" id="final-persons"
+                       name="final_persons" value="{{ final_persons }}">
+            </div>
+            <div class="col-6 col-md-4">
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+                    Enregistrer un décompte
+                </button>
+            </div>
+        </form>
+
+        {% if settlements is not empty %}
+            <h3 class="h6">Versions</h3>
+            <ul class="list-unstyled mb-0">
+                {% for settlement in settlements %}
+                    <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
+                        <span>
+                            <span class="fw-semibold">v{{ settlement.version }}</span>
+                            — {{ settlement.totalCents|money_cents }}
+                            <span class="text-body-secondary small d-block">
+                                {{ settlement.createdAt|date_fr }}
+                                {% if settlement.finalPersons is not null %}
+                                    · {{ settlement.finalPersons }} participants
+                                {% endif %}
+                            </span>
+                        </span>
+                        {% if settlement.isValidated %}
+                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Validé' } only %}
+                        {% else %}
+                            <form method="post" action="/mes-locations/decompte-valider"
+                                  data-confirm="Valider ce décompte ? Il ne pourra plus être modifié.">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="booking_page" value="invoice">
+                                <input type="hidden" name="settlement_id" value="{{ settlement.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                    Valider
+                                </button>
+                            </form>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>
