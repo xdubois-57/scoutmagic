@@ -61,6 +61,22 @@ final class BookingReference
         return new self(static fn(int $min, int $max): int => random_int($min, $max));
     }
 
+    /**
+     * Whether a reference is one of the random ones — something only its
+     * booking's correspondents can know — rather than a sequential one
+     * (`LOC-2026-0042`) a stranger can enumerate (#231).
+     *
+     * A random suffix that happens to hold digits only (one draw in about
+     * 3 000) is indistinguishable from a sequential number and is counted
+     * as guessable: the cautious answer costs that booking nothing but the
+     * model's help with a reference quoted from an unknown address.
+     */
+    public static function isUnguessable(string $reference): bool
+    {
+        return preg_match('/^LOC-\d{4}-([2-9A-HJKMNP-Z]{6})$/i', $reference, $m) === 1
+            && preg_match('/[A-Z]/i', $m[1]) === 1;
+    }
+
     /** A fresh reference for a request made at $now. */
     public function draw(\DateTimeImmutable $now): string
     {
