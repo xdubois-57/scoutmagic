@@ -455,6 +455,10 @@ class MailboxSyncService
         }
 
         if ($existingId !== null) {
+            // The other order of the same case: the sent copy was filed
+            // first (the inbox read later, or past its cursor). The one row
+            // becomes what the box received, as if read in this order.
+            $this->messageRepository->markReceived($existingId);
             $this->notifyApplied($existingId, $this->applier->applyAndReport($existingId, $results));
 
             // Nothing was *stored*: the message was already here, and its
