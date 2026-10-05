@@ -366,6 +366,7 @@ class InboundMailConfigController extends AbstractController
         $username = trim((string) $request->getBody('username', ''));
         $password = (string) $request->getBody('password', '');
         $folders = MailboxAdminService::parseFolders((string) $request->getBody('folders', ''));
+        $sentFolder = trim((string) $request->getBody('sent_folder', ''));
         $isEnabled = $request->getBody('is_enabled') !== null;
 
         if ($name === '' || $host === '' || $username === '') {
@@ -393,7 +394,8 @@ class InboundMailConfigController extends AbstractController
                 $username,
                 $password,
                 $folders,
-                $isEnabled
+                $isEnabled,
+                $sentFolder
             );
             $this->journalService->log(
                 'inbound_mail',
@@ -422,7 +424,8 @@ class InboundMailConfigController extends AbstractController
             $username,
             $password,
             $folders,
-            $isEnabled
+            $isEnabled,
+            $sentFolder
         );
         $this->journalService->log(
             'inbound_mail',

@@ -187,6 +187,17 @@ class InboundMailboxRepository
         ]);
     }
 
+    /**
+     * The folder to read as the box's sent mail when the server marks none
+     * `\Sent` (#720). Blank or null clears it: the server's mark applies.
+     */
+    public function setSentFolder(int $id, ?string $folder): void
+    {
+        $folder = $folder !== null ? trim($folder) : '';
+        $stmt = $this->pdo->prepare('UPDATE inbound_mailboxes SET sent_folder = ?, updated_at = ? WHERE id = ?');
+        $stmt->execute([$folder === '' ? null : $folder, self::now(), $id]);
+    }
+
     public function setPassword(int $id, string $password): void
     {
         $stmt = $this->pdo->prepare('UPDATE inbound_mailboxes SET password_encrypted = ?, updated_at = ? WHERE id = ?');
@@ -332,6 +343,9 @@ class InboundMailboxRepository
             ),
             dedicatedTo: ($row['dedicated_to'] ?? null) !== null && (string) $row['dedicated_to'] !== ''
                 ? (string) $row['dedicated_to']
+                : null,
+            sentFolder: ($row['sent_folder'] ?? null) !== null && (string) $row['sent_folder'] !== ''
+                ? (string) $row['sent_folder']
                 : null
         );
     }

@@ -91,7 +91,11 @@ final class InMemoryTriageMail implements InboundMailInterface
         foreach ($afterByReference as $reference => $after) {
             foreach (array_keys($this->messages) as $messageId) {
                 $position = $this->positions[$messageId][$consumerId . '|' . $reference] ?? 0;
-                if ($position > $after && $this->findOneForReference($consumerId, (string) $reference, $messageId) !== null) {
+                if (
+                    $position > $after
+                    && !$this->messages[$messageId]->isSent()
+                    && $this->findOneForReference($consumerId, (string) $reference, $messageId) !== null
+                ) {
                     $counts[$reference] = ($counts[$reference] ?? 0) + 1;
                 }
             }
@@ -368,8 +372,32 @@ final class InMemoryTriageMail implements InboundMailInterface
             sentAt: $message->sentAt,
             bodyText: $message->bodyText,
             bodyHtml: $message->bodyHtml,
+            toEmails: $message->toEmails,
             links: $this->links[$message->id] ?? [],
-            isBulk: $message->isBulk
+            isBulk: $message->isBulk,
+            direction: $message->direction
+        );
+    }
+
+    /** What the unit sent the renter, read in the box's « Envoyés » (#720). */
+    public static function aSentMessage(int $id = 7, string $subject = 'Les clés'): InboundMessage
+    {
+        return new InboundMessage(
+            id: $id,
+            mailboxId: 1,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: LinkOrigin::RECIPIENT,
+            subject: $subject,
+            fromEmail: 'locations@unite.be',
+            fromName: 'Les Scouts',
+            messageId: '<s' . $id . '@unite.be>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-09-18 10:12:00'),
+            bodyText: 'Bonjour Jeanne, les clés sont chez le voisin.',
+            bodyHtml: '',
+            toEmails: ['j.leroy@example.be'],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
         );
     }
 

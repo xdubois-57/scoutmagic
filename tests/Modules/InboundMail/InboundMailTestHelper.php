@@ -25,6 +25,7 @@ class InboundMailTestHelper
             username_encrypted BLOB NOT NULL,
             password_encrypted BLOB NOT NULL,
             folders TEXT,
+            sent_folder TEXT,
             is_enabled INTEGER NOT NULL DEFAULT 1,
             purpose TEXT NOT NULL DEFAULT "shared",
             dedicated_to TEXT,
@@ -83,6 +84,7 @@ class InboundMailTestHelper
             stored_analysis_at TEXT,
             stored_analysis_attempts INTEGER NOT NULL DEFAULT 0,
             is_bulk INTEGER NOT NULL DEFAULT 0,
+            direction TEXT NOT NULL DEFAULT \'received\',
             last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');
