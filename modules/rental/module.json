@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.42.0",
+  "version": "1.43.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -199,6 +199,15 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
       "action": "detachMessage",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/courrier/renvoyer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "resendEmail",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

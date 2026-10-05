@@ -11,12 +11,12 @@ namespace Modules\Rental\Mail;
 use Modules\InboundMail\Api\InboundMessage;
 
 /**
- * The entries of a booking's « Courrier » page (#720), most recent first.
+ * The entries of a booking's « Courrier » page (#720), received and sent
+ * mixed, most recent first.
  *
  * One shape for every entry, whatever its origin, so that each one opens
- * the same way: a direction (« Reçu » today; the site's own sent mail joins
- * the same list), a date, a subject, who wrote, a one-line excerpt and the
- * whole message in a dialog.
+ * the same way: a direction (« Reçu » / « Envoyé »), a date, a subject, who
+ * wrote or to whom, a one-line excerpt and the whole message in a dialog.
  */
 final class BookingMailTimeline
 {
@@ -28,27 +28,59 @@ final class BookingMailTimeline
 
     /**
      * @param InboundMessage[] $received the messages filed under the booking
-     * @return list<array{direction: string, message: InboundMessage, excerpt: string, has_body: bool}>
+     * @param SentEmail[] $sent what the site sent the renter about it
+     * @param array<int, string> $documentNames the booking's documents, by id,
+     *     for the attachments a sent e-mail names
+     * @return list<array{
+     *     direction: string, at: \DateTimeImmutable, excerpt: string, has_body: bool,
+     *     message: ?InboundMessage, sent: ?SentEmail, attachment_names: list<string>
+     * }>
      */
-    public static function of(array $received): array
+    public static function of(array $received, array $sent = [], array $documentNames = []): array
     {
         $entries = [];
         foreach ($received as $message) {
-            $body = trim((string) preg_replace('/\s+/u', ' ', $message->bodyText));
+            $body = self::flatten($message->bodyText);
             $entries[] = [
                 'direction' => 'received',
-                'message' => $message,
+                'at' => $message->sentAt,
                 'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
                 'has_body' => $body !== '' || trim($message->bodyHtml) !== '',
+                'message' => $message,
+                'sent' => null,
+                'attachment_names' => [],
+            ];
+        }
+
+        foreach ($sent as $email) {
+            $body = self::flatten($email->displayText());
+            $entries[] = [
+                'direction' => 'sent',
+                'at' => $email->sentAt,
+                'excerpt' => mb_substr($body, 0, self::EXCERPT_LENGTH),
+                'has_body' => $body !== '',
+                'message' => null,
+                'sent' => $email,
+                // A document deleted since keeps a line, so the entry still
+                // says something was attached.
+                'attachment_names' => array_map(
+                    static fn(int $id): string => $documentNames[$id] ?? 'Document supprimé depuis',
+                    $email->documentIds
+                ),
             ];
         }
 
         // Most recent first: the page is opened to see what came in last.
         usort(
             $entries,
-            static fn(array $a, array $b): int => $b['message']->sentAt <=> $a['message']->sentAt
+            static fn(array $a, array $b): int => $b['at'] <=> $a['at']
         );
 
         return $entries;
+    }
+
+    private static function flatten(string $text): string
+    {
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
     }
 }
