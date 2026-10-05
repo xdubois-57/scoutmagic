@@ -426,7 +426,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
 });
 
 /**
- * One line of « Où en est cette réservation », by the label
+ * One line of « Cycle de vie », by the label
  * `Booking\BookingMilestones` gives it.
  *
  * Addressed through `[data-booking-panel="milestones"]` because that

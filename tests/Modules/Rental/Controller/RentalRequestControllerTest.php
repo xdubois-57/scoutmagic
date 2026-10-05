@@ -196,7 +196,10 @@ class RentalRequestControllerTest extends TestCase
             $this->recordingMailService(),
             EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
             $settingService,
-            $journalService
+            $journalService,
+            // « Et maintenant ? », in the e-mails and on the tracking page
+            // alike (#708, IT-15).
+            journey: new \Modules\Rental\Service\RentalJourneyService($this->bookingRepository)
         );
 
         // The contract's two signatures (#708, IT-16): real files, under a
@@ -933,6 +936,25 @@ class RentalRequestControllerTest extends TestCase
         $booking = $this->bookingRepository->findById(1);
         $this->assertNotNull($booking);
         $this->assertNull($booking->estimatedPrice);
+    }
+
+    /**
+     * The tracking page says what the renter has to do next — the very
+     * sentence their acknowledgement ended with (#708, IT-15): one source,
+     * so the two cannot disagree.
+     */
+    public function testTheTrackingPageSaysWhatTheEmailsSay(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->track($bookingId, $token)->getBody());
+        $this->assertSame(1, preg_match('#<p class="mb-0" data-renter-next-step> (.*?) </p>#', $body, $match));
+        $sentence = html_entity_decode($match[1], ENT_QUOTES);
+
+        $this->assertStringStartsWith('Rien à faire de votre côté', $sentence);
+        $acknowledgement = $this->sentMail[0]['text'] ?? '';
+        $this->assertStringContainsString("Et maintenant ?\n" . $sentence, (string) $acknowledgement);
     }
 
     public function testTheTrackingPageOffersATariffOnRequestRatherThanZeroEuros(): void

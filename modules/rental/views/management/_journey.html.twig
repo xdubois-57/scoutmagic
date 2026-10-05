@@ -1,37 +1,46 @@
 {#
-  The journey of one booking (issue #462): the ONE answer the dashboard
-  gives to « where is it, and what do I do? ».
+  The journey of one booking (issue #462): the answer the dashboard gives
+  to « where is it, and what do I do? » — in two cards since #708 (IT-19),
+  « Prochaine action » and « Cycle de vie ».
 
-  It replaces two cards that asked that question twice — « L'action
-  suivante » above and « Où en est cette location » below, each with its
-  own reading of the same checklist (D3). Both halves are still here, in
-  one card, from one derivation (Booking\BookingJourney):
+  Two cards, ONE derivation. The page once had two cards that each read
+  the checklist their own way — « L'action suivante » and « Où en est
+  cette location » — and they ended up contradicting each other (D3). What
+  is split here is the display, not the calculation: both cards read the
+  same Booking\BookingJourney.
 
-  - **the heading** names what holds the booking up, puts forward the one
-    action that moves it on — never a refusal nor a cancellation (D7) — and
-    folds every other decision behind a secondary button;
-  - **the stretches** follow the scout-year page's timeline pattern (D4):
+  - **Prochaine action** names what holds the booking up — a change the
+    renter asked for first, then a question or a proposal the renter owes
+    an answer to, then the next step — puts forward the one action that
+    moves it on when it is the unit's, never a refusal nor a cancellation
+    (D7), and folds every other decision behind a secondary button. A
+    renter late on their step, and dates no longer held, each add a line.
+  - **Cycle de vie** follows the scout-year page's timeline pattern (D4):
     five sections, the current one open, each step numbered, with its
-    nature and its control (`_journey_steps.html.twig`). Two things of that
-    page are deliberately NOT copied (D5): there is no indicative date per
-    stretch, since a booking's dates are its stay's, not the site's; and
-    the order is a lock here, not advice — `BookingStatus` is a real
-    machine, so a stretch the booking has not reached is inert.
+    nature and its control (`_journey_steps.html.twig`). There is no
+    indicative date per stretch (D5), and a stretch the booking has not
+    reached is inert: `BookingStatus` is a real machine.
 
-  Two refreshable regions, so an action re-renders both halves:
-  `next-step` (the heading) and `milestones` (the stretches).
+  Two refreshable regions, so an action re-renders both cards:
+  `next-step` and `milestones`.
 
   Requires `journey`, `asset`, `booking`, `booking_url` and
   `renter_decisions`; `contract_step` for the contract's steps (#708,
   IT-16).
 #}
-<div class="card mb-4" id="parcours">
+<div class="card mb-4" id="prochaine-action">
     <div data-booking-panel="next-step">
         <div class="card-body">
-            <h2 class="h5 mb-3">Où en est cette réservation</h2>
+            <h2 class="h5 mb-3">Prochaine action</h2>
             {% set primary = journey.primaryAction %}
             {% set others = journey.otherDecisions %}
             <p class="fw-semibold mb-1">{{ journey.headline }}</p>
+            {% if journey.lateLine %}
+                <p class="text-danger small mb-1" data-late-line>{{ journey.lateLine }}</p>
+            {% endif %}
+            {% if journey.holdLine %}
+                <p class="text-warning-emphasis small mb-1" data-hold-line>{{ journey.holdLine }}</p>
+            {% endif %}
             {% if journey.next and journey.next.explanation %}
                 <p class="text-body-secondary small mb-0">{{ journey.next.explanation }}</p>
             {% endif %}
@@ -75,7 +84,11 @@
         </div>
     </div>
 
-    <div class="card-body border-top" data-booking-panel="milestones">
+</div>
+
+<div class="card mb-4" id="cycle-de-vie">
+    <div class="card-body" data-booking-panel="milestones">
+        <h2 class="h5 mb-2">Cycle de vie</h2>
         <p class="text-body-secondary small">
             Les étapes se suivent dans cet ordre : chacune attend la précédente. Les dates sont celles du
             séjour, pas des échéances du site.

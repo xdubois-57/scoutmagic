@@ -42,7 +42,6 @@ use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
@@ -161,6 +160,9 @@ class RentalManagementController extends AbstractController
         'image/webp',
         'image/heic',
     ];
+
+    /** Built on first use (journeyService()). */
+    private ?\Modules\Rental\Service\RentalJourneyService $journeyService = null;
 
     public function __construct(
         Environment $twig,
@@ -978,11 +980,6 @@ class RentalManagementController extends AbstractController
         \DateTimeImmutable $now,
         ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "nothing validated yet" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $validations = $this->stayService?->inventoryValidations($booking->id);
-
         $marks = [];
         $marked = $this->decorateWithAuthors(
             $this->milestoneMarkService?->marksFor($booking->id) ?? [],
@@ -997,28 +994,32 @@ class RentalManagementController extends AbstractController
             }
         }
 
-        $evidence = MilestoneEvidence::collect(
+        // The one derivation the renter's e-mails read too (#708, IT-15);
+        // only the names of who ticked a step are this page's own.
+        return $this->journeyService()->milestones(
             $booking,
+            $asset,
+            $now,
             $documents,
             $payment,
-            $validations,
-            $this->stayService?->latestSettlement($booking->id),
-            // An asset with neither items to check nor meters to read has
-            // nothing an inventory could walk, so its walk-throughs are
-            // ticked by hand (#708, IT-17).
-            $this->stayService === null || $this->stayService->keepsInventoryFor($booking),
             $marks,
-            $now,
             $acceptedConditions
         );
+    }
 
-        return BookingMilestones::for(
-            $booking,
-            $now,
-            $evidence->done,
-            $evidence->details,
-            $evidence->offsite,
-            $evidence->manual
+    /**
+     * Built here from the collaborators this controller already holds, so
+     * the checklist it shows is the one RentalJourneyService gives every
+     * other reader.
+     */
+    private function journeyService(): \Modules\Rental\Service\RentalJourneyService
+    {
+        return $this->journeyService ??= new \Modules\Rental\Service\RentalJourneyService(
+            $this->bookingRepository,
+            $this->stayService,
+            $this->milestoneMarkService,
+            $this->documentService,
+            $this->paymentService
         );
     }
 
@@ -1589,7 +1590,7 @@ class RentalManagementController extends AbstractController
             // The checklist staged into the five stretches, with the heading
             // that says what holds the booking up — one derivation, one
             // component (Booking\BookingJourney, issue #462).
-            'journey' => BookingJourney::of($milestones, $booking->status),
+            'journey' => $this->journeyOf($booking, $asset, $milestones, $payment, $now),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
@@ -1612,6 +1613,64 @@ class RentalManagementController extends AbstractController
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
         ];
+    }
+
+    /**
+     * The journey with what only this controller knows (#708, IT-19): a
+     * change the renter asked for, which comes before everything else; a
+     * proposal of the unit awaiting the renter; a step of the renter's now
+     * late (IT-12); dates no longer held on a request still waiting
+     * (IT-01).
+     *
+     * @param list<\Modules\Rental\Booking\BookingMilestone> $milestones
+     * @param array<string, mixed> $payment
+     */
+    private function journeyOf(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        array $milestones,
+        array $payment,
+        \DateTimeImmutable $now
+    ): BookingJourney {
+        $asked = null;
+        $proposalWaiting = false;
+        foreach ($this->changeRequestRepository->findForBooking($booking->id) as $change) {
+            if (!$change->isPending()) {
+                continue;
+            }
+            if ($change->origin === \Modules\Rental\Booking\ChangeRequestOrigin::RENTER) {
+                $asked ??= $change->summary();
+            } else {
+                $proposalWaiting = true;
+            }
+        }
+
+        $next = BookingJourney::firstOutstanding($milestones);
+        $lateSince = null;
+        if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+            $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                $next->key,
+                $booking,
+                $payment,
+                ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                )
+            );
+            if ($deadline !== null && $deadline->isLate($now)) {
+                $lateSince = $deadline->expected;
+            }
+        }
+
+        return BookingJourney::of(
+            $milestones,
+            $booking->status,
+            $asked,
+            $proposalWaiting,
+            $booking->holdIsActive($now) ? $booking->holdUntil : null,
+            $lateSince,
+            $booking->holdLapsedSince($now)
+        );
     }
 
     /**
@@ -2160,7 +2219,8 @@ class RentalManagementController extends AbstractController
                     $document->label(),
                     $path,
                     $document->originalName ?? 'document.pdf',
-                    $document->hasBeenSent()
+                    $document->hasBeenSent(),
+                    $document->type
                 );
             }
             $this->documentService->markSent($document->id, $now);
@@ -2297,15 +2357,7 @@ class RentalManagementController extends AbstractController
      */
     private function paymentStatus(RentalBooking $booking, RentalAsset $asset): array
     {
-        if ($this->paymentService === null) {
-            return [
-                'available' => false,
-                'enabled' => false,
-                'security_deposit' => ['amount_cents' => null],
-            ];
-        }
-
-        return $this->paymentService->statusFor($booking, $this->paymentService->settingsFor($asset->id));
+        return $this->journeyService()->payment($booking, $asset);
     }
 
     /**
@@ -3077,8 +3129,10 @@ class RentalManagementController extends AbstractController
             return false;
         }
 
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
         return !isset($this->stayService->inventoryValidations($booking->id)['departure'])
-            && !isset(($this->milestoneMarkService?->marksFor($booking->id) ?? [])[BookingMilestones::DEPARTURE_INVENTORY]);
+            && !isset($marks[BookingMilestones::DEPARTURE_INVENTORY]);
     }
 
     /**
@@ -3246,7 +3300,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordSettlement(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->stayService === null) {
                 throw new RentalException('Le décompte final n\'est pas disponible.');
             }

@@ -2834,7 +2834,9 @@ class RentalManagementControllerTest extends TestCase
 
         $positions = [];
         foreach ([
-            'Où en est cette réservation',
+            // Two cards since #708 (IT-19), from the one derivation.
+            'Prochaine action',
+            'Cycle de vie',
             'Les détails de la réservation',
             'Le dossier',
         ] as $heading) {
@@ -2871,7 +2873,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre réponse : générez le contrat.', $nextStep);
+        $this->assertStringContainsString('Le contrat reste à générer.', $nextStep);
         // Generated right there, from the dashboard (#708, IT-16).
         $this->assertStringContainsString('data-contract-command="generate"', $nextStep);
         $this->assertStringContainsString('Générer le contrat', $nextStep);
@@ -3996,10 +3998,31 @@ class RentalManagementControllerTest extends TestCase
     public function testAJourneyLinkAimsAtThePageItsBoxIsOn(): void
     {
         $this->loginAsManager();
+        // Confirmed, with an inventory kept on the site: the walk-through
+        // is what comes next, and its way is « État des lieux ».
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        $this->assertStringContainsString(
+            'href="' . $base . '/etat-des-lieux#dossier-inventory"',
+            self::panel($body, 'next-step')
+        );
+        $this->assertStringNotContainsString('href="#dossier-', $body);
+    }
+
+    /**
+     * While the renter is the one expected, nothing is put forward (#708,
+     * IT-19): the heading says what is awaited.
+     */
+    public function testNothingIsPutForwardWhileTheRenterSigns(): void
+    {
+        $this->loginAsManager();
         $this->setContractTemplate();
         $booking = $this->createBooking();
-        // The contract out, the renter's signed copy is what holds the
-        // booking up — and its way is the Documents page.
         $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
@@ -4011,11 +4034,35 @@ class RentalManagementControllerTest extends TestCase
             'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
         ]);
 
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $nextStep = self::panel((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'next-step');
+
+        $this->assertStringContainsString('Le contrat attend la signature du locataire', $nextStep);
+        $this->assertStringNotContainsString('btn btn-primary', $nextStep);
+    }
+
+    /** A change the renter asked for comes first, with the way to answer it (IT-20). */
+    public function testARenterChangeRequestLeadsTheDashboard(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->changeRequestRepository->create(
+            $booking->id,
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            25,
+            null,
+            'Nous serons moins.'
+        );
+
+        $nextStep = self::panel((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'next-step');
         $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
 
-        $this->assertStringContainsString('href="' . $base . '/documents#dossier-documents"', $body);
-        $this->assertStringNotContainsString('href="#dossier-', $body);
+        $this->assertStringContainsString('Le locataire demande une modification : 25 participants.', $nextStep);
+        $this->assertStringContainsString('href="' . $base . '/modifications"', $nextStep);
+        $this->assertStringContainsString('Répondre à la demande', $nextStep);
     }
 
     public function testTheInventoryPageSaysItDoesNotWorkOffline(): void

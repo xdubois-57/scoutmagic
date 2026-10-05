@@ -16,6 +16,7 @@ use Core\Mail\Template\RenderedEmail;
 use Core\Service\DateInput;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
+use Modules\Rental\Booking\RenterNextStep;
 use Modules\Rental\Repository\RentalAsset;
 
 /**
@@ -55,7 +56,13 @@ class RentalBookingMailService
          * the service stays constructible where nothing is sent to a renter;
          * both composition roots wire it.
          */
-        private ?RentalConditionsService $conditions = null
+        private ?RentalConditionsService $conditions = null,
+        /**
+         * Where « Et maintenant ? » comes from (#708, IT-15): the booking's
+         * next step, as the manager's dashboard reads it. Nullable like the
+         * conditions; without it the e-mails go out without the block.
+         */
+        private ?RentalJourneyService $journey = null
     ) {
     }
 
@@ -271,7 +278,8 @@ class RentalBookingMailService
         string $documentLabel,
         string $absolutePath,
         string $fileName,
-        bool $isResend = false
+        bool $isResend = false,
+        ?\Modules\Rental\Document\DocumentType $type = null
     ): string {
         $messageId = $this->messageIdFor($booking);
 
@@ -282,7 +290,7 @@ class RentalBookingMailService
         $email = $this->renderFor($booking, $asset, 'rental.document', [
             'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'document_label' => $documentLabel,
-        ]);
+        ], $type === \Modules\Rental\Document\DocumentType::INVOICE ? RenterNextStep::payInvoice() : null);
 
         $this->mailService->send(
             $booking->renterEmail,
@@ -341,7 +349,7 @@ class RentalBookingMailService
             'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
             'hold_until' => $holdUntil !== null ? $holdUntil->format('d/m/Y') : '',
-        ]);
+        ], RenterNextStep::signContract($booking, new \DateTimeImmutable(), $holdUntil));
 
         $this->mailService->send(
             $booking->renterEmail,
@@ -692,12 +700,14 @@ class RentalBookingMailService
         RentalBooking $booking,
         RentalAsset $asset,
         string $templateId,
-        array $context
+        array $context,
+        ?RenterNextStep $nextStep = null
     ): RenderedEmail
     {
         $email = $this->emailTemplateRenderer->render(
             $templateId,
-            $context + $this->acceptedConditionsNote($booking, $asset, $templateId) + [
+            $context + $this->acceptedConditionsNote($booking, $asset, $templateId)
+            + $this->nextStepContext($booking, $asset, $templateId, $context, $nextStep) + [
                 'reference' => $booking->reference,
                 'asset_name' => $asset->name,
                 'renter_name' => $booking->renterName,
@@ -712,6 +722,62 @@ class RentalBookingMailService
             bodyHtml: $email->bodyHtml,
             bodyText: $email->bodyText
         );
+    }
+
+    /**
+     * The renter's « Et maintenant ? » as their e-mails say it (#708,
+     * IT-15) — for the tracking page, which says the very same sentence
+     * under the status: the page and the e-mails cannot contradict each
+     * other. Null when it cannot be worked out.
+     */
+    public function renterNextStep(RentalBooking $booking, RentalAsset $asset): ?RenterNextStep
+    {
+        try {
+            return $this->journey?->renterNextStep($booking, $asset, new \DateTimeImmutable());
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * « Et maintenant ? » (#708, IT-15): what the renter has to do next, in
+     * the frame of every e-mail they receive (email/base.html.twig), so a
+     * customised body cannot drop it. The booking's next step unless the
+     * e-mail says better — the contract calls for its signature before the
+     * booking has moved, an invoice for its payment. The tracking link
+     * goes with it whenever the thing to do is done there and the e-mail
+     * already carries the link.
+     *
+     * Never fails an e-mail: a block that cannot be worked out is left
+     * out, and the message still goes.
+     *
+     * @param array<string, mixed> $context
+     * @return array<string, string>
+     */
+    private function nextStepContext(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $templateId,
+        array $context,
+        ?RenterNextStep $nextStep
+    ): array {
+        if (!in_array($templateId, self::RENTER_TEMPLATES, true) && $templateId !== 'rental.tracking_link') {
+            return [];
+        }
+
+        $nextStep ??= $this->renterNextStep($booking, $asset);
+        if ($nextStep === null) {
+            return [];
+        }
+
+        $trackingUrl = $context['tracking_url'] ?? null;
+        $link = $nextStep->onTrackingPage && is_string($trackingUrl) ? $trackingUrl : '';
+
+        return [
+            'next_step' => $nextStep->sentence,
+            'next_step_link' => $link,
+            'next_step_link_label' => $link !== '' ? 'Ouvrir ma page de suivi' : '',
+        ];
     }
 
     /**

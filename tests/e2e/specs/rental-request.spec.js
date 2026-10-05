@@ -227,8 +227,11 @@ test.describe('Rentals', () => {
         const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
 
         // The dates are held while the unit answers, and the page says
-        // until when rather than leaving the visitor guessing (specifications.md §22.5).
-        await expect(renter.getByText(/Dates bloquées/)).toBeVisible();
+        // until when rather than leaving the visitor guessing (specifications.md §22.5)
+        // — in the « Et maintenant ? » sentence their e-mails end with
+        // too (#708, IT-15).
+        await expect(renter.locator('[data-renter-next-step]')).toContainText(/Rien à faire de votre côté/);
+        await expect(renter.locator('[data-renter-next-step]')).toContainText(/réservées jusqu'au \d{2}\/\d{2}\/\d{4}/);
 
         // The link IS the authorisation (§6.26): no account, no session,
         // and it still opens on a cold browser. Keeping the URL and

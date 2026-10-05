@@ -30,7 +30,20 @@
                 <p class="mb-2">
                     {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
                 </p>
-                {% if booking.holdUntil %}
+                {#
+                  The sentence their e-mails end with (#708, IT-15), from
+                  the same source, so this page and the e-mails cannot
+                  contradict each other. It says the dates held, when they
+                  are, so the hold line stands alone only without it.
+                #}
+                {% if next_step %}
+                    <p class="mb-0" data-renter-next-step>
+                        {{ next_step.sentence }}
+                        {% if next_step.onTrackingPage and contract and contract.accepts_copy %}
+                            <a href="#contrat">Déposer ma copie signée</a>
+                        {% endif %}
+                    </p>
+                {% elseif booking.holdUntil %}
                     <p class="mb-0">
                         {{ booking.holdLabel }} jusqu'au
                         <strong>{{ booking.holdUntil|date_fr }}</strong>.

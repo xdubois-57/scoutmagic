@@ -491,6 +491,9 @@ class RentalRequestController extends AbstractController
             // negotiated total, and the manager was being told "le locataire
             // le voit immédiatement sur sa page de suivi".
             'quote' => $booking->effectivePrice(),
+            // What they have to do next, the sentence their e-mails end
+            // with (#708, IT-15): one source, so the two never disagree.
+            'next_step' => $this->mailService->renterNextStep($booking, $asset),
             // Only the managers explicitly flagged as renter contacts, and
             // the filter is in SQL rather than in the template: a template
             // that forgot the condition would hand every manager's details

@@ -5,7 +5,17 @@
 
     Twig swallows the newline right after a `%}`, so every line break in
     the footer note below is one that follows a `}}`: the note and its
-    link on two lines. -#}
+    link on two lines.
+
+    « Et maintenant ? » comes first when the sending code supplies one
+    (`next_step`, optional `next_step_link`), as in base.html.twig. -#}
+{% if next_step is defined and next_step %}
+Et maintenant ?
+{{ next_step }}
+{% if next_step_link is defined and next_step_link %}{{ next_step_link }}
+{% endif %}
+
+{% endif %}
 Bien à vous,
 {{ site_name }}
 {% if footer_note is defined and footer_note %}

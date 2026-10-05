@@ -1518,7 +1518,7 @@
     {
       "id": "rental.acknowledgement",
       "label": "Accusé de réception d'une demande de location",
-      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi.",
+      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre demande de location",
       "template": "@rental/email/acknowledgement.html.twig",
       "variables": [
@@ -1562,7 +1562,7 @@
     {
       "id": "rental.decision",
       "label": "Réponse à une demande de location",
-      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande. Sept décisions passent par cet email (acceptée, refusée, proposition, précision demandée, modification acceptée ou refusée, annulation) : le sujet livré est celui de la décision. La référence de la réservation est ajoutée automatiquement devant, et ne peut pas être retirée — c'est elle qui rattache les réponses du demandeur à sa location.",
+      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande. Sept décisions passent par cet email (acceptée, refusée, proposition, précision demandée, modification acceptée ou refusée, annulation) : le sujet livré est celui de la décision. La référence de la réservation est ajoutée automatiquement devant, et ne peut pas être retirée — c'est elle qui rattache les réponses du demandeur à sa location. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "{{ decision_subject }}",
       "template": "@rental/email/decision.html.twig",
       "variables": [
@@ -1621,7 +1621,7 @@
     {
       "id": "rental.document",
       "label": "Envoi d'un document de location",
-      "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe.",
+      "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "{{ document_subject }}",
       "template": "@rental/email/document.html.twig",
       "variables": [
@@ -1665,7 +1665,7 @@
     {
       "id": "rental.contract",
       "label": "Envoi du contrat à signer",
-      "description": "Envoyé au demandeur avec le contrat en pièce jointe : il le signe et dépose sa copie sur sa page de suivi avant la fin du blocage des dates.",
+      "description": "Envoyé au demandeur avec le contrat en pièce jointe : il le signe et dépose sa copie sur sa page de suivi avant la fin du blocage des dates. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "{{ document_subject }}",
       "template": "@rental/email/contract.html.twig",
       "variables": [
@@ -1714,7 +1714,7 @@
     {
       "id": "rental.copy_refused",
       "label": "Copie signée du contrat refusée",
-      "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif.",
+      "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre copie signée du contrat n'a pas pu être acceptée",
       "template": "@rental/email/copy_refused.html.twig",
       "variables": [
@@ -1758,7 +1758,7 @@
     {
       "id": "rental.signed_contract",
       "label": "Contrat signé par les deux parties",
-      "description": "Envoyé au demandeur avec le contrat contresigné par l'unité en pièce jointe.",
+      "description": "Envoyé au demandeur avec le contrat contresigné par l'unité en pièce jointe. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre contrat signé par les deux parties",
       "template": "@rental/email/signed_contract.html.twig",
       "variables": [
@@ -1797,7 +1797,7 @@
     {
       "id": "rental.practical_info",
       "label": "Informations pratiques avant le séjour",
-      "description": "Envoyé au demandeur quelques jours avant son arrivée.",
+      "description": "Envoyé au demandeur quelques jours avant son arrivée. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Informations pratiques avant votre séjour",
       "template": "@rental/email/practical_info.html.twig",
       "variables": [
@@ -1846,7 +1846,7 @@
     {
       "id": "rental.signed_copy_reminder",
       "label": "Rappel de la copie signée du contrat",
-      "description": "Envoyé une fois au demandeur, peu avant la fin du blocage des dates, quand sa copie signée du contrat n'est pas encore arrivée.",
+      "description": "Envoyé une fois au demandeur, peu avant la fin du blocage des dates, quand sa copie signée du contrat n'est pas encore arrivée. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre contrat signé est attendu",
       "template": "@rental/email/signed_copy_reminder.html.twig",
       "variables": [
@@ -1890,7 +1890,7 @@
     {
       "id": "rental.tracking_link",
       "label": "Nouveau lien de suivi",
-      "description": "Envoyé au demandeur quand son lien de suivi est régénéré, l'ancien cessant alors de fonctionner.",
+      "description": "Envoyé au demandeur quand son lien de suivi est régénéré, l'ancien cessant alors de fonctionner. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre nouveau lien de suivi",
       "template": "@rental/email/tracking_link.html.twig",
       "variables": [

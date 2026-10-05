@@ -404,6 +404,49 @@ class EmailTemplateRendererTest extends TestCase
     }
 
     /**
+     * « Et maintenant ? » (#708, IT-15): a block the SENDING code supplies,
+     * in both halves, with a shipped body and with a customised one — the
+     * first administrator to reword an e-mail must not be able to drop it.
+     */
+    public function testANextStepFromTheSenderIsInBothHalvesShippedOrCustomised(): void
+    {
+        $context = [
+            'granted_by' => 'Alice',
+            'site_name' => 'Unité Test',
+            'login_url' => 'https://u.example/login',
+            'next_step' => 'À vous : acceptez le contrat depuis votre page de suivi.',
+            'next_step_link' => 'https://unite.test/locations/suivi/1/abc',
+            'next_step_link_label' => 'Ouvrir ma page de suivi',
+        ];
+
+        $shipped = $this->renderer->render('super_admin_granted', $context);
+        $this->overrides->save('super_admin_granted', 'Sujet', '<p>Notre propre texte.</p>', null);
+        $customised = $this->renderer->render('super_admin_granted', $context);
+
+        foreach (['shipped' => $shipped, 'customised' => $customised] as $case => $email) {
+            foreach (['html' => $email->bodyHtml, 'text' => $email->bodyText] as $half => $body) {
+                self::assertStringContainsString('Et maintenant ?', $body, "{$case} {$half}");
+                self::assertStringContainsString('acceptez le contrat depuis votre page de suivi', $body, "{$case} {$half}");
+                self::assertStringContainsString('https://unite.test/locations/suivi/1/abc', $body, "{$case} {$half}");
+            }
+            self::assertStringContainsString('>Ouvrir ma page de suivi</a>', $email->bodyHtml, $case);
+            // Before the signature, in both halves.
+            self::assertLessThan(strpos($email->bodyText, 'Bien à vous'), strpos($email->bodyText, 'Et maintenant ?'), $case);
+            self::assertLessThan(strpos($email->bodyHtml, 'Bien à vous'), strpos($email->bodyHtml, 'Et maintenant ?'), $case);
+        }
+    }
+
+    /** Without one, the e-mails of every other module do not change. */
+    public function testWithoutANextStepNothingIsAdded(): void
+    {
+        $email = $this->renderer->render('super_admin_granted', ['granted_by' => 'Alice', 'site_name' => 'Unité Test']);
+
+        self::assertStringNotContainsString('Et maintenant', $email->bodyHtml);
+        self::assertStringNotContainsString('Et maintenant', $email->bodyText);
+        self::assertStringStartsWith('Bien à vous', substr($email->bodyText, (int) strpos($email->bodyText, 'Bien à vous')));
+    }
+
+    /**
      * The call to action of half the e-mails this site sends is a link
      * whose address IS a variable. What the editor stores is not what the
      * administrator typed: the sanitizer serialises through DOM, and DOM

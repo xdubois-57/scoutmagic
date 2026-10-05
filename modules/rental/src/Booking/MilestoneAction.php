@@ -14,7 +14,8 @@ namespace Modules\Rental\Booking;
  * is done; or a command the step itself carries out — generating or sending
  * the contract, where the manager already is (#708, IT-16).
  *
- * Exactly one of the three is set. A target rather than a URL, because the
+ * Exactly one of them is set — or the page of the file a step is
+ * answered on (#708, IT-19). A target rather than a URL, because the
  * URL belongs to the page that renders it (`BookingBox::href()` builds it
  * from the booking's own address, `_contract_command.html.twig` the
  * command's form), and this type stays pure.
@@ -32,7 +33,9 @@ final class MilestoneAction
         public readonly string $label,
         public readonly ?BookingStatus $transition,
         public readonly ?BookingBox $box,
-        public readonly ?string $command = null
+        public readonly ?string $command = null,
+        /** A page of the booking's file to go to (#708, IT-19). */
+        public readonly ?BookingPage $page = null
     ) {
     }
 
@@ -52,6 +55,12 @@ final class MilestoneAction
     public static function openBox(string $label, BookingBox $box): self
     {
         return new self($label, null, $box);
+    }
+
+    /** The way to a page of the file that holds no box — « Modifications ». */
+    public static function openPage(string $label, BookingPage $page): self
+    {
+        return new self($label, null, null, null, $page);
     }
 
     /**

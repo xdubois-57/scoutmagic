@@ -141,8 +141,19 @@ class EmailTemplateRenderer
      * only part of it that still sees the context — a note left behind
      * here would vanish the moment an administrator reworded the message.
      *
+     * The « Et maintenant ? » block travels the same way (#708, IT-15):
+     * it is what the recipient must do next, and a customisation that
+     * dropped it would be the first thing to make the rule false.
+     *
      * @param array<string, mixed> $context
-     * @return array{site_name: string, footer_note: string, footer_link: string}
+     * @return array{
+     *     site_name: string,
+     *     footer_note: string,
+     *     footer_link: string,
+     *     next_step: string,
+     *     next_step_link: string,
+     *     next_step_link_label: string
+     * }
      */
     private static function frameContext(array $context): array
     {
@@ -152,6 +163,9 @@ class EmailTemplateRenderer
             'site_name' => $text('site_name'),
             'footer_note' => $text('footer_note'),
             'footer_link' => $text('footer_link'),
+            'next_step' => $text('next_step'),
+            'next_step_link' => $text('next_step_link'),
+            'next_step_link_label' => $text('next_step_link_label'),
         ];
     }
 
