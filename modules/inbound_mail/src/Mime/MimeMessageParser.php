@@ -139,7 +139,7 @@ class MimeMessageParser
                     $headers,
                     'content-type'
                 )) ?: 'application/octet-stream',
-                bytes: self::decodeBody($headers, $body),
+                bytes: self::decodeAttachment($headers, $body),
                 isInline: $disposition === 'inline',
                 contentId: self::nullIfEmpty(trim(self::header($headers, 'content-id'), '<> '))
             );
@@ -390,6 +390,33 @@ class MimeMessageParser
         }
 
         return is_string($converted) && $converted !== '' ? $converted : $value;
+    }
+
+    /**
+     * An attachment's bytes, exactly as the sender's file held them.
+     *
+     * Not `decodeBody()`: that one reads TEXT — it converts to UTF-8 and
+     * strips the line break a part ends on — and applied to a file it cut
+     * the final newline off every PDF that ends `%%EOF\n`, which is most
+     * of them, and could cut the last byte of an image whose checksum
+     * happens to end in one. The stored file then hashed differently from
+     * the one the site generated, and a contract sent back by hand was
+     * filed as a second, different document (#720, step 8). Base64 —
+     * how virtually every attachment travels — carries the bytes whole,
+     * so it is decoded and nothing more; a part sent raw keeps the one
+     * trim, since its last line break belongs to the boundary.
+     *
+     * @param array<string, string> $headers
+     */
+    private static function decodeAttachment(array $headers, string $body): string
+    {
+        $encoding = strtolower(trim(self::header($headers, 'content-transfer-encoding')));
+
+        return match ($encoding) {
+            'base64' => base64_decode($body, false) ?: '',
+            'quoted-printable' => rtrim(quoted_printable_decode($body), "\r\n"),
+            default => rtrim($body, "\r\n"),
+        };
     }
 
     /**

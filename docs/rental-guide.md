@@ -358,9 +358,13 @@ dans les onglets de la réservation, et un encadré « Nouveaux messages »
 sur la vue d'ensemble du bien. Elle retombe quand **vous** ouvrez la page,
 pas quand un autre gestionnaire l'ouvre.
 
-Une pièce jointe devient un document de la réservation, en « Non classé »
-et en visibilité interne — jamais présumée être le contrat signé. Vous la
-reclassez en un clic.
+Une pièce jointe — d'un e-mail reçu comme d'un e-mail envoyé depuis la
+boîte de l'unité — devient un document de la réservation quand c'est un
+PDF, un fichier Word ou une photo, en « Non classé » et en visibilité
+interne — jamais présumée être le contrat signé. Vous la reclassez en un
+clic. Un fichier que la réservation a déjà, comme le contrat généré puis
+renvoyé à la main, n'est pas ajouté une seconde fois. Les autres fichiers
+(tableurs, par exemple) restent sur le message.
 
 La seule action sur un message est **Détacher**, après confirmation :
 « Ce message ne concerne pas cette réservation ? » Il quitte la page, ses
