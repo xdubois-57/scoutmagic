@@ -139,10 +139,13 @@ class ModuleManifestTest extends TestCase
      * 1.42.0 announces a message filed under a booking
      * (`rental.new_message`) and counts, per person, what they have not
      * read yet (`rental_booking_mail_reads`) (#720, step 7).
+     *
+     * 1.43.0 keeps what the site sent the renter, sent or failed, with
+     * « Renvoyer » (`rental_booking_sent_emails`) (#720, step 2).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.42.0', $this->manifest->version);
+        $this->assertSame('1.43.0', $this->manifest->version);
     }
 
     /**
