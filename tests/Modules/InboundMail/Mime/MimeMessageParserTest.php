@@ -356,6 +356,80 @@ class MimeMessageParserTest extends TestCase
         $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
     }
 
+    /**
+     * Quoted-printable carries its bytes whole too: an encoded line break
+     * at the end of the file is the file's, not the boundary's, and
+     * trimming it made the stored file hash differently (#720, step 8).
+     */
+    public function testAQuotedPrintableAttachmentKeepsAnEncodedFinalLineBreak(): void
+    {
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain; name="notes.txt"',
+            'Content-Disposition: attachment; filename="notes.txt"',
+            'Content-Transfer-Encoding: quoted-printable',
+            '',
+            'Cl=C3=A9s remises=0D=0A',
+            '--frontier--'
+        ), 1, 'INBOX');
+
+        $bytes = "Cl\xC3\xA9s remises\r\n";
+        $this->assertSame($bytes, $message->attachments[0]->bytes);
+        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
+    }
+
+    /**
+     * A part sent unencoded keeps its own line endings, mixed or not: the
+     * boundary owns the one line break before it, and nothing else is
+     * rewritten (#720, step 8).
+     */
+    public function testAnUnencodedAttachmentKeepsItsOwnLineEndings(): void
+    {
+        $bytes = "a\r\nb\nc\rd\n";
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: application/octet-stream',
+            'Content-Disposition: attachment; filename="lignes.bin"',
+            'Content-Transfer-Encoding: binary',
+            '',
+            $bytes,
+            '--frontier--'
+        ), 1, 'INBOX');
+
+        $this->assertSame($bytes, $message->attachments[0]->bytes);
+        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
+    }
+
+    public function testAnEmptyPartDoesNotSwallowTheNextOnes(): void
+    {
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            'Préambule ignoré.',
+            '--frontier',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Bonjour,',
+            'à bientôt.',
+            '--frontier--',
+            'Épilogue ignoré.'
+        ), 1, 'INBOX');
+
+        $this->assertSame("Bonjour,\nà bientôt.", $message->bodyText);
+        $this->assertSame([], $message->attachments);
+    }
+
     public function testAnRfc2231EncodedFilenameIsDecoded(): void
     {
         // The ASCII `filename` a sender leaves behind for old clients is a

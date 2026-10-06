@@ -2427,10 +2427,12 @@ by content**: an attachment whose SHA-256 (`InboundAttachment::
 $contentHash`) is that of a file the booking already holds is not filed
 again — the contract the site generated, sent back by hand from the box,
 is the document it already is. That comparison only holds because the
-MIME parser hands an attachment over byte for byte
-(`MimeMessageParser::decodeAttachment()`): its text decoding used to
-strip the final line break, which cut the last byte off every PDF ending
-`%%EOF\n`. Never
+MIME parser hands an attachment over byte for byte, whatever its transfer
+encoding (`MimeMessageParser::decodeAttachment()`): its text decoding used
+to strip the final line break, which cut the last byte off every PDF ending
+`%%EOF\n`, and the multipart split rewrote every line ending of a part to
+CRLF. `splitOnBoundary()` now drops only the line break RFC 2046 gives to
+the delimiter, and text is normalised where it is decoded. Never
 presumed to be the signed contract (that would put an unverified PDF where a
 signed contract goes) and never "for the renter" (that flag queues it to be
 emailed back to them). `RentalDocumentService::reclassify()` is the one-click
