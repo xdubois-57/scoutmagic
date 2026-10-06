@@ -231,7 +231,7 @@ class RentalReminderServiceTest extends TestCase
     }
 
     private function createBooking(
-        string $reference = 'LOC-2027-0042',
+        string $reference = 'LOC-K7Q2M4',
         string $arrival = '2027-07-01',
         string $departure = '2027-07-04',
         BookingStatus $status = BookingStatus::CONFIRMED,
@@ -453,7 +453,7 @@ class RentalReminderServiceTest extends TestCase
     {
         $sentFor = function (bool $tickedByHand): array {
             $booking = $this->createBooking(
-                reference: $tickedByHand ? 'LOC-2027-0043' : 'LOC-2027-0044',
+                reference: $tickedByHand ? 'LOC-K7Q2M5' : 'LOC-K7Q2M6',
                 arrival: '2027-07-10',
                 departure: '2027-07-13',
                 status: BookingStatus::CONTRACT_SENT
@@ -514,7 +514,7 @@ class RentalReminderServiceTest extends TestCase
             return array_values(array_filter($reminded, static fn(string $r): bool => $r === $booking->reference));
         };
 
-        $this->assertSame(['LOC-2027-0044'], $sentFor(false), 'the path is reached while the copy is awaited');
+        $this->assertSame(['LOC-K7Q2M6'], $sentFor(false), 'the path is reached while the copy is awaited');
         $this->assertSame([], $sentFor(true));
     }
 

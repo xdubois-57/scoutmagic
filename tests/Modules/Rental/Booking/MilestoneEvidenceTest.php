@@ -31,7 +31,7 @@ class MilestoneEvidenceTest extends TestCase
         return new RentalBooking(
             id: 7,
             assetId: 1,
-            reference: 'LOC-2027-0042',
+            reference: 'LOC-K7Q2M4',
             arrivalDate: '2027-07-01',
             departureDate: '2027-07-04',
             units: 1,

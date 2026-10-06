@@ -132,17 +132,17 @@ class RentalBookingServiceTest extends TestCase
 
     // ── Reference allocation ────────────────────────────────────────────
 
-    public function testAReferenceIsTheYearThenSixCharactersOfTheDictationAlphabet(): void
+    public function testAReferenceIsSixCharactersOfTheDictationAlphabetWithoutAYear(): void
     {
         $booking = $this->submit()['booking'];
 
-        $this->assertMatchesRegularExpression('/^LOC-2027-[2-9A-HJKMNP-Z]{6}$/', $booking->reference);
+        $this->assertMatchesRegularExpression('/^LOC-[2-9A-HJKMNP-Z]{6}$/', $booking->reference);
     }
 
     public function testTwoRequestsDoNotGetNeighbouringReferences(): void
     {
         // The point of #720 step 9: one reference must not tell its holder
-        // where the next one is. Twenty draws out of 887 million values
+        // where the next one is. Twenty draws out of 740 million values
         // never repeat in practice, and never count up.
         $references = [];
         for ($i = 0; $i < 20; $i++) {
@@ -155,16 +155,16 @@ class RentalBookingServiceTest extends TestCase
 
     public function testACollidingReferenceIsDrawnAgainRatherThanShownToTheVisitor(): void
     {
-        // A collision is one chance in 887 million, but it is the UNIQUE
+        // A collision is one chance in 740 million, but it is the UNIQUE
         // index that decides, and the visitor on the public request form
         // must never meet the driver's "Integrity constraint violation" as
         // a 500.
-        $this->serviceDrawing([0, 0, 0, 0, 0, 0])->createFromPublicRequest(...$this->request());
+        $this->serviceDrawing(self::TAKEN)->createFromPublicRequest(...$this->request());
 
-        $result = $this->serviceDrawing([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
+        $result = $this->serviceDrawing([...self::TAKEN, 1, 1, 1, 1, 1, 9])
             ->createFromPublicRequest(...$this->request());
 
-        $this->assertSame('LOC-2027-333333', $result['booking']->reference);
+        $this->assertSame('LOC-33333B', $result['booking']->reference);
     }
 
     public function testARandomSourceStuckOnATakenReferenceRefusesInFrenchNeverWithAPdoException(): void
@@ -172,10 +172,11 @@ class RentalBookingServiceTest extends TestCase
         // Three collisions in a row is a broken random source, not bad
         // luck. The visitor still gets one French sentence, and the
         // driver's message goes to the journal through $previous.
-        $this->serviceDrawing([0, 0, 0, 0, 0, 0])->createFromPublicRequest(...$this->request());
+        $this->serviceDrawing(self::TAKEN)->createFromPublicRequest(...$this->request());
 
         try {
-            $this->serviceDrawing(array_fill(0, 18, 0))->createFromPublicRequest(...$this->request());
+            $this->serviceDrawing([...self::TAKEN, ...self::TAKEN, ...self::TAKEN])
+                ->createFromPublicRequest(...$this->request());
             $this->fail('The third collision must be refused.');
         } catch (RentalException $e) {
             $this->assertStringContainsString("n'a pas pu être enregistrée", $e->getMessage());
@@ -183,20 +184,18 @@ class RentalBookingServiceTest extends TestCase
         }
     }
 
-    public function testTheYearComesFromWhenTheRequestWasMade(): void
+    public function testARandomSourceThatNeverYieldsAReferenceRefusesInFrench(): void
     {
-        $next = $this->submit(['now' => '2028-01-05 09:00:00'])['booking'];
-
-        $this->assertStringStartsWith('LOC-2028-', $next->reference);
-    }
-
-    public function testTheYearComesFromWhenTheRequestWasMadeNotFromTheStayDates(): void
-    {
-        // A reference must stay stable, and a request made in 2027 for a 2028
-        // camp is a 2027 request.
-        $booking = $this->submit(['arrival' => '2028-07-17', 'departure' => '2028-07-20'])['booking'];
-
-        $this->assertStringStartsWith('LOC-2027-', $booking->reference);
+        // A source stuck on one value only ever draws « 222222 », which is
+        // no reference (`BookingReference`): the visitor is refused in one
+        // French sentence, not left waiting on a loop.
+        try {
+            $this->serviceDrawing(array_fill(0, 200, 0))->createFromPublicRequest(...$this->request());
+            $this->fail('A broken random source must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("n'a pas pu être enregistrée", $e->getMessage());
+            $this->assertInstanceOf(\RuntimeException::class, $e->getPrevious());
+        }
     }
 
     public function testTheReferenceColumnIsUniqueSoAConcurrentDuplicateCannotLand(): void
@@ -212,9 +211,12 @@ class RentalBookingServiceTest extends TestCase
         $stmt->execute([$this->assetId, $taken, '2027-08-01', '2027-08-03', 'x', 'y', 'z', 'h']);
     }
 
+    /** The draws of `LOC-22222A`, the reference the collision tests spend first. */
+    private const TAKEN = [0, 0, 0, 0, 0, 8];
+
     /**
      * A service whose reference draws follow $draws, so a collision can be
-     * reproduced without waiting for one in 887 million.
+     * reproduced without waiting for one in 740 million.
      *
      * @param int[] $draws indexes into BookingReference::ALPHABET
      */

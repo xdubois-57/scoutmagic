@@ -1177,7 +1177,7 @@ PDF, images and office documents only — no archives, nothing executable — wi
 
 **Gmail connects over IMAP with an app password**, deliberately: a native connector would oblige every unit to pay for an annual security assessment, without which their sync would break every seven days.
 
-**Signed reply addresses**, on by default (« Adresse de réponse signée sur les e-mails envoyés »): the mail the site sends about an object carries a `Reply-To` of the form `locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`, so a bare reply is attached to that object on arrival whoever writes and whatever the subject. The twelve hex characters are a keyed signature; an address without it is an ordinary address. Requires a watched box whose account is an address and a provider that accepts `+tag` addresses; the operator turns it off when replies bounce, and replies to mail already sent are still recognised.
+**Signed reply addresses**, on by default (« Adresse de réponse signée sur les e-mails envoyés »): the mail the site sends about an object carries a `Reply-To` of the form `locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be`, so a bare reply is attached to that object on arrival whoever writes and whatever the subject. The twelve hex characters are a keyed signature; an address without it is an ordinary address. Requires a watched box whose account is an address and a provider that accepts `+tag` addresses; the operator turns it off when replies bounce, and replies to mail already sent are still recognised.
 
 ### 23.5 What a consuming module gets
 

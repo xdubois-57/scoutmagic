@@ -143,9 +143,9 @@ class MessageContentSanitizerTest extends TestCase
         // This is what a consumer scans (§7.6, level 1). Normalising it —
         // collapsing whitespace, changing case — is how a reference the
         // sender typed correctly stops matching.
-        $text = $this->sanitizer->sanitizeText('Notre dossier [LOC-2027-0042] pour août');
+        $text = $this->sanitizer->sanitizeText('Notre dossier [LOC-K7Q2M4] pour août');
 
-        $this->assertStringContainsString('[LOC-2027-0042]', $text);
+        $this->assertStringContainsString('[LOC-K7Q2M4]', $text);
     }
 
     public function testInvalidUtf8DoesNotLoseTheWholeBody(): void

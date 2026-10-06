@@ -97,7 +97,7 @@ class ReanalyzeUnlinkedTest extends TestCase
         // Somebody's reading already settled it; offering it around again
         // could only produce a second claim on what is not in doubt.
         $messageId = $this->storeMessage('settled@mail');
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL, 0, null);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::MANUAL, 0, null);
         $seen = 0;
         $this->consumers->register(new FakeMessageConsumer('camps', function () use (&$seen): AnalysisResult {
             $seen++;

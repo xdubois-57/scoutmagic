@@ -477,7 +477,7 @@ class RentalManagementControllerTest extends TestCase
 
     private function createBooking(
         ?int $assetId = null,
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         ?string $organisation = null
     ): RentalBooking {
         $created = $this->bookingRepository->create(
@@ -725,7 +725,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->withMailbox($mail);
         $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-K7Q2MX');
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-K7Q2MX');
         $mail->link(8, 'rental', $theirs->reference);
         $mail->link(9, 'rental', $mine->reference);
 
@@ -1044,7 +1044,7 @@ class RentalManagementControllerTest extends TestCase
         $this->loginAsManager();
         $this->withAuditedBookingService();
         $mine = $this->createBooking();
-        $other = $this->createBooking(null, 'LOC-2027-0002');
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
         $this->bookingRepository->addRenterEmail($other->id, 'tresorier@groupe.example');
         $id = $this->bookingRepository->otherRenterEmails($other->id)[0]->id;
 
@@ -1058,7 +1058,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->withAuditedBookingService();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-K7Q2MX');
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-K7Q2MX');
 
         $response = $this->addressPost('addOtherRenterEmail', $theirs, ['email' => 'intrus@ailleurs.example']);
 
@@ -1083,7 +1083,7 @@ class RentalManagementControllerTest extends TestCase
         \Modules\Rental\Repository\RentalSentEmailRepository $log,
         RentalBooking $booking,
         string $status,
-        string $subject = '[LOC-2027-0001] Votre demande de location',
+        string $subject = '[LOC-A2B3C4] Votre demande de location',
         string $kind = 'rental.acknowledgement',
         array $documentIds = []
     ): int {
@@ -1112,7 +1112,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('data-sent-entry=', $body);
         $this->assertStringContainsString('Envoyé', $body);
         $this->assertStringContainsString('À jeanne@example.be', $body);
-        $this->assertStringContainsString('[LOC-2027-0001] Votre demande de location', $body);
+        $this->assertStringContainsString('[LOC-A2B3C4] Votre demande de location', $body);
         $this->assertStringContainsString(\Modules\Rental\Mail\SentEmail::MASKED_LINK_LABEL, $body);
         $this->assertStringNotContainsString('/mes-locations/courrier/renvoyer', $body, 'a sent e-mail has nothing to resend');
         // The page's own dialog: no template of the absent module.
@@ -1156,7 +1156,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $mine = $this->createBooking();
-        $other = $this->createBooking(null, 'LOC-2027-0002');
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
         $id = $this->logEmail($this->withSentLog(), $other, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
 
         $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
@@ -1672,7 +1672,7 @@ class RentalManagementControllerTest extends TestCase
         // in the URL, so without the asset check a manager of one asset
         // could read every booking of every other by walking the ids.
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $this->assertSame(404, $this->bookingPage('local-saint-georges', $foreign->id)->getStatusCode());
@@ -1681,7 +1681,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAWriteAgainstAnotherAssetsBookingIsA404(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
@@ -2360,8 +2360,8 @@ class RentalManagementControllerTest extends TestCase
     public function testTheBookingsListFiltersOnWhatNeedsAttention(): void
     {
         $this->loginAsManager();
-        $needsMe = $this->createBooking(null, 'LOC-2027-0001');
-        $done = $this->createBooking(null, 'LOC-2027-0002');
+        $needsMe = $this->createBooking(null, 'LOC-A2B3C4');
+        $done = $this->createBooking(null, 'LOC-A2B3C5');
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $done->id,
@@ -2392,26 +2392,26 @@ class RentalManagementControllerTest extends TestCase
     public function testTheBookingsListSearchesByReferenceAndByName(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
-        $this->createBooking(null, 'LOC-2028-0009');
+        $this->createBooking(null, 'LOC-A2B3C4');
+        $this->createBooking(null, 'LOC-Y2Y3Y4');
 
-        $byReference = $this->bookingsList(['q' => '2028']);
-        $this->assertStringContainsString('LOC-2028-0009', $byReference);
-        $this->assertStringNotContainsString('LOC-2027-0001', $byReference);
+        $byReference = $this->bookingsList(['q' => 'Y2Y3']);
+        $this->assertStringContainsString('LOC-Y2Y3Y4', $byReference);
+        $this->assertStringNotContainsString('LOC-A2B3C4', $byReference);
 
         // The renter's name is encrypted, so this can only ever be
         // answered after hydration — which is exactly why the filtering
         // happens in PHP.
-        $this->assertStringContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Jeanne']));
-        $this->assertStringNotContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Gudule']));
+        $this->assertStringContainsString('LOC-A2B3C4', $this->bookingsList(['q' => 'Jeanne']));
+        $this->assertStringNotContainsString('LOC-A2B3C4', $this->bookingsList(['q' => 'Gudule']));
     }
 
     public function testTheBookingsListFiltersByYear(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
+        $this->createBooking(null, 'LOC-A2B3C4');
         $other = $this->bookingRepository->create(
-            $this->assetId, 'LOC-2029-0001', '2029-07-01', '2029-07-04', 1, 20, null,
+            $this->assetId, 'LOC-Z2Z3Z4', '2029-07-01', '2029-07-04', 1, 20, null,
             ['name' => 'Marc', 'email' => 'marc@example.be', 'phone' => null,
              'organisation' => null, 'purpose' => null, 'comment' => null],
             null, null, null, 'v1', str_repeat('0', 64), 'v1', str_repeat('0', 64),
@@ -2421,8 +2421,8 @@ class RentalManagementControllerTest extends TestCase
 
         $body = $this->bookingsList(['annee' => '2029']);
 
-        $this->assertStringContainsString('LOC-2029-0001', $body);
-        $this->assertStringNotContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-Z2Z3Z4', $body);
+        $this->assertStringNotContainsString('LOC-A2B3C4', $body);
     }
 
     public function testTheBookingsListIsPaged(): void
@@ -2458,7 +2458,7 @@ class RentalManagementControllerTest extends TestCase
             ['month' => '2027-07']
         )->getBody();
 
-        $this->assertStringContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-A2B3C4', $body);
         $this->assertStringContainsString('Chantier toiture', $body);
         $this->assertStringContainsString("Périodes réservées par l'unité", $body);
     }
@@ -2482,23 +2482,23 @@ class RentalManagementControllerTest extends TestCase
     public function testMyRentalsCountsWhatIsWaitingOnEachAsset(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
-        $this->createBooking(null, 'LOC-2027-0002');
+        $this->createBooking(null, 'LOC-A2B3C4');
+        $this->createBooking(null, 'LOC-A2B3C5');
 
         $body = (string) $this->get('/mes-locations', '/mes-locations', 'myRentals')->getBody();
 
         $this->assertStringContainsString('2 à traiter', $body);
-        $this->assertStringContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-A2B3C4', $body);
     }
 
     public function testMyRentalsNeverListsAnotherManagersBookings(): void
     {
         $this->loginAsManager();
-        $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $body = (string) $this->get('/mes-locations', '/mes-locations', 'myRentals')->getBody();
 
-        $this->assertStringNotContainsString('LOC-2027-0099', $body);
+        $this->assertStringNotContainsString('LOC-W9Y8X7', $body);
         $this->assertStringNotContainsString('Local des autres', $body);
     }
 
@@ -2552,7 +2552,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $documents = $this->documentService->forBooking($booking->id);
         $this->assertCount(1, $documents);
-        $this->assertSame('contrat-LOC-2027-0001-v1.pdf', $documents[0]->originalName);
+        $this->assertSame('contrat-LOC-A2B3C4-v1.pdf', $documents[0]->originalName);
     }
 
     /**
@@ -3455,7 +3455,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->setContractTemplate();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
@@ -3473,8 +3473,8 @@ class RentalManagementControllerTest extends TestCase
         // guard that matters.
         $this->loginAsManager();
         $this->setContractTemplate();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignDocumentId = $this->documentService->attachUploaded(
             $foreign,
             $this->fileRepository->create('rental/documents/x.pdf', 'x.pdf', 'application/pdf', 1, 'identified', 'rental', null),
@@ -3709,7 +3709,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTheDocumentEditorIsRefusedForAnotherAssetsBooking(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $router = new Router();
         $router->addRoute(
@@ -3866,7 +3866,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAStepOfAnotherAssetsBookingCannotBeTicked(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $response = $this->post('/mes-locations/etape', 'markMilestone', [
             'asset_id' => (string) $this->assetId,
@@ -4022,7 +4022,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $undecided = $this->createBooking();
-        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $confirmed = $this->createBooking(null, 'LOC-A2B3C5');
         $this->confirm($confirmed);
 
         foreach ([$undecided, $confirmed] as $booking) {
@@ -4055,7 +4055,7 @@ class RentalManagementControllerTest extends TestCase
         $undecided = $this->createBooking();
         $this->markStep($undecided, 'arrival_inventory');
 
-        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $confirmed = $this->createBooking(null, 'LOC-A2B3C5');
         $this->confirm($confirmed);
         $this->markStep($confirmed, 'deposit_received');
         $this->markStep($confirmed, 'confirmed');
@@ -4068,7 +4068,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTickingAStepIsItsManagersAlone(): void
     {
         $booking = $this->createBooking();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         AuthSession::login(1, 'nobody@test.be', 'identified');
         $this->assertSame(404, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
@@ -4111,7 +4111,7 @@ class RentalManagementControllerTest extends TestCase
         // « État des lieux » is offered only where an inventory is kept.
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         AuthSession::login(1, 'nobody@test.be', 'identified');
         $this->assertSame(404, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
@@ -4516,8 +4516,8 @@ class RentalManagementControllerTest extends TestCase
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
     {
         $this->loginAsManager();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignId = $this->stayService->reportIncident($foreign, 'Vitre cassée', 5000, null, 1);
 
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
@@ -4862,7 +4862,7 @@ class RentalManagementControllerTest extends TestCase
     /** @param array<string, string> $body */
     private function postWithPhoto(string $path, string $action, array $body, ?RentalBooking $booking = null): void
     {
-        $booking ??= $this->bookingRepository->findByReference('LOC-2027-0001');
+        $booking ??= $this->bookingRepository->findByReference('LOC-A2B3C4');
         $this->assertNotNull($booking);
         $image = imagecreatetruecolor(32, 32);
         $temporary = (string) tempnam(sys_get_temp_dir(), 'photo-');
@@ -4919,7 +4919,7 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString('data-inventory-validate', $this->inventoryPage($booking));
 
-        $empty = $this->createBooking(null, 'LOC-2027-0042');
+        $empty = $this->createBooking(null, 'LOC-K7Q2M4');
         $this->stayService->snapshotInventory($empty, $this->assetId);
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
 
@@ -5340,8 +5340,8 @@ class RentalManagementControllerTest extends TestCase
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
     {
         $this->loginAsManager();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignRequestId = $this->operationsService->requestChange(
             $foreign,
             $this->asset(),
@@ -5409,7 +5409,7 @@ class RentalManagementControllerTest extends TestCase
     public function testABookingOfAnotherAssetKeepsItsTrackingLink(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $before = $this->bookingRepository->trackingTokenOf($foreign->id);
 
         $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [

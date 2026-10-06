@@ -52,7 +52,7 @@ final class DocumentKeywords
      * @var array<string, string>
      */
     private const CATALOGUE = [
-        'reference' => 'La référence du dossier, par exemple LOC-2027-0042',
+        'reference' => 'La référence du dossier, par exemple LOC-K7Q2M4',
         'bien' => 'Le nom du bien loué',
         'bien_type' => 'Le type du bien (local, terrain, tente…)',
         'date_arrivee' => "La date d'arrivée, au format 31/12/2027",

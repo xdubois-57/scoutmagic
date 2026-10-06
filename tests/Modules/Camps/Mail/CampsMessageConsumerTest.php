@@ -284,7 +284,7 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertNotNull($label);
         $this->assertStringContainsString('Domaine de Mozet', $label);
         $this->assertNull($consumer->describeReference('camp-999'));
-        $this->assertNull($consumer->describeReference('LOC-2027-0042'));
+        $this->assertNull($consumer->describeReference('LOC-K7Q2M4'));
     }
 
     public function testTheDirectoryFindsAStayByItsPlaceAndSaysWhereItLives(): void
@@ -312,7 +312,7 @@ class CampsMessageConsumerTest extends TestCase
         // Anything else — another module's reference, or the reserved
         // `unsorted` this module no longer mints — is not one of ours.
         $this->assertNull(CampsMessageConsumer::campIdFromReference('unsorted'));
-        $this->assertNull(CampsMessageConsumer::campIdFromReference('LOC-2027-0042'));
+        $this->assertNull(CampsMessageConsumer::campIdFromReference('LOC-K7Q2M4'));
     }
 
     // ── Storing a message on a stay that is no longer there ─────────

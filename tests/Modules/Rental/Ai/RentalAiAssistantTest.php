@@ -169,7 +169,7 @@ class RentalAiAssistantTest extends TestCase
     {
         $assistant = new RentalAiAssistant($this->connector('Contrat signé'));
 
-        $suggestion = $assistant->suggestDocumentType('contrat-signe.pdf', 'Re: [LOC-2027-0042]', ['Contrat signé', 'Photo']);
+        $suggestion = $assistant->suggestDocumentType('contrat-signe.pdf', 'Re: [LOC-K7Q2M4]', ['Contrat signé', 'Photo']);
 
         $this->assertNotNull($suggestion);
         $this->assertSame('Contrat signé', $suggestion->value);
@@ -182,7 +182,7 @@ class RentalAiAssistantTest extends TestCase
         $connector = $this->connector('Contrat signé');
         $assistant = new RentalAiAssistant($connector);
 
-        $assistant->suggestDocumentType('contrat-signe.pdf', 'Re: [LOC-2027-0042]', ['Contrat signé']);
+        $assistant->suggestDocumentType('contrat-signe.pdf', 'Re: [LOC-K7Q2M4]', ['Contrat signé']);
 
         $this->assertCount(1, $this->requests);
         $this->assertSame([], $this->requests[0]->attachments);
@@ -203,28 +203,28 @@ class RentalAiAssistantTest extends TestCase
     {
         // §7.6 fixes the ordering: the AI is never the first source of
         // truth, and a single candidate is not an ambiguity.
-        $connector = $this->connector('LOC-2027-0042');
+        $connector = $this->connector('LOC-K7Q2M4');
         $assistant = new RentalAiAssistant($connector);
 
-        $this->assertNull($assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-2027-0042']));
+        $this->assertNull($assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-K7Q2M4']));
         $this->assertSame([], $this->requests);
     }
 
     public function testARealAmbiguityIsPutToTheModel(): void
     {
-        $assistant = new RentalAiAssistant($this->connector('LOC-2027-0043'));
+        $assistant = new RentalAiAssistant($this->connector('LOC-K7Q2M5'));
 
-        $suggestion = $assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-2027-0042', 'LOC-2027-0043']);
+        $suggestion = $assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-K7Q2M4', 'LOC-K7Q2M5']);
 
         $this->assertNotNull($suggestion);
-        $this->assertSame('LOC-2027-0043', $suggestion->value);
+        $this->assertSame('LOC-K7Q2M5', $suggestion->value);
     }
 
     public function testAModelThatCannotChooseProducesNothing(): void
     {
         $assistant = new RentalAiAssistant($this->connector('INCERTAIN'));
 
-        $this->assertNull($assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-2027-0042', 'LOC-2027-0043']));
+        $this->assertNull($assistant->resolveEmailAmbiguity('sujet', 'corps', ['LOC-K7Q2M4', 'LOC-K7Q2M5']));
     }
 
     // ── Failure is silence, never an error ──────────────────────────────

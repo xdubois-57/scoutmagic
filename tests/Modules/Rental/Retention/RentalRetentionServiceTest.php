@@ -235,7 +235,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testNothingIsPurgedBeforeAnyYearHasClosedLongEnoughAgo(): void
     {
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
 
         $this->assertSame(0, $this->service->purge(new \DateTimeImmutable('2020-01-01')));
         $this->assertSame(1, $this->countBookings());
@@ -254,7 +254,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testAnOutOfRetentionBookingIsDeletedEntirely(): void
     {
-        $booking = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $booking = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $this->attachDocument($booking);
 
         $this->assertSame(1, $this->service->purge(new \DateTimeImmutable('2026-01-01')));
@@ -267,7 +267,7 @@ class RentalRetentionServiceTest extends TestCase
     public function testTheFileOnDiskGoesToo(): void
     {
         // A row deleted while the bytes stay on disk is not a deletion.
-        $booking = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $booking = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $fileId = $this->attachDocument($booking);
         $record = $this->fileRepository->findById($fileId);
         $this->assertNotNull($record);
@@ -281,14 +281,14 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testARecentBookingIsUntouched(): void
     {
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
-        $this->createBooking('LOC-2025-0001', '2025-07-01', '2025-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
 
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
         $remaining = $this->bookingRepository->findAllForAssets([$this->assetId]);
         $this->assertCount(1, $remaining);
-        $this->assertSame('LOC-2025-0001', $remaining[0]->reference);
+        $this->assertSame('LOC-3B4C5D', $remaining[0]->reference);
     }
 
     public function testARefusedRequestIsPurgedOnTheSameTerms(): void
@@ -330,7 +330,7 @@ class RentalRetentionServiceTest extends TestCase
         // so without an explicit call the unit keeps being owed money for a
         // stay whose every other trace has just been erased — under a label
         // that carries the renter's name.
-        $booking = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $booking = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $this->payments->ensureReceivables(
             $booking,
             $this->paymentSettings(),
@@ -345,8 +345,8 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testAnotherBookingsReceivablesAreUntouched(): void
     {
-        $old = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
-        $recent = $this->createBooking('LOC-2025-0001', '2025-07-01', '2025-07-04');
+        $old = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
+        $recent = $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
         $settings = $this->paymentSettings();
         $this->payments->ensureReceivables($old, $settings, new \DateTimeImmutable('2018-06-01 10:00:00'));
         $this->payments->ensureReceivables($recent, $settings, new \DateTimeImmutable('2025-06-01 10:00:00'));
@@ -375,7 +375,7 @@ class RentalRetentionServiceTest extends TestCase
             null,
             $this->storagePath
         );
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
 
         $this->assertSame(1, $service->purge(new \DateTimeImmutable('2026-01-01')));
         $this->assertSame(0, $this->countBookings());
@@ -385,7 +385,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testOneAnonymousAggregateRowSurvives(): void
     {
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
 
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
@@ -401,7 +401,7 @@ class RentalRetentionServiceTest extends TestCase
         // The whole point: no booking id, no reference, no token, no name,
         // no file. If any of those were here, the "deletion" would not be
         // one.
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
         $row = $this->pdo->query('SELECT * FROM rental_booking_aggregates LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
@@ -411,7 +411,7 @@ class RentalRetentionServiceTest extends TestCase
         $this->assertIsString($serialised);
         $this->assertStringNotContainsString('Jeanne', $serialised);
         $this->assertStringNotContainsString('jeanne@example.be', $serialised);
-        $this->assertStringNotContainsString('LOC-2018-0001', $serialised);
+        $this->assertStringNotContainsString('LOC-2A3B4C', $serialised);
         $this->assertStringNotContainsString('Scouts de Nulle Part', $serialised);
 
         $this->assertSame(
@@ -422,7 +422,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testTheJournalEntryIsNotTheLastSurvivingTraceOfWhatWasDeleted(): void
     {
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
 
         $rows = $this->pdo->query("SELECT description, context FROM event_log WHERE event_type = 'rental_bookings_purged'")
@@ -431,7 +431,7 @@ class RentalRetentionServiceTest extends TestCase
         $this->assertCount(1, $rows);
         $text = (string) $rows[0]['description'] . (string) $rows[0]['context'];
         $this->assertStringNotContainsString('Jeanne', $text);
-        $this->assertStringNotContainsString('LOC-2018-0001', $text);
+        $this->assertStringNotContainsString('LOC-2A3B4C', $text);
     }
 
     // ── The statistics keep working afterwards (§6.34) ──────────────────
@@ -443,7 +443,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testTheYearsFiguresCountLiveBookings(): void
     {
-        $this->createBooking('LOC-2025-0001', '2025-07-01', '2025-07-04');
+        $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
 
         $stats = $this->statistics()->forAsset($this->assetId, new \DateTimeImmutable('2025-12-01'));
 
@@ -454,7 +454,7 @@ class RentalRetentionServiceTest extends TestCase
     public function testTheYearsRevenueDoesNotDropToZeroOnTheMorningOfThePurge(): void
     {
         // The failure this whole design exists to prevent.
-        $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04');
+        $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04');
 
         $before = $this->statistics()->forAsset($this->assetId, new \DateTimeImmutable('2018-12-01'));
         $this->service->purge(new \DateTimeImmutable('2026-01-01'));
@@ -468,7 +468,7 @@ class RentalRetentionServiceTest extends TestCase
     {
         // The aggregate is written AS the booking is deleted, so a live
         // booking never has one.
-        $this->createBooking('LOC-2025-0001', '2025-07-01', '2025-07-04');
+        $this->createBooking('LOC-3B4C5D', '2025-07-01', '2025-07-04');
 
         $stats = $this->statistics()->forAsset($this->assetId, new \DateTimeImmutable('2025-12-01'));
 
@@ -478,7 +478,7 @@ class RentalRetentionServiceTest extends TestCase
 
     public function testARefusedRequestIsCountedAsPendingNeverAsRevenue(): void
     {
-        $this->createBooking('LOC-2025-0002', '2025-08-01', '2025-08-04', BookingStatus::REFUSED, 45000);
+        $this->createBooking('LOC-3B4C5E', '2025-08-01', '2025-08-04', BookingStatus::REFUSED, 45000);
 
         $stats = $this->statistics()->forAsset($this->assetId, new \DateTimeImmutable('2025-12-01'));
 
@@ -512,7 +512,7 @@ class RentalRetentionServiceTest extends TestCase
      */
     public function testThePurgeTakesTheBookingsChangeHistoryWithIt(): void
     {
-        $bookingId = $this->createBooking('LOC-2018-0001', '2018-07-01', '2018-07-04')->id;
+        $bookingId = $this->createBooking('LOC-2A3B4C', '2018-07-01', '2018-07-04')->id;
         RentalTestHelper::bookingAudit($this->pdo, $this->encryption)->record(
             $bookingId,
             \Modules\Rental\Audit\BookingAudit::STATUS_CHANGED,

@@ -87,7 +87,7 @@ class SentFolderSyncTest extends TestCase
     {
         $this->client->markSent('Envoyés');
         $this->addMessage('Envoyés', 1, 'sent-1@unite.be', from: 'locations@unite.be', to: 'jeanne@example.be');
-        $rental = $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::RECIPIENT));
+        $rental = $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::RECIPIENT));
 
         $this->sync();
 
@@ -95,7 +95,7 @@ class SentFolderSyncTest extends TestCase
         $this->assertTrue($rental->offered[0]->isSent());
         $this->assertSame('Envoyés', $rental->offered[0]->folder);
 
-        $stored = $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX');
+        $stored = $this->messages->findForReference('rental', 'LOC-K7Q2MX');
         $this->assertCount(1, $stored);
         $this->assertSame(MessageDirection::SENT, $stored[0]->direction);
         $this->assertSame(['jeanne@example.be'], $stored[0]->toEmails);
@@ -104,11 +104,11 @@ class SentFolderSyncTest extends TestCase
     public function testAReceivedMessageIsStoredAsReceived(): void
     {
         $this->addMessage('INBOX', 1, 'in-1@example.be');
-        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::SENDER));
+        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::SENDER));
 
         $this->sync();
 
-        $stored = $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX');
+        $stored = $this->messages->findForReference('rental', 'LOC-K7Q2MX');
         $this->assertSame(MessageDirection::RECEIVED, $stored[0]->direction);
         $this->assertFalse($stored[0]->isSent());
     }
@@ -200,12 +200,12 @@ class SentFolderSyncTest extends TestCase
         $this->client->markSent('Envoyés');
         $this->addMessage('INBOX', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
         $this->addMessage('Envoyés', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
-        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::REFERENCE));
+        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::REFERENCE));
 
         $this->sync();
 
         $this->assertSame(1, $this->countMessages());
-        $stored = $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX');
+        $stored = $this->messages->findForReference('rental', 'LOC-K7Q2MX');
         $this->assertSame(MessageDirection::RECEIVED, $stored[0]->direction);
     }
 
@@ -215,15 +215,15 @@ class SentFolderSyncTest extends TestCase
         // copy arrives on a later one. Still one row, and received.
         $this->client->markSent('Envoyés');
         $this->addMessage('Envoyés', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
-        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::REFERENCE));
+        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::REFERENCE));
         $this->sync();
-        $this->assertSame(MessageDirection::SENT, $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX')[0]->direction);
+        $this->assertSame(MessageDirection::SENT, $this->messages->findForReference('rental', 'LOC-K7Q2MX')[0]->direction);
 
         $this->addMessage('INBOX', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
         $this->sync();
 
         $this->assertSame(1, $this->countMessages());
-        $this->assertSame(MessageDirection::RECEIVED, $this->messages->findForReference('rental', 'LOC-2027-K7Q2MX')[0]->direction);
+        $this->assertSame(MessageDirection::RECEIVED, $this->messages->findForReference('rental', 'LOC-K7Q2MX')[0]->direction);
     }
 
     public function testTheSentFolderHasItsOwnCursor(): void
@@ -244,13 +244,13 @@ class SentFolderSyncTest extends TestCase
         $this->client->markSent('Envoyés');
         $this->addMessage('INBOX', 1, 'in-1@example.be');
         $this->addMessage('Envoyés', 1, 'sent-1@unite.be', from: 'locations@unite.be', to: 'jeanne@example.be');
-        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-2027-K7Q2MX', LinkOrigin::SENDER));
+        $this->outbound(fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::SENDER));
 
         $this->sync();
 
         $this->assertSame(
-            ['LOC-2027-K7Q2MX' => 1],
-            $this->messages->countLinksAfter('rental', ['LOC-2027-K7Q2MX' => 0])
+            ['LOC-K7Q2MX' => 1],
+            $this->messages->countLinksAfter('rental', ['LOC-K7Q2MX' => 0])
         );
     }
 

@@ -205,7 +205,7 @@ class MimeMessageParserTest extends TestCase
             '--frontier',
             'Content-Type: text/plain; charset=UTF-8',
             '',
-            'Version texte [LOC-2027-0042]',
+            'Version texte [LOC-K7Q2M4]',
             '--frontier',
             'Content-Type: text/html; charset=UTF-8',
             '',
@@ -213,7 +213,7 @@ class MimeMessageParserTest extends TestCase
             '--frontier--'
         ), 1, 'INBOX');
 
-        $this->assertStringContainsString('Version texte [LOC-2027-0042]', $message->bodyText);
+        $this->assertStringContainsString('Version texte [LOC-K7Q2M4]', $message->bodyText);
         $this->assertStringContainsString('<strong>HTML</strong>', $message->bodyHtml);
     }
 

@@ -47,7 +47,7 @@ class RentalStayRepositoryTest extends TestCase
         $stmt->execute(['Local', 'Local Saint-Georges', 'local-saint-georges']);
         $this->assetId = (int) $this->pdo->lastInsertId();
 
-        $this->bookingId = $this->booking('LOC-2027-0001', '2027-07-17', '2027-07-20');
+        $this->bookingId = $this->booking('LOC-A2B3C4', '2027-07-17', '2027-07-20');
     }
 
     // ── Meters ──────────────────────────────────────────────────────────
@@ -485,7 +485,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testIncidentsComeBackOldestFirstAndOnlyThisBookings(): void
     {
-        $otherBookingId = $this->booking('LOC-2027-0002', '2027-08-01', '2027-08-04');
+        $otherBookingId = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-04');
 
         $this->repository->createIncident($this->bookingId, 'Premier', null, null, 7);
         $this->repository->createIncident($this->bookingId, 'Second', null, null, 7);
@@ -577,7 +577,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testEachBookingHasItsOwnVersionCounter(): void
     {
-        $otherBookingId = $this->booking('LOC-2027-0002', '2027-08-01', '2027-08-04');
+        $otherBookingId = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-04');
 
         $this->repository->claimNextSettlementVersion($this->bookingId);
         $this->repository->claimNextSettlementVersion($this->bookingId);

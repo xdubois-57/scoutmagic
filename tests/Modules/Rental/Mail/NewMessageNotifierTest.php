@@ -53,7 +53,7 @@ class NewMessageNotifierTest extends TestCase
     {
         $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
         $accountId = $this->manager($assetId, 'gestionnaire@unite.be');
-        $booking = $this->booking($assetId, 'LOC-2027-K7Q2MX');
+        $booking = $this->booking($assetId, 'LOC-K7Q2MX');
 
         $notifications = $this->createMock(NotificationService::class);
         $notifications->expects($this->once())->method('dispatch')->with(
@@ -62,7 +62,7 @@ class NewMessageNotifierTest extends TestCase
                 => array_column($recipients, 'userAccountId') === [$accountId]),
             $this->callback(static fn(array $payload): bool
                 => $payload['title'] === 'Nouveau message du locataire — Local Saint-Georges'
-                && str_contains($payload['body'], 'LOC-2027-K7Q2MX')
+                && str_contains($payload['body'], 'LOC-K7Q2MX')
                 && $payload['url'] === '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/courrier')
         );
 
@@ -73,7 +73,7 @@ class NewMessageNotifierTest extends TestCase
     {
         $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
         $this->manager($assetId, 'gestionnaire@unite.be');
-        $booking = $this->booking($assetId, 'LOC-2027-K7Q2MX');
+        $booking = $this->booking($assetId, 'LOC-K7Q2MX');
 
         $payloads = [];
         $notifications = $this->createStub(NotificationService::class);
@@ -95,7 +95,7 @@ class NewMessageNotifierTest extends TestCase
     {
         $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
         $this->manager($assetId, 'sans-compte@unite.be', withAccount: false);
-        $booking = $this->booking($assetId, 'LOC-2027-K7Q2MX');
+        $booking = $this->booking($assetId, 'LOC-K7Q2MX');
 
         $notifications = $this->createMock(NotificationService::class);
         $notifications->expects($this->never())->method('dispatch');
@@ -118,7 +118,7 @@ class NewMessageNotifierTest extends TestCase
     {
         $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
         $this->manager($assetId, 'gestionnaire@unite.be');
-        $booking = $this->booking($assetId, 'LOC-2027-K7Q2MX');
+        $booking = $this->booking($assetId, 'LOC-K7Q2MX');
 
         $notifications = $this->createStub(NotificationService::class);
         $notifications->method('dispatch')->willThrowException(
@@ -132,7 +132,7 @@ class NewMessageNotifierTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row, 'the failure must leave a trace an operator can find');
         $this->assertSame('error', $row['level']);
-        $this->assertStringContainsString('LOC-2027-K7Q2MX', (string) $row['description']);
+        $this->assertStringContainsString('LOC-K7Q2MX', (string) $row['description']);
         $this->assertStringContainsString('RuntimeException', (string) $row['description']);
         $this->assertStringNotContainsString('jeanne@example.be', (string) $row['description'] . $row['context']);
     }

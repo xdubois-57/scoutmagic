@@ -15,7 +15,7 @@ namespace Modules\InboundMail\Api;
  * **This is what keeps `inbound_mail` free of any consumer's logic.** The
  * module knows how to reach a mailbox, parse MIME and store what arrives;
  * it has no idea what a booking reference looks like, and it must not — a
- * `[LOC-2027-0001]` in a subject means nothing here.
+ * `[LOC-A2B3C4]` in a subject means nothing here.
  *
  * **Everybody analyses; nobody wins.** The sync loop asks every registered
  * consumer and applies all of their answers. The old contract asked them
@@ -155,7 +155,7 @@ interface MessageConsumerInterface
      * for a screen that cannot know it.
      *
      * Null is a complete answer and the right one for a reference that
-     * already reads as a name — `rental`'s « LOC-2027-0012 » is one. A
+     * already reads as a name — `rental`'s « LOC-D4E5F6 » is one. A
      * reference the consumer no longer recognises (a deleted object) is
      * null too: the screen falls back to the raw reference, which is more
      * honest than inventing a name for something that is gone.

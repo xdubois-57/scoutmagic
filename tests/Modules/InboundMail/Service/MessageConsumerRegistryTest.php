@@ -65,7 +65,7 @@ class MessageConsumerRegistryTest extends TestCase
         $registry = new MessageConsumerRegistry();
         $heldBySyncService = $registry;
 
-        $registry->register($this->consumer('LOC-2027-0042'));
+        $registry->register($this->consumer('LOC-K7Q2M4'));
 
         $this->assertTrue($heldBySyncService->hasConsumers());
         $this->assertNotSame([], $heldBySyncService->analyzeAll($this->candidate()));
@@ -79,7 +79,7 @@ class MessageConsumerRegistryTest extends TestCase
         // one of the two — and registration order silently decided which.
         $registry = new MessageConsumerRegistry();
         $registry->register($this->consumer(null, 'finance'));
-        $registry->register($this->consumer('LOC-2027-0042', 'rental'));
+        $registry->register($this->consumer('LOC-K7Q2M4', 'rental'));
         $registry->register($this->consumer('AUTRE', 'registration'));
 
         $results = $registry->analyzeAll($this->candidate());
@@ -87,7 +87,7 @@ class MessageConsumerRegistryTest extends TestCase
         // 'finance' said nothing, so it is simply absent — an empty result
         // is not an answer worth carrying.
         $this->assertSame(['rental', 'registration'], array_keys($results));
-        $this->assertSame('LOC-2027-0042', $results['rental']->links[0]->businessReference);
+        $this->assertSame('LOC-K7Q2M4', $results['rental']->links[0]->businessReference);
         $this->assertSame('AUTRE', $results['registration']->links[0]->businessReference);
     }
 
@@ -100,7 +100,7 @@ class MessageConsumerRegistryTest extends TestCase
                 throw new \RuntimeException('bug');
             }
         ));
-        $registry->register($this->consumer('LOC-2027-0042'));
+        $registry->register($this->consumer('LOC-K7Q2M4'));
 
         $results = $registry->analyzeAll($this->candidate());
 

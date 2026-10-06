@@ -57,8 +57,8 @@ describe('inbound-mail-attach', () => {
 
     it('asks the module directory for what was typed, after a pause', async () => {
         const getJson = answer([
-            { reference: 'LOC-2027-0042', label: 'LOC-2027-0042 — Local', detail: 'du 01/07 au 04/07' },
-            { reference: 'LOC-2027-0043', label: 'LOC-2027-0043 — Prairie', detail: null },
+            { reference: 'LOC-K7Q2M4', label: 'LOC-K7Q2M4 — Local', detail: 'du 01/07 au 04/07' },
+            { reference: 'LOC-K7Q2M5', label: 'LOC-K7Q2M5 — Prairie', detail: null },
         ]);
         await load();
 
@@ -72,7 +72,7 @@ describe('inbound-mail-attach', () => {
         expect(getJson).toHaveBeenCalledWith('/courrier/cibles?module=rental&q=loc');
         const buttons = q('[data-attach-results]').querySelectorAll('button');
         expect(buttons).toHaveLength(2);
-        expect(buttons[0].textContent).toContain('LOC-2027-0042 — Local');
+        expect(buttons[0].textContent).toContain('LOC-K7Q2M4 — Local');
         expect(buttons[0].textContent).toContain('du 01/07 au 04/07');
         expect(buttons[1].querySelectorAll('div')).toHaveLength(1);
         expect(q('[data-attach-results]').classList.contains('d-none')).toBe(false);
@@ -104,21 +104,21 @@ describe('inbound-mail-attach', () => {
     });
 
     it('writes the chosen reference into the field the form posts, and shows its label', async () => {
-        answer([{ reference: 'LOC-2027-0042', label: 'LOC-2027-0042 — Local', detail: null }]);
+        answer([{ reference: 'LOC-K7Q2M4', label: 'LOC-K7Q2M4 — Local', detail: null }]);
         await load();
         await type('loc');
 
         q('[data-attach-results] button').click();
 
-        expect(q('[data-attach-reference]').value).toBe('LOC-2027-0042');
-        expect(q('[data-attach-chosen]').textContent).toBe('LOC-2027-0042 — Local');
+        expect(q('[data-attach-reference]').value).toBe('LOC-K7Q2M4');
+        expect(q('[data-attach-chosen]').textContent).toBe('LOC-K7Q2M4 — Local');
         expect(q('[data-attach-chosen]').classList.contains('d-none')).toBe(false);
         expect(q('[data-attach-results]').classList.contains('d-none')).toBe(true);
         expect(q('[data-attach-results]').children).toHaveLength(0);
     });
 
     it('un-chooses as soon as the chief types again', async () => {
-        answer([{ reference: 'LOC-2027-0042', label: 'Local', detail: null }]);
+        answer([{ reference: 'LOC-K7Q2M4', label: 'Local', detail: null }]);
         await load();
         await type('loc');
         q('[data-attach-results] button').click();
@@ -130,7 +130,7 @@ describe('inbound-mail-attach', () => {
     });
 
     it('changing the module clears the field and the list', async () => {
-        answer([{ reference: 'LOC-2027-0042', label: 'Local', detail: null }]);
+        answer([{ reference: 'LOC-K7Q2M4', label: 'Local', detail: null }]);
         await load();
         await type('loc');
 
@@ -166,7 +166,7 @@ describe('inbound-mail-attach', () => {
     });
 
     it('hides the list on Escape and on a click elsewhere', async () => {
-        answer([{ reference: 'LOC-2027-0042', label: 'Local', detail: null }]);
+        answer([{ reference: 'LOC-K7Q2M4', label: 'Local', detail: null }]);
         await load();
 
         await type('loc');

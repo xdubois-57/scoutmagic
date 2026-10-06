@@ -159,7 +159,7 @@ class RentalSignedContractServiceTest extends TestCase
     {
         $created = $this->bookingRepository->create(
             $this->assetId,
-            'LOC-2027-0042',
+            'LOC-K7Q2M4',
             '2027-07-01',
             '2027-07-04',
             1,
@@ -463,7 +463,7 @@ class RentalSignedContractServiceTest extends TestCase
         $copy = $this->service->receiveCopy($mine, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
         $created = $this->bookingRepository->create(
             $this->assetId,
-            'LOC-2027-0043',
+            'LOC-K7Q2M5',
             '2027-08-01',
             '2027-08-04',
             1,
