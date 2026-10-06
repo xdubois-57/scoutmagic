@@ -322,10 +322,19 @@ class ExtractReceiptDataHandlerTest extends TestCase
     {
         $accountRepository = new \Modules\Finance\Repository\AccountRepository($this->pdo, $this->encryption);
         $accountId = $accountRepository->create('Compte', 'bank', null, null, null, 'intendant');
-        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        // "Future" is relative to the upload, which is now: a fixed date
+        // here stopped being in the future on the day after it (it was
+        // 2026-10-05, and the suite went red on 2026-10-06).
+        $future = (new \DateTimeImmutable('today'))->modify('+7 days');
+        $fiscalYearId = FinanceTestHelper::createScoutYear(
+            $this->pdo,
+            'Année en cours',
+            $future->modify('-6 months')->format('Y-m-d'),
+            $future->modify('+6 months')->format('Y-m-d')
+        );
         $transactionRepository = new TransactionRepository($this->pdo, $this->encryption);
         $transactionRepository->create(
-            $accountId, $fiscalYearId, 'r1', '2026-10-05', 'Achat', -10.0, null, null, 'manual', null
+            $accountId, $fiscalYearId, 'r1', $future->format('Y-m-d'), 'Achat', -10.0, null, null, 'manual', null
         );
 
         $fileId = $this->fileStorage->store('%PDF not actually a valid pdf', 'application/pdf', 'facture.pdf', 'finance/receipts', 'intendant');

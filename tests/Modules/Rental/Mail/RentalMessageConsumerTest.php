@@ -1447,6 +1447,26 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertStringNotContainsString('Jeanne Martin', $llm->lastRequest->prompt, 'nor the renter\'s name');
     }
 
+    public function testAReferenceTheUnitSentToSomebodyElseNeverReachesTheModel(): void
+    {
+        // The caretaker is told the reference of the stay; that is not the
+        // renter's correspondence (`analyzeSent()`), so the deferred pass
+        // has nothing to confirm and the caretaker's address is never
+        // taught to the booking.
+        $this->createBooking('LOC-K7Q2MX', 'jeanne@example.be');
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::MANUAL, 'Clés [LOC-K7Q2MX]', 'locations@unite.be', null,
+            'unit-2@unite.be', null, new \DateTimeImmutable('2027-07-02 09:30:00'), 'Bonjour,', '',
+            toEmails: ['concierge@example.be'],
+            links: [new MessageLink('camps', 'CAMP-1', LinkOrigin::MANUAL)],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        [$consumer, $llm] = $this->modelConsumer('LOC-K7Q2MX');
+
+        $this->assertTrue($consumer->analyzeStored($sent)->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
     public function testTheDeferredPassFilesTheModelsChoiceAndLearnsTheAddress(): void
     {
         // End to end: the stranger quoting the reference is filed nowhere
@@ -1504,6 +1524,123 @@ class RentalMessageConsumerTest extends TestCase
             base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"),
             '--frontier--',
         ]));
+    }
+
+    // ── Received and sent alike, by type, never twice (#720, step 8) ────
+
+    private const PDF_BYTES = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n";
+
+    public function testAPdfTheUnitSentBecomesADocumentToo(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->markSent('Envoyés');
+        $this->client->addRawMessage('Envoyés', 1, implode("\r\n", [
+            'From: Les Scouts <locations@unite.be>',
+            'To: jeanne@example.be',
+            'Subject: Le règlement de la salle',
+            'Message-ID: <sent-pdf-1@unite.be>',
+            'Date: Mon, 12 Jul 2027 11:00:00 +0200',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Bonjour Jeanne, voici le règlement.',
+            '--frontier',
+            'Content-Type: application/pdf',
+            'Content-Disposition: attachment; filename="reglement.pdf"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode(self::PDF_BYTES),
+            '--frontier--',
+        ]));
+        $this->sync();
+
+        $documents = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $documents);
+        $this->assertSame(DocumentType::UNSORTED, $documents[0]->type);
+        $this->assertFalse($documents[0]->isForRenter);
+        $this->assertSame(\Modules\Rental\Document\RentalDocument::SOURCE_EMAIL, $documents[0]->source);
+    }
+
+    public function testAFileTheBookingAlreadyHoldsIsNotFiledAgain(): void
+    {
+        // The contract the site generated, sent again by hand from the box
+        // and stored by inbound_mail under a file id of its own: same
+        // bytes, so the same document.
+        $booking = $this->createBooking();
+        $relative = 'rental-generated-' . bin2hex(random_bytes(4)) . '.pdf';
+        file_put_contents(sys_get_temp_dir() . '/' . $relative, self::PDF_BYTES);
+        $fileId = (new FileRepository($this->pdo))->create($relative, 'contrat-v1.pdf', 'application/pdf', strlen(self::PDF_BYTES), 'identified', 'rental', null);
+        $this->documentService->attachUploaded($booking, $fileId, DocumentType::CONTRACT, true);
+
+        try {
+            $this->deliverWithPdf(10, 'Re: [LOC-K7Q2M4]');
+            $this->sync();
+
+            $this->assertSame(1, $this->countRentalAssociations(), 'the message itself is filed');
+            $documents = $this->documentRepository->findForBooking($booking->id);
+            $this->assertCount(1, $documents, 'its attachment is the contract the booking already has');
+            $this->assertSame($fileId, $documents[0]->fileId);
+        } finally {
+            @unlink(sys_get_temp_dir() . '/' . $relative);
+        }
+    }
+
+    public function testASpreadsheetStaysOnTheMessageWithoutADocument(): void
+    {
+        $booking = $this->createBooking();
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::SENDER, 'Le décompte', 'jeanne@example.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(
+                1,
+                1,
+                999,
+                'decompte.xlsx',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                2048,
+                str_repeat('a', 64)
+            )]
+        );
+
+        $this->plainConsumer()->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER)
+        );
+
+        $this->assertSame([], $this->documentRepository->findForBooking($booking->id));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function documentTypes(): array
+    {
+        return [
+            'PDF' => ['application/pdf'],
+            'Word' => ['application/msword'],
+            'Word (docx)' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            'a photo' => ['image/jpeg'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('documentTypes')]
+    public function testTheTypesThatBecomeDocuments(string $mimeType): void
+    {
+        $booking = $this->createBooking();
+        $relative = 'rental-attachment-' . bin2hex(random_bytes(4));
+        $fileId = (new FileRepository($this->pdo))->create($relative, 'piece', $mimeType, 10, 'identified', 'inbound_mail', null);
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::SENDER, 'Pièce', 'jeanne@example.be', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(1, 1, $fileId, 'piece', $mimeType, 10, hash('sha256', $mimeType))]
+        );
+
+        $this->plainConsumer()->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::SENDER)
+        );
+
+        $this->assertCount(1, $this->documentRepository->findForBooking($booking->id));
     }
 
     public function testAnAttachedPdfBecomesAnUnsortedInternalDocument(): void

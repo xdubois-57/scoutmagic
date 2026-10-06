@@ -349,7 +349,11 @@ class CampsMessageConsumer implements
      * module again straight away: the rest of the thread, and every
      * earlier message from that address, just became attributable.
      * Bounded, and only ever inside a request — a manual association
-     * never happens during a synchronisation.
+     * never happens during a synchronisation. The rules only: the deferred
+     * pass keeps its marker and its attempts, because that marker is the
+     * message's and not this module's — resetting it would hand every
+     * other consumer's model call on a shared box a fresh start, an
+     * answer it already declined included (#720, step 6).
      */
     private function learnFrom(InboundMessage $message, MessageLink $link): void
     {
@@ -370,7 +374,7 @@ class CampsMessageConsumer implements
         }
 
         try {
-            $this->inboundMail?->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION);
+            $this->inboundMail?->reanalyzeUnlinked(self::CONSUMER_ID, self::REANALYSIS_AFTER_DECISION, false);
         } catch (\Throwable) {
             // The association a person just made is already written; a
             // re-run that fails must not undo their click.

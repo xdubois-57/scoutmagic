@@ -2362,8 +2362,13 @@ nobody is asked to choose: the propositions, their notification and the
 attention point that counted them are gone. What the rules left standing
 goes to the model in the hourly deferred pass (`analyzeStored()`, §8.58's
 `AnalyzeStoredMessagesHandler`): several bookings of one renter in range,
-or the one booking a reference names when it was quoted by (or, sent, to)
-an address the booking does not know. `Mail\BookingChoiceByModel` chooses
+or the one booking a reference names when it was quoted by an address the
+booking does not know. **In practice that is received mail.** A sent
+message is kept only when a consumer filed it at arrival
+(`MailboxSyncService::store()`, §8.58), so an ambiguous one is never stored
+and never reaches the model; the sent branch only serves a sent message
+detached from the booking it was filed under while others still stand.
+`Mail\BookingChoiceByModel` chooses
 **only among that list** or answers nothing, and its pick is filed
 `LinkOrigin::AI` — shown as uncertain, learning the address like a
 person's decision, undone by « Détacher ». A booking the message was
@@ -2413,7 +2418,19 @@ then re-examines the mail nobody could attribute
 once, not on every message.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
-pointing at the very file `UploadHandler` stored rather than a copy. Never
+pointing at the very file `UploadHandler` stored rather than a copy — a
+received message's and a sent one's alike, and only a PDF, a Word file or
+an image (`DOCUMENT_MIME_TYPES`; `AttachmentPolicy` has already dropped
+signature logos and images under its minimum size, #720 step 8). A
+spreadsheet or an OpenDocument file stays on the message. **Never twice,
+by content**: an attachment whose SHA-256 (`InboundAttachment::
+$contentHash`) is that of a file the booking already holds is not filed
+again — the contract the site generated, sent back by hand from the box,
+is the document it already is. That comparison only holds because the
+MIME parser hands an attachment over byte for byte
+(`MimeMessageParser::decodeAttachment()`): its text decoding used to
+strip the final line break, which cut the last byte off every PDF ending
+`%%EOF\n`. Never
 presumed to be the signed contract (that would put an unverified PDF where a
 signed contract goes) and never "for the renter" (that flag queues it to be
 emailed back to them). `RentalDocumentService::reclassify()` is the one-click
