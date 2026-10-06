@@ -261,7 +261,13 @@ class RentalManagementController extends AbstractController
          * What the site sent the renter (#720, step 2): the other half of
          * « Courrier », shown even without `inbound_mail`.
          */
-        private ?\Modules\Rental\Repository\RentalSentEmailRepository $sentEmails = null
+        private ?\Modules\Rental\Repository\RentalSentEmailRepository $sentEmails = null,
+        /**
+         * How the person who countersigns a contract or validates an
+         * inventory is named on it: by their account, never by a totem
+         * (issue #825). Null names them « un gestionnaire ».
+         */
+        private ?\Modules\Rental\Document\SignerName $signerName = null
     ) {
         parent::__construct($twig);
     }
@@ -1738,19 +1744,13 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("La contresignature n'est pas disponible.");
             }
 
-            $memberId = $this->actorMemberId();
-            $names = $memberId !== null
-                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
-                : [];
-            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
-
             $final = $this->signedContractService->countersign(
                 $booking,
                 $asset,
                 (int) $request->getBody('document_id', 0),
                 $account,
-                $memberId,
-                $name ?? 'un gestionnaire',
+                $this->actorMemberId(),
+                $this->signerDisplayName(),
                 new \DateTimeImmutable()
             );
 
@@ -3152,18 +3152,12 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("Cet état des lieux n'existe pas.");
             }
 
-            $memberId = $this->actorMemberId();
-            $names = $memberId !== null
-                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
-                : [];
-            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
-
             $result = $this->inventoryValidation->validate(
                 $booking,
                 $asset,
                 $phase,
-                $memberId,
-                $name ?? 'un gestionnaire',
+                $this->actorMemberId(),
+                $this->signerDisplayName(),
                 new \DateTimeImmutable(),
                 $this->arrivalTickedByHand($booking)
             );
@@ -4091,6 +4085,17 @@ class RentalManagementController extends AbstractController
         return array_merge($this->assetTrail(), [
             ['label' => $asset->name, 'url' => '/mes-locations/' . $asset->slug],
         ]);
+    }
+
+    /**
+     * The name printed beside a signature on a document the renter reads:
+     * the signed-in account's own name, and « un gestionnaire » when it has
+     * none. Not the display name the rest of the site uses — that is a
+     * totem, which tells a tenant nothing (issue #825).
+     */
+    private function signerDisplayName(): string
+    {
+        return $this->signerName?->forAccount(AuthSession::getUserAccountId()) ?? 'un gestionnaire';
     }
 
     /**

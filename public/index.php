@@ -12161,7 +12161,9 @@ if ($isEnabled('rental')) {
                 $rentalBookingAudit
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
-            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
+            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),
+            // A signer is named by their account, not by a totem (#825).
+            new \Modules\Rental\Document\SignerName($userAccountRepo)
         )
     );
     $frontController->registerController(

@@ -53,7 +53,8 @@ sortie, les incidents. Un élément resté vide y est marqué « non vérifié �
 la confirmation vous dit combien il en reste avant de valider.
 
 Le PDF est rangé dans les documents de la réservation et envoyé au
-locataire. **Une fois validé, l'état des lieux ne se modifie plus** : le
+locataire. Il porte « Validé par » suivi du nom de votre compte (« Mon
+compte »), jamais de votre totem. **Une fois validé, l'état des lieux ne se modifie plus** : le
 locataire en a une copie. Si l'envoi échoue, il est validé quand même ;
 renvoyez-le depuis la page Documents.
 
