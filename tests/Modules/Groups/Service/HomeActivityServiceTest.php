@@ -167,6 +167,23 @@ class HomeActivityServiceTest extends TestCase
         $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
     }
 
+    /**
+     * Issue #712. The banner reads the group list's own unread flag, so an
+     * admin who is in none of the groups they can see must not get a
+     * « Du nouveau dans vos groupes » band they could never dismiss: opening
+     * the group records nothing for them.
+     */
+    public function testASiteAdminInNoGroupGetsNoBanner(): void
+    {
+        AuthSession::login(1, 'parent@test.be', 'admin');
+        $creator = GroupsTestHelper::createMember($this->pdo, 'H20');
+        $admin = GroupsTestHelper::createMember($this->pdo, 'H21');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $this->withActivity($groupId, '2030-01-01 12:00:00');
+
+        $this->assertNull($this->service([$admin])->getHomeActivitySummaryForCurrentUser());
+    }
+
     public function testAMemberGetsCountsForTheirUnreadGroup(): void
     {
         AuthSession::login(1, 'parent@test.be', 'identified');
