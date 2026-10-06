@@ -1448,6 +1448,26 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertStringNotContainsString('Jeanne Martin', $llm->lastRequest->prompt, 'nor the renter\'s name');
     }
 
+    public function testAReferenceTheUnitSentToSomebodyElseNeverReachesTheModel(): void
+    {
+        // The caretaker is told the reference of the stay; that is not the
+        // renter's correspondence (`analyzeSent()`), so the deferred pass
+        // has nothing to confirm and the caretaker's address is never
+        // taught to the booking.
+        $this->createBooking('LOC-2027-K7Q2MX', 'jeanne@example.be');
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            1, $this->mailboxId, '', '', LinkOrigin::MANUAL, 'Clés [LOC-2027-K7Q2MX]', 'locations@unite.be', null,
+            'unit-2@unite.be', null, new \DateTimeImmutable('2027-07-02 09:30:00'), 'Bonjour,', '',
+            toEmails: ['concierge@example.be'],
+            links: [new MessageLink('camps', 'CAMP-1', LinkOrigin::MANUAL)],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        [$consumer, $llm] = $this->modelConsumer('LOC-2027-K7Q2MX');
+
+        $this->assertTrue($consumer->analyzeStored($sent)->isEmpty());
+        $this->assertSame(0, $llm->calls);
+    }
+
     public function testTheDeferredPassFilesTheModelsChoiceAndLearnsTheAddress(): void
     {
         // End to end: the stranger quoting the reference is filed nowhere

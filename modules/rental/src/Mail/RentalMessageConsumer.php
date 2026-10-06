@@ -526,6 +526,14 @@ class RentalMessageConsumer implements
                 }
             }
 
+            // A reference the unit sent to somebody who is not the renter —
+            // the caretaker, the insurer — is not the renter's
+            // correspondence, exactly as `analyzeSent()` rules: nothing for
+            // the model to confirm, and no address for it to teach.
+            if ($message->isSent()) {
+                return [[], false];
+            }
+
             // A reference quoted by an address the booking does not know —
             // only a random one: a sequential reference from before #720
             // step 9 can be enumerated, and the model, handed the one
