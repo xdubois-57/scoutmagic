@@ -148,7 +148,9 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
      * ceiling was brought from 60 down to 40 against those numbers rather
      * than against the fear that set it to 60. It bounds a runaway; it
      * does not bound cost, because the most expensive run measured spent
-     * 24.23 USD in 13.6 minutes.
+     * 24.23 USD in 13.6 minutes. It went back to 60 on 2026-10-05, when
+     * pull request #823 was cut at 40 on two heads with the reviewer still
+     * working: the floor stays 30, the ceiling is the documented hour.
      */
     public function testTheReviewerIsGivenTimeToFinishALargeDiff(): void
     {

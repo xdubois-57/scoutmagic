@@ -1068,6 +1068,15 @@ ceiling is 60 minutes now, chosen against what a review of that size
 costs rather than against what a normal one does; issue #262 collects the
 reviewer's defects, and this is the first that blocked a merge outright.
 
+**It went down to 40 and came back.** On 2026-09-20 the ceiling was
+lowered to 40 minutes against measurement: over 221 complete reviews the
+longest had taken 25.2. Two weeks later pull request #823 (#720, step 6)
+was cancelled at 40m20s on two different heads, each time with the
+reviewer still working, and was unmergeable for nothing, as #257 had been
+at 20. The ceiling is back at 60 (#824). The lesson is the same one twice:
+the longest review measured is not the longest review a real diff needs,
+and a ceiling set from the first becomes a size limit on the second.
+
 The mirror of § Reading a green result applies here: a **red** result can
 prove nothing too. Cancelled is not failed, and neither is a verdict on
 the diff — the run has to be read before either is treated as one.
