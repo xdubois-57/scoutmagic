@@ -492,9 +492,15 @@ class RentalMessageConsumer implements
 
     /**
      * The bookings the rules put forward for this message without settling
-     * on one — the same levels as `analyze()`, read the same way for both
-     * directions — and whether they come from a quoted reference, the one
-     * path on which a single booking may be put to the model.
+     * on one — the same levels as `analyze()` — and whether they come from
+     * a quoted reference, the one path on which a single booking may be put
+     * to the model.
+     *
+     * **In practice the message was received.** A sent message is stored
+     * only when a consumer filed it at arrival (`MailboxSyncService::store()`),
+     * so an ambiguous one never reaches the deferred pass; the sent branch
+     * below only serves one detached from the booking it was filed under
+     * while other bookings still stand.
      *
      * @return array{0: list<RentalBooking>, 1: bool}
      */

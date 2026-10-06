@@ -2362,8 +2362,13 @@ nobody is asked to choose: the propositions, their notification and the
 attention point that counted them are gone. What the rules left standing
 goes to the model in the hourly deferred pass (`analyzeStored()`, §8.58's
 `AnalyzeStoredMessagesHandler`): several bookings of one renter in range,
-or the one booking a reference names when it was quoted by (or, sent, to)
-an address the booking does not know. `Mail\BookingChoiceByModel` chooses
+or the one booking a reference names when it was quoted by an address the
+booking does not know. **In practice that is received mail.** A sent
+message is kept only when a consumer filed it at arrival
+(`MailboxSyncService::store()`, §8.58), so an ambiguous one is never stored
+and never reaches the model; the sent branch only serves a sent message
+detached from the booking it was filed under while others still stand.
+`Mail\BookingChoiceByModel` chooses
 **only among that list** or answers nothing, and its pick is filed
 `LinkOrigin::AI` — shown as uncertain, learning the address like a
 person's decision, undone by « Détacher ». A booking the message was
