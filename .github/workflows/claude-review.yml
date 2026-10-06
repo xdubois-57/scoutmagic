@@ -290,7 +290,15 @@ jobs:
     # expensive run measured (24.23 USD) took 13.6 minutes and spent it
     # on 608 turns. The ceiling is the backstop; the foreground hook is
     # what stops the turns.
-    timeout-minutes: 40
+    #
+    # BACK TO 60 ON 2026-10-05, because 40 was reached by reviews that were
+    # working. Pull request #823 (#720, step 6) was cancelled at 40m20s on
+    # two different heads, each time with the reviewer still reading — the
+    # same unmergeable-for-nothing state #257 hit at 20. The 25.2-minute
+    # maximum above was the longest review measured, not the longest one
+    # a real diff needs, and the 60 that docs/quality-pipeline.md and
+    # AGENTS.md already state is what the workflow runs again.
+    timeout-minutes: 60
 
     # THE ONE LINE THAT TURNS THE FOREGROUND HOOK ON, and it is a job-level
     # opt-in rather than something the hook decides for itself.
