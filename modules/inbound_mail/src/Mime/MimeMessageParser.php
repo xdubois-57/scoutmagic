@@ -170,30 +170,53 @@ class MimeMessageParser
     }
 
     /**
+     * The parts between the boundary's delimiter lines, byte for byte.
+     *
+     * RFC 2046 makes the line break before a delimiter part of the
+     * delimiter, so that one is dropped and nothing else is touched: an
+     * attachment sent unencoded keeps its own CR, LF and CRLF exactly as
+     * the sender's file held them, and one that ends on a line break
+     * keeps it. Splitting the body into lines and joining them again with
+     * CRLF used to rewrite every line ending, and the file stored was not
+     * the file sent (#720, step 8). The preamble before the first
+     * delimiter and anything after the closing one are not parts.
+     *
      * @return list<string>
      */
     private static function splitOnBoundary(string $body, string $boundary): array
     {
-        $delimiter = '--' . $boundary;
+        // The line break after a delimiter is looked at, not consumed: it
+        // may be the one before the next delimiter, when a part is empty.
+        $delimiter = '/(?:^|\r\n|\n|\r)--' . preg_quote($boundary, '/') . '(--)?[ \t]*(?=\r\n|\n|\r|$)/';
+        if (preg_match_all($delimiter, $body, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) === 0) {
+            return [];
+        }
+
         $parts = [];
-        $current = null;
-
-        foreach (preg_split('/\r\n|\n|\r/', $body) ?: [] as $line) {
-            if ($line === $delimiter || $line === $delimiter . '--') {
-                if ($current !== null) {
-                    $parts[] = implode("\r\n", $current);
-                }
-                $current = $line === $delimiter . '--' ? null : [];
-                continue;
+        $start = null;
+        foreach ($matches as $match) {
+            [$whole, $offset] = $match[0];
+            if ($start !== null) {
+                // An empty part: its delimiter's line break is also the
+                // break before the next delimiter.
+                $parts[] = $offset > $start ? substr($body, $start, $offset - $start) : '';
             }
-
-            if ($current !== null) {
-                $current[] = $line;
+            if (($match[1][0] ?? '') === '--') {
+                return $parts;
+            }
+            $start = $offset + strlen($whole);
+            // The delimiter line's own line break is not the part's.
+            if (substr($body, $start, 2) === "\r\n") {
+                $start += 2;
+            } elseif (in_array(substr($body, $start, 1), ["\n", "\r"], true)) {
+                $start++;
             }
         }
 
-        if ($current !== null && $current !== []) {
-            $parts[] = implode("\r\n", $current);
+        // No closing delimiter: what follows the last one is still a part,
+        // as long as there is something in it.
+        if ($start !== null && $start < strlen($body)) {
+            $parts[] = substr($body, $start);
         }
 
         return $parts;
@@ -202,18 +225,25 @@ class MimeMessageParser
     // ── Headers ─────────────────────────────────────────────────────────
 
     /**
+     * The header block, its line endings made LF, and the body exactly as
+     * it arrived: the body may be an attachment's bytes (see
+     * `splitOnBoundary()`), so its line endings are not this method's to
+     * change. Text is normalised where it is decoded, in `decodeBody()`.
+     *
      * @return array{0: string, 1: string}
      */
     private static function splitHeadersAndBody(string $raw): array
     {
-        $raw = str_replace(["\r\n", "\r"], "\n", $raw);
-        $separator = strpos($raw, "\n\n");
-
-        if ($separator === false) {
-            return [$raw, ''];
+        if (preg_match('/\r\n\r\n|\n\n|\r\r|\r\n\n|\n\r\n/', $raw, $blank, PREG_OFFSET_CAPTURE) !== 1) {
+            return [str_replace(["\r\n", "\r"], "\n", $raw), ''];
         }
 
-        return [substr($raw, 0, $separator), substr($raw, $separator + 2)];
+        [$separator, $offset] = $blank[0];
+
+        return [
+            str_replace(["\r\n", "\r"], "\n", substr($raw, 0, $offset)),
+            substr($raw, $offset + strlen($separator)),
+        ];
     }
 
     /**
@@ -403,8 +433,10 @@ class MimeMessageParser
      * the one the site generated, and a contract sent back by hand was
      * filed as a second, different document (#720, step 8). Base64 —
      * how virtually every attachment travels — carries the bytes whole,
-     * so it is decoded and nothing more; a part sent raw keeps the one
-     * trim, since its last line break belongs to the boundary.
+     * so it is decoded and nothing more; so is quoted-printable, and a
+     * part sent raw is returned as it is. Nothing is trimmed: the line
+     * break that belongs to the boundary is already gone
+     * (`splitOnBoundary()`), and any other one is the file's.
      *
      * @param array<string, string> $headers
      */
@@ -414,8 +446,8 @@ class MimeMessageParser
 
         return match ($encoding) {
             'base64' => base64_decode($body, false) ?: '',
-            'quoted-printable' => rtrim(quoted_printable_decode($body), "\r\n"),
-            default => rtrim($body, "\r\n"),
+            'quoted-printable' => quoted_printable_decode($body),
+            default => $body,
         };
     }
 
@@ -424,6 +456,9 @@ class MimeMessageParser
      */
     private static function decodeBody(array $headers, string $body): string
     {
+        // Text, so its line endings are made LF here — the parts reach
+        // this method byte for byte, for the attachments' sake.
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
         $encoding = strtolower(trim(self::header($headers, 'content-transfer-encoding')));
 
         $decoded = match ($encoding) {
