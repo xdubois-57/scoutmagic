@@ -68,7 +68,7 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
 
         $created = $this->bookings->create(
             $this->assetId,
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             '2027-07-17',
             '2027-07-20',
             1,

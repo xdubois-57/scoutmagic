@@ -61,10 +61,10 @@ class ReplyAddressServiceTest extends TestCase
     {
         $this->mailbox('locations@unite.be');
 
-        $address = $this->service()->addressFor('rental', 'LOC-2027-0042');
+        $address = $this->service()->addressFor('rental', 'LOC-K7Q2M4');
 
         $this->assertNotNull($address);
-        $this->assertMatchesRegularExpression('/^locations\+rental\.LOC-2027-0042\.[a-f0-9]{12}@unite\.be$/', $address);
+        $this->assertMatchesRegularExpression('/^locations\+rental\.LOC-K7Q2M4\.[a-f0-9]{12}@unite\.be$/', $address);
     }
 
     public function testTheSignatureIsStableAndSpecificToTheObject(): void
@@ -72,23 +72,23 @@ class ReplyAddressServiceTest extends TestCase
         $this->mailbox('locations@unite.be');
         $service = $this->service();
 
-        $this->assertSame($service->addressFor('rental', 'LOC-2027-0042'), $service->addressFor('rental', 'LOC-2027-0042'));
-        $this->assertNotSame($service->addressFor('rental', 'LOC-2027-0042'), $service->addressFor('rental', 'LOC-2027-0043'));
-        $this->assertNotSame($service->addressFor('rental', 'LOC-2027-0042'), $service->addressFor('camps', 'LOC-2027-0042'));
+        $this->assertSame($service->addressFor('rental', 'LOC-K7Q2M4'), $service->addressFor('rental', 'LOC-K7Q2M4'));
+        $this->assertNotSame($service->addressFor('rental', 'LOC-K7Q2M4'), $service->addressFor('rental', 'LOC-K7Q2M5'));
+        $this->assertNotSame($service->addressFor('rental', 'LOC-K7Q2M4'), $service->addressFor('camps', 'LOC-K7Q2M4'));
     }
 
     public function testWhatWasMintedIsRecognisedComingBack(): void
     {
         $this->mailbox('locations@unite.be');
         $service = $this->service();
-        $address = $service->addressFor('rental', 'LOC-2027-0042');
+        $address = $service->addressFor('rental', 'LOC-K7Q2M4');
         $this->assertNotNull($address);
 
         $resolved = $service->resolve(['tresorier@groupe.example', $address]);
 
         $this->assertNotNull($resolved);
         $this->assertSame('rental', $resolved->consumerId);
-        $this->assertSame('LOC-2027-0042', $resolved->businessReference);
+        $this->assertSame('LOC-K7Q2M4', $resolved->businessReference);
     }
 
     public function testAnAddressLowercasedByTheMailLayerStillVerifies(): void
@@ -97,12 +97,12 @@ class ReplyAddressServiceTest extends TestCase
         // over the original case would never verify on a real box.
         $this->mailbox('locations@unite.be');
         $service = $this->service();
-        $address = strtolower((string) $service->addressFor('rental', 'LOC-2027-0042'));
+        $address = strtolower((string) $service->addressFor('rental', 'LOC-K7Q2M4'));
 
         $resolved = $service->resolve([$address]);
 
         $this->assertNotNull($resolved);
-        $this->assertSame('loc-2027-0042', $resolved->businessReference, 'as the address carried it — the consumer canonicalises');
+        $this->assertSame('loc-k7q2m4', $resolved->businessReference, 'as the address carried it — the consumer canonicalises');
     }
 
     public function testATamperedSignatureIsAnOrdinaryAddress(): void
@@ -110,9 +110,9 @@ class ReplyAddressServiceTest extends TestCase
         $this->mailbox('locations@unite.be');
         $service = $this->service();
 
-        $this->assertNull($service->resolve(['locations+rental.LOC-2027-0042.000000000000@unite.be']));
-        $this->assertNull($service->resolve(['locations+rental.LOC-2027-0043.'
-            . substr((string) $service->addressFor('rental', 'LOC-2027-0042'), 29, 12) . '@unite.be']));
+        $this->assertNull($service->resolve(['locations+rental.LOC-K7Q2M4.000000000000@unite.be']));
+        $this->assertNull($service->resolve(['locations+rental.LOC-K7Q2M5.'
+            . substr((string) $service->addressFor('rental', 'LOC-K7Q2M4'), 29, 12) . '@unite.be']));
     }
 
     public function testOrdinaryRecipientsResolveToNothing(): void
@@ -126,14 +126,14 @@ class ReplyAddressServiceTest extends TestCase
     {
         // Mail sent while it was on keeps being answered for months.
         $this->mailbox('locations@unite.be');
-        $minted = $this->service()->addressFor('rental', 'LOC-2027-0042');
+        $minted = $this->service()->addressFor('rental', 'LOC-K7Q2M4');
         $this->assertNotNull($minted);
 
         $settings = $this->createStub(SettingService::class);
         $settings->method('get')->willReturn('0');
         $off = $this->service($settings);
 
-        $this->assertNull($off->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertNull($off->addressFor('rental', 'LOC-K7Q2M4'));
         $this->assertNotNull($off->resolve([$minted]));
     }
 
@@ -143,7 +143,7 @@ class ReplyAddressServiceTest extends TestCase
         $dedicated = $this->mailbox('locations@unite.be', 'Locations');
         $this->scopes->saveDedicated($dedicated, 'rental');
 
-        $this->assertStringStartsWith('locations+rental.', (string) $this->service()->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertStringStartsWith('locations+rental.', (string) $this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
 
     public function testABoxTheConsumerDoesNotAnalyseIsNeverUsed(): void
@@ -153,21 +153,21 @@ class ReplyAddressServiceTest extends TestCase
         $shared = $this->mailbox('unite@unite.be', 'Unité');
         $this->scopes->saveSharedScopes($shared, ['camps' => ['analyze' => true, 'read' => 'none']]);
 
-        $this->assertNull($this->service()->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertNull($this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
 
     public function testAnAccountThatIsNotAnAddressHasNoDomainToReplyTo(): void
     {
         $this->mailbox('locations');
 
-        $this->assertNull($this->service()->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertNull($this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
 
     public function testADisabledBoxIsNotOffered(): void
     {
         $this->mailbox('locations@unite.be', enabled: false);
 
-        $this->assertNull($this->service()->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertNull($this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
 
     public function testAReferenceThatCannotTravelInAnAddressMintsNothing(): void
@@ -175,7 +175,7 @@ class ReplyAddressServiceTest extends TestCase
         $this->mailbox('locations@unite.be');
 
         $this->assertNull($this->service()->addressFor('rental', 'LOC 2027/0042'));
-        $this->assertNull($this->service()->addressFor('Rental!', 'LOC-2027-0042'));
+        $this->assertNull($this->service()->addressFor('Rental!', 'LOC-K7Q2M4'));
     }
 
     public function testWithoutAScopeServiceAnyEnabledAddressBoxServes(): void
@@ -183,6 +183,6 @@ class ReplyAddressServiceTest extends TestCase
         $this->mailbox('locations');
         $this->mailbox('unite@unite.be', 'Unité');
 
-        $this->assertStringEndsWith('@unite.be', (string) $this->service(null, false)->addressFor('rental', 'LOC-2027-0042'));
+        $this->assertStringEndsWith('@unite.be', (string) $this->service(null, false)->addressFor('rental', 'LOC-K7Q2M4'));
     }
 }

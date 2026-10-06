@@ -13,7 +13,7 @@ namespace Modules\InboundMail\Api;
  * (`ReferenceDirectory::searchReferences()`).
  *
  * A label a person recognises — « Ferme du Bois-Joli — 12–22 juillet
- * 2027 », « LOC-2027-0042 — Pierre Lambert » — and, optionally, one line
+ * 2027 », « LOC-K7Q2M4 — Pierre Lambert » — and, optionally, one line
  * of detail that tells two similar labels apart: a status, a place, a
  * renter. Never anything the screen has to interpret.
  */

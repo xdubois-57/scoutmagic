@@ -606,7 +606,7 @@ async function validateInventory(page, label) {
  * `rental-request.spec.js`'s subject, not this file's.
  *
  * @param {import('@playwright/test').Browser} browser
- * @returns {Promise<string>} the booking's LOC-YYYY-XXXXXX reference
+ * @returns {Promise<string>} the booking's LOC-XXXXXX reference
  */
 async function requestTheHall(browser) {
     const visitor = await browser.newContext();
@@ -635,10 +635,10 @@ async function requestTheHall(browser) {
         await waitOutHumanCheckDelay(page);
         await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
-        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/ });
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
 
-        return (await heading.textContent()).match(/LOC-\d{4}-[2-9A-HJKMNP-Z]{6}/)[0];
+        return (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
     } finally {
         await visitor.close();
     }

@@ -147,7 +147,7 @@ class MailboxSyncServiceTest extends TestCase
         return new FakeMessageConsumer(id: $id, onAnalyze: $decide);
     }
 
-    private function claimEverything(string $reference = 'LOC-2027-0042'): FakeMessageConsumer
+    private function claimEverything(string $reference = 'LOC-K7Q2M4'): FakeMessageConsumer
     {
         return $this->consumer(
             static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::linkedTo(
@@ -309,7 +309,7 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->sync();
 
-        $messages = $this->messageRepository->findForReference('rental', 'LOC-2027-0042');
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
         $this->assertCount(1, $messages);
         $this->assertSame('Demande de location', $messages[0]->subject);
         $this->assertSame('jeanne@example.be', $messages[0]->fromEmail);
@@ -485,7 +485,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->addMessage(10, messageId: 'msg@example.be');
         $this->sync();
 
-        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertCount(1, $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
     public function testAPropositionIsRecordedWithoutCreatingAnAssociation(): void
@@ -493,7 +493,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->registry->register($this->consumer(
             static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::proposing(
                 new MessageCandidate(
-                    'LOC-2027-0099',
+                    'LOC-W9Y8X7',
                     'Location du 12 juillet',
                     'sender_window',
                     'L\'expéditeur est le locataire, et le message est arrivé pendant la fenêtre.'
@@ -510,7 +510,7 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertNotNull($messageId);
         $this->assertSame(0, $this->messageRepository->countLinks($messageId));
         $this->assertTrue($this->messageRepository->hasActiveCandidates($messageId));
-        $this->assertSame([], $this->messageRepository->findForReference('rental', 'LOC-2027-0099'));
+        $this->assertSame([], $this->messageRepository->findForReference('rental', 'LOC-W9Y8X7'));
     }
 
     public function testAPropositionSomebodySetAsideIsNotReemittedOnTheNextRun(): void
@@ -785,7 +785,7 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->sync();
 
-        $messages = $this->messageRepository->findForReference('rental', 'LOC-2027-0042');
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
         $this->assertTrue($messages[0]->hasAttachments());
         $this->assertSame('contrat.pdf', $messages[0]->attachments[0]->filename);
         $this->assertSame('application/pdf', $messages[0]->attachments[0]->mimeType);
@@ -824,7 +824,7 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->sync();
 
-        $messages = $this->messageRepository->findForReference('rental', 'LOC-2027-0042');
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
         $this->assertCount(1, $messages, 'The message itself must still be stored.');
         $this->assertFalse($messages[0]->hasAttachments(), 'Nothing openable was kept.');
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());

@@ -148,7 +148,7 @@ class ScopedSyncAndRefreshTest extends TestCase
             id: 'rental',
             onAnalyze: static fn(): AnalysisResult => AnalysisResult::linkedTo(
                 'rental',
-                'LOC-2027-0042',
+                'LOC-K7Q2M4',
                 LinkOrigin::REFERENCE
             )
         ));
@@ -159,7 +159,7 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->addMessage(10);
         $this->sync();
 
-        $this->assertCount(1, $this->messages->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertCount(1, $this->messages->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
     public function testAModuleShutOutMakesNoAssociationEvenIfItWouldHave(): void
@@ -168,7 +168,7 @@ class ScopedSyncAndRefreshTest extends TestCase
             id: 'rental',
             onAnalyze: static fn(): AnalysisResult => AnalysisResult::linkedTo(
                 'rental',
-                'LOC-2027-0042',
+                'LOC-K7Q2M4',
                 LinkOrigin::REFERENCE
             )
         ));
@@ -179,7 +179,7 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->addMessage(10);
         $this->sync();
 
-        $this->assertSame([], $this->messages->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertSame([], $this->messages->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
     // ── « Rafraîchir maintenant » ───────────────────────────────────────

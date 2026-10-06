@@ -13,14 +13,15 @@ use Modules\Rental\Booking\BookingReference;
 /**
  * Finding a booking reference inside text a stranger wrote (§7.6, level 1).
  *
- * The reference is `LOC-YYYY-XXXXXX` ({@see BookingReference}), which is
+ * The reference is `LOC-XXXXXX` ({@see BookingReference}), which is
  * deliberately distinctive: it is put in every subject line the module
- * sends precisely so a reply carries it back, and it looks like nothing
- * else anybody would type by accident. A booking made while references were
- * still counted keeps its `LOC-YYYY-NNNN`, and both forms are recognised.
+ * sends precisely so a reply carries it back, and — six characters mixing
+ * digits and letters — it looks like nothing else anybody would type by
+ * accident. The earlier forms, with a year, are not recognised: nothing
+ * migrates them, and their bookings' replies are matched by the other rules.
  *
- * **Bracketed first, bare second.** `[LOC-2027-K7Q2MX]` is a reference the
- * module itself put there; a bare `LOC-2027-K7Q2MX` in a body is more likely
+ * **Bracketed first, bare second.** `[LOC-K7Q2MX]` is a reference the
+ * module itself put there; a bare `LOC-K7Q2MX` in a body is more likely
  * to be someone quoting a number, which is still usually right but is not
  * the same claim. Both are accepted — a client that strips the brackets
  * from a subject should not cost the unit the match — and the subject is
@@ -33,10 +34,9 @@ use Modules\Rental\Booking\BookingReference;
 class BookingReferenceMatcher
 {
     /**
-     * `LOC-`, a four-digit year, then the random part or the old sequence.
-     * Anchored on word boundaries so `XLOC-2027-K7Q2MX` and
-     * `LOC-2027-K7Q2MXA` do not match; case-insensitive, because a renter
-     * retyping a reference does not keep its capitals.
+     * `LOC-` then the six random characters. Anchored on word boundaries
+     * so `XLOC-K7Q2MX` and `LOC-K7Q2MXA` do not match; case-insensitive,
+     * because a renter retyping a reference does not keep its capitals.
      */
     private const PATTERN = '/\b' . BookingReference::PATTERN . '\b/i';
     private const BRACKETED_PATTERN = '/\[\s*(' . BookingReference::PATTERN . ')\s*\]/i';

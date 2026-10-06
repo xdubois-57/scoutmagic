@@ -25,7 +25,7 @@ use Modules\Rental\Repository\RentalSentEmailRepository;
  * Every email a booking sends. All of it through `MailService` (AGENTS.md),
  * never PHPMailer directly.
  *
- * **Every subject carries the reference** — `[LOC-2027-0042] …` — and every
+ * **Every subject carries the reference** — `[LOC-K7Q2M4] …` — and every
  * outgoing message carries a stable `Message-ID` we generate ourselves and
  * record. That is what later lets a reply be threaded back onto the right
  * booking through `In-Reply-To`/`References` rather than by guessing from
@@ -551,7 +551,7 @@ class RentalBookingMailService
     }
 
     /**
-     * `[LOC-2027-0042] Votre demande de location`.
+     * `[LOC-K7Q2M4] Votre demande de location`.
      *
      * The reference goes in **every** subject, and first: it is the most
      * reliable of the matching rules for an inbound reply (§7.6), far ahead
@@ -906,7 +906,7 @@ class RentalBookingMailService
      *
      * **The reference prefix stays outside.** `subjectFor()` is applied to
      * whatever subject comes back, shipped or customised, because
-     * `[LOC-2027-0042]` is what ties a renter's reply back to their
+     * `[LOC-K7Q2M4]` is what ties a renter's reply back to their
      * booking (the module's inbound-mail matching reads it). An
      * administrator rewording the subject must not be able to break the
      * threading of every conversation without noticing.

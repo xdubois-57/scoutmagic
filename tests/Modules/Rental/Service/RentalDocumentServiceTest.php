@@ -140,7 +140,7 @@ class RentalDocumentServiceTest extends TestCase
     private function createBooking(
         string $renterName = 'Jeanne Martin',
         ?string $organisation = null,
-        string $reference = 'LOC-2027-0042'
+        string $reference = 'LOC-K7Q2M4'
     ): RentalBooking {
         $created = $this->bookingRepository->create(
             $this->assetId,
@@ -317,7 +317,7 @@ class RentalDocumentServiceTest extends TestCase
 
         $this->service->saveBookingText($first, DocumentType::CONTRACT, '<p>Propre à la première.</p>');
 
-        $second = $this->createBooking('Marc Dupont', null, 'LOC-2027-0043');
+        $second = $this->createBooking('Marc Dupont', null, 'LOC-K7Q2M5');
 
         $this->assertStringContainsString(
             'Commun',
@@ -691,7 +691,7 @@ class RentalDocumentServiceTest extends TestCase
         $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
 
         $this->assertSame(1, $document->version);
-        $this->assertSame('contrat-LOC-2027-0042-v1.pdf', $document->originalName);
+        $this->assertSame('contrat-LOC-K7Q2M4-v1.pdf', $document->originalName);
         $this->assertStringStartsWith('%PDF', $this->pdfTextOf($document->id));
     }
 
@@ -709,7 +709,7 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertNotNull($file);
         $this->assertStringStartsWith('rental/documents/', $file->relativePath);
         // The stored name is random; only the display name says what it is.
-        $this->assertStringNotContainsString('LOC-2027-0042', $file->relativePath);
+        $this->assertStringNotContainsString('LOC-K7Q2M4', $file->relativePath);
         $this->assertSame('application/pdf', $file->mimeType);
     }
 
@@ -766,7 +766,7 @@ class RentalDocumentServiceTest extends TestCase
         $invoice = $this->service->generate($booking, $this->asset(), DocumentType::INVOICE, $this->settings());
 
         $this->assertSame(1, $invoice->version);
-        $this->assertSame('facture-LOC-2027-0042-v1.pdf', $invoice->originalName);
+        $this->assertSame('facture-LOC-K7Q2M4-v1.pdf', $invoice->originalName);
     }
 
     public function testAnEmptyTemplateFallsBackToTheStandardContract(): void
@@ -787,7 +787,7 @@ class RentalDocumentServiceTest extends TestCase
         // generation as for any other template.
         $this->assertStringContainsString(
             'Convention de location',
-            $this->service->bookingText($this->createBooking('Anne Petit', null, 'LOC-2027-0099'), $this->asset(), DocumentType::CONTRACT)
+            $this->service->bookingText($this->createBooking('Anne Petit', null, 'LOC-W9Y8X7'), $this->asset(), DocumentType::CONTRACT)
         );
     }
 
@@ -834,7 +834,7 @@ class RentalDocumentServiceTest extends TestCase
 
         $this->assertIsArray($decoded);
         $this->assertSame('360,00 €', $decoded['prix_total']);
-        $this->assertSame('LOC-2027-0042', $decoded['reference']);
+        $this->assertSame('LOC-K7Q2M4', $decoded['reference']);
     }
 
     // ── The injection path, end to end ──────────────────────────────────
@@ -875,7 +875,7 @@ class RentalDocumentServiceTest extends TestCase
         $booking = $this->createBooking('Jeanne Martin', 'Les Scouts de Nulle Part');
         $values = $this->service->valuesFor($booking, $this->asset(), $this->settings(), '+++100/0000/00034+++');
 
-        $this->assertSame('LOC-2027-0042', $values['reference']);
+        $this->assertSame('LOC-K7Q2M4', $values['reference']);
         $this->assertSame('Local Saint-Georges', $values['bien']);
         $this->assertSame('01/07/2027', $values['date_arrivee']);
         $this->assertSame('04/07/2027', $values['date_depart']);

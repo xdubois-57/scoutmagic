@@ -15,7 +15,7 @@ use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 
 /**
- * Signed reply addresses (§8.58): `locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`.
+ * Signed reply addresses (§8.58): `locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be`.
  *
  * **Why.** Every other rule reads something the correspondent wrote —
  * the reference they kept in the subject, the address they wrote from,
@@ -26,7 +26,7 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
  * on every mail client, and says exactly which object the message is
  * about, before anybody reads a word of it.
  *
- * **Why signed.** `+rental.LOC-2027-0042` alone could be typed by anyone
+ * **Why signed.** `+rental.LOC-K7Q2M4` alone could be typed by anyone
  * who knows a reference, and a reference is printed on a contract. The
  * twelve hex characters are a keyed hash of `consumer|reference` under
  * the site's blind-index key: an address that fails it is an ordinary
@@ -127,7 +127,7 @@ class ReplyAddressService
 
     /**
      * Over the LOWERCASE form, deliberately: the IMAP layer lowercases
-     * every recipient it reads, so a reference like `LOC-2027-0042` comes
+     * every recipient it reads, so a reference like `LOC-K7Q2M4` comes
      * back as `loc-2027-0042` and a signature over the original would
      * never verify. The consumer gets the reference as the address
      * carried it and canonicalises the case itself, since only it knows

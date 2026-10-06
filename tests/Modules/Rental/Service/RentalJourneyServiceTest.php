@@ -56,7 +56,7 @@ final class RentalJourneyServiceTest extends TestCase
     {
         $created = $this->bookings->create(
             $this->asset->id,
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             '2027-07-01',
             '2027-07-04',
             1,

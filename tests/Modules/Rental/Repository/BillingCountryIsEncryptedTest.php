@@ -180,8 +180,8 @@ final class BillingCountryIsEncryptedTest extends TestCase
      */
     public function testASaveCarriesOverTheOtherBookingsTooRatherThanOnlyItsOwn(): void
     {
-        $mine = $this->createBooking('LOC-2027-0001');
-        $theirs = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $theirs = $this->createBooking('LOC-A2B3C5');
         $this->giveItALegacyClearCountry($theirs, 'NL');
 
         $this->repository->saveBillingIdentity($mine, ['country' => 'BE']);
@@ -778,7 +778,7 @@ final class BillingCountryIsEncryptedTest extends TestCase
         return $value === false || $value === null ? null : (string) $value;
     }
 
-    private function createBooking(string $reference = 'LOC-2027-0042'): int
+    private function createBooking(string $reference = 'LOC-K7Q2M4'): int
     {
         $created = $this->repository->create(
             $this->assetId,

@@ -74,7 +74,7 @@ final class RentalDocument
         return $this->source === self::SOURCE_MANUAL;
     }
 
-    /** `contrat-LOC-2027-0042-v2.pdf`. */
+    /** `contrat-LOC-K7Q2M4-v2.pdf`. */
     public static function fileNameFor(DocumentType $type, string $reference, int $version): string
     {
         return $type->fileStem() . '-' . $reference . '-v' . $version . '.pdf';

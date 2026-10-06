@@ -80,7 +80,7 @@ class InboundMessageLinkTest extends TestCase
     {
         $id = $this->storeMessage('facture-1@example.be');
 
-        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE));
+        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE));
         $this->assertTrue($this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER));
 
         $this->assertSame(2, $this->messages->countLinks($id));
@@ -89,10 +89,10 @@ class InboundMessageLinkTest extends TestCase
     public function testOneConsumersReadNeverReturnsAnothersAssociation(): void
     {
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER);
 
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-K7Q2M4'));
 
         // The reference is real, the message is real — they belong to
         // somebody else. Knowing one half of another module's pair must
@@ -104,16 +104,16 @@ class InboundMessageLinkTest extends TestCase
     public function testAMessageReadThroughOneAssociationStillListsTheOthers(): void
     {
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER);
 
-        $message = $this->service->findOneForReference('rental', 'LOC-2027-0042', $id);
+        $message = $this->service->findOneForReference('rental', 'LOC-K7Q2M4', $id);
 
         $this->assertNotNull($message);
         // The scoped view says which association this read was made
         // through; $links says what else is true of the message.
         $this->assertSame('rental', $message->consumerId);
-        $this->assertSame('LOC-2027-0042', $message->businessReference);
+        $this->assertSame('LOC-K7Q2M4', $message->businessReference);
         $this->assertCount(2, $message->links);
         $this->assertCount(1, $message->linksFor('finance'));
     }
@@ -124,10 +124,10 @@ class InboundMessageLinkTest extends TestCase
     {
         $id = $this->storeMessage('facture-1@example.be');
 
-        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE));
+        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE));
         // Two people orienting the same message towards the same booking.
         // One association, and no error presented to the second.
-        $this->assertFalse($this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL));
+        $this->assertFalse($this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::MANUAL));
 
         $this->assertSame(1, $this->messages->countLinks($id));
     }
@@ -147,12 +147,12 @@ class InboundMessageLinkTest extends TestCase
     public function testDetachingOneAssociationLeavesAMessageAnotherModuleStillRecognises(): void
     {
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER);
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2M4', $id));
 
-        $this->assertSame([], $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertSame([], $this->service->findForReference('rental', 'LOC-K7Q2M4'));
         $this->assertCount(1, $this->service->findForReference('finance', 'ACC-2027-0007'));
         $this->assertSame(1, $this->countRows('inbound_messages'));
     }
@@ -164,13 +164,13 @@ class InboundMessageLinkTest extends TestCase
         // they were about to re-file. It now falls back into the unit's
         // general mail and waits for the retention.
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($id, 'finance', 'ACC-2027-0007', LinkOrigin::SENDER);
 
         $fileId = $this->storeFile();
         $this->messages->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2M4', $id));
         $this->assertTrue($this->service->detach('finance', 'ACC-2027-0007', $id));
 
         $this->assertSame(1, $this->countRows('inbound_messages'));
@@ -182,9 +182,9 @@ class InboundMessageLinkTest extends TestCase
     public function testDetachingStampsTheGraceClockSoAnOldMessageIsNotPurgedTonight(): void
     {
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2M4', $id));
 
         $stamp = $this->pdo->query('SELECT last_unlinked_at FROM inbound_messages')->fetchColumn();
         $this->assertNotNull($stamp);
@@ -197,14 +197,14 @@ class InboundMessageLinkTest extends TestCase
         // ninety days later — taking a booking's signed contract with the
         // email it happened to arrive in.
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
         $kept = $this->storeFile();
         $dropped = $this->storeFile();
         $this->messages->addAttachment($id, $kept, 'contrat.pdf', 'application/pdf', 1024, 'hash-kept');
         $this->messages->addAttachment($id, $dropped, 'photo.jpg', 'image/jpeg', 2048, 'hash-dropped');
 
-        $this->assertTrue($this->service->detach('rental', 'LOC-2027-0042', $id, [$kept]));
+        $this->assertTrue($this->service->detach('rental', 'LOC-K7Q2M4', $id, [$kept]));
 
         $this->assertSame([$dropped], $this->messages->findFileIdsForMessage($id));
         $this->assertSame(0, $this->messages->countAttachmentsForFile($kept));
@@ -222,10 +222,10 @@ class InboundMessageLinkTest extends TestCase
     public function testDetachingRefusesAReferenceTheMessageWasNeverAssociatedWith(): void
     {
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
-        $this->assertFalse($this->service->detach('rental', 'LOC-2027-9999', $id));
-        $this->assertFalse($this->service->detach('finance', 'LOC-2027-0042', $id));
+        $this->assertFalse($this->service->detach('rental', 'LOC-X9X9X9', $id));
+        $this->assertFalse($this->service->detach('finance', 'LOC-K7Q2M4', $id));
         $this->assertSame(1, $this->countRows('inbound_messages'));
     }
 
@@ -237,7 +237,7 @@ class InboundMessageLinkTest extends TestCase
         $second = $this->storeMessage('b@example.be');
         // Two different business objects — which used to be what scoped the
         // deduplication, and is exactly why it had to stop being that.
-        $this->messages->addLink($first, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($first, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($second, 'camps', 'camp-3', LinkOrigin::SENDER);
 
         $fileId = $this->storeFile();
@@ -302,19 +302,19 @@ class InboundMessageLinkTest extends TestCase
     {
         $first = $this->storeMessage('a@example.be');
         $second = $this->storeMessage('b@example.be');
-        $this->writeLegacyColumns($first, 'rental', 'LOC-2027-0042', 'reference');
+        $this->writeLegacyColumns($first, 'rental', 'LOC-K7Q2M4', 'reference');
         $this->writeLegacyColumns($second, 'camps', 'camp-3', 'sender');
 
         $this->assertSame(2, $this->messages->backfillLinks());
 
-        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-2027-0042'));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-K7Q2M4'));
         $this->assertCount(1, $this->service->findForReference('camps', 'camp-3'));
     }
 
     public function testTheBackfillIsIdempotent(): void
     {
         $id = $this->storeMessage('a@example.be');
-        $this->writeLegacyColumns($id, 'rental', 'LOC-2027-0042', 'reference');
+        $this->writeLegacyColumns($id, 'rental', 'LOC-K7Q2M4', 'reference');
 
         $this->assertSame(1, $this->messages->backfillLinks());
         // Second run: nothing new, and above all nothing duplicated.
@@ -326,11 +326,11 @@ class InboundMessageLinkTest extends TestCase
     public function testTheBackfillKeepsAnAssociationWhoseOriginThisBuildNoLongerKnows(): void
     {
         $id = $this->storeMessage('a@example.be');
-        $this->writeLegacyColumns($id, 'rental', 'LOC-2027-0042', 'telepathy');
+        $this->writeLegacyColumns($id, 'rental', 'LOC-K7Q2M4', 'telepathy');
 
         $this->assertSame(1, $this->messages->backfillLinks());
 
-        $message = $this->service->findOneForReference('rental', 'LOC-2027-0042', $id);
+        $message = $this->service->findOneForReference('rental', 'LOC-K7Q2M4', $id);
         $this->assertNotNull($message);
         // The association survives; only the label for how it was decided
         // is lost, and it falls back to an origin never presented as
@@ -341,7 +341,7 @@ class InboundMessageLinkTest extends TestCase
     public function testTheBackfillLeavesAnAlreadyMigratedInstallationAlone(): void
     {
         $id = $this->storeMessage('a@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::MANUAL);
 
         // No legacy values anywhere: nothing to carry over.
         $this->assertSame(0, $this->messages->backfillLinks());
@@ -411,12 +411,12 @@ class InboundMessageLinkTest extends TestCase
         // deletion of the object, where the promise to the person concerned
         // is that the mail attached to their file goes with the file.
         $id = $this->storeMessage('facture-1@example.be');
-        $this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
         $fileId = $this->storeFile();
         $this->messages->addAttachment($id, $fileId, 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
 
-        $this->assertSame(1, $this->service->purgeReference('rental', 'LOC-2027-0042'));
+        $this->assertSame(1, $this->service->purgeReference('rental', 'LOC-K7Q2M4'));
 
         $this->assertSame(0, $this->countRows('inbound_messages'));
         $this->assertSame(0, $this->countRows('inbound_message_attachments'));
@@ -435,11 +435,11 @@ class InboundMessageLinkTest extends TestCase
         // its own answer kept asking on the next page load, and kept the
         // message out of the retention purge for ever.
         $id = $this->storeMessage('settled@mail');
-        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-2027-0042'));
-        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-2027-0043'));
+        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-K7Q2M4'));
+        $this->messages->addCandidate($id, 'rental', $this->candidate('LOC-K7Q2M5'));
         $this->messages->addCandidate($id, 'finance', $this->candidate('account-3'));
 
-        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL));
+        $this->assertTrue($this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::MANUAL));
 
         $standing = $this->messages->findActiveCandidates($id);
         $this->assertCount(1, $standing);

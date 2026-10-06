@@ -17,7 +17,7 @@ use Twig\Environment;
  *
  * That page seeds its editor with the shipped `content` block rendered
  * with **each declared variable standing for itself** — `{{ reference }}`,
- * not « LOC-2027-0042 ». The shipped template is therefore not merely what
+ * not « LOC-K7Q2M4 ». The shipped template is therefore not merely what
  * gets sent while nobody has customised the e-mail: it IS the default
  * wording an administrator is handed, and every property below is about
  * that text still working after they save it.

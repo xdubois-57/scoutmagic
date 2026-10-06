@@ -22,7 +22,6 @@ use Modules\InboundMail\Api\ReferenceDirectory;
 use Modules\InboundMail\Api\ReferenceSuggestion;
 use Modules\LlmConnector\Api\LlmException;
 use Core\Service\TextNormalizerService;
-use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\OtherRenterEmail;
 use Modules\Rental\Booking\RentalBooking;
@@ -38,7 +37,7 @@ use Modules\Rental\Service\RentalDocumentService;
  * **The ordering is the whole design, and it goes from certain to
  * plausible**, stopping at the first level that answers:
  *
- * 1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
+ * 1. **A reference in the subject** (`[LOC-K7Q2M4]`) — the module put it
  *    there itself, so a reply carrying it back is as close to certain as
  *    this gets.
  * 2. **The thread headers** — `In-Reply-To`/`References` naming a message
@@ -215,7 +214,7 @@ class RentalMessageConsumer implements
         // reply address that mail carried (§8.58). Minted and verified by
         // the gateway; only the booking's existence is checked here.
         // Upper-cased because that is what a booking reference IS
-        // (`LOC-2027-0042`) and the mail layer lowercases recipients.
+        // (`LOC-K7Q2M4`) and the mail layer lowercases recipients.
         $addressed = $message->addressedReferenceFor(self::CONSUMER_ID);
         $addressed = $addressed === null ? null : strtoupper($addressed);
         if ($addressed !== null && $this->bookingRepository->findByReference($addressed) !== null) {
@@ -225,7 +224,7 @@ class RentalMessageConsumer implements
         // Level 1: a reference quoted in the subject or the body. The
         // reference is SEQUENTIAL and printed on every contract, so it is
         // guessable — and this rule used to ask nothing else, so anybody
-        // writing `[LOC-2027-0042]` to a mailbox the operator opened to
+        // writing `[LOC-K7Q2M4]` to a mailbox the operator opened to
         // this consumer had their message filed on that booking's internal
         // thread, attachments and all. The neighbours bound their
         // equivalent rule and said so: Modules\Finance's own consumer
@@ -534,12 +533,11 @@ class RentalMessageConsumer implements
                 return [[], false];
             }
 
-            // A reference quoted by an address the booking does not know —
-            // only a random one: a sequential reference from before #720
-            // step 9 can be enumerated, and the model, handed the one
-            // booking the message itself names, would only rubber-stamp it
-            // (#231).
-            return [BookingReference::isUnguessable($referenced->reference) ? [$referenced] : [], true];
+            // A reference quoted by an address the booking does not know:
+            // the model decides whether the message is about it. Only a
+            // random reference is ever recognised (`BookingReference`), so
+            // quoting one means having seen the booking's mail (#231).
+            return [[$referenced], true];
         }
 
         [$decided, $standing] = $this->addressMatch($people, $message->sentAt);
@@ -593,7 +591,7 @@ class RentalMessageConsumer implements
 
     public function describeReference(string $businessReference): ?string
     {
-        // « LOC-2027-0012 » is already the name a manager uses out loud.
+        // « LOC-D4E5F6 » is already the name a manager uses out loud.
         return null;
     }
 

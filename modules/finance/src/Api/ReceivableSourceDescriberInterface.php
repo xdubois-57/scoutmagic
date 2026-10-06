@@ -17,7 +17,7 @@ namespace Modules\Finance\Api;
  * numeric id**, and that is what lets the page work unchanged for any
  * future module. The price was a screen naming its groups « Location #45 »
  * and « Formulaire #12 » — a database id in front of a chef d'unité, above
- * rows that already read « LOC-2027-0012 — Jean Dupont ». Finance was the
+ * rows that already read « LOC-D4E5F6 — Jean Dupont ». Finance was the
  * only place that could have improved it and the one place that must not
  * learn what a booking is.
  *
@@ -57,7 +57,7 @@ interface ReceivableSourceDescriberInterface
 
     /**
      * A human name for ONE of this module's references — « Location
-     * LOC-2027-0012 — Jean Dupont », « Formulaire : inscription au camp ».
+     * LOC-D4E5F6 — Jean Dupont », « Formulaire : inscription au camp ».
      *
      * Null when the module no longer recognises the reference, which is the
      * ordinary answer for an object somebody deleted: the page then falls
