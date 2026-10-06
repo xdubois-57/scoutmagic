@@ -2354,13 +2354,46 @@ is no reply-address level: that is something the renter writes to. A sent
 message is never announced and never teaches the booking an address — its
 sender is the unit — unless a person or the AI filed it, below.
 
-**Ambiguity is answered with nothing** (#720). Two live bookings matching
-the sender inside the window attach nothing — a manager reading the wrong
-file has no way to know it is the wrong file, which makes a wrong
-attachment worse than none — and nobody is asked to choose either: the
-propositions, the notification that announced them
-(`rental.mail_proposition`) and the attention point that counted them are
-gone with the screen that showed them. The message appears on no booking.
+**The rules answer ambiguity with nothing; the model settles it later**
+(#720, step 6). Two live bookings matching the sender inside the window
+attach nothing on arrival — a manager reading the wrong file has no way to
+know it is the wrong file, which makes a wrong guess worse than none — and
+nobody is asked to choose: the propositions, their notification and the
+attention point that counted them are gone. What the rules left standing
+goes to the model in the hourly deferred pass (`analyzeStored()`, §8.58's
+`AnalyzeStoredMessagesHandler`): several bookings of one renter in range,
+or the one booking a reference names when it was quoted by an address the
+booking does not know. **In practice that is received mail.** A sent
+message is kept only when a consumer filed it at arrival
+(`MailboxSyncService::store()`, §8.58), so an ambiguous one is never stored
+and never reaches the model; the sent branch only serves a sent message
+detached from the booking it was filed under while others still stand.
+`Mail\BookingChoiceByModel` chooses
+**only among that list** or answers nothing, and its pick is filed
+`LinkOrigin::AI` — shown as uncertain, learning the address like a
+person's decision, undone by « Détacher ». A booking the message was
+detached from is left out before the model is asked
+(`InboundMailInterface::isExcluded()`). Bounded by the pass: ten messages
+an hour, each call capped in characters, tokens and time; a call that
+failed answers `readingFailed()` and is retried at most
+`MAX_ANALYSIS_ATTEMPTS` times, while a model that declines is an answer and
+is not asked again. Without the connector or a cheap model nothing is
+asked and the message appears on no booking. The text read is anybody's
+(#231), so the model only ever picks among the bookings the rules put
+forward — on the address path at least two, a cancelled booking included
+when nothing covers the message's date, since a single one would be a
+rubber stamp. **The reference case is the weak one, and it is deliberate**
+(the chantier asks for it): there the rules put forward one booking only
+because the message named it, so the model is confirming, not choosing. Two
+things bound it. Only a random reference qualifies
+(`BookingReference::isUnguessable()`, #720 step 9: six characters out of
+31, about 887 million) — a sequential one a booking made before then still
+carries can be enumerated, so it never reaches the model — and it travels
+only in that booking's own mail, so quoting it means having seen that mail — the treasurer the renter
+forwarded it to, which is the case this exists for. And what it obtains is
+a message, and an address, filed under the booking for its managers alone:
+nothing is sent to the sender, the attachments stay `Non classé` and
+internal, the filing is shown as the model's, and « Détacher » undoes both.
 
 **« Autres adresses du locataire »** (#720, step 5, `rental_booking_emails`).
 The booking's other addresses — the treasurer, a partner, a work address —
@@ -3031,7 +3064,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Registration order is immaterial.** `MessageConsumerRegistry` asks every consumer the box is open to and applies every answer (§8.58); which module sees a dedicated camps box is the mailbox configuration's decision, not the position of a `register()` call. `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` now pins only what the web path builds the consumer with — that it can file a document and re-analyse — which is what actually failed silently.
 
-**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the same shape as rental's, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
+**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the shape rental's had before #720 let its model file, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 

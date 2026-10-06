@@ -316,6 +316,16 @@ interface InboundMailInterface
     ): bool;
 
     /**
+     * Whether a person detached this message from this object for good
+     * (`detach()` with `$excludeFromAnalysis`, #720). The applier already
+     * refuses such a link whatever a consumer answers; this lets a consumer
+     * leave the object out of what it weighs in the first place — a model
+     * asked to choose between two bookings must not spend its one answer on
+     * the one the message was taken off.
+     */
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool;
+
+    /**
      * Move a message from one business object to another **within the same
      * consumer**. The caller is responsible for having checked that the
      * user may reach BOTH references (§7.7) — this module cannot know a
@@ -419,9 +429,16 @@ interface InboundMailInterface
      * parts: what this call settles immediately, and what the hourly task
      * settles afterwards.
      *
+     * `$requeueStoredPass` false keeps that second part out: a consumer
+     * re-reading its mail after one of its own decisions wants the rules
+     * re-run with what it just learned, not every unlinked message's
+     * deferred reading — a model call among them — started again from
+     * zero, attempts and a declined answer included (#720, step 6). A
+     * person's « Relancer l'analyse » keeps the default.
+     *
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array;
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array;
 
     /**
      * The business object a message belongs to, found from the Message-IDs

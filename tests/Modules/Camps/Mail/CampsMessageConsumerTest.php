@@ -1225,6 +1225,36 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertCount(1, $consumer->analyze($this->message('epouse@example.org'))->links);
     }
 
+    public function testAManualAssociationRereadsTheRulesWithoutRequeueingTheDeferredPass(): void
+    {
+        // The deferred pass's marker belongs to the message, not to this
+        // module: requeueing it here would make the rentals' model look
+        // again at mail it already declined on a shared box (#720, step 6).
+        $inbound = new class implements InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @var list<array{string, int, bool}> */
+            public array $reanalyses = [];
+
+            public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
+            {
+                $this->reanalyses[] = [$consumerId, $limit, $requeueStoredPass];
+
+                return ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+            }
+        };
+
+        $this->consumer($inbound)->onLinked(
+            $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $this->assertSame(
+            [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::REANALYSIS_AFTER_DECISION, false]],
+            $inbound->reanalyses
+        );
+    }
+
     public function testAKnownAddressIsNotAddedTwice(): void
     {
         $this->contacts->create($this->campId, 'M. Lambert', 'Fermier', 'lambert@example.org', null, null);

@@ -189,6 +189,20 @@ class ReanalyzeUnlinkedTest extends TestCase
         $this->assertSame([$messageId], $this->messages->findMessagesAwaitingStoredAnalysis(10));
     }
 
+    public function testAConsumerReReadingAfterItsOwnDecisionLeavesTheSlowHalfAlone(): void
+    {
+        // A model call already answered, or a budget already spent, is not
+        // started again from zero because somebody filed another message
+        // (#720, step 6).
+        $messageId = $this->storeMessage('deferred@mail');
+        $this->messages->markStoredAnalysisDone($messageId, new \DateTimeImmutable());
+        $this->consumers->register(new FakeMessageConsumer('camps'));
+
+        $this->service->reanalyzeUnlinked('camps', 100, false);
+
+        $this->assertSame([], $this->messages->findMessagesAwaitingStoredAnalysis(10));
+    }
+
     public function testAModuleWithNoConsumerRegisteredChangesNothing(): void
     {
         $this->storeMessage('absent@mail');

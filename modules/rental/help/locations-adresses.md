@@ -33,8 +33,8 @@ chaque retrait figure dans l'historique de la réservation.
 ## Les adresses ajoutées automatiquement
 
 Quand quelqu'un de l'unité rattache à la main un message à la
-réservation, depuis le courrier général de l'unité, le site retient
-l'adresse de l'expéditeur. Pour un e-mail que l'unité a envoyé, il retient
+réservation, depuis le courrier général de l'unité, ou que l'IA tranche
+pour cette réservation, le site retient l'adresse de l'expéditeur. Pour un e-mail que l'unité a envoyé, il retient
 le destinataire, seulement s'il n'y en a qu'un. L'adresse apparaît alors
 avec la mention « ajoutée automatiquement ».
 

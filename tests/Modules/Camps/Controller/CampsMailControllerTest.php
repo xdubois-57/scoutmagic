@@ -922,7 +922,7 @@ class RecordingInboundMail implements InboundMailInterface
     /**
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
     {
         $this->reanalyses[] = [$consumerId, $limit];
 

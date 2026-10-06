@@ -94,4 +94,23 @@ class BookingReferenceTest extends TestCase
 
         $this->assertCount(20, array_unique($drawn));
     }
+
+    /** @return array<string, array{string, bool}> */
+    public static function guessability(): array
+    {
+        return [
+            'a random reference' => ['LOC-2027-K7Q2MX', true],
+            'typed in lower case' => ['loc-2027-k7q2mx', true],
+            'a sequential one' => ['LOC-2027-0042', false],
+            'a long sequential one' => ['LOC-2027-123456', false],
+            'a random draw of digits only' => ['LOC-2027-234567', false],
+            'not a reference' => ['LOC-2027-K7Q2M', false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('guessability')]
+    public function testOnlyARandomReferenceCountsAsUnguessable(string $reference, bool $unguessable): void
+    {
+        $this->assertSame($unguessable, BookingReference::isUnguessable($reference));
+    }
 }

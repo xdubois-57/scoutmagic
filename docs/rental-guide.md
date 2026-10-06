@@ -342,10 +342,14 @@ c'est le locataire qui écrit —, puis par la **conversation**, puis, à
 défaut, par l'**adresse de l'expéditeur** si le message tombe dans une
 fenêtre autour du séjour. Un e-mail envoyé suit les mêmes règles, en
 lisant ses **destinataires** au lieu de l'expéditeur. **En cas
-d'ambiguïté, rien n'est rattaché** :
-le message n'apparaît sur aucune réservation, et personne n'a de tri à
-faire. Mieux vaut un e-mail qui reste dans la boîte qu'un e-mail dans le
-mauvais dossier.
+d'ambiguïté, rien n'est rattaché à l'arrivée** : mieux vaut un e-mail qui
+reste dans la boîte qu'un e-mail dans le mauvais dossier. Si le connecteur
+IA est configuré, le modèle tranche dans l'heure, **uniquement parmi les
+réservations que les règles ont retenues** (plusieurs réservations du même
+locataire, ou une référence citée par une adresse inconnue), ou ne choisit
+rien. Son choix est marqué « Rattachement incertain · Suggestion automatique » sur la page
+Courrier ; **Détacher** le défait. Sans IA, le message n'apparaît sur
+aucune réservation, et personne n'a de tri à faire.
 
 Quand un e-mail est rattaché à une réservation, ses gestionnaires
 reçoivent une notification « Nouveau message du locataire », qui mène à
@@ -371,7 +375,8 @@ de l'une d'elles, ou envoyé à l'une d'elles, est reconnu comme s'il
 s'agissait du locataire. Vous en ajoutez ou en retirez une ; chaque
 changement figure dans l'historique de la réservation, et les messages
 déjà rattachés restent quand vous en retirez une. Quand quelqu'un
-rattache un message à la main depuis le courrier général de l'unité,
+rattache un message à la main depuis le courrier général de l'unité, ou
+que l'IA tranche,
 l'adresse de l'expéditeur (ou le destinataire unique d'un e-mail envoyé)
 s'ajoute d'elle-même, marquée « ajoutée automatiquement » ; détacher ce
 message la retire.
