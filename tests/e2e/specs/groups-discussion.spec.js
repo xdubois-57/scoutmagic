@@ -676,6 +676,12 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await loginAsAdmin(page);
     await page.getByRole('button', { name: 'Tout refuser' }).click();
     await page.setViewportSize(PHONE);
+    // This scenario is about the unfolding itself, which the stylesheet
+    // rightly removes for anybody who asked for less movement — and the
+    // suite asks for exactly that (reducedMotion: 'reduce' in
+    // playwright.config.js). The other half, the swap with no travel,
+    // is a plain `transition: none` and needs no browser to read.
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await openCreateGroupForm(page);
