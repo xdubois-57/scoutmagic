@@ -15,7 +15,7 @@
     "test:engines": "./scripts/test-engines.sh"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",

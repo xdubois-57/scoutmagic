@@ -16,7 +16,7 @@ voir [installation.md](installation.md).
 - PHP >= 8.4
 - MySQL >= 8.0
 - Composer (pour le développement/build uniquement — non nécessaire sur le serveur)
-- Node.js >= 22 et npm (pour l'outillage de développement uniquement — analyse statique JavaScript, tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
+- Node.js 22.22.2 ou plus récent dans la branche 22, 24.15.0 ou plus récent dans la branche 24, ou 26 et suivantes (la plage de jsdom et de Vitest), et npm (pour l'outillage de développement uniquement — analyse statique JavaScript, tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
 
 ## Développement
 
