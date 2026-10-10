@@ -1196,6 +1196,42 @@ thing rested on a hand-rolled sanitiser nothing could verify. Asking the
 server what it kept costs one field in a response that was already being
 made.
 
+**One look, one HTML: the canonical form** (issue #844). Every generic
+toolbar offers the same gestures, so the HTML they can mean is a closed
+grammar — `p`, `h2`, `h3`, `ul`/`ol` > `li`; inside them `a[href]` >
+`strong` > `em` > `u` > text, and `br` — always nested in that order,
+never styled. `canonicalFragment()` and `canonicalHtml()` rebuild any HTML
+into it, and three moments go through them: a **paste** (`wireSurface()`,
+which every `wireToolbar()` call installs), **opening** a stored text, and
+the HTML an editor **sends or posts**. A pasted
+`<span style="font-weight:700">` and the Bold button's `<b>` therefore both
+leave as `<strong>`; before, the first reached the server as a span, lost
+its style there, and the formatting changed on save. It does not run after
+each toolbar command: rewriting the live DOM under the caret would lose the
+selection and the browser's own undo history. The news editor adds `img` to
+the grammar (`{ images: true }`); a rich-text form field turns pasted
+`{{ keyword }}` text into chips before it lands (`decorate`). A text being
+**reopened or saved again** is canonicalised with `{ stored: true }`: what
+the sanitiser accepted and no button makes — `img`, `h4`, `blockquote`, a
+link's `target`, `rel` and `title` — survives, so saving an untouched text never changes it. Only a paste is
+held to the toolbar's own gestures.
+
+This is not the client-side sanitiser the paragraph above refuses. **The
+clipboard's HTML is never read as a string**: parsing it here, even in an
+inert `DOMParser` document, is a cross-site scripting sink by CodeQL's
+reading, and an open CodeQL alert blocks the release. The browser parses it,
+with its own paste sanitiser, into a hidden contenteditable next to the
+surface — the « paste bin » of the established editors — and only the
+resulting nodes are read. (`canonicalFragment()` parses strings only for
+the editor's own HTML: a stored text the server already sanitised, or what
+the editor is about to send.) It writes nothing but elements it creates
+itself and text nodes, and copies no attribute but an href or image src that
+passed the scheme allowlist. Security stays where
+it was: `HtmlSanitizer` cleans every string the server receives, and it is
+not widened to match. `tests/fixtures/rich-text/canonical-paste.json` is
+the contract both sides read — Vitest holds that a paste becomes the
+canonical HTML, PHPUnit that the sanitiser keeps it byte for byte.
+
 **Images inside rich text are bounded once, by `.rich-text`.** Everything
 written through a rich-text editor is stored as HTML and printed with
 `|raw`, and nothing in this site's CSS or in Bootstrap constrains an

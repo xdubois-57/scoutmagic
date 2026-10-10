@@ -30,6 +30,11 @@ bouton crayon apparaît. Il ouvre un éditeur avec la mise en forme
 essentielle — titres, gras, listes, liens. Enregistrez : la
 modification est immédiatement en ligne pour tout le monde.
 
+Un texte collé depuis Word, Google Docs ou une page web garde ses
+titres, son gras, son italique, ses listes et ses liens, mais perd ses
+couleurs et ses polices : il prend la forme exacte que lui auraient
+donnée les boutons de l'éditeur, et se modifie donc avec eux.
+
 ## Changer une photo
 
 Les images éditables (photo d'accueil, photos de staff...) affichent
