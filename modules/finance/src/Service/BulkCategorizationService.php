@@ -105,6 +105,17 @@ class BulkCategorizationService
      */
     private const ABANDON_AFTER_SECONDS = 1800;
 
+    /**
+     * The same safety net for the path no human watches: the scheduler
+     * carrying the run on its own. A batch counts itself before it starts
+     * and the count drops back to zero the moment one movement is done, so
+     * this many batches in a row that moved nothing — each claimed, each
+     * failing before its first movement — end the run as abandoned. Counted
+     * in batches rather than seconds because how far apart two batches run
+     * depends on the host's cron, not on the run.
+     */
+    private const MAX_STALLED_BATCHES = 5;
+
     /** @var \Closure(): float */
     private \Closure $clock;
 
@@ -201,7 +212,11 @@ class BulkCategorizationService
      * The outcome of the last completed run, or null before the first
      * one ever finishes.
      *
-     * @return array{categorized_by_rules: int, categorized_by_ai: int, still_uncategorized: int}|null
+     * `abandoned`, `processed` and `target` are absent from a result
+     * stored before they existed.
+     *
+     * @return array{categorized_by_rules: int, categorized_by_ai: int, still_uncategorized: int,
+     *     abandoned?: bool, processed?: int, target?: int}|null
      */
     public function getLastResult(): ?array
     {
@@ -240,6 +255,16 @@ class BulkCategorizationService
             return;
         }
 
+        // A batch that keeps failing before its first movement is not
+        // re-armed for ever: give up once enough of them moved nothing.
+        $run['stalled_batches'] = (int) ($run['stalled_batches'] ?? 0) + 1;
+        if ($run['stalled_batches'] > self::MAX_STALLED_BATCHES) {
+            $this->finishRun($run, 'abandoned');
+
+            return;
+        }
+        $this->saveRun($run);
+
         // FIRST, before anything that can take time: the continuation. If
         // this process is killed half-way, that row is what the next pass
         // finds. CronPassLock keeps it from running beside this batch.
@@ -263,6 +288,7 @@ class BulkCategorizationService
 
             $outcome = $this->categorize($transaction, $aiEnabled);
             $run['cursor'] = $transaction->id;
+            $run['stalled_batches'] = 0;
             $run['processed'] = (int) $run['processed'] + 1;
             $run[$outcome] = (int) $run[$outcome] + 1;
             $run['updated_at'] = (int) ($this->clock)();
@@ -418,6 +444,7 @@ class BulkCategorizationService
             'still' => 0,
             'started_at' => $now,
             'updated_at' => $now,
+            'stalled_batches' => 0,
         ];
 
         $claimed = $this->settingService->replaceIfUnchanged(
@@ -561,6 +588,12 @@ class BulkCategorizationService
                 'categorized_by_rules' => (int) $run['by_rules'],
                 'categorized_by_ai' => (int) $run['by_ai'],
                 'still_uncategorized' => (int) $run['still'],
+                // An abandoned run's counters cover only what it walked
+                // before giving up: the page has to say it stopped short,
+                // not « terminée ».
+                'abandoned' => ($run['status'] ?? null) === 'abandoned',
+                'processed' => (int) $run['processed'],
+                'target' => (int) $run['target'],
             ]),
             'finance'
         );

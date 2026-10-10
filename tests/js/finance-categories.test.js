@@ -408,6 +408,57 @@ describe('finance-categories.js: following a run walked in batches (issue #839)'
             vi.useRealTimers();
         }
     });
+
+    it('does not call an abandoned run « terminée »', async () => {
+        await boot();
+        statusIs({
+            running: false,
+            resumed: false,
+            progress: { processed: 40, target: 184 },
+            last_result: {
+                categorized_by_rules: 30, categorized_by_ai: 0, still_uncategorized: 10,
+                abandoned: true, processed: 40, target: 184,
+            },
+        });
+        vi.useFakeTimers();
+        try {
+            document.getElementById('run-rules-btn').click();
+            await vi.advanceTimersByTimeAsync(3100);
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                'La catégorisation s\'est interrompue avant la fin. Relancez-la pour traiter les mouvements restants.',
+                { variant: 'warning' },
+            );
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Catégorisation terminée.');
+            expect(document.getElementById('run-rules-result').textContent)
+                .toContain('interrompue avant la fin : 40 mouvement(s) examiné(s) sur 184');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('still calls a completed run « terminée »', async () => {
+        await boot();
+        statusIs({
+            running: false,
+            resumed: false,
+            progress: { processed: 184, target: 184 },
+            last_result: {
+                categorized_by_rules: 150, categorized_by_ai: 4, still_uncategorized: 30,
+                abandoned: false, processed: 184, target: 184,
+            },
+        });
+        vi.useFakeTimers();
+        try {
+            document.getElementById('run-rules-btn').click();
+            await vi.advanceTimersByTimeAsync(3100);
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Catégorisation terminée.');
+            expect(document.getElementById('run-rules-result').textContent).toMatch(/^Dernière exécution : 150/);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 describe('finance-categories.js: rule reordering (no confirmation — a move is undoable)', () => {

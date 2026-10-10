@@ -284,7 +284,10 @@ class BulkCategorizationServiceTest extends TestCase
 
         $this->assertSame((int) ceil(120 / BulkCategorizationService::BATCH_SIZE), $batches);
         $this->assertSame(
-            ['categorized_by_rules' => 40, 'categorized_by_ai' => 0, 'still_uncategorized' => 80],
+            [
+                'categorized_by_rules' => 40, 'categorized_by_ai' => 0, 'still_uncategorized' => 80,
+                'abandoned' => false, 'processed' => 120, 'target' => 120,
+            ],
             $this->service()->getLastResult()
         );
         $this->assertNull($this->pendingBatch(), 'a finished run leaves nothing queued');
@@ -476,6 +479,98 @@ class BulkCategorizationServiceTest extends TestCase
     }
 
     /**
+     * The same net on the path no human watches. A batch that fails before
+     * its first movement every time — the database refusing it, say — is
+     * re-armed by its own early continuation; without a count, the
+     * scheduler would carry that run for ever and the button would stay
+     * disabled with nobody polling the page.
+     */
+    public function testBatchesThatKeepFailingBeforeTheirFirstMovementEndTheRun(): void
+    {
+        $this->createTransaction('Achat');
+        $this->assertTrue($this->service()->scheduleBackgroundRun());
+        $failing = $this->service(null, static function (): float {
+            throw new \RuntimeException('the database refused the batch');
+        });
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            try {
+                $this->runQueuedBatch($failing);
+                $this->fail('the batch was meant to fail');
+            } catch (\RuntimeException) {
+            }
+            $this->assertTrue($this->service()->isRunning(), 'attempt ' . $attempt . ' still leaves room to recover');
+        }
+
+        $this->runQueuedBatch($this->service());
+
+        $this->assertFalse($this->service()->isRunning());
+        $this->assertNull($this->pendingBatch());
+        $this->assertTrue($this->service()->getLastResult()['abandoned']);
+        $this->assertTrue($this->service()->scheduleBackgroundRun(), 'the button is free again');
+    }
+
+    /**
+     * One movement done is progress: the count starts over, so a run that
+     * is slow but moving is never given up by it.
+     */
+    public function testABatchThatMovesResetsTheStallCount(): void
+    {
+        $this->categoryRepository->create('Fournitures');
+        for ($i = 0; $i < BulkCategorizationService::BATCH_SIZE * 3; $i++) {
+            $this->createTransaction('Achat ' . $i);
+        }
+        $this->assertTrue($this->service()->scheduleBackgroundRun());
+        $failing = $this->service(null, static function (): float {
+            throw new \RuntimeException('the database refused the batch');
+        });
+
+        for ($round = 0; $round < 2; $round++) {
+            for ($attempt = 1; $attempt <= 4; $attempt++) {
+                try {
+                    $this->runQueuedBatch($failing);
+                } catch (\RuntimeException) {
+                }
+            }
+            $this->runQueuedBatch($this->service());
+            $this->assertTrue($this->service()->isRunning(), 'round ' . $round . ' moved, so the run goes on');
+        }
+    }
+
+    /**
+     * Its counters cover only what it walked before giving up, so the
+     * result says so — the page must not call it « terminée ».
+     */
+    public function testAnAbandonedRunSaysSoInItsResult(): void
+    {
+        $this->createTransaction('Achat');
+        $now = 1_000_000.0;
+        $clock = function () use (&$now): float {
+            return $now;
+        };
+        $this->assertTrue($this->service(null, $clock)->scheduleBackgroundRun());
+        $now += 1800;
+        $this->service(null, $clock)->status();
+
+        $result = $this->service(null, $clock)->getLastResult();
+        $this->assertTrue($result['abandoned']);
+        $this->assertSame(0, $result['processed']);
+        $this->assertSame(1, $result['target']);
+    }
+
+    public function testACompletedRunIsNotReportedAbandoned(): void
+    {
+        $this->createTransaction('Achat');
+
+        $this->service()->runOnUncategorized();
+
+        $result = $this->service()->getLastResult();
+        $this->assertFalse($result['abandoned']);
+        $this->assertSame(1, $result['processed']);
+        $this->assertSame(1, $result['target']);
+    }
+
+    /**
      * A leftover batch — from a run that already ended, or another run —
      * does nothing.
      */
@@ -500,7 +595,10 @@ class BulkCategorizationServiceTest extends TestCase
 
         $this->assertFalse($this->service()->isRunning());
         $this->assertSame(
-            ['categorized_by_rules' => 0, 'categorized_by_ai' => 0, 'still_uncategorized' => 0],
+            [
+                'categorized_by_rules' => 0, 'categorized_by_ai' => 0, 'still_uncategorized' => 0,
+                'abandoned' => false, 'processed' => 0, 'target' => 0,
+            ],
             $this->service()->getLastResult()
         );
     }

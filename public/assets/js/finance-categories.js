@@ -201,13 +201,26 @@
     // The completion summary is a persistent, re-readable block on the
     // page — the alert() it replaces vanished with one click and the
     // numbers with it. The toast only announces that the block appeared.
+    // An abandoned run (no progress for too long) only counted what it
+    // walked before giving up — saying « terminée » over those counters
+    // would read as « everything was looked at ».
     function showRunRulesResult(lastResult) {
         if (!lastResult) return;
         const box = el('run-rules-result');
-        box.textContent = 'Dernière exécution : '
-            + lastResult.categorized_by_rules + ' mouvement(s) catégorisé(s) par les règles, '
+        const counts = lastResult.categorized_by_rules + ' mouvement(s) catégorisé(s) par les règles, '
             + lastResult.categorized_by_ai + ' par l\'IA, '
             + lastResult.still_uncategorized + ' toujours non catégorisé(s).';
+        if (lastResult.abandoned) {
+            box.textContent = 'Dernière exécution interrompue avant la fin : '
+                + lastResult.processed + ' mouvement(s) examiné(s) sur ' + lastResult.target + ' — ' + counts;
+            box.classList.remove('d-none');
+            window.ScoutMagicToast.show(
+                'La catégorisation s\'est interrompue avant la fin. Relancez-la pour traiter les mouvements restants.',
+                { variant: 'warning' }
+            );
+            return;
+        }
+        box.textContent = 'Dernière exécution : ' + counts;
         box.classList.remove('d-none');
         window.ScoutMagicToast.show('Catégorisation terminée.');
     }
