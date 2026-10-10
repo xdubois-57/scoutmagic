@@ -6,66 +6,69 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Service;
+namespace Core\Http;
 
-use Core\Http\StreamResponseHeaders;
-use Modules\Gallery\Api\GalleryException;
+use Core\Security\SsrfUrlValidator;
 
 /**
- * Fetches Open Graph metadata (og:title/og:description/og:image) from an
- * external album link — module spec §"External album (OG scraping)".
- * Best-effort only: a failed/slow fetch never blocks saving the album,
- * it just leaves the cached og_* columns null (Service\AlbumService
- * catches GalleryException and proceeds without them).
+ * Reads what a web page says about itself — its Open Graph tags and its
+ * <title> — from a URL somebody typed (SECURITY.md §17).
  *
- * The URL fetched here is always chief-supplied (an album's external_url)
- * or, since the `groups` module started using fetch() too, member-supplied
- * (a link shared in a post) — either way, untrusted input this process is
- * about to make an outbound request to. SECURITY.md's "Outbound HTTP
- * requests to user-supplied URLs" section is the contract this class
- * implements: every resolved IP is checked against private/reserved/
- * multicast ranges before connecting (not just the literal host in the
- * URL — a hostname is only as trustworthy as where DNS currently points
- * it, and every redirect hop gets the exact same check before it is
- * followed, closing the classic "public URL that 302s to
- * http://169.254.169.254/" bypass). Failures are never distinguished from
- * each other outward: every rejection reason (private IP, bad port,
- * credentials in the URL, too many redirects, wrong content type, a
- * genuine network error) collapses to the same null/GalleryException a
+ * **The one place in the installation allowed to make that request.**
+ * Every feature that needs to know something about a member-supplied URL
+ * goes through here: the gallery's external albums, the link previews of
+ * the groups and camps modules (through Core\Http\LinkPreviewService),
+ * and the rich-text editors' « baguette magique » that proposes a link's
+ * text (Core\Http\LinkLabelResolver, issue #840). It was born in the
+ * gallery as OgScraperService and moved here because a capability every
+ * editor offers cannot depend on a module a unit may switch off — the same
+ * move the LinkPreviewFetcher contract had already made.
+ *
+ * The URL is untrusted input this process is about to make an outbound
+ * request to, and this class implements SECURITY.md §17's contract: every
+ * resolved IP is checked against private/reserved/multicast ranges before
+ * connecting (not just the literal host in the URL — a hostname is only
+ * as trustworthy as where DNS currently points it, and every redirect hop
+ * gets the exact same check before it is followed, closing the classic
+ * "public URL that 302s to http://169.254.169.254/" bypass). Failures are
+ * never distinguished from each other outward: every rejection reason
+ * (private IP, bad port, credentials in the URL, too many redirects, wrong
+ * content type, a genuine network error) collapses to the same null a
  * caller already treats as "could not fetch" — nothing here is a signal
  * an attacker could use to probe internal network layout from outside,
  * and nothing here is ever written to JournalService (a resolved-IP log
  * would itself be the kind of internal-network fingerprinting this class
  * exists to prevent).
  */
-class OgScraperService
+class UrlMetadataFetcher
 {
     private const TIMEOUT_SECONDS = 8.0;
     private const MAX_BYTES = 2 * 1024 * 1024;
     private const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
     private const MAX_REDIRECTS = 5;
-    private const USER_AGENT = 'Mozilla/5.0 (compatible; ScoutMagicGalleryBot/1.0)';
+    private const USER_AGENT = 'Mozilla/5.0 (compatible; ScoutMagicBot/1.0)';
 
     /**
-     * @return array{title: ?string, description: ?string, image: ?string}
-     * @throws GalleryException on an invalid URL or a fetch failure
+     * What the page at $url says about itself, or null when it could not
+     * be read as an HTML page — whatever the reason, deliberately (see the
+     * class docblock). Never downloads the og:image: that is
+     * fetchImageBytes(), and only a caller that will store the image asks
+     * for it.
      */
-    public function fetch(string $url): array
+    public function fetch(string $url): ?UrlMetadata
     {
         $result = $this->fetchChain($url, self::MAX_BYTES);
         if ($result === null || !$this->looksLikeHtml($result['contentType'])) {
-            throw new GalleryException("Impossible de récupérer le lien : {$url}");
+            return null;
         }
 
-        return $this->parseOgTags($result['body']);
+        return $this->parse($result['body']);
     }
 
     /**
      * Best-effort binary download of an og:image URL — never throws, since
-     * a failed fetch must never block saving/refreshing the album (same
-     * philosophy as fetch() above, just non-throwing since the caller,
-     * Service\AlbumService::cacheOgImage(), already treats this as
-     * optional). Returns null on any failure (invalid URL, an SSRF-unsafe
+     * a failed fetch must never block what triggered it (an album save, a
+     * post). Returns null on any failure (invalid URL, an SSRF-unsafe
      * target, network error, wrong content type, or over MAX_IMAGE_BYTES).
      */
     public function fetchImageBytes(string $url): ?string
@@ -345,7 +348,7 @@ class OgScraperService
         // the scraper and the M4/M5/M6 endpoint checks. Kept as a protected
         // method (not an inline static call) so tests can still override just
         // the DNS half.
-        return \Core\Security\SsrfUrlValidator::resolveHostToPublicIp($host);
+        return SsrfUrlValidator::resolveHostToPublicIp($host);
     }
 
     private function looksLikeHtml(string $contentType): bool
@@ -375,17 +378,15 @@ class OgScraperService
     }
 
     /**
-     * Pure HTML → tags parsing, no network involved — public so it can be
-     * unit-tested directly against a fixed HTML string (real page content
-     * is not something a test can depend on network access for).
-     *
-     * @return array{title: ?string, description: ?string, image: ?string}
+     * Pure HTML → metadata parsing, no network involved — public so it can
+     * be unit-tested directly against a fixed HTML string (real page
+     * content is not something a test can depend on network access for).
      */
-    public function parseOgTags(string $html): array
+    public function parse(string $html): UrlMetadata
     {
         $doc = new \DOMDocument();
         // libxml emits warnings for real-world malformed HTML — irrelevant
-        // here, we only read <meta> tags.
+        // here, we only read <meta> tags and the <title>.
         libxml_use_internal_errors(true);
         // DOMDocument::loadHTML() defaults to ISO-8859-1 when the document
         // has no <meta charset> (Google Photos' share page is one such
@@ -418,6 +419,25 @@ class OgScraperService
             };
         }
 
-        return $tags;
+        return new UrlMetadata($tags['title'], $this->documentTitle($doc), $tags['description'], $tags['image']);
+    }
+
+    /**
+     * The page's own <title>, whitespace collapsed — the one in <head>,
+     * never an SVG's <title> further down, which names a drawing rather
+     * than the page.
+     */
+    private function documentTitle(\DOMDocument $doc): ?string
+    {
+        foreach ($doc->getElementsByTagName('title') as $title) {
+            if ($title->parentNode?->nodeName !== 'head') {
+                continue;
+            }
+            $text = trim((string) preg_replace('/\s+/u', ' ', $title->textContent));
+
+            return $text !== '' ? $text : null;
+        }
+
+        return null;
     }
 }

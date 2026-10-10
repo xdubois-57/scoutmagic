@@ -32,7 +32,7 @@
 // WHAT IT DELIBERATELY DOES NOT ASSERT
 // ----------------------------------------------------------------------------
 // A link's Open Graph metadata. Fetching one is an outbound HTTP request
-// to a member-supplied URL, and Modules\Gallery\Service\OgScraperService
+// to a member-supplied URL, and Core\Http\UrlMetadataFetcher
 // refuses those to a private address or a non-default port (SECURITY.md
 // §17) — which is exactly what a throwaway instance on localhost:<port>
 // is (it resolves to the loopback address, on a non-default port). The documented degradation is what this asserts instead, and it is

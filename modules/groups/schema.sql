@@ -462,7 +462,7 @@ CREATE TABLE discussion_group_rate_limits (
 -- comment in modules/retro/schema.sql) — without this, posting links
 -- would let a member trigger unlimited outbound requests through the
 -- server (an SSRF-probing/DoS-against-a-third-party vector even with
--- Service\OgScraperService's own hardening, SECURITY.md §17). Unlike
+-- Core\Http\UrlMetadataFetcher's own hardening, SECURITY.md §17). Unlike
 -- retro_rate_limits, member_id is stored directly rather than an HMAC: a
 -- group post is already tied to both author identities in plain form
 -- (discussion_group_posts.author_member_id above) — there is no

@@ -29,7 +29,8 @@ use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadata;
+use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Service\StoredFileCleaner;
@@ -85,8 +86,8 @@ class AlbumServiceTest extends TestCase
         // A page carrying no Open Graph tag: the shape fetch() answers then,
         // where an unconfigured double would answer [] and leave every key
         // undefined.
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => null, 'description' => null, 'image' => null]);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata(null, null, null, null));
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
@@ -176,8 +177,8 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumFetchesTitleFromOgDataWhenTitleIsBlank(): void
     {
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => 'Album de la famille Dupont', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('Album de la famille Dupont', null, 'Desc', 'https://example.com/img.jpg'));
         $settingService = $this->settingServiceAllowingEverything();
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
@@ -199,8 +200,8 @@ class AlbumServiceTest extends TestCase
         $jpegBytes = ob_get_clean();
         imagedestroy($image);
 
-        $ogScraperService = $this->createMock(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService = $this->createMock(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('Titre', null, 'Desc', 'https://example.com/img.jpg'));
         $ogScraperService->expects($this->once())->method('fetchImageBytes')->with('https://example.com/img.jpg')->willReturn($jpegBytes);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
@@ -219,8 +220,8 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumLeavesOgImageFileIdNullWhenTheImageDownloadFails(): void
     {
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('Titre', null, 'Desc', 'https://example.com/img.jpg'));
         $ogScraperService->method('fetchImageBytes')->willReturn(null);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
@@ -236,8 +237,8 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumRequiresATitleWhenOgFetchYieldsNoTitle(): void
     {
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => '', 'description' => '', 'image' => '']);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('', null, '', ''));
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
@@ -250,8 +251,8 @@ class AlbumServiceTest extends TestCase
 
     public function testCreateExternalAlbumKeepsAnExplicitTitleEvenWhenOgDataDiffers(): void
     {
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre de la page', 'description' => '', 'image' => '']);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('Titre de la page', null, '', ''));
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
@@ -269,7 +270,7 @@ class AlbumServiceTest extends TestCase
         $accessService->method('canManageAlbum')->willReturn(false);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
-            $this->createStub(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->createStub(UrlMetadataFetcher::class), $this->storageBackendFactory, $this->storageLocationRepository,
             $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
@@ -362,7 +363,7 @@ class AlbumServiceTest extends TestCase
         $galleryLocationService = $storageWiring->galleryLocations;
         $service = new AlbumService(
             $albumRepository, new MediaRepository($pdo), $this->accessService,
-            $this->createStub(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
+            $this->createStub(UrlMetadataFetcher::class), $storageBackendFactory, $storageLocationRepository,
             $storageLocationService, $galleryLocationService, new ScoutYearService($pdo), $settingService,
             $this->schedulerService, new UploadHandler(new FileRepository($pdo), sys_get_temp_dir())
         );
@@ -788,12 +789,8 @@ class AlbumServiceTest extends TestCase
     public function testAnOverLongScrapedTitleIsTruncatedRatherThanRejected(): void
     {
         $longImageUrl = 'https://example.com/' . str_repeat('d', 600) . '.jpg';
-        $ogScraperService = $this->createMock(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn([
-            'title' => str_repeat('é', 400),
-            'description' => 'Desc',
-            'image' => $longImageUrl,
-        ]);
+        $ogScraperService = $this->createMock(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata(str_repeat('é', 400), null, 'Desc', $longImageUrl));
         // The image download must be attempted with the FULL url, never the
         // clipped one — a truncated url fetches nothing.
         $ogScraperService->expects($this->once())->method('fetchImageBytes')->with($longImageUrl)->willReturn(null);
@@ -879,8 +876,8 @@ class AlbumServiceTest extends TestCase
         $jpegBytes = (string) ob_get_clean();
         imagedestroy($image);
 
-        $ogScraperService = $this->createStub(OgScraperService::class);
-        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService = $this->createStub(UrlMetadataFetcher::class);
+        $ogScraperService->method('fetch')->willReturn(new UrlMetadata('Titre', null, 'Desc', 'https://example.com/img.jpg'));
         $ogScraperService->method('fetchImageBytes')->willReturn($jpegBytes);
         $service = $this->serviceWithScraper($ogScraperService);
 
@@ -897,7 +894,7 @@ class AlbumServiceTest extends TestCase
         $this->assertNotNull($this->fileRepository->findById((int) $refreshed->ogImageFileId));
     }
 
-    private function serviceWithScraper(OgScraperService $ogScraperService): AlbumService
+    private function serviceWithScraper(UrlMetadataFetcher $ogScraperService): AlbumService
     {
         return new AlbumService(
             $this->albumRepository, $this->mediaRepository, $this->accessService, $ogScraperService,
@@ -943,7 +940,7 @@ class AlbumServiceTest extends TestCase
         $this->memberOfTheSectionByBlindIndex('idx');
 
         $service = new AlbumService(
-            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createStub(OgScraperService::class),
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createStub(UrlMetadataFetcher::class),
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
             $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,

@@ -4209,6 +4209,17 @@ $router->addRoute(
     'identified'
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
+// The « baguette magique » of every rich-text editor's link dialog (#840):
+// proposes a link's text from the page it points at. role_min identified —
+// the editors live behind a sign-in, and the per-account budget that
+// SECURITY.md §17 puts on every outbound fetch needs an account to count.
+$router->addRoute(
+    'POST',
+    '/api/lien/libelle',
+    \Core\Http\Controller\LinkLabelController::class,
+    'suggest',
+    'identified'
+);
 // The fallback of the browser's secure-context signal (#751): sent only by
 // a page loaded outside a secure context that made no request of its own.
 // Public and CSRF-free on purpose — such a page has no session (SECURITY.md
@@ -6650,6 +6661,23 @@ $frontController->registerController(
         $twig,
         new \Core\Http\InsecureBrowserAccess($settingService),
         $journalService
+    )
+);
+
+// Reading a page a member linked to (SECURITY.md §17): the one scraper and
+// its metadata cache, core's since issue #840 — the rich-text editors'
+// « baguette magique » needs them whatever modules are enabled, and the
+// gallery, groups and camps modules consume them below.
+$urlMetadataFetcher = new \Core\Http\UrlMetadataFetcher();
+$linkPreviewService = new \Core\Http\LinkPreviewService(
+    $urlMetadataFetcher,
+    new \Core\Http\LinkPreviewCacheRepository($pdo)
+);
+$frontController->registerController(
+    \Core\Http\Controller\LinkLabelController::class,
+    new \Core\Http\Controller\LinkLabelController(
+        $twig,
+        new \Core\Http\LinkLabelResolver($linkPreviewService, new \Core\Http\LinkLabelFetchLogRepository($pdo))
     )
 );
 
@@ -9436,16 +9464,6 @@ if ($isEnabled('gallery')) {
         $sectionService,
         $scoutYearService
     );
-    $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
-    // Api\LinkPreviewFetcher's only implementation (SECURITY.md §17) —
-    // built unconditionally, like Api\DelegatedAlbumManager just below,
-    // ready for a future module's block to consume; groups (first
-    // consumer) is the only one that does so today.
-    $galleryLinkPreviewCacheRepo = new \Modules\Gallery\Repository\LinkPreviewCacheRepository($pdo);
-    $galleryLinkPreviewFetcher = new \Modules\Gallery\Service\LinkPreviewService(
-        $galleryOgScraperService,
-        $galleryLinkPreviewCacheRepo
-    );
     // The cron's answer, never this request's (#700).
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability($settingService);
     // Reclaims the `files` row + bytes behind a media's staging original and
@@ -9463,7 +9481,7 @@ if ($isEnabled('gallery')) {
         $galleryAlbumRepo,
         $galleryMediaRepo,
         $galleryAccessService,
-        $galleryOgScraperService,
+        $urlMetadataFetcher,
         $storageBackendFactory,
         $storageLocationRepository,
         $storageLocationService,
@@ -9631,7 +9649,7 @@ if ($isEnabled('groups')) {
     // cannot see across the two independent `if` blocks) — same
     // precedent as the \assert() calls already in DelegatedAlbumService
     // and GalleryController.
-    \assert(isset($galleryDelegatedAlbumManager, $galleryLinkPreviewFetcher));
+    \assert(isset($galleryDelegatedAlbumManager));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
     $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     // The reply repository is needed here, not only by the reply stack
@@ -9649,7 +9667,7 @@ if ($isEnabled('groups')) {
     $groupsLinkFetchLogRepo = new \Modules\Groups\Repository\LinkFetchLogRepository($pdo);
     $groupsLinkFetchThrottleService = new \Modules\Groups\Service\LinkFetchThrottleService($groupsLinkFetchLogRepo);
     $groupsPostLinkService = new \Modules\Groups\Service\PostLinkService(
-        $galleryLinkPreviewFetcher,
+        $linkPreviewService,
         $groupsLinkFetchThrottleService,
         $groupsPostLinkRepo,
         $uploadHandler,
@@ -10310,16 +10328,15 @@ if ($isEnabled('camps')) {
         $auditService
     );
 
-    // Two OPTIONAL gallery capabilities, both nullable and both degrading
-    // silently (ARCHITECTURE.md §7.4): link previews, and photos hosted
-    // as a delegated album. A module whose subject is camp sites must not
-    // become unusable because the gallery is switched off — without it a
-    // link is a bare URL and the photos section is absent, and nothing
-    // else changes.
+    // Link previews are core's (issue #840) and always there. Photos are
+    // an OPTIONAL gallery capability, nullable and degrading silently
+    // (ARCHITECTURE.md §7.4): a module whose subject is camp sites must
+    // not become unusable because the gallery is switched off — without it
+    // the photos section is absent, and nothing else changes.
     $campsLinkService = new \Modules\Camps\Service\LinkService(
         $campsLinkRepo,
         $auditService,
-        $galleryLinkPreviewFetcher ?? null,
+        $linkPreviewService,
         $uploadHandler
     );
     $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(

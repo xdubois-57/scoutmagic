@@ -31,6 +31,16 @@ interface HelpSearchEntry {
 
 // public/assets/js/rich-text-link.js — what a surface may hold beyond the
 // common canonical grammar (issue #844).
+// What a form() field's action can do with the dialog's fields
+// (public/assets/js/confirm.js).
+interface ScoutMagicFormControl {
+    inputs: HTMLInputElement[];
+    value: (name: string) => string;
+    set: (name: string, value: string) => void;
+    note: (name: string, text: string, tone?: 'muted' | 'warning' | 'danger') => void;
+    values: () => Record<string, string>;
+}
+
 interface ScoutMagicRichTextOptions {
     images?: boolean;
     stored?: boolean;
@@ -208,6 +218,27 @@ interface Window {
             cancelLabel?: string;
             variant?: 'danger' | 'primary';
         }) => Promise<string | null>;
+        // Several labelled fields at once, resolved by name, or null when
+        // the dialog was dismissed. A field may carry a small button that
+        // fills it in (the link dialog's « baguette magique », #840).
+        form: (input: {
+            title: string;
+            message?: string;
+            fields: Array<{
+                name: string;
+                label: string;
+                value?: string;
+                placeholder?: string;
+                inputType?: string;
+                action?: {
+                    label: string;
+                    icon: string;
+                    run: (control: ScoutMagicFormControl) => Promise<void> | void;
+                };
+            }>;
+            confirmLabel?: string;
+            cancelLabel?: string;
+        }) => Promise<Record<string, string> | null>;
     };
     // public/assets/js/news-scan.js — the door screen of « Scanner un
     // billet ». Exposed so the QR reader hands its scanned payload to the
