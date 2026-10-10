@@ -420,7 +420,13 @@ class BulkCategorizationService
             'updated_at' => $now,
         ];
 
-        if (!$this->settingService->replaceIfUnchanged(self::RUN_SETTING_KEY, $current, $this->encode($run), 'finance')) {
+        $claimed = $this->settingService->replaceIfUnchanged(
+            self::RUN_SETTING_KEY,
+            $current,
+            $this->encode($run),
+            'finance'
+        );
+        if (!$claimed) {
             return null;
         }
 
