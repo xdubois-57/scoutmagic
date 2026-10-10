@@ -657,6 +657,31 @@ class ReceivableAllocationService
     }
 
     /**
+     * What this account is still waiting for, in cents: the remainder of
+     * every unpaid or partly paid receivable booked against it — never
+     * the amounts first asked, and nothing for a paid or waived one. The
+     * dashboard's « Paiements encore attendus » (issue #838).
+     *
+     * Reads the allocations as they stand: the dashboard calls it right
+     * after the reconciliation pass it already triggers.
+     */
+    public function amountStillExpectedCents(int $accountId): int
+    {
+        $total = 0;
+        foreach ($this->settlementsFor($this->receivableRepository->findByAccountId($accountId)) as $settlement) {
+            if (in_array(
+                $settlement->status,
+                [ReceivableSettlement::STATUS_UNPAID, ReceivableSettlement::STATUS_PARTIAL],
+                true
+            )) {
+                $total += $settlement->amountRemainingCents();
+            }
+        }
+
+        return $total;
+    }
+
+    /**
      * The full settlement picture — stored allocations PLUS the credit
      * scan that finds arrived-but-unabsorbed designated money, which
      * storedSettlementsFor() deliberately skips.

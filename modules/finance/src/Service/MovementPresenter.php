@@ -15,8 +15,7 @@ use Modules\Finance\Repository\Transaction;
  * The single source of truth for how a movement's "Contrepartie" and
  * "Description" columns are derived, wherever the site shows them —
  * Controller\MovementController's movements table AND its search()
- * (the receipts page's "Associer à un mouvement" dialog), and
- * Controller\DashboardController's "Derniers mouvements". Both methods
+ * (the receipts page's "Associer à un mouvement" dialog). Both methods
  * are pure functions of already-known data (no AI, no I/O) — the caller
  * is responsible for resolving "the first receipt linked to this
  * movement" (Repository\TransactionAttachmentRepository::

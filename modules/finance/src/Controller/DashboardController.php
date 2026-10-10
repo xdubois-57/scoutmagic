@@ -15,25 +15,18 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\Role;
-use Modules\Finance\Repository\Attachment;
-use Modules\Finance\Repository\AttachmentRepository;
-use Modules\Finance\Repository\CategoryRepository;
+use Modules\Finance\Repository\CampaignRepository;
 use Modules\Finance\Repository\FiscalYear;
 use Modules\Finance\Repository\StatementImportRepository;
-use Modules\Finance\Repository\Transaction;
-use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\FinanceService;
-use Modules\Finance\Service\FirstReceiptResolver;
-use Modules\Finance\Service\MovementPresenter;
-use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ReceiptService;
+use Modules\Finance\Service\ReceivableAllocationService;
 use Modules\Finance\Service\ReconciliationService;
 
 class DashboardController extends AbstractController
 {
-    private const RECENT_MOVEMENTS_LIMIT = 10;
-    private const PENDING_RECEIPTS_LIMIT = 3;
     private const LOWEST_BALANCE_WINDOW_MONTHS = 18;
 
     public function __construct(
@@ -42,12 +35,10 @@ class DashboardController extends AbstractController
         private BalanceService $balanceService,
         private TransactionRepository $transactionRepository,
         private ReceiptService $receiptService,
-        private CategoryRepository $categoryRepository,
-        private AttachmentRepository $attachmentRepository,
-        private TransactionAttachmentRepository $transactionAttachmentRepository,
         private StatementImportRepository $statementImportRepository,
-        private FirstReceiptResolver $firstReceiptResolver,
         private ReconciliationService $reconciliationService,
+        private ReceivableAllocationService $allocationService,
+        private CampaignRepository $campaignRepository,
         private ScoutYearResolver $scoutYears
     ) {
     }
@@ -69,18 +60,19 @@ class DashboardController extends AbstractController
     }
 
     /**
-     * GET /finance — landing page: account + fiscal-year filter (both
-     * required, always a concrete default) drives a balance, a
-     * per-category income/expense breakdown, three Chart.js graphs, and
-     * a movements list. The same filter row also carries an optional
-     * category (with an explicit "Non catégorisé" choice) and a
-     * free-text search — those two only ever narrow the movements list,
-     * never the balance/bilan/charts, which stay whole-fiscal-year
-     * aggregates. The search looks at a movement's own label/comment
-     * (both encrypted — matched by decrypting every filtered movement in
-     * PHP, never via SQL LIKE) and, when a movement has a linked
-     * receipt, that receipt's filename/merchant/description too
-     * (merchant/description are encrypted the same way).
+     * GET /finance — landing page for one account and one fiscal year.
+     *
+     * Two rows of four tiles (issue #838): what the account looks like —
+     * balance, lowest balance, last statement, money still expected — and
+     * then what is waiting for the treasurer — movements to categorise,
+     * receipts to attach, payments to handle, open campaigns. Each action
+     * tile is a count that links to the screen where it is dealt with,
+     * which is why the dashboard no longer repeats those lists itself:
+     * the banner, « Reçus en attente » and « Derniers mouvements en
+     * attente d'action » said the same things a second and third time.
+     *
+     * Below the tiles, the fiscal year's charts and « Bilan par
+     * catégorie ».
      *
      * @param array<string, string> $params
      */
@@ -97,13 +89,6 @@ class DashboardController extends AbstractController
         $fiscalYears = $this->financeService->getFiscalYears();
         $fiscalYear = $this->resolveSelectedFiscalYear($request, $fiscalYears);
 
-        $categoryParam = (string) $request->getQuery('category_id', 'all');
-        $uncategorizedOnly = $categoryParam === 'none';
-        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '')
-            ? (int) $categoryParam
-            : null;
-        $search = trim((string) $request->getQuery('q', ''));
-
         $balance = $this->balanceService->getBalanceAt($account, new \DateTimeImmutable('today'));
         $lowestBalance18Months = $this->balanceService->getLowestBalanceSince(
             $account,
@@ -112,54 +97,15 @@ class DashboardController extends AbstractController
 
         $categorySummary = [];
         $balanceEvolution = [];
-        $recentMovements = [];
         $uncategorizedCount = 0;
         $netCategoryBreakdown = ['positive' => [], 'negative' => []];
-
-        $isFiltered = $categoryId !== null || $uncategorizedOnly || $search !== '';
-        $attachmentCountsByMovementId = [];
 
         if ($fiscalYear !== null) {
             $categorySummary = $this->financeService->getCategorySummary($account->id, $fiscalYear->id);
             $balanceEvolution = $this->financeService->getBalanceEvolution($account->id, $fiscalYear->id);
-            $recentMovements = array_slice(
-                $isFiltered
-                    ? $this->findMatchingMovements(
-                        $account->id,
-                        $fiscalYear->id,
-                        $categoryId,
-                        $uncategorizedOnly,
-                        $search
-                    )
-                    : $this->findActionNeededMovements($account->id, $fiscalYear->id),
-                0,
-                self::RECENT_MOVEMENTS_LIMIT
-            );
-            $attachmentCountsByMovementId = $this->transactionAttachmentRepository->countByTransactionIds(
-                array_map(fn(Transaction $movement) => $movement->id, $recentMovements)
-            );
             $uncategorizedCount = $this->transactionRepository->countUncategorized($account->id, $fiscalYear->id);
             $netCategoryBreakdown = $this->financeService->buildNetCategoryBreakdown($categorySummary);
         }
-
-        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve(
-            array_map(fn(Transaction $movement) => $movement->id, $recentMovements)
-        );
-        $recentMovementRows = array_map(
-            fn(Transaction $movement) => [
-                'movement' => $movement,
-                'counterparty' => MovementPresenter::counterparty(
-                    $movement,
-                    $firstReceiptsByMovementId[$movement->id] ?? null,
-                    $account->name
-                ),
-                'description' => MovementPresenter::description(
-                    $movement,
-                    $firstReceiptsByMovementId[$movement->id] ?? null
-                ),
-            ],
-            $recentMovements
-        );
 
         $bilan = ['income' => 0.0, 'expense' => 0.0, 'total' => 0.0];
         foreach ($categorySummary as $row) {
@@ -168,20 +114,10 @@ class DashboardController extends AbstractController
             $bilan['total'] += $row['total'];
         }
 
-        $allPendingReceipts = $this->receiptService->listPending($account->id);
-        $pendingReceipts = array_slice($allPendingReceipts, 0, self::PENDING_RECEIPTS_LIMIT);
-
-        $categories = $this->categoryRepository->findAllOrdered();
-        $categoriesById = [];
-        foreach ($categories as $category) {
-            $categoriesById[$category->id] = $category;
-        }
-
-        // What still needs a treasurer's hand on the reconciliation
-        // screen. On the dashboard because it is the only one of these
-        // figures that is a THING TO DO rather than a state of affairs:
-        // a balance is read, a split is acted on, and nothing else on
-        // the site will do it.
+        // What still needs a treasurer's hand on « Paiements à traiter ».
+        // Its build() runs the account's reconciliation pass first, so the
+        // amount still expected, read right after, is read off allocations
+        // that are up to date.
         $reconciliationCounts = $this->reconciliationService->pendingCounts(
             $account->id,
             $this->effectiveScoutYearId($role),
@@ -193,156 +129,25 @@ class DashboardController extends AbstractController
             'selected_account' => $account,
             'fiscal_years' => $fiscalYears,
             'selected_fiscal_year' => $fiscalYear,
-            'categories' => $categories,
-            'categories_by_id' => $categoriesById,
-            'filter_category_id' => $categoryParam,
-            'filter_search' => $search,
             'balance' => $balance,
             'lowest_balance_18_months' => $lowestBalance18Months,
             'last_import' => $this->statementImportRepository->findMostRecentForAccount($account->id),
-            'movements_count' => $this->transactionRepository->countByAccountId($account->id),
-            'receipts_count' => $this->attachmentRepository->countActiveByAccountId($account->id),
+            'expected_cents' => $this->allocationService->amountStillExpectedCents($account->id),
+            'uncategorized_count' => $uncategorizedCount,
+            'pending_receipts_count' => count($this->receiptService->listPending($account->id)),
+            'reconciliation_counts' => $reconciliationCounts,
+            'reconciliation_pending' => array_sum($reconciliationCounts),
+            'open_campaigns_count' => $this->campaignRepository->countOpenByAccountId($account->id),
             'category_summary' => $categorySummary,
             'bilan' => $bilan,
             'net_category_breakdown' => $netCategoryBreakdown,
             'balance_evolution' => $balanceEvolution,
-            'recent_movements' => $recentMovements,
-            'recent_movement_rows' => $recentMovementRows,
-            'recent_movements_is_action_list' => !$isFiltered,
-            'recent_movements_attachment_counts' => $attachmentCountsByMovementId,
-            'uncategorized_count' => $uncategorizedCount,
-            'pending_receipts' => $pendingReceipts,
-            'pending_receipts_count' => count($allPendingReceipts),
-            'reconciliation_counts' => $reconciliationCounts,
-            'reconciliation_pending' => array_sum($reconciliationCounts),
             // The account picker (_nav.html.twig) changes what this page
             // shows without changing its URL structure (?account_id={id})
             // — the breadcrumb's own segment must reflect the current
             // selection, same as the section/calendar pickers elsewhere.
             'breadcrumb_current' => 'Finances · ' . $account->name,
         ]);
-    }
-
-    /**
-     * The dashboard's default (unfiltered) "Derniers mouvements" list —
-     * not simply the most recent movements, but the most recent ones
-     * that actually need an admin's attention: uncategorized, or an
-     * expense with no receipt attached yet (income never needs a
-     * receipt). Replaced by the ordinary filtered list the moment the
-     * admin picks a category or types a search (module spec follow-up).
-     *
-     * @return Transaction[]
-     */
-    private function findActionNeededMovements(int $accountId, int $fiscalYearId): array
-    {
-        // Decided in SQL (both predicates are plain columns), so only the
-        // rows shown are ever hydrated/decrypted — the PHP-side filter
-        // loaded the whole fiscal year to keep at most ten.
-        return $this->transactionRepository->findActionNeeded($accountId, $fiscalYearId, self::RECENT_MOVEMENTS_LIMIT);
-    }
-
-    /**
-     * @return Transaction[]
-     */
-    private function findMatchingMovements(
-        int $accountId,
-        int $fiscalYearId,
-        ?int $categoryId,
-        bool $uncategorizedOnly,
-        string $search
-    ): array {
-        $movements = $this->transactionRepository->findFiltered(
-            [$accountId],
-            $fiscalYearId,
-            $categoryId,
-            null,
-            $uncategorizedOnly
-        );
-
-        if ($search === '') {
-            return $movements;
-        }
-
-        // A movement that already matches on its own fields needs no
-        // receipt lookup at all; the rest are resolved in two queries for
-        // the whole set rather than two per movement.
-        $ownMatches = [];
-        $undecided = [];
-        foreach ($movements as $movement) {
-            if ($movement->matchesTextSearch($search)) {
-                $ownMatches[$movement->id] = true;
-            } else {
-                $undecided[] = $movement;
-            }
-        }
-
-        $matchingByReceipt = $this->findMovementIdsMatchingByReceipt($undecided, $search);
-
-        return array_values(array_filter(
-            $movements,
-            fn(Transaction $movement) => isset($ownMatches[$movement->id]) || isset($matchingByReceipt[$movement->id])
-        ));
-    }
-
-    /**
-     * Movement ids (as a set) whose linked receipts match $search, for the
-     * movements that did not already match on their own fields.
-     *
-     * @param Transaction[] $movements
-     * @return array<int, true>
-     */
-    private function findMovementIdsMatchingByReceipt(array $movements, string $search): array
-    {
-        if ($movements === []) {
-            return [];
-        }
-
-        $attachmentIdsByMovementId = $this->transactionAttachmentRepository->findAttachmentIdsForTransactions(
-            array_map(fn(Transaction $movement) => $movement->id, $movements)
-        );
-        $allAttachmentIds = [];
-        foreach ($attachmentIdsByMovementId as $ids) {
-            foreach ($ids as $id) {
-                $allAttachmentIds[$id] = true;
-            }
-        }
-
-        if ($allAttachmentIds === []) {
-            return [];
-        }
-
-        $matchingAttachmentIds = [];
-        foreach ($this->attachmentRepository->findByIds(array_keys($allAttachmentIds)) as $attachment) {
-            if ($this->attachmentMatchesSearch($attachment, $search)) {
-                $matchingAttachmentIds[$attachment->id] = true;
-            }
-        }
-
-        $matching = [];
-        foreach ($attachmentIdsByMovementId as $movementId => $ids) {
-            foreach ($ids as $id) {
-                if (isset($matchingAttachmentIds[$id])) {
-                    $matching[$movementId] = true;
-                    break;
-                }
-            }
-        }
-
-        return $matching;
-    }
-
-    private function attachmentMatchesSearch(Attachment $attachment, string $search): bool
-    {
-        if (mb_stripos($attachment->originalFilename, $search) !== false) {
-            return true;
-        }
-        if ($attachment->suggestedLabel !== null && mb_stripos($attachment->suggestedLabel, $search) !== false) {
-            return true;
-        }
-        return $attachment->suggestedDescription !== null && mb_stripos(
-            $attachment->suggestedDescription,
-            $search
-        ) !== false;
     }
 
     /**

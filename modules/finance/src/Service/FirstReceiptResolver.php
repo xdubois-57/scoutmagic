@@ -17,8 +17,7 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
  * of queries for a whole page of movements, never one pair per row) —
  * the shared plumbing behind every Service\MovementPresenter call site:
  * Controller\MovementController's movements table and search() (the
- * receipts page's "Associer à un mouvement" dialog), Controller\
- * DashboardController's "Derniers mouvements", and Controller\
+ * receipts page's "Associer à un mouvement" dialog), and Controller\
  * ReceiptController's "Mouvements liés" dialog.
  */
 class FirstReceiptResolver

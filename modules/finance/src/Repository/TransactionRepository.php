@@ -211,36 +211,6 @@ class TransactionRepository
     }
 
     /**
-     * The dashboard's default "needs a treasurer's hand" list, decided in
-     * SQL: uncategorized, or an expense with no receipt attached (income
-     * never needs a receipt). Both predicates are plain columns, so
-     * nothing has to be hydrated/decrypted beyond the rows returned —
-     * the PHP-side version of this filter loaded and decrypted the whole
-     * fiscal year to keep at most $limit rows. Same ordering as
-     * findFiltered(), which it replaces on the unfiltered dashboard.
-     *
-     * @return Transaction[]
-     */
-    public function findActionNeeded(int $accountId, int $fiscalYearId, int $limit): array
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT t.* FROM finance_transactions t
-             WHERE t.account_id = ? AND t.fiscal_year_id = ?
-               AND (t.category_id IS NULL
-                    OR (t.amount < 0 AND NOT EXISTS (
-                        SELECT 1 FROM finance_transaction_attachments fta WHERE fta.transaction_id = t.id)))
-             ORDER BY t.transaction_date DESC, t.id DESC
-             LIMIT ?'
-        );
-        $stmt->bindValue(1, $accountId, \PDO::PARAM_INT);
-        $stmt->bindValue(2, $fiscalYearId, \PDO::PARAM_INT);
-        $stmt->bindValue(3, $limit, \PDO::PARAM_INT);
-        $stmt->execute();
-
-        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-    }
-
-    /**
      * Per-category income/expense/total for an account's fiscal year —
      * backs Service\FinanceService::getCategorySummary(). Pure SQL
      * aggregation: category_id and amount are both plain columns, so

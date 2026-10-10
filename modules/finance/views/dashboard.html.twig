@@ -9,9 +9,8 @@
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     <p class="text-body-secondary small mb-3">
-        Le tableau de bord donne une vue d'ensemble des finances du compte sélectionné : solde, répartition des
-        dépenses et recettes par catégorie, évolution du solde, et mouvements récents nécessitant une action
-        (non catégorisés, ou dépenses sans reçu associé).
+        Le tableau de bord donne une vue d'ensemble du compte sélectionné : en haut ce qu'il faut savoir, juste
+        en dessous ce qui attend une action, puis l'évolution du solde et le bilan par catégorie de l'exercice.
     </p>
 
     {% if no_accounts %}
@@ -43,53 +42,19 @@
                     }),
                 } only %}
             </div>
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'filter-category', field_name: 'category_id', label: 'Catégorie',
-                    type: 'select', size: 'sm', wrapper_class: '',
-                    options: [
-                        { value: 'all', label: 'Toutes', selected: filter_category_id == 'all' },
-                        { value: 'none', label: 'Non catégorisé', selected: filter_category_id == 'none' },
-                    ]|merge(categories|default([])|map(category => {
-                        value: category.id, label: category.name,
-                        selected: filter_category_id == category.id,
-                    })),
-                } only %}
-            </div>
-            <div class="col-6 col-md-3">
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'filter-search', field_name: 'q', label: 'Recherche',
-                    value: filter_search, placeholder: 'Libellé, commentaire, reçu...',
-                    size: 'sm', wrapper_class: '',
-                } only %}
-            </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
                 <a href="/finance" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
             </div>
         </form>
 
-        {% if uncategorized_count > 0 or pending_receipts_count > 0 %}
-            <div class="alert alert-warning d-flex flex-wrap gap-3">
-                {% if uncategorized_count > 0 %}
-                    <span><i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>{{ uncategorized_count }} mouvement(s) non catégorisé(s)</span>
-                {% endif %}
-                {% if pending_receipts_count > 0 %}
-                    <span><i class="bi bi-receipt me-1" aria-hidden="true"></i>{{ pending_receipts_count }} reçu(s) en attente d'association</span>
-                {% endif %}
-            </div>
-        {% endif %}
+        {# Two rows of four (issue #838): the first says what the account
+           looks like, the second what is waiting for the treasurer. Every
+           action tile is a count linking to the screen where it is dealt
+           with — the lists themselves live there, not here.
 
-        {# « Paiements à traiter » is the only tile that is a THING TO DO
-           rather than a state of affairs: a balance is read, a payment
-           waiting for a decision is acted on, and nothing else on the site
-           will do it. Every situation it counts has a way out (issue
-           #837), so its resting value is 0.
-
-           Its sublabel names what the figure is made of — assembled here
-           rather than inside the tile list, where a Twig comment cannot
-           go and the four French wordings would drown the other tiles.
-           Naming them says which tab to open first. #}
+           « Paiements à traiter » names what its figure is made of, which
+           says which tab to open first. #}
         {% set reconciliation_parts = [] %}
         {% if reconciliation_counts.split|default(0) > 0 %}
             {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.split ~ ' à répartir']) %}
@@ -104,7 +69,9 @@
             {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.cross_account ~ ' sur un autre compte']) %}
         {% endif %}
         {% set reconciliation_breakdown = reconciliation_parts|join(' · ') %}
+        {% set year_query = selected_fiscal_year ? '&fiscal_year_id=' ~ selected_fiscal_year.id : '' %}
 
+        <h2 class="visually-hidden">Situation du compte</h2>
         {% include 'partials/stat_tiles.html.twig' with {
             tiles: [
                 {
@@ -123,16 +90,32 @@
                     link_url: '/finance/import?account_id=' ~ selected_account.id,
                 },
                 {
-                    label: 'Mouvements',
-                    value: movements_count,
-                    link_label: 'Voir les mouvements →',
-                    link_url: '/finance/movements?account_id=' ~ selected_account.id ~ '&fiscal_year_id=all',
+                    label: 'Paiements encore attendus',
+                    value: expected_cents|money_cents,
+                    sublabel: 'Reste dû sur les créances de ce compte',
+                    link_label: 'Contrôle des créances →',
+                    link_url: '/finance/receivables',
+                },
+            ],
+            columns: 4,
+        } only %}
+
+        <h2 class="visually-hidden">À traiter</h2>
+        {% include 'partials/stat_tiles.html.twig' with {
+            tiles: [
+                {
+                    label: 'Mouvements non catégorisés',
+                    value: uncategorized_count,
+                    sublabel: selected_fiscal_year ? 'Exercice ' ~ selected_fiscal_year.label : null,
+                    link_label: 'Catégoriser →',
+                    link_url: '/finance/movements?account_id=' ~ selected_account.id ~ year_query ~ '&category_id=none',
                 },
                 {
-                    label: 'Reçus',
-                    value: receipts_count,
-                    link_label: 'Voir les reçus →',
-                    link_url: '/finance/receipts?account_id=' ~ selected_account.id,
+                    label: 'Reçus à associer',
+                    value: pending_receipts_count,
+                    sublabel: 'Reçus sans mouvement',
+                    link_label: 'Associer →',
+                    link_url: '/finance/receipts?account_id=' ~ selected_account.id ~ '&pending=1',
                 },
                 {
                     label: 'Paiements à traiter',
@@ -143,8 +126,14 @@
                     link_label: 'Traiter les paiements →',
                     link_url: '/finance/reconciliation?account_id=' ~ selected_account.id,
                 },
+                {
+                    label: 'Campagnes ouvertes',
+                    value: open_campaigns_count,
+                    link_label: 'Voir les campagnes →',
+                    link_url: '/finance/campaigns',
+                },
             ],
-            columns: 3,
+            columns: 4,
         } only %}
 
         <div class="d-flex flex-column flex-sm-row gap-2 mb-4">
@@ -228,111 +217,6 @@
             </div>
         {% endif %}
 
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h5 mb-0">Reçus en attente</h2>
-            <a href="/finance/receipts?account_id={{ selected_account.id }}&pending=1" class="small">Voir tous →</a>
-        </div>
-        <div class="row g-3 mb-4">
-            {% for attachment in pending_receipts %}
-                <div class="col-12 col-md-4">
-                    <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                        {# Ouvre la visionneuse intégrée (partials/file_viewer.html.twig)
-                           plutôt que de naviguer : dans l'application installée, une
-                           navigation vers une image remplace la fenêtre et il n'y a
-                           plus rien pour revenir. Le href reste, pour le cas sans
-                           JavaScript — FileController répond alors « attachment » à
-                           une navigation, ce qui télécharge sans bouger la page. #}
-                        <a href="/files/{{ attachment.fileId }}"
-                           data-file-viewer="/files/{{ attachment.fileId }}"
-                           data-file-name="{{ attachment.originalFilename }}"
-                           data-file-image="{{ attachment.mimeType starts with 'image/' ? '1' : '0' }}"
-                           download="{{ attachment.originalFilename }}" target="_blank" rel="noopener">
-                            {% if attachment.mimeType starts with 'image/' %}
-                                <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
-                            {% elseif attachment.mimeType == 'application/pdf' %}
-                                <img src="/files/{{ attachment.fileId }}/thumbnail" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
-                            {% else %}
-                                <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
-                                    <i class="bi bi-file-earmark-word fs-1" aria-hidden="true"></i>
-                                </div>
-                            {% endif %}
-                        </a>
-                        <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
-                        <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
-                        {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
-                            <div class="small">
-                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|money }}{% endif %}
-                                {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
-                                {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
-                                {% if attachment.suggestedLabel %}<div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>{% endif %}
-                                {% if attachment.suggestedDescription %}<div class="text-body-secondary fst-italic">{{ attachment.suggestedDescription }}</div>{% endif %}
-                            </div>
-                        {% endif %}
-                        <div><span class="badge text-bg-warning">En attente</span></div>
-                    </div>
-                </div>
-            {% else %}
-                <div class="col-12">
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun reçu en attente.',
-                        compact: true,
-                    } only %}
-                </div>
-            {% endfor %}
-        </div>
-
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h5 mb-0">{{ (filter_category_id != 'all' or filter_search) ? 'Mouvements filtrés' : 'Derniers mouvements en attente d\'action' }}</h2>
-            <a href="/finance/movements?account_id={{ selected_account.id }}{% if selected_fiscal_year %}&fiscal_year_id={{ selected_fiscal_year.id }}{% endif %}{% if filter_category_id != 'all' %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}" class="small">Voir tout →</a>
-        </div>
-        {% if recent_movements_is_action_list %}
-            <p class="text-body-secondary small mb-2">
-                Mouvements non catégorisés ou dépenses sans reçu associé — pas nécessairement les tout derniers
-                mouvements du compte.
-            </p>
-        {% endif %}
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Catégorie</th>
-                        <th>Contrepartie</th>
-                        <th>Description</th>
-                        <th class="text-end">Montant</th>
-                        <th class="text-center">📎</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in recent_movement_rows %}
-                        {% set movement = row.movement %}
-                        <tr>
-                            <td>{{ movement.transactionDate }}</td>
-                            <td>
-                                {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
-                                {% if movement.isCategoryAutoAssigned %}
-                                    <span class="badge text-bg-light border" title="Catégorie attribuée automatiquement (règle ou IA)">Auto</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ row.counterparty }}</td>
-                            <td>{{ row.description }}</td>
-                            <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
-                                {{ movement.amount|money }}
-                            </td>
-                            <td class="text-center">
-                                {% set attachment_count = recent_movements_attachment_counts[movement.id] ?? 0 %}
-                                📎{% if attachment_count > 0 %} <span class="badge text-bg-secondary">{{ attachment_count }}</span>{% endif %}
-                            </td>
-                        </tr>
-                    {% else %}
-                        {% include 'partials/empty_state.html.twig' with {
-                            message: 'Aucun mouvement.',
-                            colspan: 6,
-                        } only %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
     {% endif %}
 {% endblock %}
 
@@ -361,7 +245,6 @@
             </script>
             <script src="{{ asset('/assets/vendor/chartjs/chart.umd.min.js') }}"></script>
         {% endif %}
-        <script src="{{ asset('/assets/js/pdf-thumbnail.js') }}" defer></script>
         <script src="{{ asset('/assets/js/finance-dashboard.js') }}" defer></script>
     {% endif %}
 {% endblock %}

@@ -135,16 +135,23 @@ class BulkCategorizationService
         $this->clock = $clock ?? static fn(): float => microtime(true);
     }
 
+    /**
+     * On unless somebody switched it off (issue #838): a setting never
+     * written means nobody chose, and the AI rule then runs — still last,
+     * still only on what the deterministic rules left, and only when a
+     * connector is available ({@see AiCategorizationService::isAvailable()},
+     * checked by every caller). An explicit « 0 » stays off.
+     */
     public function isAiRuleEnabled(): bool
     {
-        return $this->settingService->get(self::AI_ENABLED_SETTING_KEY, 'finance', '0') === '1';
+        return $this->settingService->get(self::AI_ENABLED_SETTING_KEY, 'finance', '1') !== '0';
     }
 
     public function setAiRuleEnabled(bool $enabled): void
     {
         $this->settingService->register(
             self::AI_ENABLED_SETTING_KEY,
-            '0',
+            '1',
             'boolean',
             'Règle de catégorisation IA activée',
             'Indicateur interne — ne pas modifier.',

@@ -146,9 +146,36 @@ class BulkCategorizationServiceTest extends TestCase
         );
     }
 
-    public function testAiRuleDisabledByDefault(): void
+    /**
+     * Nobody chose: the AI rule runs, after the deterministic rules and
+     * only where a connector is available (issue #838).
+     */
+    public function testAiRuleEnabledByDefault(): void
     {
+        $this->assertTrue($this->service()->isAiRuleEnabled());
+    }
+
+    public function testAnExplicitlyDisabledAiRuleStaysDisabled(): void
+    {
+        $this->service()->setAiRuleEnabled(false);
+
         $this->assertFalse($this->service()->isAiRuleEnabled());
+    }
+
+    /**
+     * On by default means a run asks the connector without anybody
+     * having switched it on — for what the rules left only.
+     */
+    public function testARunUsesTheAiByDefaultForWhatTheRulesLeft(): void
+    {
+        $this->categoryRepository->create('Fournitures');
+        $this->createTransaction('Achat divers');
+        $calls = 0;
+
+        $result = $this->service($this->countingLlm($calls))->runOnUncategorized();
+
+        $this->assertSame(1, $calls);
+        $this->assertSame(1, $result->categorizedByAi);
     }
 
     public function testSetAiRuleEnabledPersists(): void
