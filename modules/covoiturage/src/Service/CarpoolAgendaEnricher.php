@@ -81,31 +81,39 @@ class CarpoolAgendaEnricher implements EventDescriptionEnricherInterface
         $requestsByOffer = $this->requests->findByOffers($offerIds);
 
         foreach ($carpoolIds as $carpoolId) {
+            // The same rule as the list's badges and the day's banner (#835).
+            $participations = Participation::forAccount(
+                $account->id,
+                $offersByCarpool[$carpoolId] ?? [],
+                $requestsByOffer
+            );
+            if ($participations === []) {
+                continue;
+            }
+
             $lines = [];
-            foreach ($offersByCarpool[$carpoolId] ?? [] as $offer) {
-                $requests = $requestsByOffer[$offer->id] ?? [];
-                if ($offer->driverAccountId === $account->id) {
+            foreach ($participations as $participation) {
+                $offer = $participation->offer;
+                if ($participation->role === Participation::DRIVER) {
                     $taken = 0;
-                    foreach ($requests as $request) {
+                    foreach ($requestsByOffer[$offer->id] ?? [] as $request) {
                         $taken += $request->isAccepted() ? $request->passengerCount : 0;
                     }
+                    // A count, never a name: who rides is for the page, not for a file kept in clear.
+                    $riders = $taken > 0 ? $taken . ($taken === 1 ? ' passager confirmé' : ' passagers confirmés') . ', ' : '';
                     $lines[] = 'Covoiturage — vous conduisez ' . ($offer->isOutbound() ? 'à l\'aller' : 'au retour')
                         . ', ' . CarpoolFormat::time($offer->departureTime) . ', ' . $offer->endpoint . '. '
-                        . ucfirst(CarpoolFormat::freeSeats($offer->seats - $taken)) . '.';
+                        . ($riders !== '' ? $riders . CarpoolFormat::freeSeats($offer->seats - $taken) : ucfirst(CarpoolFormat::freeSeats($offer->seats - $taken))) . '.';
+                    continue;
                 }
-                foreach ($requests as $request) {
-                    if ($request->requesterAccountId !== $account->id || !$request->isActive()) {
-                        continue;
-                    }
-                    $lines[] = 'Covoiturage — ' . self::direction($offer) . ' '
-                        . CarpoolFormat::time($offer->departureTime) . ', ' . $offer->endpoint . ' : '
-                        . ($request->isAccepted() ? 'confirmé' : 'en attente') . '.';
-                }
+                $lines[] = 'Covoiturage — ' . self::direction($offer) . ' '
+                    . CarpoolFormat::time($offer->departureTime) . ', ' . $offer->endpoint . ' : '
+                    . ($participation->role === Participation::CONFIRMED ? 'confirmé' : 'en attente') . '.';
             }
-            if ($lines !== []) {
-                $lines[] = 'Voir : ' . rtrim($this->baseUrl, '/') . '/covoiturage/' . $carpoolId;
-                $linesByCarpool[$carpoolId] = $lines;
-            }
+            // Only the return concerns the reader: open that view directly.
+            $lines[] = 'Voir : ' . rtrim($this->baseUrl, '/') . '/covoiturage/' . $carpoolId
+                . (Participation::onlyOnTheReturn($participations) ? '?sens=return' : '');
+            $linesByCarpool[$carpoolId] = $lines;
         }
 
         $result = [];

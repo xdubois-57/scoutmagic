@@ -12,6 +12,51 @@
         subtitle: carpool.dates,
     } only %}
 
+    {# The reader's trip of the day (#835): only when it is today and they
+       take part in it. Built by Service\CarpoolBoard::dayBanner(), so a
+       phone they may not see is null here and never printed. The route link
+       is the one below: no second way to open a map. #}
+    {% set _banner = carpool.day_banner %}
+    {% if _banner %}
+        <div class="alert alert-{{ _banner.tone }} mb-3" role="region" aria-label="Votre trajet d'aujourd'hui" data-carpool-day-banner>
+            <div class="fw-semibold mb-1">
+                <i class="bi bi-car-front" aria-hidden="true"></i>
+                Aujourd'hui · {{ _banner.direction }} à {{ _banner.time }}
+            </div>
+            {% if _banner.role == 'driver' %}
+                <div>Vous conduisez.</div>
+            {% elseif _banner.role == 'confirmed' %}
+                <div><strong>Votre place est confirmée</strong> pour {{ _banner.who|join(' et ') }}.</div>
+            {% else %}
+                <div><strong>Votre demande est toujours à confirmer</strong> pour {{ _banner.who|join(' et ') }} : ne comptez pas encore sur cette voiture.</div>
+            {% endif %}
+            <div>Rendez-vous : {{ _banner.meeting }}</div>
+            <div>Destination : {{ _banner.destination }}</div>
+            {% if _banner.role != 'driver' %}
+                <div>Conducteur : {{ _banner.driver }}{% if _banner.driver_phone %} · <strong>{{ _banner.driver_phone }}</strong>{% endif %}</div>
+            {% endif %}
+            <div class="small mt-1">
+                <a href="{{ directions_url }}" target="_blank" rel="noopener noreferrer">Itinéraire vers {{ _banner.place }}</a>
+            </div>
+            {% if _banner.role == 'driver' %}
+                <div class="mt-2 fw-semibold">Vos passagers</div>
+                {% if _banner.passengers is empty %}
+                    <div class="small">Aucun passager pour le moment.</div>
+                {% endif %}
+                {% for passenger in _banner.passengers %}
+                    <div class="small">
+                        {{ passenger.who|join(', ') }} · {{ passenger.by }}
+                        {% if passenger.phone %} · <strong>{{ passenger.phone }}</strong>{% endif %}
+                        {% include 'partials/status_badge.html.twig' with {
+                            status: passenger.confirmed ? 'confirmed' : 'pending',
+                            label: passenger.confirmed ? 'Place confirmée' : 'À confirmer',
+                        } only %}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    {% endif %}
+
     {# What the address IS depends on the direction (#703): every car of
        the outbound goes there, every car of the return leaves from there.
        It opens a route from where the reader is, in their own map

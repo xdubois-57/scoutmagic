@@ -99,6 +99,12 @@ class CarpoolBoard
                     'cars' => count($offers),
                     'free' => $free,
                     'free_text' => CarpoolFormat::freeSeats($free),
+                    // The reader's own part in it, from the one rule that
+                    // the day's banner and the agenda line also read (#835).
+                    'participation' => Participation::badges(
+                        Participation::forAccount($viewer->accountId, $offers, $requestsByOffer),
+                        $carpool->hasReturn()
+                    ),
                 ];
                 continue;
             }
@@ -133,12 +139,17 @@ class CarpoolBoard
     }
 
     /**
-     * One carpool, as its reader may see it.
+     * One carpool, as its reader may see it. `$direction` is the trip the
+     * page shows, which decides whether the banner of the day applies.
      *
      * @return array<string, mixed>
      */
-    public function carpoolPage(Carpool $carpool, CarpoolViewer $viewer, ?\DateTimeImmutable $today = null): array
-    {
+    public function carpoolPage(
+        Carpool $carpool,
+        CarpoolViewer $viewer,
+        ?\DateTimeImmutable $today = null,
+        string $direction = Offer::OUTBOUND
+    ): array {
         $today ??= new \DateTimeImmutable('today');
         [$offersByCarpool, $requestsByOffer] = $this->load([$carpool]);
         $hasFamily = $this->family($viewer) !== [];
@@ -171,7 +182,91 @@ class CarpoolBoard
             // Said out loud on the page, because nothing else on it reveals
             // that a section besides the events' sees the passengers (#650).
             'creator_section' => $this->sectionNames([$carpool->sectionId])[$carpool->sectionId] ?? null,
+            'day_banner' => $this->dayBanner(
+                $carpool,
+                $direction,
+                $offersByCarpool[$carpool->id] ?? [],
+                $requestsByOffer,
+                $viewer,
+                $today
+            ),
         ];
+    }
+
+    /**
+     * The reader's summary of the trip, when it is TODAY and they take part
+     * in it (#835): what they need on the way, on top of the page.
+     *
+     * Every contact in it went through CarpoolViewer — the driver sees a
+     * requester's phone from the request on, a requester sees the driver's
+     * only once accepted — so the banner shows nothing the page below it
+     * does not.
+     *
+     * The carpool's place is the arrival of the outbound and the shared
+     * departure of the return; the offer's endpoint is the other end, a free
+     * text (hence `meeting` / `destination` rather than from / to).
+     *
+     * @param list<Offer> $offers
+     * @param array<int, list<SeatRequest>> $requestsByOffer
+     * @return ?array<string, mixed>
+     */
+    private function dayBanner(
+        Carpool $carpool,
+        string $direction,
+        array $offers,
+        array $requestsByOffer,
+        CarpoolViewer $viewer,
+        \DateTimeImmutable $today
+    ): ?array {
+        $day = $direction === Offer::RETURN ? $carpool->returnDate : $carpool->outboundDate;
+        if ($day === null || $day !== $today->format('Y-m-d')) {
+            return null;
+        }
+
+        $inDirection = array_values(array_filter(
+            $offers,
+            static fn(Offer $offer): bool => $offer->direction === $direction
+        ));
+        $mine = Participation::best(Participation::forAccount($viewer->accountId, $inDirection, $requestsByOffer))[$direction] ?? null;
+        if ($mine === null) {
+            return null;
+        }
+
+        $offer = $mine->offer;
+        $outbound = $direction === Offer::OUTBOUND;
+        $banner = [
+            'role' => $mine->role,
+            'label' => $mine->label(),
+            'tone' => $mine->role === Participation::PENDING ? 'warning' : 'info',
+            'direction' => $outbound ? 'Aller' : 'Retour',
+            'time' => CarpoolFormat::time($offer->departureTime),
+            'meeting' => $outbound ? $offer->endpoint : $carpool->address,
+            'destination' => $outbound ? $carpool->address : $offer->endpoint,
+            'place' => $carpool->address,
+            'driver' => $offer->driverName,
+            'driver_phone' => null,
+            'who' => [],
+            'passengers' => [],
+        ];
+
+        if ($mine->role === Participation::DRIVER) {
+            foreach ($requestsByOffer[$offer->id] ?? [] as $request) {
+                if (!$request->isActive() || !$viewer->sees($carpool, $offer, $request)) {
+                    continue;
+                }
+                $banner['passengers'][] = [
+                    'who' => $request->passengerNames,
+                    'by' => $request->requesterName,
+                    'confirmed' => $request->isAccepted(),
+                    'phone' => $viewer->seesRequesterPhone($offer, $request) ? $request->phone : null,
+                ];
+            }
+        } elseif ($mine->request !== null) {
+            $banner['who'] = $mine->request->passengerNames;
+            $banner['driver_phone'] = $viewer->seesDriverPhone($mine->request) ? $offer->phone : null;
+        }
+
+        return $banner;
     }
 
     /**
