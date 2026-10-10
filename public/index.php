@@ -8365,7 +8365,8 @@ if ($isEnabled('finance')) {
         $financeRuleEngine,
         $financeAiCategorizationService,
         $settingService,
-        $schedulerService
+        $schedulerService,
+        $journalService
     );
 
     // Who paid what, written down (ARCHITECTURE.md §8.81). Declared here,
