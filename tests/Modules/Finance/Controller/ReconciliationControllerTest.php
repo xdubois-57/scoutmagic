@@ -304,6 +304,35 @@ class ReconciliationControllerTest extends TestCase
         );
     }
 
+    /**
+     * « Rattacher à une créance → » from « Mouvements »: a credit this
+     * screen leaves out (no structured communication) opens on « Non
+     * imputés » with the attach form, and without the dismiss button —
+     * it was never waiting here.
+     */
+    public function testACreditOpenedFromMovementsShowsItsAttachForm(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $transactionId = $this->credit('DUPONT J « cotisation Léa »', 45.00);
+
+        $body = $this->controller->index($this->get(['transaction_id' => (string) $transactionId]), [])->getBody();
+
+        $this->assertStringContainsString('/finance/reconciliation/attach/' . $transactionId, $body);
+        $this->assertStringContainsString('Choisissez la créance que ce paiement règle.', $body);
+        $this->assertStringNotContainsString('/finance/reconciliation/not-a-receivable/' . $transactionId, $body);
+        $this->assertStringContainsString('Non imputés (0)', $body, 'it is shown, not counted');
+    }
+
+    public function testAListedOrphanOpenedFromMovementsIsShownOnce(): void
+    {
+        $transactionId = $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
+
+        $body = $this->controller->index($this->get(['transaction_id' => (string) $transactionId]), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'action="/finance/reconciliation/attach/' . $transactionId . '"'));
+        $this->assertStringContainsString('/finance/reconciliation/not-a-receivable/' . $transactionId, $body);
+    }
+
     public function testNothingIsDeclaredWithoutAValidCsrfToken(): void
     {
         $transactionId = $this->credit('VIREMENT +++999/8888/77758+++', 45.00);

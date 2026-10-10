@@ -201,6 +201,60 @@ class ReconciliationServiceTest extends TestCase
     }
 
     /**
+     * Left off this screen is not left without a way out: from
+     * « Mouvements », the treasurer can still attach the credit by hand
+     * (review of #857).
+     */
+    public function testACreditWithoutACommunicationCanStillBeOpenedForAttaching(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $transactionId = $this->credit('DUPONT J « cotisation Léa »', 45.00);
+
+        $row = $this->service->attachableCredit($this->accountId, $transactionId, Role::INTENDANT);
+
+        $this->assertNotNull($row);
+        $this->assertSame($transactionId, $row['transaction_id']);
+        $this->assertSame(4500, $row['amount_cents']);
+        $this->assertTrue($row['requested']);
+    }
+
+    public function testOnlyWhatIsLeftOfAPartlyAttachedCreditIsOffered(): void
+    {
+        $solo = $this->receivable('Solo', 3000, '+++123/4567/89012+++');
+        $transactionId = $this->credit('Paiement sans code', 45.00);
+        $this->allocations->allocate($transactionId, $solo, 3000, Role::INTENDANT, 7);
+
+        $this->assertSame(
+            1500,
+            $this->service->attachableCredit($this->accountId, $transactionId, Role::INTENDANT)['amount_cents']
+        );
+    }
+
+    public function testNothingIsOfferedForADebitAFullyAttachedCreditOrAnotherAccountsMovement(): void
+    {
+        $solo = $this->receivable('Solo', 4500, '+++123/4567/89012+++');
+        $debit = $this->credit('Achat', -20.00);
+        $settled = $this->credit('Paiement sans code', 45.00);
+        $this->allocations->allocate($settled, $solo, 4500, Role::INTENDANT, 7);
+        $elsewhere = $this->transactions->create(
+            $this->otherAccountId, $this->scoutYearId, null, '2026-02-18', 'Ailleurs', 45.00, null, null, 'import', null
+        );
+
+        foreach ([$debit, $settled, $elsewhere, 999999] as $transactionId) {
+            $this->assertNull($this->service->attachableCredit($this->accountId, $transactionId, Role::INTENDANT));
+        }
+    }
+
+    public function testAnAccountOutOfReachOffersNothingToAttach(): void
+    {
+        $this->pdo->exec("UPDATE finance_accounts SET role_min_view = 'chief' WHERE id = " . $this->accountId);
+        $transactionId = $this->credit('Paiement sans code', 45.00);
+
+        $this->expectException(FinanceException::class);
+        $this->service->attachableCredit($this->accountId, $transactionId, Role::INTENDANT);
+    }
+
+    /**
      * The second way out of « Non imputés », and a lasting one: the next
      * pass (an import, the nightly reconciliation) does not bring it back.
      */

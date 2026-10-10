@@ -279,6 +279,51 @@ class ReconciliationService
     }
 
     /**
+     * One credit of this account, shaped like a « Non imputés » row, for
+     * a treasurer who came from « Mouvements » to attach it by hand. The
+     * way back for a credit this screen leaves out on purpose — one with no
+     * valid structured communication (issue #837) — which is still
+     * somebody's payment the bank received without its code.
+     *
+     * Null when the movement is not a credit of this account, or has
+     * nothing left to attach.
+     *
+     * @return ?array<string, mixed>
+     * @throws FinanceException when the account is unknown or out of reach
+     */
+    public function attachableCredit(int $accountId, int $transactionId, Role $viewerRole): ?array
+    {
+        $account = $this->accountRepository->findById($accountId);
+        if (!$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
+            throw new FinanceException("Ce compte n'existe pas ou ne vous est pas accessible.");
+        }
+
+        $credit = $this->transactions->findById($transactionId);
+        if ($credit === null || $credit->accountId !== $accountId || $credit->amount <= 0) {
+            return null;
+        }
+
+        $allocated = 0;
+        foreach ($this->allocations->findByTransactionIds([$credit->id])[$credit->id] ?? [] as $allocation) {
+            $allocated += max(0, $allocation->amountCents);
+        }
+        $remainder = self::toCents($credit->amount) - $allocated;
+        if ($remainder <= 0) {
+            return null;
+        }
+
+        return [
+            'transaction_id' => $credit->id,
+            'date' => $credit->transactionDate,
+            'amount_cents' => $remainder,
+            'counterparty' => $credit->counterpartyName,
+            'label' => $credit->label,
+            'reason' => 'Choisissez la créance que ce paiement règle.',
+            'requested' => true,
+        ];
+    }
+
+    /**
      * « Ce paiement ne correspond pas à une créance ScoutMagic » — the
      * second way out of « Non imputés », and a lasting one: the credit
      * stays a credit in « Mouvements », it just stops asking.

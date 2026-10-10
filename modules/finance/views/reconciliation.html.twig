@@ -169,12 +169,20 @@
                 cette page ; il reste dans les mouvements.
             </div>
 
-            {% if view.orphans is empty %}
+            {# The credit a treasurer brought here from « Mouvements », first
+               and once — unless it is already one of the listed orphans. #}
+            {% set requested_listed = requested is not null
+                and requested.transaction_id in view.orphans|map(orphan => orphan.transaction_id) %}
+            {% set orphan_items = requested is not null and not requested_listed
+                ? [requested]|merge(view.orphans)
+                : view.orphans %}
+
+            {% if orphan_items is empty %}
                 {% include 'partials/empty_state.html.twig' with {
                     message: 'Aucun crédit non imputé.', icon: 'bi-check2-circle',
                 } only %}
             {% else %}
-                {% for item in view.orphans %}
+                {% for item in orphan_items %}
                     <div class="border rounded-3 p-3 mb-3">
                         <p class="fw-semibold mb-1">{{ item.amount_cents|money_cents }} — {{ item.date|date_fr }}</p>
                         <p class="small text-body-secondary mb-1">
@@ -219,14 +227,19 @@
                             </p>
                         </form>
 
-                        <form method="post" action="/finance/reconciliation/not-a-receivable/{{ item.transaction_id }}"
-                              class="mt-3 pt-3 border-top">
-                            {{ csrf_field()|raw }}
-                            <input type="hidden" name="account_id" value="{{ selected_account.id }}">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary tap-target">
-                                Ce paiement ne correspond pas à une créance ScoutMagic
-                            </button>
-                        </form>
+                        {# Only for a listed orphan: a credit opened from
+                           « Mouvements » is not waiting here, so there is
+                           nothing to dismiss. #}
+                        {% if not item.requested|default(false) %}
+                            <form method="post" action="/finance/reconciliation/not-a-receivable/{{ item.transaction_id }}"
+                                  class="mt-3 pt-3 border-top">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary tap-target">
+                                    Ce paiement ne correspond pas à une créance ScoutMagic
+                                </button>
+                            </form>
+                        {% endif %}
                     </div>
                 {% endfor %}
             {% endif %}

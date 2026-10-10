@@ -99,6 +99,12 @@
         setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
         setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
         setDetailRow('md-extra-details', row.dataset.extraDetails);
+        const attachLink = /** @type {HTMLAnchorElement|null} */ (document.getElementById('md-attach-link'));
+        if (attachLink) {
+            const isCredit = Number(row.dataset.amount) > 0;
+            attachLink.href = isCredit ? (attachLink.dataset.baseUrl || '') + encodeURIComponent(row.dataset.id || '') : '#';
+            attachLink.classList.toggle('d-none', !isCredit);
+        }
         selectEl('md-category').value = row.dataset.categoryId || '';
         el('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
         inputEl('md-comment').value = row.dataset.comment || '';

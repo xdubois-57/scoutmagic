@@ -7,6 +7,7 @@ role_min: intendant
 discovery: 3
 question: Un parent a payé pour trois enfants en un virement, que faire ?
 question: Un virement porte une communication que le site ne reconnaît pas, que faire ?
+question: Un virement est arrivé sans communication, comment le rattacher ?
 question: Comment rembourser une famille qui a payé en trop ?
 paths: /finance/reconciliation, /finance/receivables/*/qr
 related: campagnes, finances, importer-extraits, controle-des-creances
@@ -20,7 +21,8 @@ chacune a une issue : quand tout est traité, la page est vide et la
 vignette du tableau de bord affiche 0.
 
 Un mouvement **sans communication structurée** n'est pas un paiement à
-traiter : il reste dans « Mouvements », comme tout mouvement ordinaire.
+traiter : il reste dans « Mouvements ». Si c'est pourtant le paiement
+d'une créance, ouvrez-le et choisissez « Rattacher à une créance ».
 
 ## À répartir
 

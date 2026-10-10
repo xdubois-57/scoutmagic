@@ -85,6 +85,8 @@ function buildDom() {
             <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
         </div>
         <div id="movement-details-modal">
+            <a href="#" class="d-none" id="md-attach-link"
+               data-base-url="/finance/reconciliation?account_id=5&amp;tab=orphans&amp;transaction_id=">Rattacher à une créance →</a>
             <dl class="row small mb-3">
                 <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
                 <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
@@ -281,6 +283,29 @@ describe('finance-movements.js: details rendering', () => {
         expect(detail('md-extra-details').classList.contains('d-none')).toBe(false);
         // An absent bank reference keeps its em dash rather than disappearing.
         expect(detail('md-bank-reference').textContent).toBe('—');
+    });
+});
+
+describe('finance-movements.js: attaching a credit to a receivable (issue #837)', () => {
+    it('offers a credit the way to the receivable it pays', async () => {
+        await boot();
+
+        desktopRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        const link = /** @type {HTMLAnchorElement} */ (detail('md-attach-link'));
+        expect(link.classList.contains('d-none')).toBe(false);
+        expect(link.getAttribute('href')).toBe('/finance/reconciliation?account_id=5&tab=orphans&transaction_id=43');
+    });
+
+    it('offers nothing for a debit, even right after a credit', async () => {
+        await boot();
+
+        desktopRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        mobileCard().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        const link = /** @type {HTMLAnchorElement} */ (detail('md-attach-link'));
+        expect(link.classList.contains('d-none')).toBe(true);
+        expect(link.getAttribute('href')).toBe('#');
     });
 });
 

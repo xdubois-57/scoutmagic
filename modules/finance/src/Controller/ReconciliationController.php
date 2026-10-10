@@ -107,6 +107,7 @@ class ReconciliationController extends AbstractController
                 'accounts' => $accounts,
                 'selected_account' => null,
                 'view' => null,
+                'requested' => null,
                 'tab' => 'split',
             ]);
         }
@@ -119,8 +120,15 @@ class ReconciliationController extends AbstractController
         // preview or across the 1st of September.
         $scoutYearId = $this->effectiveScoutYearId($role);
 
+        $requestedId = (int) $request->getQuery('transaction_id', 0);
         try {
             $view = $this->reconciliation->build($account->id, $scoutYearId, $role);
+            // « Rattacher à une créance → » from a movement's details: the
+            // credit is shown on « Non imputés » even when this screen
+            // leaves it out on its own (issue #837).
+            $requested = $requestedId > 0
+                ? $this->reconciliation->attachableCredit($account->id, $requestedId, $role)
+                : null;
         } catch (FinanceException) {
             return $this->notFound();
         }
@@ -129,7 +137,8 @@ class ReconciliationController extends AbstractController
             'accounts' => $accounts,
             'selected_account' => $account,
             'view' => $view,
-            'tab' => $this->normalizeTab($request->getQuery('tab')),
+            'requested' => $requested,
+            'tab' => $requested !== null ? 'orphans' : $this->normalizeTab($request->getQuery('tab')),
         ]);
     }
 
