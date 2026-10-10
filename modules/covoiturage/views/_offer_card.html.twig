@@ -126,7 +126,10 @@
                         {% if request.may_revoke and not carpool.is_past %}
                             <form method="post" action="/covoiturage/demandes/{{ request.id }}/retirer-la-place" class="mt-2"
                                   data-confirm="Retirer une place accordée ? {{ request.who|join(' et ') }} {{ request.count > 1 ? 'avaient' : 'avait' }} une place confirmée et s'{{ request.count > 1 ? 'organisaient' : 'organisait' }} en conséquence. La famille sera prévenue, et la place redeviendra libre."
-                                  data-confirm-label="Retirer la place">
+                                  data-confirm-label="Retirer la place"
+                                  data-confirm-note="Un mot pour la famille (facultatif)"
+                                  data-confirm-note-name="message"
+                                  data-confirm-note-maxlength="200">
                                 {{ csrf_field()|raw }}
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Retirer cette place</button>
                             </form>

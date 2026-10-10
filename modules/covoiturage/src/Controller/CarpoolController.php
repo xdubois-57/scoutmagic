@@ -278,7 +278,13 @@ class CarpoolController extends AbstractController
                 $carpool,
                 (string) $request->getBody('message', '')
             ),
-            'revoke' => $this->offerService->revoke($seatRequest, $offer, $viewer, $carpool),
+            'revoke' => $this->offerService->revoke(
+                $seatRequest,
+                $offer,
+                $viewer,
+                $carpool,
+                (string) $request->getBody('message', '')
+            ),
             default => $this->offerService->withdraw(
                 $seatRequest,
                 $viewer,

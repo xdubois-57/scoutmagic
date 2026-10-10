@@ -363,6 +363,22 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('0478 12 34 56', $accepted);
     }
 
+    /** #790: taking a granted seat back asks for the same optional word as a refusal. */
+    public function testRetirerLaPlaceAsksForTheSameOptionalWordAsRefuser(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        (new SeatRequestRepository($this->pdo, H::encryption()))
+            ->transition($this->requestId, SeatRequest::PENDING, SeatRequest::ACCEPTED);
+
+        $page = $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId, [], [], [], []))->getBody();
+
+        $this->assertSame(1, preg_match('/<form[^>]*retirer-la-place[^>]*>/s', $page, $form));
+        $this->assertStringContainsString('data-confirm-note="Un mot pour la famille (facultatif)"', $form[0]);
+        $this->assertStringContainsString('data-confirm-note-name="message"', $form[0]);
+        $this->assertStringContainsString('data-confirm-note-maxlength="200"', $form[0]);
+    }
+
     public function testAChiefOfAnotherSectionCannotEditACarpoolTheyDoNotOrganize(): void
     {
         // Past the route's floor, the controller narrows to whoever may
