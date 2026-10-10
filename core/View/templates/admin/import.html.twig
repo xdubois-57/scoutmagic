@@ -3,6 +3,19 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Import Desk' } only %}
 
+    {# A refused file (issue #854): every error the validator found, before
+       anything else on the page. Nothing was imported and nothing kept. #}
+    {% if import_rejection|default(null) %}
+        <div class="alert alert-danger" role="alert">
+            <p class="mb-2"><strong>{{ import_rejection.summary }}</strong></p>
+            <ul class="mb-0 small">
+                {% for message in import_rejection.messages %}
+                    <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
     {# Scout year info #}
     <div class="card mb-3">
         <div class="card-body">

@@ -418,14 +418,22 @@ final class ScenarioPeople
     /** @return list<Person> */
     private function sparseMember(): array
     {
-        // No email (so no user account is created for him), no birth date (so
-        // no effective age and no branch can be derived), no landline.
+        // No email (so no user account is created for him) and no landline.
+        //
+        // He used to have no birth date either. The import now refuses a
+        // file with any line lacking one (issue #854): an empty birth date
+        // overwrote a good one on re-import and took the member out of
+        // Statistiques and Prévisions. So he has one — written literally
+        // rather than drawn, because a draw here would shift the Rng flow
+        // and rewrite every person generated after him. 2009 makes him 16
+        // in A2 and 17 in A3, a Pionnier's ages, for the years the site
+        // shows.
         $person = new Person(
             deskId: 'T0027',
             lastName: 'Wathelet',
             firstName: 'Corentin',
             gender: 'M',
-            birthDate: null,
+            birthDate: '14/02/2009',
             phone: null,
             mobile: PersonFactory::mobile(27),
             email: null,

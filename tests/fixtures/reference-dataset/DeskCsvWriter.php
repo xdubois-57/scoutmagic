@@ -104,7 +104,9 @@ final class DeskCsvWriter
         $values = [
             'Nom' => $person->lastName,
             'Prenom' => $person->firstName,
-            'Genre' => $person->gender,
+            // Desk writes a boy as H (homme), never M: the generator keeps
+            // its own M/F, the export speaks Desk's F/H/X (issue #854).
+            'Genre' => $person->gender === 'M' ? 'H' : $person->gender,
             'Date de naissance' => $person->birthDate ?? '',
             'Tél' => $person->phone ?? '',
             'GSM' => $person->mobile ?? '',
@@ -148,9 +150,10 @@ final class DeskCsvWriter
     }
 
     /**
-     * Desk writes booleans as the literal words, and
-     * DeskCsvParser::parseBool() accepts nothing else: anything that is not
-     * exactly "true" (case-insensitively) reads as false.
+     * Desk writes booleans as the literal words, and the import accepts
+     * nothing else: Core\Import\DeskImportValidator (rule 8, issue #854)
+     * refuses the whole file on any other value, where it used to read
+     * anything but "true" as false.
      */
     private static function bool(bool $value): string
     {

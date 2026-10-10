@@ -49,4 +49,27 @@ class DeskDateParserTest extends TestCase
         $this->assertNotNull($parsed);
         $this->assertSame('2012-03-15 00:00:00', $parsed->format('Y-m-d H:i:s'));
     }
+
+    /** @return array<string, array{string, bool}> */
+    public static function birthDateProvider(): array
+    {
+        return [
+            'an ordinary birth date' => ['2012-03-15', true],
+            'born today' => ['2026-10-10', true],
+            'the earliest accepted day' => ['1900-01-01', true],
+            // parse() reads it without complaint: a well-formed date, and
+            // nobody's birthday (issue #854).
+            'tomorrow' => ['2026-10-11', false],
+            'a far future year' => ['2099-01-01', false],
+            'the day before 1900' => ['1899-12-31', false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('birthDateProvider')]
+    public function testABirthDateIsNeitherInTheFutureNorBefore1900(string $date, bool $plausible): void
+    {
+        $today = new \DateTimeImmutable('2026-10-10 15:00');
+
+        $this->assertSame($plausible, DeskDateParser::isPlausibleBirthDate(new \DateTimeImmutable($date), $today));
+    }
 }

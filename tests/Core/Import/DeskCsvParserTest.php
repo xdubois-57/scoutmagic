@@ -184,7 +184,7 @@ class DeskCsvParserTest extends TestCase
         $this->assertNotNull($jean);
         $this->assertSame('Dupont', $jean->lastName);
         $this->assertSame('Jean', $jean->firstName);
-        $this->assertSame('M', $jean->gender);
+        $this->assertSame('H', $jean->gender);
         $this->assertSame('15/03/2012', $jean->birthDate);
         $this->assertSame('jean.dupont@example.com', $jean->email);
         $this->assertSame('Baloo', $jean->totem);

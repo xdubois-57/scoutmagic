@@ -254,6 +254,7 @@ final class DeskImportReplay
                 $this->storagePath,
             ),
             new ImportDiffCalculator(new RosterSnapshotRepository($this->pdo)),
+            new ScoutYearService($this->pdo),
             null,
             $this->importListeners(),
         );

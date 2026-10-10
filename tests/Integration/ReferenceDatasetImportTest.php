@@ -750,8 +750,17 @@ final class ReferenceDatasetImportTest extends TestCase
         )?->fetch();
 
         self::assertNull($row['email_blind_index'] ?? null);
-        self::assertNull($row['birth_date_encrypted'] ?? null);
         self::assertNull($row['phone_encrypted'] ?? null);
+
+        // He used to have no birth date as well. The import refuses a file
+        // with an empty one now (issue #854), so he has one — and, like
+        // every birth date, it is stored as Y-m-d whatever Desk wrote
+        // (« 14/02/2009 » in the export).
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        self::assertSame(
+            '2009-02-14',
+            $encryption->decrypt((string) ($row['birth_date_encrypted'] ?? ''), 'member_years.birth_date'),
+        );
     }
 
     public function testTheFeeCategoryFollowsTheMemberYearByYear(): void
