@@ -64,10 +64,14 @@
     // Bootstrap's responsive offcanvas (.offcanvas-lg…) carries no plain
     // .offcanvas class, hence the list.
     var OFFCANVAS = ['.offcanvas', '.offcanvas-sm', '.offcanvas-md', '.offcanvas-lg', '.offcanvas-xl', '.offcanvas-xxl'];
-    var OWN_SCROLL_SURFACES = ['.modal', '.dropdown-menu'].concat(OFFCANVAS).join(', ');
+    // Overlays that are not Bootstrap components (the gallery lightbox,
+    // file-viewer.js) opt out with data-no-pull-to-refresh, and count as
+    // open while they are not hidden by d-none / [hidden].
+    var OPT_OUT = '[data-no-pull-to-refresh]';
+    var OWN_SCROLL_SURFACES = ['.modal', '.dropdown-menu', OPT_OUT].concat(OFFCANVAS).join(', ');
     // An open dropdown counts too: a pull on the page behind it would
     // reload under a menu the user is reading.
-    var OPEN_OVERLAYS = ['.modal.show', '.dropdown-menu.show'].concat(
+    var OPEN_OVERLAYS = ['.modal.show', '.dropdown-menu.show', OPT_OUT + ':not(.d-none):not([hidden])'].concat(
         OFFCANVAS.map(function (selector) { return selector + '.show, ' + selector + '.showing'; })
     ).join(', ');
 

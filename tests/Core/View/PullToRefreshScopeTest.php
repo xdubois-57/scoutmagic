@@ -41,4 +41,20 @@ class PullToRefreshScopeTest extends TestCase
         $this->assertStringNotContainsString('has-pull-to-refresh', $offline);
         $this->assertStringNotContainsString('pull-to-refresh.js', $offline);
     }
+
+    /**
+     * The two full-screen viewers that are not Bootstrap modals opt out,
+     * so a pull over an open photo or file never reloads the page behind.
+     */
+    public function testTheCustomFullScreenViewersOptOut(): void
+    {
+        $this->assertStringContainsString(
+            'data-no-pull-to-refresh',
+            $this->read('modules/gallery/views/partials/lightbox.html.twig')
+        );
+        $this->assertStringContainsString(
+            "setAttribute('data-no-pull-to-refresh', '')",
+            $this->read('public/assets/js/file-viewer.js')
+        );
+    }
 }

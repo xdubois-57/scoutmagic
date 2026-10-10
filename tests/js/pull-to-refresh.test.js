@@ -243,6 +243,22 @@ describe('pull-to-refresh.js: the gesture', () => {
         expect(reload).not.toHaveBeenCalled();
     });
 
+    it('ignores a pull over an open custom viewer that opts out, and works again once it is hidden', async () => {
+        document.body.insertAdjacentHTML(
+            'beforeend',
+            '<div id="gallery-lightbox" data-no-pull-to-refresh><img id="photo" alt=""></div>'
+        );
+        await boot();
+
+        pullPastThreshold(document.getElementById('photo'));
+        pullPastThreshold();
+        expect(reload).not.toHaveBeenCalled();
+
+        document.getElementById('gallery-lightbox').classList.add('d-none');
+        pullPastThreshold();
+        expect(reload).toHaveBeenCalledTimes(1);
+    });
+
     it('ignores a pull on the page while a dropdown menu is open', async () => {
         document.body.insertAdjacentHTML('beforeend', '<ul class="dropdown-menu show"><li>Mon compte</li></ul>');
         await boot();
