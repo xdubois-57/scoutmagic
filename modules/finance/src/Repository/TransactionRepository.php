@@ -496,19 +496,49 @@ class TransactionRepository
     }
 
     /**
-     * Every uncategorized transaction, across every account — Service\
-     * BulkCategorizationService's "run the rules on every uncategorized
-     * movement" backfill isn't scoped to one account, unlike everywhere
-     * else category_id is queried.
+     * The next uncategorized transactions after a cursor, across every
+     * account — Service\BulkCategorizationService's "run the rules on every
+     * uncategorized movement" backfill isn't scoped to one account, unlike
+     * everywhere else category_id is queried.
+     *
+     * Ordered by id, and bounded by $maxId, because that run walks a
+     * cursor (issue #839): a movement neither the rules nor the AI can
+     * place stays uncategorized, and an order that put it first again on
+     * every batch would retry it for ever. $maxId is the run's frozen
+     * target, so a statement imported mid-run cannot make it endless.
      *
      * @return Transaction[]
      */
-    public function findAllUncategorized(): array
+    public function findUncategorizedAfter(int $afterId, int $maxId, int $limit): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM finance_transactions WHERE category_id IS NULL ORDER BY '
-            . 'transaction_date ASC, id ASC');
-        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
-        return array_map([$this, 'hydrate'], $rows);
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_transactions WHERE category_id IS NULL AND id > ? AND id '
+            . '<= ? ORDER BY id ASC LIMIT ' . max(1, $limit));
+        $stmt->execute([$afterId, $maxId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The highest id among uncategorized transactions, 0 when there is none
+     * — the bound a categorization run freezes when it starts.
+     */
+    public function findMaxUncategorizedId(): int
+    {
+        $stmt = $this->pdo->query('SELECT MAX(id) FROM finance_transactions WHERE category_id IS NULL');
+
+        return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
+    }
+
+    /**
+     * How many uncategorized transactions sit at or below $maxId — the
+     * size of the run that bound announces, for its progress.
+     */
+    public function countUncategorizedUpTo(int $maxId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE category_id IS NULL AND id <= ?');
+        $stmt->execute([$maxId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function deleteAllForAccount(int $accountId): int

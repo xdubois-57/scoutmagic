@@ -357,15 +357,32 @@ class TransactionRepositoryTest extends TestCase
         $this->assertNull($transaction->categorySource);
     }
 
-    public function testFindAllUncategorized(): void
+    public function testFindUncategorizedAfterWalksByIdWithinTheBound(): void
     {
-        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $first = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-03', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
         $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $second = $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-01', 'C', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $beyond = $this->repository->create($this->accountId, $this->fiscalYearId, 'R4', '2026-09-01', 'D', -4.0, null, null, Transaction::SOURCE_MANUAL, null);
 
-        $results = $this->repository->findAllUncategorized();
+        // By id, not by date: R3 is older than R1 and still comes after it.
+        $this->assertSame([$first, $second], array_map(
+            static fn(Transaction $t): int => $t->id,
+            $this->repository->findUncategorizedAfter(0, $second, 10)
+        ));
+        $this->assertSame([$second], array_map(
+            static fn(Transaction $t): int => $t->id,
+            $this->repository->findUncategorizedAfter($first, $second, 10)
+        ));
+        $this->assertCount(1, $this->repository->findUncategorizedAfter(0, $beyond, 1));
+        $this->assertSame($beyond, $this->repository->findMaxUncategorizedId());
+        $this->assertSame(2, $this->repository->countUncategorizedUpTo($second));
+    }
 
-        $this->assertCount(1, $results);
-        $this->assertSame($uncategorized, $results[0]->id);
+    public function testFindMaxUncategorizedIdIsZeroWhenEverythingIsCategorized(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame(0, $this->repository->findMaxUncategorizedId());
     }
 
     public function testFindFilteredUncategorizedOnlyTakesPriorityOverCategoryId(): void

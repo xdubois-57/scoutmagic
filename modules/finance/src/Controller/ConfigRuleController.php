@@ -218,12 +218,20 @@ class ConfigRuleController extends AbstractController
                 return $this->json(['success' => true]);
             }
 
-            case 'run_status':
+            case 'run_status': {
+                // status() also repairs a run nothing carries any more
+                // (issue #839), so a page left open on a dead run sees it
+                // resume or end within a few polls rather than an hour.
+                $status = $this->bulkCategorizationService->status();
+
                 return $this->json([
                     'success' => true,
-                    'running' => $this->bulkCategorizationService->isRunning(),
+                    'running' => $status['running'],
+                    'resumed' => $status['resumed'],
+                    'progress' => ['processed' => $status['processed'], 'target' => $status['target']],
                     'last_result' => $this->bulkCategorizationService->getLastResult(),
                 ]);
+            }
 
             case 'test': {
                 $conditions = $this->extractConditions($data);

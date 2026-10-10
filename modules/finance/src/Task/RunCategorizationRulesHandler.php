@@ -28,8 +28,10 @@ use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 
 /**
- * Runs Controller\ConfigCategoryController's "Exécuter les règles sur les
- * mouvements non catégorisés" in the background (module spec follow-up)
+ * One batch of Controller\ConfigCategoryController's "Exécuter les règles
+ * sur les mouvements non catégorisés", run in the background (module spec
+ * follow-up) — the run is walked in short, resumable batches, each arming
+ * the next (Service\BulkCategorizationService, issue #839)
  * — scheduled with a 0-second delay right when the config page's button
  * is clicked (Controller\ConfigRuleController), then actually picked up
  * by the next crontab pass, at most a minute later (public/cron.php) —
@@ -78,9 +80,10 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
             $ruleEngine,
             $aiCategorizationService,
             new SettingService(new SettingRepository($pdo)),
-            new SchedulerService(new SchedulerRepository($pdo))
+            new SchedulerService(new SchedulerRepository($pdo)),
+            $context->journal
         );
 
-        $bulkCategorizationService->runInBackground();
+        $bulkCategorizationService->runBatch($payload);
     }
 }
