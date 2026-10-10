@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
-  "version": "1.24.1",
+  "version": "1.24.2",
   "enabled_by_default": false,
   "routes": [
     {

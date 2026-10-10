@@ -87,8 +87,9 @@ class RunCategorizationRulesHandlerTest extends TestCase
             $this->settingService,
             new SchedulerService(new SchedulerRepository($this->pdo))
         );
-        $bulkCategorizationService->markRunning();
 
+        // A row with no run_id — what a version from before runs queued —
+        // starts one rather than being lost (issue #839).
         $handler = new RunCategorizationRulesHandler();
         $handler->handle([], $this->createTaskContext());
 

@@ -180,10 +180,22 @@
     /** @type {{stop: () => void}|null} */
     let runRulesPoll = null;
 
-    /** @param {boolean} running */
-    function setRunRulesRunning(running) {
+    const runRulesProgress = el('run-rules-progress');
+
+    /**
+     * @param {boolean} running
+     * @param {{processed: number, target: number}|undefined} [progress]
+     */
+    function setRunRulesRunning(running, progress) {
         runRulesBtn.disabled = running;
         runRulesStatus.classList.toggle('d-none', !running);
+        // How far the run has walked, once the server knows its size — a
+        // run is now a chain of short batches (issue #839), and a page
+        // that only ever said « en arrière-plan » could not tell one that
+        // moves from one that stopped.
+        runRulesProgress.textContent = running && progress && progress.target > 0
+            ? ' (' + progress.processed + ' / ' + progress.target + ' mouvements)'
+            : '';
     }
 
     // The completion summary is a persistent, re-readable block on the
@@ -212,7 +224,10 @@
             if (!data?.success) {
                 return undefined; // transient failure — keep polling
             }
-            setRunRulesRunning(data.running);
+            setRunRulesRunning(data.running, data.progress);
+            if (data.resumed) {
+                window.ScoutMagicToast.show('La catégorisation s\'était interrompue : elle reprend là où elle s\'était arrêtée.');
+            }
             if (data.running) {
                 return undefined;
             }
@@ -248,7 +263,7 @@
     (async () => {
         const res = await api.postJson('/config/finance/rules', { action: 'run_status' });
         if (res.data?.success && res.data.running) {
-            setRunRulesRunning(true);
+            setRunRulesRunning(true, res.data.progress);
             startRunRulesPolling();
         }
     })();

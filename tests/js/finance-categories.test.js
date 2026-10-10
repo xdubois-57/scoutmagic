@@ -51,7 +51,7 @@ function buildDom() {
         <button id="new-rule-btn">Nouvelle règle</button>
         <button id="reset-default-rules-btn">Réinitialiser les règles</button>
         <button id="run-rules-btn">Appliquer les règles</button>
-        <span id="run-rules-status" class="d-none">En cours…</span>
+        <span id="run-rules-status" class="d-none">En cours…<span id="run-rules-progress"></span></span>
         <div id="run-rules-result" class="d-none"></div>
         <div id="rule-modal">
             <h2 id="rule-modal-title"></h2>
@@ -348,6 +348,65 @@ describe('finance-categories.js: running the rules over uncategorised movements'
             { variant: 'error' },
         );
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('run-rules-btn')).disabled).toBe(false);
+    });
+});
+
+describe('finance-categories.js: following a run walked in batches (issue #839)', () => {
+    /**
+     * Answers run_status with $status, everything else with success.
+     *
+     * @param {object} status
+     */
+    function statusIs(status) {
+        global.fetch = vi.fn((url, init) => {
+            const body = JSON.parse(init.body);
+            return jsonResponse(body.action === 'run_status' ? { success: true, ...status } : { success: true });
+        });
+    }
+
+    it('shows how far a run already under way has walked when the page opens on it', async () => {
+        statusIs({ running: true, resumed: false, progress: { processed: 12, target: 184 }, last_result: null });
+
+        buildDom();
+        vi.resetModules();
+        await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/sortable.js');
+        await import('../../public/assets/js/finance-categories.js');
+        await settle();
+
+        expect(document.getElementById('run-rules-status').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('run-rules-progress').textContent).toBe(' (12 / 184 mouvements)');
+    });
+
+    it('says nothing about progress before the run knows its size', async () => {
+        statusIs({ running: true, resumed: false, progress: { processed: 0, target: 0 }, last_result: null });
+
+        buildDom();
+        vi.resetModules();
+        await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/sortable.js');
+        await import('../../public/assets/js/finance-categories.js');
+        await settle();
+
+        expect(document.getElementById('run-rules-progress').textContent).toBe('');
+    });
+
+    it('tells the admin when an interrupted run picks up again', async () => {
+        await boot();
+        statusIs({ running: true, resumed: true, progress: { processed: 30, target: 184 }, last_result: null });
+        vi.useFakeTimers();
+        try {
+            document.getElementById('run-rules-btn').click();
+            // The poll's first tick comes one interval after the start.
+            await vi.advanceTimersByTimeAsync(3100);
+
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
+                'La catégorisation s\'était interrompue : elle reprend là où elle s\'était arrêtée.',
+            );
+            expect(document.getElementById('run-rules-progress').textContent).toBe(' (30 / 184 mouvements)');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 

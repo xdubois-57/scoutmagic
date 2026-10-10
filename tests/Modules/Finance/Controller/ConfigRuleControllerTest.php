@@ -462,7 +462,7 @@ class ConfigRuleControllerTest extends TestCase
 
     public function testRunOnUncategorizedRejectsWhenAlreadyRunning(): void
     {
-        $this->bulkCategorizationService->markRunning();
+        $this->bulkCategorizationService->scheduleBackgroundRun();
 
         $response = $this->controller->save($this->jsonRequest([
             'action' => 'run_on_uncategorized',
@@ -482,15 +482,18 @@ class ConfigRuleControllerTest extends TestCase
         $this->assertFalse($data['running']);
         $this->assertNull($data['last_result']);
 
-        $this->bulkCategorizationService->markRunning();
+        $this->bulkCategorizationService->scheduleBackgroundRun();
         $running = $this->controller->save($this->jsonRequest([
             'action' => 'run_status',
             '_csrf_token' => $this->csrfToken(),
         ]), []);
-        $this->assertTrue(json_decode($running->getBody(), true)['running']);
+        $data = json_decode($running->getBody(), true);
+        $this->assertTrue($data['running']);
+        $this->assertFalse($data['resumed']);
+        $this->assertSame(['processed' => 0, 'target' => 0], $data['progress']);
     }
 
-    public function testRunInBackgroundEndToEndCategorizesAndClearsRunningFlag(): void
+    public function testAScheduledRunEndToEndCategorizesAndFreesTheButton(): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
         $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
@@ -499,8 +502,9 @@ class ConfigRuleControllerTest extends TestCase
         $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         $transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'VIR Delhaize', -20.0, null, null, 'manual', null);
 
-        $this->bulkCategorizationService->markRunning();
-        $this->bulkCategorizationService->runInBackground();
+        $this->assertTrue($this->bulkCategorizationService->scheduleBackgroundRun());
+        $queued = $this->schedulerService->findAllForTask('finance', 'run_categorization_rules')[0];
+        $this->bulkCategorizationService->runBatch(json_decode((string) $queued['payload'], true));
 
         $this->assertFalse($this->bulkCategorizationService->isRunning());
         $result = $this->bulkCategorizationService->getLastResult();
