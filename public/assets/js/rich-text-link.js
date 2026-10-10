@@ -762,6 +762,12 @@
                 blockParent.appendChild(wordList);
             }
             listItem(source, format, wordList);
+            // A bullet paragraph with nothing but its hidden marker makes no
+            // item; a list that got none is no list either, as in list().
+            if (!wordList.hasChildNodes()) {
+                wordList.remove();
+                wordList = null;
+            }
         }
 
         /**
@@ -965,10 +971,12 @@
      */
     function plainTextFragment(text) {
         var fragment = document.createDocumentFragment();
-        String(text).replace(/\r\n?/g, '\n').split(/\n[ \t]*\n/).forEach(function (paragraph) {
+        // Any run of blank lines separates two paragraphs, however long.
+        String(text).replace(/\r\n?/g, '\n').split(/\n(?:[ \t]*\n)+/).forEach(function (paragraph) {
             if (paragraph.trim() === '') {
                 return;
             }
+            paragraph = paragraph.replace(/^\n+|\n+$/g, '');
             var block = document.createElement('p');
             paragraph.split('\n').forEach(function (line, index) {
                 if (index > 0) block.appendChild(document.createElement('br'));
@@ -1136,10 +1144,11 @@
             }
 
             var text = clipboard?.getData('text/plain') ?? '';
-            if (text === '') {
-                // A file, or a clipboard the page may not read: nothing
-                // here to rebuild. What the browser inserts still goes
-                // through the canonical form when it leaves the editor.
+            if (text.trim() === '') {
+                // A file, a clipboard the page may not read, or only
+                // whitespace: nothing here to rebuild, and the browser's own
+                // paste still replaces a selection with it. What it inserts
+                // goes through the canonical form when it leaves the editor.
                 return;
             }
             event.preventDefault();

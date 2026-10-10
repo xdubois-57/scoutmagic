@@ -39,6 +39,11 @@
             "canonical": "<ol><li>Un</li><li>Deux</li></ol><p>Après</p>"
         },
         {
+            "name": "Word: a bullet paragraph with nothing but its hidden marker leaves no empty list",
+            "pasted": "<p class=MsoListParagraph style='mso-list:l0 level1 lfo1'><![if !supportLists]><span style='mso-list:Ignore'>·<span>&nbsp;&nbsp;</span></span><![endif]>&nbsp;</p><p class=MsoNormal>Après</p>",
+            "canonical": "<p>Après</p>"
+        },
+        {
             "name": "a nested list keeps its nesting; a paragraph inside an item is just its text",
             "pasted": "<ul><li><p>Un</p><ul><li>Deux</li></ul></li><li><p>Trois</p><p>suite</p></li></ul>",
             "canonical": "<ul><li>Un<ul><li>Deux</li></ul></li><li>Trois<br>suite</li></ul>"

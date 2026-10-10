@@ -282,6 +282,27 @@ describe('ScoutMagicRichText.wireSurface() — the paste', () => {
         expect(surface.innerHTML).toBe('<p>Un<br>Deux</p><p>Trois &lt;b&gt;pas une balise&lt;/b&gt;</p>');
     });
 
+    it('separates paragraphs by any run of blank lines, without a stray line break', async () => {
+        const rt = await loadHelper();
+        const surface = surfaceWith('');
+        rt.wireSurface(surface);
+
+        surface.dispatchEvent(pasteEvent({ 'text/plain': 'Un\n\n\nDeux\n \n\t\n\nTrois\n' }));
+
+        expect(surface.innerHTML).toBe('<p>Un</p><p>Deux</p><p>Trois</p>');
+    });
+
+    it('leaves a whitespace-only text to the browser, so it still replaces a selection', async () => {
+        const rt = await loadHelper();
+        const surface = surfaceWith('');
+        rt.wireSurface(surface);
+
+        const event = pasteEvent({ 'text/plain': ' \n' });
+        surface.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(false);
+    });
+
     it('leaves a clipboard with neither HTML nor text to the browser', async () => {
         const rt = await loadHelper();
         const surface = surfaceWith('');
