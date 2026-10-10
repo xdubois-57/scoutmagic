@@ -166,6 +166,24 @@ describe('ScoutMagicRichText.canonicalHtml() — siteImages', () => {
             .toBe('<p><img src="/files/3" alt="Camp"></p>');
     });
 
+    it('keeps one given as a full address on this site, as its path: that is how a cut puts it on the clipboard', async () => {
+        const rt = await loadHelper();
+        const here = window.location.origin;
+
+        expect(rt.canonicalHtml(`<p><img src="${here}/files/3?v=2" alt="Camp"></p>`, { siteImages: true }))
+            .toBe('<p><img src="/files/3?v=2" alt="Camp"></p>');
+    });
+
+    it('refuses a full address that only looks like this site', async () => {
+        const rt = await loadHelper();
+        const { hostname, port } = window.location;
+        const other = window.location.protocol === 'https:' ? 'http:' : 'https:';
+
+        expect(rt.canonicalHtml(`<p><img src="${other}//${hostname}${port ? ':' + port : ''}/files/3">a</p>`, { siteImages: true })).toBe('<p>a</p>');
+        expect(rt.canonicalHtml(`<p><img src="${window.location.origin}.ailleurs.be/x.png">b</p>`, { siteImages: true })).toBe('<p>b</p>');
+        expect(rt.canonicalHtml(`<p><img src="https://${hostname}@ailleurs.be/x.png">c</p>`, { siteImages: true })).toBe('<p>c</p>');
+    });
+
     it('still refuses an image from another site, protocol-relative ones included', async () => {
         const rt = await loadHelper();
 

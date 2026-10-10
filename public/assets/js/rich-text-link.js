@@ -227,7 +227,8 @@
      * @property {boolean} [images] keep <img> — the news editor has an
      *           image button; the generic surfaces do not
      * @property {boolean} [siteImages] keep an <img> only when it is one of
-     *           this site's own files (a path from the root): a surface
+     *           this site's own files (a path from the root, or a full
+     *           address on this origin, kept as its path): a surface
      *           without an image button must still let an author cut an
      *           image the text already holds and paste it elsewhere in it,
      *           without letting a paste bring one in from another site
@@ -307,6 +308,34 @@
             return name === 'http' || name === 'https' ? url : null;
         }
         return ALLOWED_SCHEMES.has(name) ? url : null;
+    }
+
+    /**
+     * An image source as a path from this site's root, or null when it is
+     * another site's. A path from the root is kept as it is; `//host` is
+     * another site, and so is `/\\host`, a browser reading a backslash as a
+     * slash. A full address on this site's own origin becomes its path:
+     * cutting an image and pasting it back puts it on the clipboard that way
+     * — Chromium resolves every `src` when it copies.
+     *
+     * @param {string} src a source safeUrl() already accepted
+     * @returns {string|null}
+     */
+    function sitePath(src) {
+        if (/^\/(?![/\\])/.test(src)) {
+            return src;
+        }
+        if (!/^https?:/i.test(src)) {
+            return null;
+        }
+        var url;
+        try {
+            url = new URL(src);
+        } catch {
+            // An address that does not parse is not this site's.
+            return null;
+        }
+        return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null;
     }
 
     /**
@@ -783,9 +812,10 @@
          */
         function imageSegment(element, format) {
             var src = images || siteImages ? safeUrl(element.getAttribute('src'), true) : null;
-            // A path from the root, and only that: `//host` is another site,
-            // and so is `/\host`, a browser reading a backslash as a slash.
-            if (src === null || (!images && !/^\/(?![/\\])/.test(src))) {
+            if (src !== null && !images) {
+                src = sitePath(src);
+            }
+            if (src === null) {
                 return null;
             }
             /** @param {string} name @returns {string|null} */

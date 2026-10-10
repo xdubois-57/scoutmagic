@@ -226,3 +226,55 @@ test('a pasted text is the toolbar\'s own HTML, stays editable, and is unchanged
     expect(pageErrors).toEqual([]);
     expect(serverErrors).toEqual([]);
 });
+
+// A surface without an image button still keeps an image the text already
+// holds when the author cuts it and pastes it elsewhere in the same text.
+// Chromium puts the image on the clipboard with its `src` resolved to a full
+// address, so this is the one path where only a real cut and paste shows
+// whether the editor recognises its own site's image.
+test('an image cut and pasted inside the text keeps its place in it, as a path from the site root', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+    await answerCookieBanner(page);
+    await setConfigurationMode(page, true);
+
+    try {
+        const dialog = await openEditor(page);
+        const surface = dialog.locator('#richTextEditorContent');
+
+        // Nothing is saved: the dialog is closed without « Enregistrer ».
+        await surface.evaluate((element) => {
+            element.innerHTML = '<p>Avant <img src="/assets/img/lesscouts.png" alt="Logo"> après</p><p>Ici</p>';
+            element.focus();
+            const range = document.createRange();
+            range.selectNode(element.querySelector('img'));
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        });
+        await page.keyboard.press('ControlOrMeta+X');
+        await expect(surface.locator('img')).toHaveCount(0);
+
+        await surface.evaluate((element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element.querySelectorAll('p')[1]);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        });
+        await page.keyboard.press('ControlOrMeta+V');
+
+        const image = surface.locator('p').nth(1).locator('img');
+        await expect(image).toHaveCount(1);
+        await expect(image).toHaveAttribute('src', '/assets/img/lesscouts.png');
+        await expect(image).toHaveAttribute('alt', 'Logo');
+    } finally {
+        await setConfigurationMode(page, false).catch(() => null);
+    }
+
+    expect(pageErrors).toEqual([]);
+});
