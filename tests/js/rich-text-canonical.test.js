@@ -182,6 +182,9 @@ describe('ScoutMagicRichText.canonicalHtml() — siteImages', () => {
         expect(rt.canonicalHtml(`<p><img src="${other}//${hostname}${port ? ':' + port : ''}/files/3">a</p>`, { siteImages: true })).toBe('<p>a</p>');
         expect(rt.canonicalHtml(`<p><img src="${window.location.origin}.ailleurs.be/x.png">b</p>`, { siteImages: true })).toBe('<p>b</p>');
         expect(rt.canonicalHtml(`<p><img src="https://${hostname}@ailleurs.be/x.png">c</p>`, { siteImages: true })).toBe('<p>c</p>');
+        // This origin, but a path that would read as another site once written alone.
+        expect(rt.canonicalHtml(`<p><img src="${window.location.origin}//ailleurs.be/x.png">d</p>`, { siteImages: true })).toBe('<p>d</p>');
+        expect(rt.canonicalHtml(`<p><img src="${window.location.origin}/\\ailleurs.be/x.png">e</p>`, { siteImages: true })).toBe('<p>e</p>');
     });
 
     it('still refuses an image from another site, protocol-relative ones included', async () => {

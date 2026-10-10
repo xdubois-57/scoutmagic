@@ -335,7 +335,12 @@
             // An address that does not parse is not this site's.
             return null;
         }
-        return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null;
+        // The path is checked again: `https://this-site//host/x` is this
+        // origin, but its path would read as another site once written alone.
+        if (url.origin !== window.location.origin || !/^\/(?![/\\])/.test(url.pathname)) {
+            return null;
+        }
+        return url.pathname + url.search + url.hash;
     }
 
     /**
