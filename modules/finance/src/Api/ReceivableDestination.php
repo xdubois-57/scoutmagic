@@ -32,8 +32,16 @@ final class ReceivableDestination
         }
 
         // One leading slash, not two: `//host` is a scheme-relative URL,
-        // which a browser follows off the site.
-        if (!str_starts_with($url, '/') || str_starts_with($url, '//') || str_contains($url, '\\')) {
+        // which a browser follows off the site. No control character or
+        // space either: a browser strips tab, CR and LF from a URL before
+        // parsing it, so `/<TAB>/evil.com` would reach the same `//host`
+        // while slipping past the check before it. A path this site builds
+        // never needs one — a module percent-encodes what it interpolates.
+        if (!str_starts_with($url, '/')
+            || str_starts_with($url, '//')
+            || str_contains($url, '\\')
+            || preg_match('/[\x00-\x20\x7f]/', $url) === 1
+        ) {
             throw new \InvalidArgumentException('A destination is a path on this site.');
         }
     }
