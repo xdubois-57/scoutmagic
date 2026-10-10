@@ -6,13 +6,14 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Repository;
+namespace Core\Http;
 
 /**
- * gallery_link_preview_cache — see that table's own schema.sql comment for
- * why this caches scrape metadata only, never a downloaded image, and why
- * stale rows are purged opportunistically here rather than by a dedicated
- * scheduled task.
+ * gallery_link_preview_cache — see that table's own comment in
+ * schema/core.sql for why this caches scrape metadata only, never a
+ * downloaded image, why stale rows are purged opportunistically here rather
+ * than by a dedicated scheduled task, and why a core table still carries
+ * the gallery's prefix.
  */
 class LinkPreviewCacheRepository
 {
@@ -28,15 +29,14 @@ class LinkPreviewCacheRepository
     }
 
     /**
-     * @return array{title: ?string, description: ?string, imageUrl: ?string}|null
-     *         null when there is no fresh (within TTL_HOURS) cached row.
+     * Null when there is no fresh (within TTL_HOURS) cached row.
      */
-    public function findFresh(string $urlHash): ?array
+    public function findFresh(string $urlHash): ?UrlMetadata
     {
         $since = (new \DateTimeImmutable('-' . self::TTL_HOURS . ' hours'))->format('Y-m-d H:i:s');
 
         $stmt = $this->pdo->prepare(
-            'SELECT title, description, image_url FROM gallery_link_preview_cache
+            'SELECT title, html_title, description, image_url FROM gallery_link_preview_cache
              WHERE url_hash = ? AND fetched_at >= ?'
         );
         $stmt->execute([$urlHash, $since]);
@@ -46,11 +46,14 @@ class LinkPreviewCacheRepository
             return null;
         }
 
-        return [
-            'title' => $row['title'] !== null ? (string) $row['title'] : null,
-            'description' => $row['description'] !== null ? (string) $row['description'] : null,
-            'imageUrl' => $row['image_url'] !== null ? (string) $row['image_url'] : null,
-        ];
+        $text = static fn (mixed $value): ?string => $value !== null ? (string) $value : null;
+
+        return new UrlMetadata(
+            $text($row['title']),
+            $text($row['html_title']),
+            $text($row['description']),
+            $text($row['image_url'])
+        );
     }
 
     /**
@@ -59,29 +62,40 @@ class LinkPreviewCacheRepository
      * one write path this table has, rather than a dedicated scheduled task
      * (see schema.sql).
      */
-    public function store(string $urlHash, ?string $title, ?string $description, ?string $imageUrl): void
+    public function store(string $urlHash, UrlMetadata $metadata): void
     {
         $now = date('Y-m-d H:i:s');
+        // Clipped to the columns: a third-party page can put anything in
+        // these tags, and a clipped title beats a PDOException.
+        $title = self::clip($metadata->ogTitle, 255);
+        $htmlTitle = self::clip($metadata->htmlTitle, 255);
+        $description = $metadata->description;
+        $imageUrl = self::clip($metadata->imageUrl, 500);
 
         // Portable insert-or-update (no MySQL-only ON DUPLICATE KEY — this
         // repository is exercised against SQLite in tests too).
         if ($this->urlHashExists($urlHash)) {
             $stmt = $this->pdo->prepare(
-                'UPDATE gallery_link_preview_cache SET title = ?, description = ?, image_url = ?, fetched_at = ?
-                 WHERE url_hash = ?'
+                'UPDATE gallery_link_preview_cache SET title = ?, html_title = ?, description = ?, image_url = ?,
+                 fetched_at = ? WHERE url_hash = ?'
             );
-            $stmt->execute([$title, $description, $imageUrl, $now, $urlHash]);
+            $stmt->execute([$title, $htmlTitle, $description, $imageUrl, $now, $urlHash]);
         } else {
             $stmt = $this->pdo->prepare(
-                'INSERT INTO gallery_link_preview_cache (url_hash, title, description, image_url, fetched_at)
-                 VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO gallery_link_preview_cache (url_hash, title, html_title, description, image_url, fetched_at)
+                 VALUES (?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$urlHash, $title, $description, $imageUrl, $now]);
+            $stmt->execute([$urlHash, $title, $htmlTitle, $description, $imageUrl, $now]);
         }
 
         $cutoff = (new \DateTimeImmutable('-' . self::TTL_HOURS . ' hours'))->format('Y-m-d H:i:s');
         $purge = $this->pdo->prepare('DELETE FROM gallery_link_preview_cache WHERE fetched_at < ?');
         $purge->execute([$cutoff]);
+    }
+
+    private static function clip(?string $value, int $length): ?string
+    {
+        return $value !== null ? mb_substr($value, 0, $length) : null;
     }
 
     private function urlHashExists(string $urlHash): bool

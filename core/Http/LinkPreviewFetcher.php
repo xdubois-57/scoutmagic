@@ -16,15 +16,16 @@ namespace Core\Http;
  * dangerous outbound operation (SECURITY.md §17), and the rule — one
  * implementation, one validator, no second scraper anywhere — is a rule
  * about the whole installation, not about the module that happened to
- * need it first. `Modules\Gallery\Service\LinkPreviewService` is that
- * one implementation and stays where it is; what moved here is the
- * contract, so that a module wanting a preview declares a dependency on
- * core rather than reaching into another module's namespace to name a
- * capability core owns the rules for.
+ * need it first. The contract moved here first, so that a module wanting a
+ * preview declares a dependency on core rather than reaching into another
+ * module's namespace; its one implementation, `Core\Http\LinkPreviewService`,
+ * followed in issue #840, when the rich-text editors needed it too and an
+ * editor every unit has could not depend on a module a unit may switch off.
  *
- * A consumer takes it as a NULLABLE dependency and degrades to a plain
- * link when it is absent (ARCHITECTURE.md §7.5) — no provider is a
- * perfectly normal installation.
+ * It is always there now, but a consumer still takes it as a NULLABLE
+ * dependency and degrades to a plain link without it (ARCHITECTURE.md
+ * §7.5): a test, a task or a future installation without it is a perfectly
+ * normal case.
  *
  * Deliberately narrow: this only resolves metadata for a URL. It never
  * stores anything and never enforces authorisation or rate limits of its
