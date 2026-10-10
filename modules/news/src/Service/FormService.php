@@ -54,7 +54,7 @@ class FormService
     }
 
     /**
-     * The « Paiements attendus » deep link for a form's tab, or null when
+     * The « Contrôle des créances » deep link for a form's tab, or null when
      * there is nothing there to open.
      *
      * Three conditions, and all three are about not offering a tab that

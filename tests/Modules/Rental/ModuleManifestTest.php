@@ -57,7 +57,7 @@ class ModuleManifestTest extends TestCase
      * being the no-op the comparison above describes.
      *
      * 1.18.0 is a bump with no schema change behind it: the module now
-     * names its own receivables on « Paiements attendus »
+     * names its own receivables on « Contrôle des créances »
      * (Finance\RentalReceivableDescriber), which is something a unit sees.
      *
      * 1.21.0 is another: an asset's rental conditions moved out of the

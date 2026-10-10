@@ -446,7 +446,7 @@ final class ReferenceDatasetFormatTest extends TestCase
         // the application's own StructuredCommunicationService::format(), so
         // the mod-97 check digits are right by construction. IT-06 creates the
         // matching expected receivables from the same list — if these two ever
-        // drift apart, the "Paiements attendus" page reconciles nothing.
+        // drift apart, the « Contrôle des créances » page reconciles nothing.
         foreach (UnitBlueprint::YEARS as $year) {
             $expected = BankBlueprint::communicationsFor($year);
             self::assertNotEmpty($expected, "No fee is declared for {$year}.");

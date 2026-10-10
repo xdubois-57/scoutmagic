@@ -1,16 +1,24 @@
 {% extends "base.html.twig" %}
 {% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 
-{% block title %}Paiements attendus — {{ site_name }}{% endblock %}
+{% block title %}Contrôle des créances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Paiements attendus' } only %}
+    {% include 'partials/page_header.html.twig' with { title: 'Contrôle des créances' } only %}
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
+    {# Said in so many words (issue #836): a page with no buttons on it
+       otherwise reads as a feature somebody forgot to finish. #}
+    <p class="text-body-secondary">
+        Cette page rassemble toutes les créances connues de ScoutMagic, quel que soit le module qui les a créées,
+        et compare les montants attendus aux encaissements rapprochés. Aucune action n'est attendue ici : pour
+        gérer une créance, ouvrez son module d'origine.
+    </p>
+
     {% if overview is empty %}
         {% include 'partials/empty_state.html.twig' with {
-            message: 'Aucun paiement attendu pour le moment.',
+            message: 'Aucune créance pour le moment.',
             icon: 'bi-cash-coin',
         } only %}
     {% else %}
@@ -53,6 +61,14 @@
                                             </h3>
                                             <div id="instance-{{ loop.parent.loop.index }}-{{ loop.index }}" class="accordion-collapse collapse {{ instance_open ? 'show' : '' }}">
                                                 <div class="accordion-body">
+                                                    {# Where the group is managed — a link, never an action
+                                                       (issue #836). Here and not in the header: the header
+                                                       is a button, and a link inside a button is neither. #}
+                                                    {% if instance.destination %}
+                                                        <p class="small mb-2">
+                                                            <a href="{{ instance.destination.url }}">{{ instance.destination.label }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                                                        </p>
+                                                    {% endif %}
                                                     {% include '@finance/_receivable_rows.html.twig' with {
                                                         rows: instance.receivables,
                                                     } only %}
@@ -73,6 +89,7 @@
                                 {% include '@finance/_receivable_rows.html.twig' with {
                                     rows: source.receivables,
                                     focus_reference_id: source_open ? focus_id : 0,
+                                    with_destinations: true,
                                 } only %}
                             {% endif %}
                         </div>

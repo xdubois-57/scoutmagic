@@ -7,7 +7,7 @@ role_min: intendant
 question: Où voir combien il reste sur les comptes de l'unité ?
 question: Qui a le droit de voir quel compte bancaire ?
 paths: /finance, /finance/movements
-related: paiements-attendus, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
+related: controle-des-creances, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits

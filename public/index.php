@@ -8729,7 +8729,7 @@ if ($isEnabled('finance')) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    // Who names the groups on « Paiements attendus »
+    // Who names the groups on « Contrôle des créances »
     // (Api\ReceivableSourceDescriberInterface). Finance knows a source
     // instance only as a numeric id — that is what lets the page work for
     // any future module — so the module that created the expectation says
@@ -8740,10 +8740,31 @@ if ($isEnabled('finance')) {
     // describer needing one of them would tie the finance block's position
     // to theirs. A repository is a stateless reader; a second instance
     // costs an object.
-    $financeSourceDescribers = [];
+    $financeSourceDescribers = [
+        // Finance's own campaigns, through the same contract as everybody
+        // else's — so the page has no special case for « Campagnes »
+        // (issue #836).
+        new \Modules\Finance\Service\CampaignReceivableDescriber(
+            new \Modules\Finance\Repository\CampaignRowRepository($pdo, $encryptionService),
+            new \Modules\Finance\Repository\CampaignRepository($pdo),
+            $financeAccountRepo,
+            $financeAccountVisibility
+        ),
+    ];
     if ($isEnabled('rental')) {
+        $financeRentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
         $financeSourceDescribers[] = new \Modules\Rental\Finance\RentalReceivableDescriber(
-            new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService)
+            new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService),
+            $financeRentalAssetRepository,
+            // The asset managers' own test, built here rather than borrowed
+            // from the rental block further down, for the same reason as
+            // the repositories above.
+            new \Modules\Rental\Service\RentalAuthorizationService(
+                $memberService,
+                $financeRentalAssetRepository,
+                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo)
+            ),
+            $scoutYearResolver
         );
     }
     if ($isEnabled('news')) {
@@ -8901,7 +8922,7 @@ if ($isEnabled('finance')) {
             $financeSepaQrCodeForOthers,
             // « Quelle créance ? » answered by typing a name instead of
             // by looking an id up in a spreadsheet. Same member-name
-            // question as the Paiements attendus page above, asked the
+            // question as the Contrôle des créances page above, asked the
             // same way.
             new \Modules\Finance\Service\ReceivableSearchService(
                 $financeExpectedReceivableRepo,

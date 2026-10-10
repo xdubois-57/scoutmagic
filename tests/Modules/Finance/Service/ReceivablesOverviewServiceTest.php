@@ -6,6 +6,8 @@ namespace Tests\Modules\Finance\Service;
 
 use Core\Security\EncryptionService;
 use Core\Security\Role;
+use Modules\Finance\Api\ReceivableDestination;
+use Modules\Finance\Api\ReceivableViewer;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\TransactionRepository;
@@ -269,6 +271,95 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame('News', $byModule['news'], 'the rental describer must not name another module');
     }
 
+    /**
+     * The reference dataset's membership fees have no module behind them,
+     * so their group is named by finance's fallback — which used to print
+     * « Reference_dataset » (issue #836). The fixture's source now reads
+     * right through that fallback, with no special case in production.
+     */
+    public function testTheReferenceDatasetsFeesAreGroupedUnderCotisations(): void
+    {
+        $this->receivableService->createReceivable(
+            \Tests\Fixtures\ReferenceDataset\ExtrasBlueprint::RECEIVABLE_SOURCE_MODULE,
+            1,
+            $this->accountId,
+            6500,
+            '+++600/0000/00006+++',
+            'Cotisation 2026-2027'
+        );
+
+        $this->assertSame('Cotisations', $this->service->buildOverview(Role::INTENDANT)[0]['source_label']);
+    }
+
+    // ── « Ouvrir … » : l'écran où la créance se gère (issue #836) ───────
+
+    public function testAGroupLinksToTheScreenItsModuleNamesForThisViewer(): void
+    {
+        $this->givenARentalBookingWithItsDeposit();
+        $viewer = new ReceivableViewer('tresorier@example.org', Role::INTENDANT);
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDestination(
+            'rental',
+            static fn(int $id, ReceivableViewer $who): ?ReceivableDestination => $id === 45 && $who === $viewer
+                ? new ReceivableDestination('Ouvrir la réservation', '/mes-locations/chalet/reservations/45/finances')
+                : null
+        )])->buildOverview(Role::INTENDANT, $viewer);
+
+        $expected = ['label' => 'Ouvrir la réservation', 'url' => '/mes-locations/chalet/reservations/45/finances'];
+        $this->assertSame($expected, $overview[0]['instances'][0]['destination']);
+        // Each row carries it too, for when the middle level is dropped.
+        $this->assertSame([$expected, $expected], array_column($overview[0]['receivables'], 'destination'));
+    }
+
+    public function testNoViewerMeansNoLinkIsEvenAskedFor(): void
+    {
+        $this->givenARentalBookingWithItsDeposit();
+        $asked = false;
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDestination(
+            'rental',
+            static function () use (&$asked): ?ReceivableDestination {
+                $asked = true;
+
+                return new ReceivableDestination('Ouvrir', '/x');
+            }
+        )])->buildOverview(Role::INTENDANT);
+
+        $this->assertFalse($asked);
+        $this->assertNull($overview[0]['instances'][0]['destination']);
+    }
+
+    public function testASourceWithNoDestinationStillShowsItsRowsWithoutALink(): void
+    {
+        // A describer that names its groups but has no screen to send
+        // anybody to — the shape a plain ReceivableSourceDescriberInterface has.
+        $this->givenARentalBookingWithItsDeposit();
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
+            'rental',
+            'Locations',
+            static fn(int $id): ?string => 'LOC-D4E5F6'
+        )])->buildOverview(Role::INTENDANT, new ReceivableViewer('a@example.org', Role::ADMIN));
+
+        $this->assertCount(2, $overview[0]['receivables']);
+        $this->assertNull($overview[0]['instances'][0]['destination']);
+    }
+
+    public function testADestinationThatThrowsIsSimplyNotShown(): void
+    {
+        $this->givenARentalBookingWithItsDeposit();
+
+        $overview = $this->serviceWith([new FakeReceivableSourceDestination(
+            'rental',
+            static function (): ?ReceivableDestination {
+                throw new \RuntimeException('boom');
+            }
+        )])->buildOverview(Role::INTENDANT, new ReceivableViewer('a@example.org', Role::ADMIN));
+
+        $this->assertNull($overview[0]['instances'][0]['destination']);
+        $this->assertSame('Locations', $overview[0]['source_label'], 'the page itself survives');
+    }
+
     private function givenARentalBookingWithItsDeposit(): void
     {
         $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-D4E5F6 — Jean Dupont');
@@ -504,5 +595,43 @@ final class FakeReceivableSourceDescriber implements \Modules\Finance\Api\Receiv
     public function describeInstance(int $sourceReferenceId): ?string
     {
         return ($this->onDescribeInstance)($sourceReferenceId);
+    }
+}
+
+/**
+ * A describer that also says where its receivables are managed (issue
+ * #836).
+ *
+ * @internal
+ */
+final class FakeReceivableSourceDestination implements
+    \Modules\Finance\Api\ReceivableSourceDescriberInterface,
+    \Modules\Finance\Api\ReceivableSourceDestinationInterface
+{
+    /**
+     * @param \Closure(int, ReceivableViewer): ?ReceivableDestination $onDestination
+     */
+    public function __construct(private string $sourceModule, private \Closure $onDestination)
+    {
+    }
+
+    public function sourceModule(): string
+    {
+        return $this->sourceModule;
+    }
+
+    public function sourceLabel(): string
+    {
+        return 'Locations';
+    }
+
+    public function describeInstance(int $sourceReferenceId): ?string
+    {
+        return null;
+    }
+
+    public function destinationFor(int $sourceReferenceId, ReceivableViewer $viewer): ?ReceivableDestination
+    {
+        return ($this->onDestination)($sourceReferenceId, $viewer);
     }
 }
