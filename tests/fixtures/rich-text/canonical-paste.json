@@ -1,0 +1,126 @@
+{
+    "_comment": [
+        "The contract between the editors and the server for issue #844, read by BOTH sides.",
+        "tests/js/rich-text-canonical.test.js: canonicalHtml(pasted) === canonical, and canonicalHtml(canonical) === canonical.",
+        "tests/Core/Security/RichTextCanonicalContractTest.php: HtmlSanitizer keeps every `canonical` byte for byte.",
+        "So what the editor writes is exactly what the server stores, and what it stores reopens unchanged.",
+        "`pasted` is what a word processor or a web page actually puts on the clipboard, trimmed to the part that matters."
+    ],
+    "cases": [
+        {
+            "name": "the issue's own example: a bold styled span becomes the Bold button's <strong>",
+            "pasted": "<p><span style=\"font-weight:700;color:red;font-family:Arial\">Bonjour</span></p>",
+            "canonical": "<p><strong>Bonjour</strong></p>"
+        },
+        {
+            "name": "<b> and <i> become <strong> and <em>",
+            "pasted": "<p><b>Gras</b> et <i>italique</i></p>",
+            "canonical": "<p><strong>Gras</strong> et <em>italique</em></p>"
+        },
+        {
+            "name": "Google Docs: the whole paste sits in a <b> that is NOT bold, bold is a styled span",
+            "pasted": "<meta charset=\"utf-8\"><b style=\"font-weight:normal;\" id=\"docs-internal-guid-1a2b\"><p dir=\"ltr\" style=\"line-height:1.38;margin-top:0pt;margin-bottom:0pt;\"><span style=\"font-size:11pt;font-family:Arial,sans-serif;color:#000000;font-weight:400;font-style:normal;\">Texte </span><span style=\"font-size:11pt;font-family:Arial,sans-serif;color:#000000;font-weight:700;\">important</span><span style=\"font-size:11pt;font-style:italic;\"> et penché</span></p></b>",
+            "canonical": "<p>Texte <strong>important</strong><em> et penché</em></p>"
+        },
+        {
+            "name": "Word: classes, fonts and <o:p>, and an empty spacing paragraph kept as one empty line",
+            "pasted": "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"><head><style>p.MsoNormal{margin:0}</style></head><body><!--StartFragment--><p class=MsoNormal><b><span style='font-family:\"Calibri\",sans-serif'>Titre<o:p></o:p></span></b></p><p class=MsoNormal><o:p>&nbsp;</o:p></p><p class=MsoNormal><span style='color:#C00000'>Suite</span></p><!--EndFragment--></body></html>",
+            "canonical": "<p><strong>Titre</strong></p><p><br></p><p>Suite</p>"
+        },
+        {
+            "name": "Word: a bulleted list arrives as styled paragraphs with a hidden bullet",
+            "pasted": "<p class=MsoListParagraphCxSpFirst style='text-indent:-18.0pt;mso-list:l0 level1 lfo1'><![if !supportLists]><span style='font-family:Symbol;mso-list:Ignore'>·<span style='font:7.0pt \"Times New Roman\"'>&nbsp;&nbsp;&nbsp; </span></span><![endif]>Premier</p><p class=MsoListParagraphCxSpLast style='text-indent:-18.0pt;mso-list:l0 level1 lfo1'><![if !supportLists]><span style='font-family:Symbol;mso-list:Ignore'>·<span style='font:7.0pt \"Times New Roman\"'>&nbsp;&nbsp;&nbsp; </span></span><![endif]>Second</p>",
+            "canonical": "<ul><li>Premier</li><li>Second</li></ul>"
+        },
+        {
+            "name": "Word: a numbered list is told apart by its hidden « 1. »",
+            "pasted": "<p class=MsoListParagraph style='mso-list:l1 level1 lfo2'><![if !supportLists]><span style='mso-list:Ignore'>1.<span>&nbsp;&nbsp;</span></span><![endif]>Un</p><p class=MsoListParagraph style='mso-list:l1 level1 lfo2'><![if !supportLists]><span style='mso-list:Ignore'>2.<span>&nbsp;&nbsp;</span></span><![endif]>Deux</p><p class=MsoNormal>Après</p>",
+            "canonical": "<ol><li>Un</li><li>Deux</li></ol><p>Après</p>"
+        },
+        {
+            "name": "a nested list keeps its nesting; a paragraph inside an item is just its text",
+            "pasted": "<ul><li><p>Un</p><ul><li>Deux</li></ul></li><li><p>Trois</p><p>suite</p></li></ul>",
+            "canonical": "<ul><li>Un<ul><li>Deux</li></ul></li><li>Trois<br>suite</li></ul>"
+        },
+        {
+            "name": "divs, as a browser's Enter writes them, become paragraphs",
+            "pasted": "<div>Ligne 1</div><div><br></div><div>Ligne 2</div>",
+            "canonical": "<p>Ligne 1</p><p><br></p><p>Ligne 2</p>"
+        },
+        {
+            "name": "six heading levels map onto the two buttons; bold means nothing inside a heading",
+            "pasted": "<h1>Grand</h1><h4>Petit</h4><h2><strong>Déjà gras</strong></h2>",
+            "canonical": "<h2>Grand</h2><h3>Petit</h3><h2>Déjà gras</h2>"
+        },
+        {
+            "name": "one nesting order: a > strong > em > u",
+            "pasted": "<u><em><strong><a href=\"https://lesscouts.be\">tout</a></strong></em></u>",
+            "canonical": "<p><a href=\"https://lesscouts.be\"><strong><em><u>tout</u></em></strong></a></p>"
+        },
+        {
+            "name": "a style beats a tag in both directions",
+            "pasted": "<p><strong><span style=\"font-weight:normal\">pas gras</span></strong> <span style=\"text-decoration:underline\">souligné</span></p>",
+            "canonical": "<p>pas gras <u>souligné</u></p>"
+        },
+        {
+            "name": "colours, fonts, classes and every attribute go; the text stays",
+            "pasted": "<p style=\"color:red\" class=\"lead\" id=\"x\"><font face=\"Arial\" color=\"red\">Rouge</font> <span class=\"highlight\" data-x=\"1\">vif</span></p>",
+            "canonical": "<p>Rouge vif</p>"
+        },
+        {
+            "name": "what is dangerous is dropped, its harmless text is kept",
+            "pasted": "<p><a href=\"javascript:alert(1)\" onclick=\"steal()\">clic</a><script>alert(1)</script><img src=\"x\" onerror=\"alert(1)\"><iframe src=\"https://evil.test\"></iframe> fin</p>",
+            "canonical": "<p>clic fin</p>"
+        },
+        {
+            "name": "a link keeps its href and nothing else",
+            "pasted": "<a href=\"/contact\" target=\"_blank\" rel=\"noopener\" title=\"Nous écrire\">Contact</a> · <a href=\"mailto:unite@example.be\">courriel</a> · <a href=\"tel:+3221234567\">téléphone</a>",
+            "canonical": "<p><a href=\"/contact\">Contact</a> · <a href=\"mailto:unite@example.be\">courriel</a> · <a href=\"tel:+3221234567\">téléphone</a></p>"
+        },
+        {
+            "name": "whitespace collapses as a browser shows it",
+            "pasted": "<p>  un \n   deux  </p><p> trois <strong> quatre </strong> cinq</p>",
+            "canonical": "<p>un deux</p><p>trois <strong>quatre </strong>cinq</p>"
+        },
+        {
+            "name": "a lone trailing <br> is invisible and goes; two make an empty line and stay",
+            "pasted": "<p>a<br></p><p>b<br>c</p><p>d<br><br></p>",
+            "canonical": "<p>a</p><p>b<br>c</p><p>d<br><br></p>"
+        },
+        {
+            "name": "equal neighbours merge, and a line break never carries formatting",
+            "pasted": "<p><strong>a</strong><b>b</b></p><p><strong>c<br>d</strong></p>",
+            "canonical": "<p><strong>ab</strong></p><p><strong>c</strong><br><strong>d</strong></p>"
+        },
+        {
+            "name": "a table is read cell by cell",
+            "pasted": "<table><tbody><tr><td>A</td><td><b>B</b></td></tr></tbody></table>",
+            "canonical": "<p>A</p><p><strong>B</strong></p>"
+        },
+        {
+            "name": "loose text is put in a paragraph",
+            "pasted": "Bonjour <b>toi</b>",
+            "canonical": "<p>Bonjour <strong>toi</strong></p>"
+        },
+        {
+            "name": "non-breaking spaces and accents survive untouched",
+            "pasted": "<p>Prix&nbsp;: 10&nbsp;€ — été, çà</p>",
+            "canonical": "<p>Prix&nbsp;: 10&nbsp;€ — été, çà</p>"
+        },
+        {
+            "name": "a quotation, which no button makes, is read as its paragraphs",
+            "pasted": "<blockquote><p>Cité</p><p>Encore</p></blockquote>",
+            "canonical": "<p>Cité</p><p>Encore</p>"
+        },
+        {
+            "name": "preformatted text keeps its line breaks",
+            "pasted": "<pre>ligne 1\nligne 2</pre>",
+            "canonical": "<p>ligne 1<br>ligne 2</p>"
+        },
+        {
+            "name": "nothing visible, nothing written",
+            "pasted": "<p></p><div> </div><span style=\"display:none\">caché</span>",
+            "canonical": ""
+        }
+    ]
+}

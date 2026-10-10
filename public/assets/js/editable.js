@@ -67,7 +67,11 @@
             var clone = /** @type {HTMLElement} */ (container.cloneNode(true));
             var overlay = clone.querySelector('.editable-overlay');
             if (overlay) overlay.remove();
-            editorContent.innerHTML = clone.innerHTML;
+            // Opened in the canonical form (issue #844): a text stored
+            // before it, or pasted from a word processor back then, is
+            // shown as the toolbar would have written it — and nothing is
+            // stored until the author saves.
+            editorContent.replaceChildren(window.ScoutMagicRichText.canonicalFragment(clone.innerHTML));
             modal.show();
         });
     });
@@ -82,7 +86,11 @@
         // for the same reason.
         if (currentKey === null) return;
 
-        var html = editorContent.innerHTML;
+        // What leaves the editor is canonical, whichever gesture produced
+        // it: the Bold button's <b> and a pasted styled span both become
+        // <strong>. The server still sanitises it — this is about one look
+        // having one HTML, not about trust.
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML);
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

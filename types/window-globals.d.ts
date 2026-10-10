@@ -29,6 +29,13 @@ interface HelpSearchEntry {
     link: { path: string; label: string } | null;
 }
 
+// public/assets/js/rich-text-link.js — what a surface may hold beyond the
+// common canonical grammar (issue #844).
+interface ScoutMagicRichTextOptions {
+    images?: boolean;
+    decorate?: (container: HTMLElement) => void;
+}
+
 interface Window {
     // public/assets/vendor/chartjs/chart.umd.min.js — present only on the
     // pages that load it.
@@ -248,14 +255,24 @@ interface Window {
     // created; wireToolbar is idempotent per button, so two scripts driving
     // the same modal wire it once. There is deliberately no sanitiser here:
     // every save route answers with the string it stored, and the editors
-    // repaint with that — see the file's own header.
+    // repaint with that — see the file's own header. canonicalFragment and
+    // canonicalHtml rebuild foreign HTML in the toolbar's own grammar (issue
+    // #844); wireSurface gives a contenteditable that canonical paste.
     ScoutMagicRichText?: {
+        canonicalFragment: (html: string, options?: ScoutMagicRichTextOptions) => DocumentFragment;
+        canonicalHtml: (html: string, options?: ScoutMagicRichTextOptions) => string;
         insertLink: (surface: HTMLElement | null) => Promise<boolean>;
         normalizeUrl: (raw: string | null) => string | null;
+        wireSurface: (
+            surface: HTMLElement,
+            options?: ScoutMagicRichTextOptions,
+            afterChange?: (() => void) | null
+        ) => void;
         wireToolbar: (
             root: ParentNode,
             surface: HTMLElement,
-            afterCommand?: (() => void) | null
+            afterCommand?: (() => void) | null,
+            options?: ScoutMagicRichTextOptions
         ) => void;
     };
     // public/assets/js/camps-booked-by.js — the « Réservation faite par »

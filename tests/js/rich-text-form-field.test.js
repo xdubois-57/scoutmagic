@@ -182,7 +182,9 @@ describe('rich-text-form-field.js: toStoredHtml() — chips back to source', () 
     it('writes each chip back as its normalised {{ keyword }}', () => {
         const div = document.createElement('div');
         div.innerHTML = 'Total : ' + chipHtml('prix_total');
-        expect(toStoredHtml(div)).toBe('Total : {{ prix_total }}');
+        // In a paragraph: loose text is put in one by the canonical form
+        // (issue #844), as the toolbar's Paragraph button would.
+        expect(toStoredHtml(div)).toBe('<p>Total : {{ prix_total }}</p>');
     });
 
     it('normalises a placeholder typed by hand with stray spacing', () => {
@@ -199,7 +201,9 @@ describe('rich-text-form-field.js: toStoredHtml() — chips back to source', () 
     });
 
     it('round-trips: source → editor → source is the identity', () => {
-        const source = '<p>Bonjour <b>{{ nom_locataire }}</b>, total {{ prix_total }}.</p>';
+        // Canonical source (issue #844): the identity holds for what the
+        // editor writes, which is <strong> rather than a browser's <b>.
+        const source = '<p>Bonjour <strong>{{ nom_locataire }}</strong>, total {{ prix_total }}.</p>';
         expect(toStoredHtml(painted(source))).toBe(source);
     });
 });
@@ -241,11 +245,11 @@ describe('rich-text-form-field.js: wireField()', () => {
 
         surface().innerHTML = 'Total ' + chipHtml('prix_total');
         surface().dispatchEvent(new Event('input'));
-        expect(input().value).toBe('Total {{ prix_total }}');
+        expect(input().value).toBe('<p>Total {{ prix_total }}</p>');
 
         surface().innerHTML = 'Rien';
         surface().dispatchEvent(new Event('blur'));
-        expect(input().value).toBe('Rien');
+        expect(input().value).toBe('<p>Rien</p>');
     });
 
     it('syncs on submit — an author who inserts a chip and hits Enter never fires blur', () => {
@@ -259,7 +263,7 @@ describe('rich-text-form-field.js: wireField()', () => {
         form.addEventListener('submit', (e) => e.preventDefault());
         form.dispatchEvent(new Event('submit', { cancelable: true }));
 
-        expect(input().value).toBe('{{ nom_locataire }}');
+        expect(input().value).toBe('<p>{{ nom_locataire }}</p>');
     });
 
     it('inserts a chip from the toolbar and syncs the hidden input in one go', () => {
@@ -278,7 +282,40 @@ describe('rich-text-form-field.js: wireField()', () => {
         document.querySelector('[data-command="bold"]').dispatchEvent(new Event('click'));
 
         expect(document.execCommand).toHaveBeenCalledWith('bold', false, null);
-        expect(input().value).toBe('Texte');
+        expect(input().value).toBe('<p>Texte</p>');
+    });
+});
+
+describe('rich-text-form-field.js: paste (issue #844)', () => {
+    it('opens the stored value in the canonical form, chips included', () => {
+        buildField('<b>Prix</b> {{ prix_total }}');
+
+        expect(surface().querySelector('strong')?.textContent).toBe('Prix');
+        expect(surface().querySelectorAll('[data-keyword]')).toHaveLength(1);
+    });
+
+    it('pastes canonical HTML whose placeholders are chips before they land, and syncs', () => {
+        buildField('');
+        // No insertHTML, no caret: the paste falls back to appending.
+        caretNowhere();
+        document.execCommand = vi.fn(() => false);
+
+        const event = new Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'clipboardData', {
+            value: {
+                getData: (type) => (type === 'text/html'
+                    ? '<p style="color:red"><span style="font-weight:700">Total</span> {{ prix_total }}</p><p>{{ inconnu }}</p>'
+                    : ''),
+            },
+        });
+        surface().dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(surface().querySelector('strong')?.textContent).toBe('Total');
+        expect(surface().querySelectorAll('[data-keyword="prix_total"]')).toHaveLength(1);
+        // Only the closed list becomes a chip, as with a stored value.
+        expect(surface().querySelectorAll('[data-keyword]')).toHaveLength(1);
+        expect(input().value).toBe('<p><strong>Total</strong> {{ prix_total }}</p><p>{{ inconnu }}</p>');
     });
 });
 

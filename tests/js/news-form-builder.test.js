@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 // script — same order here (static side-effect imports run in order).
 import '../../public/assets/js/api.js';
 import '../../public/assets/js/toast.js';
+import '../../public/assets/js/rich-text-link.js';
 import '../../public/assets/js/news-form-builder.js';
 
 const nfb = globalThis.ScoutMagicNewsFormBuilderInternals;

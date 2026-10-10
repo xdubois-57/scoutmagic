@@ -49,7 +49,10 @@
             currentKey = /** @type {HTMLElement} */ (btn).dataset.key;
             currentSaveUrl = /** @type {HTMLElement} */ (btn).dataset.saveUrl;
             currentPreview = document.querySelector('.rich-text-field-preview[data-key="' + escapeAttr(currentKey) + '"]');
-            editorContent.innerHTML = currentPreview ? currentPreview.innerHTML : '';
+            // Canonical on opening, as in editable.js (issue #844).
+            editorContent.replaceChildren(
+                window.ScoutMagicRichText.canonicalFragment(currentPreview ? currentPreview.innerHTML : '')
+            );
             modal.show();
         });
     });
@@ -57,7 +60,8 @@
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
         if (!currentKey) return;
 
-        var html = editorContent.innerHTML;
+        // Canonical on the way out, as in editable.js (issue #844).
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML);
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

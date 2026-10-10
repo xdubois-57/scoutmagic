@@ -188,10 +188,14 @@ export function toStoredHtml(surface) {
         }
     });
 
-    // A placeholder typed by hand rather than inserted: normalise its
+    // The canonical form of issue #844 — one HTML per look, whichever
+    // gesture produced it — over the source with its chips already turned
+    // back into text, so a placeholder is just text to it.
+    //
+    // Then a placeholder typed by hand rather than inserted: normalise its
     // spacing so it matches the server's pattern exactly, instead of
     // failing to substitute over a stray double space.
-    return clone.innerHTML.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, '{{ $1 }}');
+    return window.ScoutMagicRichText.canonicalHtml(clone.innerHTML).replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, '{{ $1 }}');
 }
 
 /**
@@ -241,7 +245,10 @@ export function wireField(root) {
     }
 
     // The surface already holds the value: the server rendered it there.
-    // All that is missing is the chips.
+    // It is shown in the canonical form (issue #844) — a text stored before
+    // it is presented as the toolbar would have written it — and all that
+    // is then missing is the chips.
+    surface.replaceChildren(window.ScoutMagicRichText.canonicalFragment(surface.innerHTML));
     chipify(surface, known);
     surface.setAttribute('contenteditable', 'true');
     // Announced as an editable multi-line box only now that it is one.
@@ -267,7 +274,14 @@ export function wireField(root) {
     // the after-command hook rather than called here, so that it runs after
     // the link dialog resolves and not before it — an inserted link would
     // otherwise never reach the hidden field.
-    window.ScoutMagicRichText.wireToolbar(root, surface, sync);
+    //
+    // The paste is canonical too, and a `{{ keyword }}` it carries becomes
+    // a chip before it lands, exactly as one already in the value did.
+    window.ScoutMagicRichText.wireToolbar(root, surface, sync, {
+        decorate: function (container) {
+            chipify(container, known);
+        }
+    });
 
     root.querySelectorAll('[data-insert-keyword]').forEach(function (button) {
         button.addEventListener('click', function () {
