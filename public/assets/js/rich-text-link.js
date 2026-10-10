@@ -377,9 +377,9 @@
      */
     function isNumberedWordItem(element) {
         var bullets = element.querySelectorAll('[style]');
-        for (var i = 0; i < bullets.length; i++) {
-            if (/mso-list\s*:\s*ignore/i.test(bullets[i].getAttribute('style') || '')) {
-                return /^\s*(?:\d+|[a-z]|[ivxlcdm]+)[.)]/i.test(bullets[i].textContent || '');
+        for (var bullet of Array.from(bullets)) {
+            if (/mso-list\s*:\s*ignore/i.test(bullet.getAttribute('style') || '')) {
+                return /^\s*(?:\d+|[a-z]|[ivxlcdm]+)[.)]/i.test(bullet.textContent || '');
             }
         }
         return false;
@@ -392,6 +392,22 @@
      */
     function sameFormat(a, b) {
         return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.href === b.href;
+    }
+
+    /**
+     * `text` without the plain spaces it ends with — a loop rather than
+     * `/ +$/`, which backtracks quadratically on a long run of spaces, and
+     * not trimEnd(), which would take a non-breaking space with them.
+     *
+     * @param {string} text
+     * @returns {string}
+     */
+    function withoutTrailingSpaces(text) {
+        var end = text.length;
+        while (end > 0 && text.codePointAt(end - 1) === 32) {
+            end--;
+        }
+        return text.slice(0, end);
     }
 
     /**
@@ -411,9 +427,9 @@
 
         /** @returns {void} */
         function trimLineEnd() {
-            var last = out.length > 0 ? out[out.length - 1] : null;
-            if (last && last.text !== undefined) {
-                last.text = last.text.replace(/ +$/, '');
+            var last = out.at(-1);
+            if (last?.text !== undefined) {
+                last.text = withoutTrailingSpaces(last.text);
                 if (last.text === '') {
                     out.pop();
                 }
@@ -446,8 +462,8 @@
             if (text === '') {
                 return;
             }
-            var previous = out.length > 0 ? out[out.length - 1] : null;
-            if (previous && previous.text !== undefined && sameFormat(previous.fmt, fmt)) {
+            var previous = out.at(-1);
+            if (previous?.text !== undefined && sameFormat(previous.fmt, fmt)) {
                 previous.text += text;
             } else {
                 out.push({ text: text, fmt: fmt });
@@ -474,8 +490,8 @@
 
         // Trimming can leave equal neighbours side by side.
         return out.reduce(function (merged, segment) {
-            var previous = merged.length > 0 ? merged[merged.length - 1] : null;
-            if (previous && previous.text !== undefined && segment.text !== undefined && sameFormat(previous.fmt, segment.fmt)) {
+            var previous = merged.at(-1);
+            if (previous?.text !== undefined && segment.text !== undefined && sameFormat(previous.fmt, segment.fmt)) {
                 previous.text += segment.text;
             } else {
                 merged.push(segment);
@@ -571,7 +587,7 @@
      * @returns {DocumentFragment}
      */
     function canonicalNodes(sourceRoot, options) {
-        var images = Boolean(options && options.images);
+        var images = Boolean(options?.images);
         var doc = document;
 
         var root = doc.createDocumentFragment();
@@ -596,7 +612,7 @@
             // non-breaking space Word writes into an empty paragraph. Plain
             // whitespace between two tags is not one.
             var deliberate = segments.some(function (segment) {
-                return segment.br === true || (segment.text !== undefined && segment.text.indexOf('\u00a0') !== -1);
+                return segment.br === true || (segment.text?.includes('\u00a0') === true);
             });
             var cleaned = cleanSegments(segments, heading && item === null);
             segments = [];
@@ -626,8 +642,8 @@
         /** A block boundary: a new block, or a new line inside a list item. */
         function boundary() {
             if (item !== null) {
-                var last = segments.length > 0 ? segments[segments.length - 1] : null;
-                if (last && !last.br) {
+                var last = segments.at(-1);
+                if (last !== undefined && !last.br) {
                     segments.push({ br: true, fmt: PLAIN });
                 }
                 return;
@@ -656,7 +672,7 @@
             kind = saved.kind;
 
             if (!li.hasChildNodes()) {
-                list.removeChild(li);
+                li.remove();
             }
         }
 
@@ -685,7 +701,7 @@
             }
 
             if (!element.hasChildNodes()) {
-                target.removeChild(element);
+                element.remove();
             }
             if (item === null) {
                 wordList = null;
@@ -729,57 +745,76 @@
         }
 
         /**
-         * @param {Node} node
+         * @param {Text} node
          * @param {Format} format
          * @returns {void}
          */
-        function visit(node, format) {
-            if (node.nodeType === 3) {
-                var text = /** @type {Text} */ (node).data;
-                if (preformatted) {
-                    text.split('\n').forEach(function (line, index) {
-                        if (index > 0) segments.push({ br: true, fmt: PLAIN });
-                        if (line !== '') segments.push({ text: line, fmt: format });
-                    });
-                } else if (text !== '') {
-                    segments.push({ text: text, fmt: format });
-                }
-                return;
+        function visitText(node, format) {
+            var text = node.data;
+            if (preformatted) {
+                text.split('\n').forEach(function (line, index) {
+                    if (index > 0) segments.push({ br: true, fmt: PLAIN });
+                    if (line !== '') segments.push({ text: line, fmt: format });
+                });
+            } else if (text !== '') {
+                segments.push({ text: text, fmt: format });
             }
-            if (node.nodeType !== 1) {
-                return;
-            }
+        }
 
-            var element = /** @type {Element} */ (node);
-            var tag = element.localName;
-            if (DROPPED.has(tag) || isHidden(element)) {
-                return;
+        /**
+         * An <img> as a segment, when this surface keeps images and its
+         * source passes; null otherwise.
+         *
+         * @param {Element} element
+         * @param {Format} format
+         * @returns {Segment|null}
+         */
+        function imageSegment(element, format) {
+            var src = images ? safeUrl(element.getAttribute('src'), true) : null;
+            if (src === null) {
+                return null;
             }
+            /** @param {string} name @returns {string|null} */
+            var dimension = function (name) {
+                var value = element.getAttribute(name) || '';
+                return /^\d{1,4}$/.test(value) ? value : null;
+            };
+            return {
+                img: { src: src, alt: element.getAttribute('alt'), width: dimension('width'), height: dimension('height') },
+                fmt: format
+            };
+        }
+
+        /**
+         * The elements with no content of their own to walk: a line break,
+         * an image, a rule.
+         *
+         * @param {Element} element
+         * @param {Format} format
+         * @returns {boolean} whether `element` was one
+         */
+        function visitLeaf(element, format) {
+            var tag = element.localName;
             if (tag === 'br') {
                 segments.push({ br: true, fmt: PLAIN });
-                return;
-            }
-            if (tag === 'img') {
-                var src = images ? safeUrl(element.getAttribute('src'), true) : null;
-                if (src !== null) {
-                    /** @param {string} name @returns {string|null} */
-                    var dimension = function (name) {
-                        var value = element.getAttribute(name) || '';
-                        return /^\d{1,4}$/.test(value) ? value : null;
-                    };
-                    segments.push({
-                        img: { src: src, alt: element.getAttribute('alt'), width: dimension('width'), height: dimension('height') },
-                        fmt: format
-                    });
-                }
-                return;
-            }
-            if (tag === 'hr') {
+            } else if (tag === 'img') {
+                var image = imageSegment(element, format);
+                if (image !== null) segments.push(image);
+            } else if (tag === 'hr') {
                 boundary();
-                return;
+            } else {
+                return false;
             }
+            return true;
+        }
 
-            var inner = formatOf(element, format);
+        /**
+         * @param {Element} element
+         * @param {Format} inner the formatting its content carries
+         * @returns {void}
+         */
+        function visitContainer(element, inner) {
+            var tag = element.localName;
             if (tag === 'ul' || tag === 'ol') {
                 list(element, tag, inner);
             } else if (item === null && isWordListItem(element)) {
@@ -799,6 +834,26 @@
             } else {
                 walk(element, inner);
             }
+        }
+
+        /**
+         * @param {Node} node
+         * @param {Format} format
+         * @returns {void}
+         */
+        function visit(node, format) {
+            if (node.nodeType === 3) {
+                visitText(/** @type {Text} */ (node), format);
+                return;
+            }
+            if (node.nodeType !== 1) {
+                return;
+            }
+            var element = /** @type {Element} */ (node);
+            if (DROPPED.has(element.localName) || isHidden(element) || visitLeaf(element, format)) {
+                return;
+            }
+            visitContainer(element, formatOf(element, format));
         }
 
         /**
@@ -868,7 +923,7 @@
      */
     function insertFragment(surface, fragment) {
         var content = fragment;
-        if (content.childNodes.length === 1 && content.firstChild && /** @type {Element} */ (content.firstChild).localName === 'p') {
+        if (content.childNodes.length === 1 && /** @type {Element|null} */ (content.firstChild)?.localName === 'p') {
             var paragraph = content.firstChild;
             content = document.createDocumentFragment();
             while (paragraph.firstChild) {
@@ -887,7 +942,7 @@
 
         // An engine without insertHTML: the same nodes, by hand.
         var selection = window.getSelection();
-        var range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        var range = selection?.rangeCount ? selection.getRangeAt(0) : null;
         if (!selection || range === null || !surface.contains(range.commonAncestorContainer)) {
             surface.appendChild(content);
             return;
@@ -937,7 +992,7 @@
      */
     function land(surface, fragment, options, afterChange) {
         var content = fragment;
-        if (options && options.decorate) {
+        if (options?.decorate) {
             var holder = document.createElement('div');
             holder.appendChild(content);
             options.decorate(holder);
@@ -985,9 +1040,9 @@
 
         surface.addEventListener('paste', function (event) {
             var clipboard = event.clipboardData;
-            var types = clipboard ? Array.prototype.slice.call(clipboard.types || []) : [];
+            var types = Array.from(clipboard?.types ?? []);
 
-            if (types.indexOf('text/html') !== -1) {
+            if (types.includes('text/html')) {
                 var range = captureSelection();
                 var bin = pasteBin(surface);
                 bin.replaceChildren();
@@ -1011,7 +1066,7 @@
                 return;
             }
 
-            var text = clipboard ? clipboard.getData('text/plain') : '';
+            var text = clipboard?.getData('text/plain') ?? '';
             if (text === '') {
                 // A file, or a clipboard the page may not read: nothing
                 // here to rebuild. What the browser inserts still goes

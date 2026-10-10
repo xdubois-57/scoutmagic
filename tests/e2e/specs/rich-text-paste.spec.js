@@ -64,15 +64,21 @@ const PASTED = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-in
     + '<h1 style="color:#c00;font-family:Arial">Programme</h1>'
     + '<p dir="ltr" style="line-height:1.38"><span style="font-weight:400">Rendez-vous </span>'
     + '<span style="font-weight:700;color:#00f">samedi</span><span style="font-weight:400"> à </span>'
-    + '<span style="font-style:italic">14&nbsp;h</span></p>'
+    + '<span style="font-style:italic">14 h</span></p>'
     + '<ul><li dir="ltr"><p><span style="font-family:Arial">Un</span></p></li><li><p>Deux</p></li></ul></b>';
 
 // The same text as the toolbar would have written it.
-const CANONICAL = '<h2>Programme</h2><p>Rendez-vous <strong>samedi</strong> à <em>14&nbsp;h</em></p>'
+//
+// No non-breaking space in this fragment, on purpose: whether one survives
+// the browser's OWN paste depends on the Chromium build (the CI's turns it
+// into a plain space, a local one may not), which is the engine's behaviour
+// and not this editor's. That the canonical form keeps one it is given is
+// pinned by tests/fixtures/rich-text/canonical-paste.json.
+const CANONICAL = '<h2>Programme</h2><p>Rendez-vous <strong>samedi</strong> à <em>14 h</em></p>'
     + '<ul><li>Un</li><li>Deux</li></ul>';
 
 // …and once the Bold button has taken the bold off « samedi ».
-const UNBOLDED = '<h2>Programme</h2><p>Rendez-vous samedi à <em>14&nbsp;h</em></p>'
+const UNBOLDED = '<h2>Programme</h2><p>Rendez-vous samedi à <em>14 h</em></p>'
     + '<ul><li>Un</li><li>Deux</li></ul>';
 
 /**
@@ -195,9 +201,8 @@ test('a pasted text is the toolbar\'s own HTML, stays editable, and is unchanged
 
         const stored = await save(page);
         expect(stored).toMatchObject({ success: true });
-        // The server kept what the editor sent, byte for byte but for the
-        // non-breaking space, which PHP writes as the character itself.
-        expect(stored.value.replace(/ /g, '&nbsp;')).toBe(UNBOLDED);
+        // The server kept what the editor sent, byte for byte.
+        expect(stored.value).toBe(UNBOLDED);
 
         // Reload, reopen: the same HTML, nothing to clean up a second time.
         await page.reload({ waitUntil: 'load' });
