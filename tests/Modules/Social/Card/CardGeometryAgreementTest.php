@@ -31,6 +31,15 @@ use PHPUnit\Framework\TestCase;
  * from the other side (`tests/js/social-card.test.js`), so a change made
  * in one language fails on both.
  *
+ * **And comparing literals has one blind spot, which cost this iteration
+ * a real defect** (found in the review of #850): two files can carry the
+ * same number in different UNITS. `imagettftext()` takes a point size and
+ * GD renders at 96 dpi, so the 66 handed to it draws an em of 88 pixels,
+ * while `ctx.font = '66px'` draws an em of 66 — the browser's card was a
+ * quarter smaller than the server's, and every literal matched. So the
+ * conversion is MEASURED below, against GD itself rather than against a
+ * font's published metrics, and the measurement runs on every suite.
+ *
  * **The rounding is checked in PHP's own arithmetic**, not restated: the
  * expectations below are `round(1080 * 0.06)` and friends, so a reader can
  * see that 64.8 becomes 65 and 82.5 becomes 83, and that JavaScript's
@@ -132,6 +141,63 @@ final class CardGeometryAgreementTest extends TestCase
             (string) file_get_contents(\dirname(__DIR__, 4) . '/modules/social/src/Card/CardRenderer.php'),
             'CardRenderer no longer scales its blur to the short side, so the sentence above is stale'
         );
+    }
+
+    /**
+     * **The point size GD is handed is not the pixel size it draws**, and
+     * this is the factor between them, measured in GD's own terms.
+     *
+     * Rather than trusting a published cap height, the same string is
+     * measured twice: once at the title's point size, once at that size
+     * scaled by 72/96. If GD renders at 96 dpi the first is 4/3 the
+     * second, which is what the browser then has to apply. The remainder
+     * past the third decimal is per-glyph hinting, not a different
+     * factor — hence the tolerance.
+     */
+    public function testGdDrawsAnEmOfFourThirdsThePointSizeItIsHanded(): void
+    {
+        $font = CardRenderer::DEFAULT_FONT;
+        self::assertFileExists($font);
+        $sentence = 'Week-end de rentrée à la Baraque';
+        $widthAt = static function (float $points) use ($font, $sentence): int {
+            $box = imagettfbbox($points, 0, $font, $sentence);
+            self::assertIsArray($box, 'GD could not measure the card\'s own font');
+
+            return abs($box[2] - $box[0]);
+        };
+
+        $points = 66;
+        $factor = $widthAt((float) $points) / $widthAt($points * 72 / 96);
+
+        self::assertEqualsWithDelta(
+            96 / 72,
+            $factor,
+            0.01,
+            'GD no longer renders at 96 dpi, so public/assets/js/social-card.js converts by the wrong'
+            . ' factor and the browser\'s text is a different size from the server\'s.'
+        );
+    }
+
+    /**
+     * And the browser applies it — on the FONT only, every other number
+     * GD is handed being already in pixels.
+     */
+    public function testTheBrowserConvertsThePointSizesToPixels(): void
+    {
+        self::assertStringContainsString(
+            'POINTS_TO_PIXELS = 96 / 72;',
+            $this->script,
+            'the browser must convert GD\'s point sizes, or its text is a quarter too small'
+        );
+        self::assertStringContainsString('TITLE_PIXELS = TITLE_SIZE * POINTS_TO_PIXELS;', $this->script);
+        self::assertStringContainsString('ADDRESS_PIXELS = ADDRESS_SIZE * POINTS_TO_PIXELS;', $this->script);
+
+        // And it is the converted values that reach the canvas: a
+        // `ctx.font` built from the point size is the defect itself.
+        self::assertStringContainsString('ctx.font = TITLE_PIXELS +', $this->script);
+        self::assertStringContainsString('ctx.font = ADDRESS_PIXELS +', $this->script);
+        self::assertStringNotContainsString('ctx.font = TITLE_SIZE +', $this->script);
+        self::assertStringNotContainsString('ctx.font = ADDRESS_SIZE +', $this->script);
     }
 
     /**

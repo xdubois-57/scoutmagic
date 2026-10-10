@@ -156,9 +156,10 @@ function engine({ drawSucceeds = true } = {}) {
         wrapTitle: () => [],
         fitLine: (line) => line,
         toJpeg: () => Promise.resolve(null),
-        // The title's size, because that is what the font shorthand the
-        // composer hands `document.fonts.load()` is built from.
-        cardConstants: () => ({ titleSize: 66 }),
+        // The title's size in PIXELS, because that is what the font
+        // shorthand the composer hands `document.fonts.load()` is built
+        // from — 66 points of `imagettftext()` being an 88 px em.
+        cardConstants: () => ({ titleSize: 66, titlePixels: 88 }),
         drawCard: (canvas, card) => {
             draws.push({ canvas, ...card });
 
@@ -681,13 +682,22 @@ describe('« Publier » sends the card the page drew', () => {
         flush();
 
         dom.publish.click();
-        confirmed(dom);
-        await Promise.resolve();
+        const event = confirmed(dom);
+        await settle();
 
-        // Not intercepted — the browser posts it, carrying the button —
-        // but the button is still held, because the request is still
-        // several seconds of waiting.
-        expect(submits).toBe(0);
+        // **Posted here, not left to the browser.** `hold()` disables
+        // the submitter, and a disabled control is left out of the entry
+        // list the browser builds AFTER this event — so a native submit
+        // would carry no `action` at all and publish nothing in silence.
+        // Found in the review of #850; the comment that stood here
+        // claimed the opposite.
+        expect(event.defaultPrevented).toBe(true);
+        expect(submits).toBe(1);
+        const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0].value).toBe('publish');
+        // No card: the publication composes one, as a pre-IT-02 share does.
+        expect(dom.cardField.files).toHaveLength(0);
         expect(dom.publish.disabled).toBe(true);
     });
 });
@@ -801,7 +811,7 @@ describe('the card\'s own face', () => {
         window.ScoutMagicCard = engine();
         await run();
 
-        expect(fonts.load).toHaveBeenCalledWith('700 66px "ScoutMagic Card"');
+        expect(fonts.load).toHaveBeenCalledWith('700 88px "ScoutMagic Card"');
     });
 
     it('gates the first draw, so the title is never re-wrapped between two frames', async () => {
@@ -920,14 +930,16 @@ describe('a photo that has not arrived', () => {
         const event = confirmed(dom);
         await settle();
 
-        // Nothing was drawn, so nothing is attached and nothing is
-        // prevented: the browser posts the form itself, and the
-        // publication composes the card as it did before IT-02 — rather
-        // than publishing a grey square nobody chose.
-        expect(event.defaultPrevented).toBe(false);
+        // Nothing drawn, so no card is attached and the publication
+        // composes one — rather than publishing a grey square nobody
+        // chose. The post goes through the same hidden-field path as the
+        // drawn one, because the submitter has just been disabled.
+        expect(event.defaultPrevented).toBe(true);
+        expect(submits).toBe(1);
         expect(dom.cardField.files).toHaveLength(0);
-        expect(dom.form.querySelectorAll('input[type="hidden"][name="action"]')).toHaveLength(0);
-        expect(submits).toBe(0);
+        const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0].value).toBe('publish');
         // And the button is still closed, so « Publier » cannot be
         // pressed twice while that post is on its way.
         expect(dom.publish.disabled).toBe(true);

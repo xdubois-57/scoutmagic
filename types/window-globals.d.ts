@@ -91,10 +91,16 @@ interface Window {
             size: number;
             margin: number;
             maxTextWidth: number;
+            // `titleSize`/`addressSize` are the POINT sizes
+            // `imagettftext()` is handed; `titlePixels`/`addressPixels`
+            // are those converted at GD's 96 dpi, which is what the
+            // canvas draws with.
             titleSize: number;
+            titlePixels: number;
             titleMaxLines: number;
             titleLineHeight: number;
             addressSize: number;
+            addressPixels: number;
             addressToTitle: number;
             veilStartY: number;
             veilFootAlpha: number;

@@ -49,10 +49,32 @@
     const MARGIN = Math.round(SIZE * 0.06);
     const MAX_TEXT_WIDTH = SIZE - 2 * MARGIN;
 
+    /**
+     * **These two are POINT sizes, because `imagettftext()` takes
+     * points.** GD renders at 96 dpi, so the size it is handed draws an
+     * em of `size * 96 / 72` pixels: 66 draws an em of 88 px, not 66.
+     * Canvas font sizes are CSS pixels, so copying the literal across
+     * drew the card's text a quarter too small — and `wrapTitle()`
+     * measured with that smaller face, so the line breaks and the
+     * three-line cap diverged too. Found in the review of #850.
+     *
+     * Measured in GD's own terms rather than reasoned from a font's
+     * metrics: the same string is 1704 px wide at size 66 and 1276 px at
+     * size 49.5 (= 66 × 72/96), a ratio of 1.335 against the 1.333 the
+     * conversion predicts — the remainder being per-glyph hinting.
+     * `CardGeometryAgreementTest` measures it on every run.
+     *
+     * **Only the size converts.** Every other number `CardRenderer`
+     * hands GD — the margin, the baselines, the line height, the veil —
+     * is already in pixels.
+     */
+    const POINTS_TO_PIXELS = 96 / 72;
     const TITLE_SIZE = 66;
+    const TITLE_PIXELS = TITLE_SIZE * POINTS_TO_PIXELS;
     const TITLE_MAX_LINES = 3;
     const TITLE_LINE_HEIGHT = Math.round(TITLE_SIZE * 1.25);
     const ADDRESS_SIZE = 34;
+    const ADDRESS_PIXELS = ADDRESS_SIZE * POINTS_TO_PIXELS;
     /** The gap GD leaves between the address's baseline and the title's. */
     const ADDRESS_TO_TITLE = Math.round(ADDRESS_SIZE * 1.9);
 
@@ -221,14 +243,14 @@
         let baseline = SIZE - MARGIN;
         const trimmedAddress = String(address || '').trim();
         if (trimmedAddress !== '') {
-            ctx.font = ADDRESS_SIZE + 'px ' + FONT_FAMILY;
+            ctx.font = ADDRESS_PIXELS + 'px ' + FONT_FAMILY;
             ctx.fillStyle = ADDRESS_COLOUR;
             const measureAddress = measurer(ctx);
             ctx.fillText(fitLine(trimmedAddress, measureAddress, MAX_TEXT_WIDTH, false), MARGIN, baseline);
             baseline -= ADDRESS_TO_TITLE;
         }
 
-        ctx.font = TITLE_SIZE + 'px ' + FONT_FAMILY;
+        ctx.font = TITLE_PIXELS + 'px ' + FONT_FAMILY;
         ctx.fillStyle = TITLE_COLOUR;
         const lines = wrapTitle(String(title || ''), measurer(ctx), MAX_TEXT_WIDTH);
         lines.slice().reverse().forEach(function (line) {
@@ -320,10 +342,15 @@
             size: SIZE,
             margin: MARGIN,
             maxTextWidth: MAX_TEXT_WIDTH,
+            // `titleSize` and `addressSize` are the POINT sizes GD is
+            // handed; `titlePixels` and `addressPixels` are what the
+            // canvas draws with.
             titleSize: TITLE_SIZE,
+            titlePixels: TITLE_PIXELS,
             titleMaxLines: TITLE_MAX_LINES,
             titleLineHeight: TITLE_LINE_HEIGHT,
             addressSize: ADDRESS_SIZE,
+            addressPixels: ADDRESS_PIXELS,
             addressToTitle: ADDRESS_TO_TITLE,
             veilStartY: VEIL_START_Y,
             veilFootAlpha: VEIL_FOOT_ALPHA,

@@ -334,9 +334,10 @@ describe('drawCard', () => {
     it('lays the address at the foot and the title above it, bottom-up', () => {
         card().drawCard(canvas, {
             image: null,
-            // At 66 px the recording context measures 33 px a character,
-            // so 29 characters pass 950 and this wraps to exactly two
-            // lines — which is what makes the two baselines below
+            // At 88 px — the title's point size converted to the
+            // pixels GD actually renders — the recording context
+            // measures 44 px a character, so this wraps to exactly two
+            // lines, which is what makes the two baselines below
             // checkable.
             title: 'aaaa bbbb cccc dddd eeee ffff',
             address: 'unite.be',
@@ -347,7 +348,10 @@ describe('drawCard', () => {
         const address = texts[0];
         expect(address.text).toBe('unite.be');
         // 1080 - 65.
-        expect(address).toMatchObject({ x: 65, y: 1015, size: 34 });
+        // The engine's own constant rather than the number: the point
+        // size is 34 and the pixels are 45.33…, and restating either
+        // here would be a second copy free to drift.
+        expect(address).toMatchObject({ x: 65, y: 1015, size: card().cardConstants().addressPixels });
 
         const titleLines = texts.slice(1);
         expect(titleLines).toHaveLength(2);
@@ -356,7 +360,7 @@ describe('drawCard', () => {
         expect(titleLines[0].y).toBe(1015 - 65);
         expect(titleLines[1].y).toBe(1015 - 65 - 83);
         titleLines.forEach((line) => {
-            expect(line.size).toBe(66);
+            expect(line.size).toBe(card().cardConstants().titlePixels);
             expect(line.x).toBe(65);
         });
     });
@@ -366,7 +370,31 @@ describe('drawCard', () => {
 
         const texts = ctx.calls.filter((call) => call.op === 'fillText');
         expect(texts).toHaveLength(1);
-        expect(texts[0]).toMatchObject({ text: 'Week-end', y: 1015, size: 66 });
+        expect(texts[0]).toMatchObject({
+            text: 'Week-end',
+            y: 1015,
+            size: card().cardConstants().titlePixels,
+        });
+    });
+
+    it('draws at the pixel size GD renders, not the point size GD is handed', () => {
+        // `imagettftext()` takes POINTS and GD renders at 96 dpi, so the
+        // 66 it is handed draws an em of 88 px. Copying the literal into
+        // `ctx.font` drew the card's text a quarter too small and made
+        // `wrapTitle()` measure with that smaller face — the line breaks
+        // diverged from the server's as well as the size. Found in the
+        // review of #850; CardGeometryAgreementTest measures the factor
+        // against GD itself on every run.
+        const constants = card().cardConstants();
+        expect(constants.titlePixels).toBeCloseTo(constants.titleSize * 96 / 72, 10);
+        expect(constants.addressPixels).toBeCloseTo(constants.addressSize * 96 / 72, 10);
+        expect(constants.titlePixels).toBe(88);
+
+        card().drawCard(canvas, { image: null, title: 'Week-end', address: 'unite.be', blurRatio: 0 });
+        const fonts = ctx.calls.filter((call) => call.op === 'font').map((call) => call.value);
+
+        expect(fonts).toContain('88px "ScoutMagic Card", "DejaVu Sans", sans-serif');
+        expect(fonts.some((font) => font.startsWith('66px'))).toBe(false);
     });
 
     it('draws the card with no title at all rather than refusing', () => {

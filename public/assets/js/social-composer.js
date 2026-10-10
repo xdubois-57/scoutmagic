@@ -105,7 +105,7 @@
         }
         try {
             fontRequest = fonts
-                .load('700 ' + engine.cardConstants().titleSize + 'px "ScoutMagic Card"')
+                .load('700 ' + engine.cardConstants().titlePixels + 'px "ScoutMagic Card"')
                 .then(fontSettled, fontSettled);
         } catch (error) {
             fontSettled();
@@ -395,10 +395,23 @@
             if (asks && form.dataset.confirmed !== '1') {
                 return;
             }
-            // Nothing drawn: let the form post as it is, and the server
-            // composes the card as it always did.
+            // Nothing drawn — no photo yet, or no 2D context. The card
+            // does not travel and the publication composes one, as a
+            // share made before IT-02 does.
+            //
+            // **Through `postWith()`, not by letting the browser post.**
+            // `hold()` has just disabled the submitter, and the form's
+            // entry list is built AFTER this event finishes dispatching,
+            // with disabled controls left out — the submitter among
+            // them. A native submit here would therefore carry no
+            // `action` at all, and `act()` reads a missing action as
+            // « nothing asked »: nothing saved, nothing published, and a
+            // chief sent back to the draft having just been told
+            // « Publication en cours… ». Found in the review of #850.
             if (!shown) {
+                event.preventDefault();
                 hold(submitter);
+                postWith(null);
 
                 return;
             }
