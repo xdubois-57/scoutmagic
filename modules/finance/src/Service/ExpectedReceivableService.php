@@ -68,7 +68,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         // spelling, whichever the caller used.
         if (!StructuredCommunicationService::isValid($communication)) {
             throw new FinanceException(
-                'La communication doit être une communication structurée valide (+++123/4567/89012+++).'
+                'La communication doit être une communication structurée valide (+++123/4567/89002+++).'
             );
         }
 
