@@ -40,13 +40,9 @@ final class HostFacts
         public readonly string $shellDetail = '',
         /**
          * What the CRON's PHP can execute, measured by public/cron.php —
-         * null while it never has. Video depends on this, not on the web.
+         * null while it never has. Video and PDF compression depend on this, not on the web.
          */
         public readonly ?CronExecutionFacts $cronExecution = null,
-        /** `proc_open` may be called, by the web PHP that compresses an upload. */
-        public readonly bool $procOpen = false,
-        /** {@see \Core\Pdf\PdfCompressor}'s chosen tool, `none` when there is none. */
-        public readonly string $pdfBackend = 'none',
         /** Core\Http\InsecureBrowserAccess's last observation, null when never. */
         public readonly ?int $lastInsecureAccessAt = null,
         /** When these facts were measured — what « il y a » counts from. */

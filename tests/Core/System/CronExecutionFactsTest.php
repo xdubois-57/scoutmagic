@@ -43,6 +43,13 @@ class CronExecutionFactsTest extends TestCase
         );
     }
 
+    private static function withPdf(?bool $procOpen, ?string $backend): CronExecutionFacts
+    {
+        return new CronExecutionFacts(
+            1_800_000_000, 'cli', true, true, 'exec', 'code 0', '/usr/bin/ffmpeg', '/usr/bin/ffprobe', $procOpen, $backend
+        );
+    }
+
     private function read(): ?CronExecutionFacts
     {
         return CronExecutionFacts::read(new SettingService($this->repository));
@@ -68,6 +75,68 @@ class CronExecutionFactsTest extends TestCase
         $this->assertSame('exec', $facts->shellFunction);
         $this->assertSame('aucune sortie, code 127', $facts->shellDetail);
         $this->assertFalse($facts->videoReady());
+    }
+
+    /** #804: proc_open, not exec, is what PdfCompressor uses — measured by the cron itself. */
+    public function testThePdfCompressionToolAndProcOpenAreStoredAndReadBack(): void
+    {
+        CronExecutionFacts::recordIfDue(
+            $this->repository,
+            1_800_000_000,
+            static fn(int $now): CronExecutionFacts => self::withPdf(true, 'ghostscript')
+        );
+
+        $facts = $this->read();
+        $this->assertNotNull($facts);
+        $this->assertTrue($facts->pdfMeasured());
+        $this->assertTrue($facts->pdfProcOpen);
+        $this->assertSame('ghostscript', $facts->pdfBackend);
+        $this->assertTrue($facts->pdfReady());
+    }
+
+    /** What was stored before the cron looked at PDFs: « not measured yet », never a verdict. */
+    public function testAFactsRowStoredBeforeTheCronMeasuredPdfsReadsAsNotMeasured(): void
+    {
+        $legacy = json_encode([
+            'probed_at' => 1_800_000_000, 'sapi' => 'cli', 'shell_declared' => true, 'shell_works' => true,
+            'shell_function' => 'exec', 'shell_detail' => 'code 0',
+            'ffmpeg' => '/usr/bin/ffmpeg', 'ffprobe' => '/usr/bin/ffprobe',
+        ]);
+        $this->repository->updateValue(null, CronExecutionFacts::SETTING, (string) $legacy);
+
+        $facts = $this->read();
+
+        $this->assertNotNull($facts, 'the old format still reads');
+        $this->assertTrue($facts->videoReady(), 'what it did say is kept');
+        $this->assertFalse($facts->pdfMeasured());
+        $this->assertNull($facts->pdfProcOpen);
+        $this->assertNull($facts->pdfBackend);
+        $this->assertFalse($facts->pdfReady());
+    }
+
+    /**
+     * @return iterable<string, array{?bool, ?string, bool, bool}>
+     */
+    public static function pdfCombinations(): iterable
+    {
+        yield 'never measured' => [null, null, false, false];
+        yield 'proc_open off' => [false, 'none', true, false];
+        yield 'proc_open on, no tool' => [true, 'none', true, false];
+        yield 'ghostscript' => [true, 'ghostscript', true, true];
+        yield 'qpdf' => [true, 'qpdf', true, true];
+        yield 'pdftocairo' => [true, 'pdftocairo', true, true];
+        // Cannot happen from the probe (a tool needs proc_open), but a hand-edited row must not read as ready.
+        yield 'a tool without proc_open' => [false, 'ghostscript', true, false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('pdfCombinations')]
+    public function testPdfReadyForEveryCombination(?bool $procOpen, ?string $backend, bool $measured, bool $ready): void
+    {
+        $facts = CronExecutionFacts::parse((string) json_encode(self::withPdf($procOpen, $backend)->toArray()));
+
+        $this->assertNotNull($facts);
+        $this->assertSame($measured, $facts->pdfMeasured());
+        $this->assertSame($ready, $facts->pdfReady());
     }
 
     public function testItMeasuresAgainOnlyOnceTheRefreshIntervalHasPassed(): void

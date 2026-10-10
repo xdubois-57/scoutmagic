@@ -133,8 +133,7 @@ class MemberControllerMassMailTest extends TestCase
             new \Core\Config\ScoutYearService($this->pdo),
             new JournalService(new JournalRepository($this->pdo)),
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
-            $settingService,
-            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+            $settingService
         );
 
         return new MemberPageService(

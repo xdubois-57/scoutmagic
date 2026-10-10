@@ -31,13 +31,13 @@ hébergeur. Un bandeau en haut compte les lignes à régler.
   ligne est obligatoire.
 - **Exécution de commandes**, deux lignes : le PHP qui répond aux
   visiteurs et celui du cron peuvent avoir des droits différents. La
-  vidéo dépend de celui du cron, vérifié par le cron au plus toutes les
-  dix minutes ; avant la première vérification, l'état est « pas encore
-  vérifié », pas « absent ».
+  vidéo et la compression des PDF dépendent du cron, qui les vérifie
+  toutes les dix minutes ; avant, l'état est « pas encore vérifié », pas
+  « absent ». La ligne du PHP web est neutre si le cron fonctionne.
 - **ffmpeg et ffprobe** — sans eux, la galerie et les groupes refusent
   les vidéos. La ligne recopie l'erreur exacte à transmettre.
-- **Compression des PDF** — sans outil, les PDF ne sont pas compressés ;
-  rien n'est refusé.
+- **Compression des PDF** — vérifiée par le cron ; sans outil, les PDF ne
+  sont pas compressés, sans rien refuser.
 - **Chiffrement des archives** — sans lui, la sauvegarde complète et la
   sauvegarde portable sont indisponibles.
 - **libsodium** — sans elle, les sauvegardes portables se chiffrent

@@ -33,7 +33,7 @@ use Core\System\ShellExecutor;
  *   gallery's video switch reads the same stored facts. The web PHP's own
  *   ability to run a program is a separate line, since the two differ on
  *   shared hosting;
- * - PDF compression through Core\Pdf\PdfCompressor's own detection.
+ * - PDF compression as the cron's PHP measured it (CronExecutionFacts, #804);
  * - archive encryption through BackupService::supportsZipEncryption(),
  *   the check that hides the full backup form;
  * - sodium through PortableKeys::hasSodium(), the check that picks the key
@@ -81,7 +81,6 @@ final class HostHealth
         // and then « ffmpeg absent » would send the operator to install a
         // package that may well be there.
         $shell = ShellExecutor::probe();
-        $pdf = new PdfCompressor($this->storagePath . '/temp');
 
         return new HostFacts(
             cron: (new CronHealth($this->storagePath, $this->settingService))->status(),
@@ -102,9 +101,6 @@ final class HostHealth
             shellDetail: $shell['detail'],
             // Measured by the cron, read here (#700): video runs there.
             cronExecution: CronExecutionFacts::read($this->settingService),
-            procOpen: $pdf->canUseProcOpen(),
-            // The web PHP's tool: it compresses an upload as it arrives.
-            pdfBackend: $pdf->detectBackend(),
             lastInsecureAccessAt: (new InsecureBrowserAccess($this->settingService))->lastObservedAt(),
             measuredAt: time(),
         );
@@ -187,28 +183,71 @@ final class HostHealth
     }
 
     /**
-     * The web PHP's ability to run a program (#700) — shown on its own line,
-     * because the cron's can differ, and what to ask depends on which one a
-     * feature needs. Video needs the cron's: when the cron runs commands,
-     * there is nothing to ask for this one.
+     * The web PHP's ability to run a program (#700, #804) — shown on its own
+     * line, because the cron's can differ.
+     *
+     * **Nothing on this page depends on it any more**: video, PDF compression
+     * and every other background job run in the CRON's PHP, which is measured
+     * on the next line. A web PHP that launches nothing is therefore only a
+     * problem when the cron does not either — and then there is something to
+     * ask the host. When the cron works the line is neutral: « Dégradé » with
+     * « Rien à demander » contradicted itself.
      */
     private static function webExecution(HostFacts $facts): HostCheck
     {
-        $cronWorks = $facts->cronExecution?->shellWorks === true;
+        $status = self::shellStatus(
+            $facts->shellDeclared,
+            $facts->shellWorks,
+            $facts->shellFunction,
+            $facts->shellDetail
+        );
+        $title = 'Exécution de commandes (PHP web)';
+
+        if ($facts->shellWorks) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_OK,
+                $status,
+                'Ce PHP répond aux visiteurs. La vidéo, la compression des PDF et les tâches de fond '
+                    . 'dépendent du PHP du cron, sur la ligne suivante.',
+                ''
+            );
+        }
+
+        // Never measured is unknown, not a verdict: no « neither runs commands », no request to the host.
+        if ($facts->cronExecution === null) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_DEGRADED,
+                $status,
+                'Ce PHP répond aux visiteurs. Ce qui compte est le PHP du cron, que la tâche planifiée n\'a '
+                    . 'pas encore mesuré (ligne suivante).',
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
+            );
+        }
+
+        if ($facts->cronExecution->shellWorks) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_OK,
+                $status . ' — sans conséquence : le PHP du cron exécute les commandes',
+                'Ce PHP répond aux visiteurs et ne lance pas de commandes, sans conséquence : la vidéo, la '
+                    . 'compression des PDF et les tâches de fond tournent dans le PHP du cron.',
+                ''
+            );
+        }
 
         return new HostCheck(
             'shell_web',
-            'Exécution de commandes (PHP web)',
-            $facts->shellWorks ? HostCheck::STATE_OK : HostCheck::STATE_DEGRADED,
-            self::shellStatus($facts->shellDeclared, $facts->shellWorks, $facts->shellFunction, $facts->shellDetail),
-            'Ce PHP répond aux visiteurs. Les vérifications de cette page en dépendent ; la vidéo et les '
-                . 'tâches de fond dépendent du PHP du cron, sur la ligne suivante.'
-                . (!$facts->shellWorks && $cronWorks
-                    ? ' Rien à demander pour la vidéo : le PHP du cron exécute les commandes.'
-                    : ''),
-            // Empty when the cron covers it, so the page never prints « À demander
-            // à l'hébergeur » above a sentence saying there is nothing to ask.
-            $cronWorks ? '' : self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
+            $title,
+            HostCheck::STATE_DEGRADED,
+            $status,
+            'Ce PHP répond aux visiteurs. La vidéo, la compression des PDF et les tâches de fond '
+                . 'dépendent du PHP du cron, sur la ligne suivante : ni l\'un ni l\'autre ne lance de commande.',
+            self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
         );
     }
 
@@ -300,10 +339,13 @@ final class HostHealth
     }
 
     /**
-     * PDF compression (#700), read from the facts — never a second
-     * detection here. **Not blocking**: a degraded line at worst, since
-     * nothing is refused without it. The installation advice lives here
-     * and only here; the staff page sends its reader to this page.
+     * PDF compression (#700, #804), read from what the CRON's PHP measured —
+     * never a detection here: the web PHP may be forbidden to launch any
+     * program while the cron compresses very well, and a line measured in
+     * the wrong PHP says « Impossible » about a machine that works.
+     * **Not blocking**: a degraded line at worst, since nothing is refused
+     * without it. The installation advice lives here and only here; the staff
+     * page sends its reader to this page.
      */
     public static function pdfCompression(HostFacts $facts): HostCheck
     {
@@ -313,39 +355,41 @@ final class HostHealth
             PdfCompressor::BACKEND_QPDF => 'qpdf',
             PdfCompressor::BACKEND_PDFTOCAIRO => 'pdftocairo',
         ];
+        $cron = $facts->cronExecution;
 
-        if (!$facts->procOpen) {
+        // Includes a measurement stored before the cron looked at PDFs: it
+        // will repeat within ten minutes, so this is not a verdict.
+        if ($cron === null || !$cron->pdfMeasured()) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Impossible : la fonction proc_open est désactivée',
+                'Pas encore vérifiée : la tâche planifiée ne l\'a jamais mesurée',
                 $consequence,
-                'Retirer proc_open de la liste disable_functions de PHP, puis installer Ghostscript si ce n\'est '
-                    . 'pas fait.'
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
             );
         }
-        if (!isset($tools[$facts->pdfBackend]) && $facts->shellDeclared && !$facts->shellWorks) {
-            // proc_open is allowed but this PHP launches nothing at all: the
-            // tools may well be installed, so asking for them would be wrong.
+
+        $when = ' — vérifiée ' . self::ago($cron->probedAt, $facts->measuredAt);
+        if (!$cron->pdfProcOpen) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Impossible : ce PHP ne lance aucun programme',
+                'Impossible : la fonction proc_open est désactivée pour le PHP du cron' . $when,
                 $consequence,
-                'Voir la ligne « Exécution de commandes (PHP web) » : tant que PHP ne peut lancer aucun '
-                    . 'programme, la compression ne peut pas tourner, que Ghostscript soit installé ou non.'
+                'Retirer proc_open de la liste disable_functions du PHP du cron (PHP en ligne de commande), '
+                    . 'puis installer Ghostscript si ce n\'est pas fait.'
             );
         }
-        if (!isset($tools[$facts->pdfBackend])) {
+        if (!isset($tools[(string) $cron->pdfBackend])) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Aucun outil trouvé (Ghostscript, qpdf ou pdftocairo)',
+                'Aucun outil trouvé pour le PHP du cron (Ghostscript, qpdf ou pdftocairo)' . $when,
                 $consequence,
-                'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+                'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par le PHP du cron.'
             );
         }
 
@@ -353,9 +397,9 @@ final class HostHealth
             'pdf_compression',
             'Compression des PDF',
             HostCheck::STATE_OK,
-            'Disponible : ' . $tools[$facts->pdfBackend],
+            'Disponible pour le cron : ' . $tools[(string) $cron->pdfBackend] . $when,
             $consequence,
-            'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+            'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par le PHP du cron.'
         );
     }
 

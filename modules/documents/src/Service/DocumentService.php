@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Documents\Service;
 
 use Core\Config\AppClock;
+use Core\Config\SettingService;
 use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\File\UploadException;
@@ -16,8 +17,10 @@ use Core\File\UploadHandler;
 use Core\Journal\JournalService;
 use Core\Page\TextPageService;
 use Core\Pdf\PdfCompressor;
+use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Core\Service\DateInput;
+use Core\System\CronExecutionFacts;
 use Modules\Documents\File\DocumentFileOwnershipChecker;
 use Modules\Documents\Repository\Document;
 use Modules\Documents\Repository\DocumentRepository;
@@ -68,6 +71,9 @@ class DocumentService
     public const TITLE_MAX_LENGTH = 200;
     public const DESCRIPTION_MAX_LENGTH = 1000;
 
+    /** The background task that compresses a PDF in the cron's PHP (#804). */
+    public const COMPRESS_TASK = 'compress_document';
+
     /** Where UploadHandler writes, under storage/. */
     private const STORAGE_SUBDIRECTORY = 'documents';
 
@@ -104,7 +110,9 @@ class DocumentService
         private AttachedFileRemover $fileRemover,
         private JournalService $journalService,
         private string $storagePath,
-        private ?PdfCompressor $pdfCompressor = null
+        private ?PdfCompressor $pdfCompressor = null,
+        private ?SchedulerService $scheduler = null,
+        private ?SettingService $settings = null
     ) {
     }
 
@@ -507,20 +515,27 @@ class DocumentService
     }
 
     /**
-     * Shrinks a PDF in place when a compression backend is installed, and
-     * does nothing otherwise — never a reason to refuse the upload.
+     * Shrinks a PDF when a compression tool is installed, and does nothing
+     * otherwise — never a reason to refuse the upload.
      *
-     * Synchronous, unlike section documents' background task: one file,
-     * uploaded by the one person waiting for the page, and the result is
-     * the file the address serves from the first second.
+     * **Where it runs depends on who can compress (#804).** When the CRON's
+     * PHP has been measured able to (CronExecutionFacts::pdfReady()), the
+     * work is a task: the web PHP of a shared host may launch no program at
+     * all, so deciding here would silently never compress. The original is
+     * served until the task replaces it in place. Otherwise — the cron has
+     * not measured yet, or cannot compress — it is attempted here, as it
+     * always was, and does nothing where nothing is available.
      */
     private function compressIfPdf(int $fileId): void
     {
-        if ($this->pdfCompressor === null || $this->storagePath === '') {
-            return;
-        }
         $file = $this->fileRepository->findById($fileId);
         if ($file === null || $file->mimeType !== 'application/pdf') {
+            return;
+        }
+        if ($this->scheduleCompression($fileId)) {
+            return;
+        }
+        if ($this->pdfCompressor === null || $this->storagePath === '') {
             return;
         }
 
@@ -545,6 +560,26 @@ class DocumentService
         } catch (\Throwable) {
             // The uncompressed file is a perfectly good file.
         }
+    }
+
+    /** Queues the compression for the cron when it is known to compress; false when it is not. */
+    private function scheduleCompression(int $fileId): bool
+    {
+        if ($this->scheduler === null || $this->settings === null) {
+            return false;
+        }
+        if (CronExecutionFacts::read($this->settings)?->pdfReady() !== true) {
+            return false;
+        }
+
+        try {
+            $this->scheduler->scheduleAfter('documents', self::COMPRESS_TASK, 0, ['file_id' => $fileId]);
+        } catch (\Throwable) {
+            // Not queued: fall back to compressing here rather than not at all.
+            return false;
+        }
+
+        return true;
     }
 
     /**
