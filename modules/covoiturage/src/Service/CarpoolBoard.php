@@ -227,7 +227,8 @@ class CarpoolBoard
             $offers,
             static fn(Offer $offer): bool => $offer->direction === $direction
         ));
-        $mine = Participation::best(Participation::forAccount($viewer->accountId, $inDirection, $requestsByOffer))[$direction] ?? null;
+        $participations = Participation::forAccount($viewer->accountId, $inDirection, $requestsByOffer);
+        $mine = Participation::best($participations)[$direction] ?? null;
         if ($mine === null) {
             return null;
         }
