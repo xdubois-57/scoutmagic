@@ -217,7 +217,9 @@
      * @returns {Promise<boolean>}
      */
     function recheckConnectivity() {
-        confirmConnectivity();
+        // Not awaited on purpose: settledVerdict() waits on whichever probe
+        // ends up latest, this one or a newer one.
+        void confirmConnectivity();
 
         return settledVerdict();
     }

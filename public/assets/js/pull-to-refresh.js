@@ -69,7 +69,7 @@
     ).join(', ');
 
     var displayMode = window.ScoutMagicDisplayMode;
-    if (!displayMode || !displayMode.isStandalone()) {
+    if (!displayMode?.isStandalone()) {
         return;
     }
 
@@ -115,7 +115,7 @@
             return false;
         }
         var element = target instanceof Element ? target : null;
-        if (element && element.closest(OWN_SCROLL_SURFACES)) {
+        if (element?.closest(OWN_SCROLL_SURFACES)) {
             return false;
         }
         // An inner list scrolled down is pulled back up first, like the
@@ -168,7 +168,7 @@
         }
 
         var connectivity = window.ScoutMagicConnectivity;
-        if (!connectivity || !connectivity.isOfflineConfirmed()) {
+        if (!connectivity?.isOfflineConfirmed()) {
             reload();
             return;
         }
@@ -187,7 +187,7 @@
      * @returns {Touch|null}
      */
     function singleTouch(event) {
-        return event.touches && event.touches.length === 1 ? event.touches[0] : null;
+        return event.touches?.length === 1 ? event.touches[0] : null;
     }
 
     document.addEventListener('touchstart', function (event) {

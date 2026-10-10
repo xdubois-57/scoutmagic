@@ -38,7 +38,7 @@ function buildIndicator() {
         <div id="pull-to-refresh" class="pull-to-refresh" aria-hidden="true">
             <i class="bi bi-arrow-clockwise pull-to-refresh-icon"></i>
         </div>
-        <div id="pull-to-refresh-status" class="visually-hidden" role="status"></div>
+        <output id="pull-to-refresh-status" class="visually-hidden"></output>
     `);
 }
 
