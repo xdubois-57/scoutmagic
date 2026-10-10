@@ -382,6 +382,16 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // A share with a kept card has nothing left to draw: the card IS
+        // the image, and handing the canvas the album's current cover
+        // would let it draw over the frozen one. Refused rather than
+        // served, so the composer keeps the <img> `cardOf()` serves —
+        // which is that kept card. Found in the review of #850, with
+        // `cardOf()` above.
+        if ($source->card !== null && $source->card !== '') {
+            return new Response('Not Found', 404);
+        }
+
         $type = self::imageType($source->image);
         if ($type === null) {
             return new Response('Not Found', 404);
@@ -430,7 +440,26 @@ final class CommunicationController extends AbstractController
      */
     private function cardOf(?ShareSource $source): Response
     {
-        if ($source === null || $source->image === null || $source->image === '') {
+        if ($source === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // **The kept card wins, as it does at publication.** Composing
+        // again from the live source would show the album's CURRENT
+        // title and cover, so a share frozen before the album was
+        // renamed displayed a card that is not the one a retry
+        // re-sends — the page saying « l'image et le texte ne changent
+        // plus » directly above it. `PublishingService::cardBytes()`
+        // already reads this first; the preview did not. Found in the
+        // review of #850.
+        if ($source->card !== null && $source->card !== '') {
+            return (new Response($source->card))
+                ->setHeader('Content-Type', ReceivedCard::MIME)
+                ->setHeader('Cache-Control', 'private, no-store')
+                ->setHeader('X-Content-Type-Options', 'nosniff');
+        }
+
+        if ($source->image === null || $source->image === '') {
             return new Response('Not Found', 404);
         }
 

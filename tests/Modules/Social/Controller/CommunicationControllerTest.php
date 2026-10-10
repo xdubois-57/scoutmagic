@@ -232,6 +232,54 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **The composer shows the card that was frozen, not a fresh one.**
+     *
+     * Found in the review of #850, and a contradiction this PR created:
+     * the frozen notice now promises « l'image et le texte ne changent
+     * plus », while the preview route recomposed from the live source —
+     * so an album renamed after the first « Publier » made the page show
+     * a card that no retry would ever send. What is published was never
+     * affected: `PublishingService::cardBytes()` reads the kept card
+     * first. The page did not.
+     */
+    public function testTheComposerOfAFrozenShareShowsTheCardThatWasKept(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->loginAuthor();
+        $kept = $this->postedCard('Le titre du jour');
+        $this->controller()->update(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        // The album is renamed in the gallery afterwards.
+        self::$albumTitle = 'Week-end de rentrée, deuxième édition';
+
+        $served = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+
+        $this->assertSame(200, $served->getStatusCode());
+        $this->assertSame(
+            $kept,
+            $served->getBody(),
+            'the composer recomposed a card from the renamed album instead of showing the frozen one'
+        );
+
+        // And the canvas is handed nothing to draw over it.
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $id])->getStatusCode(),
+            'the background of a frozen share was served, so the canvas could draw over the frozen card'
+        );
+    }
+
+    /**
      * **The slider's value is stored**, which nothing asserted until the
      * review of #850 — on the headline feature of this iteration, and
      * `AGENTS.md` § Tests makes it mandatory.
