@@ -33,6 +33,13 @@ class ReceivableDestinationTest extends TestCase
             'javascript' => ['javascript:alert(1)'],
             'backslash trick' => ['/\\example.org'],
             'relative path' => ['finance/campaigns/3'],
+            // A browser strips these before parsing, leaving `//evil.com`.
+            'tab before a second slash' => ["/\t/evil.com"],
+            'line feed before a second slash' => ["/\n/evil.com"],
+            'carriage return before a second slash' => ["/\r/evil.com"],
+            'a space' => ['/finance/campaigns 3'],
+            'a NUL byte' => ["/finance\0"],
+            'DEL' => ["/finance\x7f"],
         ];
     }
 
