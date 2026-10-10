@@ -158,6 +158,22 @@ describe('ScoutMagicRichText.canonicalHtml() — images, only where the surface 
     });
 });
 
+describe('ScoutMagicRichText.canonicalHtml() — siteImages', () => {
+    it('keeps one of the site\'s own images, so a cut-and-paste inside the text does not lose it', async () => {
+        const rt = await loadHelper();
+
+        expect(rt.canonicalHtml('<p><img src="/files/3" alt="Camp"></p>', { siteImages: true }))
+            .toBe('<p><img src="/files/3" alt="Camp"></p>');
+    });
+
+    it('still refuses an image from another site, protocol-relative ones included', async () => {
+        const rt = await loadHelper();
+
+        expect(rt.canonicalHtml('<p><img src="https://ailleurs.be/x.png">a</p>', { siteImages: true })).toBe('<p>a</p>');
+        expect(rt.canonicalHtml('<p><img src="//ailleurs.be/x.png">b</p>', { siteImages: true })).toBe('<p>b</p>');
+    });
+});
+
 describe('ScoutMagicRichText.canonicalHtml() — a stored text keeps what the server accepted', () => {
     it('keeps an <h4> and a quotation that no button makes, but a paste flattens them', async () => {
         const rt = await loadHelper();

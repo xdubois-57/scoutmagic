@@ -55,7 +55,11 @@
     // which cost the H2/H3/« Paragraphe » buttons their argument and
     // double-wired every other button against rich-text-field.js on the
     // pages that load both. See rich-text-link.js.
-    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    //
+    // A paste keeps an image only when it is one of this site's own files
+    // (`siteImages`): there is no image button here, but cutting an image
+    // the text already holds and pasting it elsewhere must not lose it.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent, null, { siteImages: true });
 
     // Open editor on rich text edit click
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {

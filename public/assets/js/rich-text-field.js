@@ -38,7 +38,9 @@
     // click, un-applying every toggle as fast as it was applied (issue
     // #306). The shared wiring is idempotent per button: whichever of the
     // two gets there first wires them, the other finds them wired.
-    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    // Same options as editable.js: whichever script wires the shared modal
+    // first, the paste behaves the same.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent, null, { siteImages: true });
 
     function escapeAttr(value) {
         return value.replace(/["\\]/g, String.raw`\$&`);

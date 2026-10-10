@@ -34,6 +34,7 @@ interface HelpSearchEntry {
 interface ScoutMagicRichTextOptions {
     images?: boolean;
     stored?: boolean;
+    siteImages?: boolean;
     decorate?: (container: HTMLElement) => void;
 }
 

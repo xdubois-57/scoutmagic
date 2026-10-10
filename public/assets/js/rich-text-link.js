@@ -226,6 +226,11 @@
      * @typedef {object} CanonicalOptions
      * @property {boolean} [images] keep <img> — the news editor has an
      *           image button; the generic surfaces do not
+     * @property {boolean} [siteImages] keep an <img> only when it is one of
+     *           this site's own files (a path from the root): a surface
+     *           without an image button must still let an author cut an
+     *           image the text already holds and paste it elsewhere in it,
+     *           without letting a paste bring one in from another site
      * @property {boolean} [stored] the text is one the server already
      *           accepted, being opened or saved again: what the sanitiser
      *           keeps and no button makes — <img>, <h4>, <blockquote> —
@@ -594,6 +599,7 @@
     function canonicalNodes(sourceRoot, options) {
         var stored = Boolean(options?.stored);
         var images = stored || Boolean(options?.images);
+        var siteImages = Boolean(options?.siteImages);
         var doc = document;
 
         var root = doc.createDocumentFragment();
@@ -776,8 +782,8 @@
          * @returns {Segment|null}
          */
         function imageSegment(element, format) {
-            var src = images ? safeUrl(element.getAttribute('src'), true) : null;
-            if (src === null) {
+            var src = images || siteImages ? safeUrl(element.getAttribute('src'), true) : null;
+            if (src === null || (!images && !/^\/(?!\/)/.test(src))) {
                 return null;
             }
             /** @param {string} name @returns {string|null} */

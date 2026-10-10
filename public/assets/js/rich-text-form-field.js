@@ -280,7 +280,10 @@ export function wireField(root) {
     //
     // The paste is canonical too, and a `{{ keyword }}` it carries becomes
     // a chip before it lands, exactly as one already in the value did.
+    // An image the value already holds can be cut and pasted elsewhere in
+    // it (`siteImages`), as in editable.js.
     window.ScoutMagicRichText.wireToolbar(root, surface, sync, {
+        siteImages: true,
         decorate: function (container) {
             chipify(container, known);
         }
