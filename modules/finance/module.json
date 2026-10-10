@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -209,7 +209,7 @@
       "role_min": "intendant",
       "label": "",
       "breadcrumb": {
-        "label": "Rapprochement",
+        "label": "Paiements à traiter",
         "parents": [
           "Espace animateurs"
         ],
@@ -244,6 +244,15 @@
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReconciliationController",
       "action": "attach",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/reconciliation/not-a-receivable/{transactionId}",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "declareNotAReceivable",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

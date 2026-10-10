@@ -28,8 +28,8 @@ use Modules\Finance\Service\ReconciliationService;
 use Twig\Environment;
 
 /**
- * « Rapprochement » — what the automatic matching could not settle on its
- * own, and the four gestures that settle it.
+ * « Paiements à traiter » (`/finance/reconciliation`) — what the automatic
+ * matching could not settle on its own, and the gestures that settle it.
  *
  * Every write here goes through Service\ReceivableAllocationService,
  * which is where the account partition and the never-across-two-accounts
@@ -205,6 +205,35 @@ class ReconciliationController extends AbstractController
     }
 
     /**
+     * POST /finance/reconciliation/not-a-receivable/{transactionId}
+     *
+     * The other way out of « Non imputés »: this credit is no payment for
+     * any receivable. Kept, so the next import does not bring it back.
+     *
+     * @param array<string, string> $params
+     */
+    public function declareNotAReceivable(Request $request, array $params): Response
+    {
+        $redirect = $this->redirectTarget($request, 'orphans');
+        if (($guard = $this->guardCsrf($request, $redirect)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->reconciliation->declareNotAReceivable(
+                (int) ($params['transactionId'] ?? 0),
+                Role::fromString(AuthSession::getRole()),
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Ce paiement ne sera plus proposé : il reste visible dans les mouvements.');
+        } catch (FinanceException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect($redirect);
+    }
+
+    /**
      * POST /finance/reconciliation/overpaid/{receivableId}
      *
      * The three answers to a surplus: declare it owed back, put it on
@@ -335,7 +364,7 @@ class ReconciliationController extends AbstractController
         }
 
         return [
-            'label' => 'Rapprochement',
+            'label' => 'Paiements à traiter',
             'url' => '/finance/reconciliation?account_id=' . (int) $request->getQuery('account_id', 0),
         ];
     }

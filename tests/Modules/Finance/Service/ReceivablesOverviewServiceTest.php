@@ -66,7 +66,7 @@ class ReceivablesOverviewServiceTest extends TestCase
     {
         $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
         $this->receivableService->createReceivable('news', 1, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
-        $this->receivableService->createReceivable('news', 2, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+        $this->receivableService->createReceivable('news', 2, $this->accountId, 1000, '+++300/0000/00005+++', 'Carla');
 
         $overview = $this->service->buildOverview(Role::INTENDANT);
 
@@ -136,7 +136,15 @@ class ReceivablesOverviewServiceTest extends TestCase
         // A lookup per row decrypts a name per row. Two hundred rows is
         // two hundred round trips through the encryption service.
         foreach ([1, 2, 3] as $i) {
-            $this->receivableService->createReceivable('news', $i, $this->accountId, 2500, '+++10' . $i . '/0000/0003' . $i . '+++', null, 40 + $i);
+            $this->receivableService->createReceivable(
+                'news',
+                $i,
+                $this->accountId,
+                2500,
+                \Modules\Finance\Service\StructuredCommunicationService::format('10' . $i . '0000000'),
+                null,
+                40 + $i
+            );
         }
 
         $calls = 0;
@@ -258,7 +266,7 @@ class ReceivablesOverviewServiceTest extends TestCase
     public function testADescriberOnlyEverSpeaksForItsOwnModule(): void
     {
         $this->givenARentalBookingWithItsDeposit();
-        $this->receivableService->createReceivable('news', 12, $this->accountId, 1000, '+++600/0000/00006+++', 'Alice');
+        $this->receivableService->createReceivable('news', 12, $this->accountId, 1000, '+++600/0000/00010+++', 'Alice');
 
         $overview = $this->serviceWith([new FakeReceivableSourceDescriber(
             'rental',
@@ -284,7 +292,7 @@ class ReceivablesOverviewServiceTest extends TestCase
             1,
             $this->accountId,
             6500,
-            '+++600/0000/00006+++',
+            '+++600/0000/00010+++',
             'Cotisation 2026-2027'
         );
 
@@ -362,8 +370,8 @@ class ReceivablesOverviewServiceTest extends TestCase
 
     private function givenARentalBookingWithItsDeposit(): void
     {
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00004+++', 'LOC-D4E5F6 — Jean Dupont');
-        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00005+++', 'Caution LOC-D4E5F6 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'LOC-D4E5F6 — Jean Dupont');
+        $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution LOC-D4E5F6 — Jean Dupont');
     }
 
     /**
@@ -410,7 +418,7 @@ class ReceivablesOverviewServiceTest extends TestCase
     {
         $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
         $this->receivableService->createReceivable('news', 2, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
-        $this->receivableService->createReceivable('news', 3, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+        $this->receivableService->createReceivable('news', 3, $this->accountId, 1000, '+++300/0000/00005+++', 'Carla');
 
         $overview = $this->service->buildOverview(Role::INTENDANT);
 
@@ -449,7 +457,7 @@ class ReceivablesOverviewServiceTest extends TestCase
         // different money.
         $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
         $this->receivableService->createReceivable('news', 1, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
-        $this->receivableService->createReceivable('news', 2, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+        $this->receivableService->createReceivable('news', 2, $this->accountId, 1000, '+++300/0000/00005+++', 'Carla');
 
         $overview = $this->service->buildOverview(Role::INTENDANT);
 
@@ -481,7 +489,7 @@ class ReceivablesOverviewServiceTest extends TestCase
         $adminOnlyAccountId = $this->createAccount('Compte direction', 'admin');
 
         $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
-        $this->receivableService->createReceivable('news', 2, $adminOnlyAccountId, 9900, '+++900/0000/00090+++', 'Secret Donor');
+        $this->receivableService->createReceivable('news', 2, $adminOnlyAccountId, 9900, '+++900/0000/00015+++', 'Secret Donor');
 
         $asIntendant = $this->service->buildOverview(Role::INTENDANT);
 
@@ -495,13 +503,13 @@ class ReceivablesOverviewServiceTest extends TestCase
         $serialized = json_encode($asIntendant);
         $this->assertIsString($serialized);
         $this->assertStringNotContainsString('Secret Donor', $serialized);
-        $this->assertStringNotContainsString('+++900/0000/00090+++', $serialized);
+        $this->assertStringNotContainsString('+++900/0000/00015+++', $serialized);
     }
 
     public function testAViewerWhoClearsTheAccountsFloorSeesItsReceivables(): void
     {
         $adminOnlyAccountId = $this->createAccount('Compte direction', 'admin');
-        $this->receivableService->createReceivable('news', 2, $adminOnlyAccountId, 9900, '+++900/0000/00090+++', 'Donor');
+        $this->receivableService->createReceivable('news', 2, $adminOnlyAccountId, 9900, '+++900/0000/00015+++', 'Donor');
 
         $asAdmin = $this->service->buildOverview(Role::ADMIN);
 
@@ -518,7 +526,7 @@ class ReceivablesOverviewServiceTest extends TestCase
     public function testASourceModuleWithNoVisibleReceivablesDisappearsEntirely(): void
     {
         $adminOnlyAccountId = $this->createAccount('Compte direction', 'admin');
-        $this->receivableService->createReceivable('news', 1, $adminOnlyAccountId, 500, '+++111/0000/00011+++', 'Donor');
+        $this->receivableService->createReceivable('news', 1, $adminOnlyAccountId, 500, '+++111/0000/00094+++', 'Donor');
 
         $this->assertSame([], $this->service->buildOverview(Role::INTENDANT));
     }
@@ -532,7 +540,7 @@ class ReceivablesOverviewServiceTest extends TestCase
     public function testAnArchivedAccountsReceivablesStillReconcile(): void
     {
         $archivedId = $this->createAccount('Ancien compte', 'intendant', 'archived');
-        $this->receivableService->createReceivable('news', 1, $archivedId, 750, '+++222/0000/00022+++', 'Alice');
+        $this->receivableService->createReceivable('news', 1, $archivedId, 750, '+++222/0000/00091+++', 'Alice');
 
         $overview = $this->service->buildOverview(Role::INTENDANT);
 

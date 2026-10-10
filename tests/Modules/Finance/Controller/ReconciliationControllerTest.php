@@ -164,7 +164,7 @@ class ReconciliationControllerTest extends TestCase
         $response = $this->controller->index($this->get(), []);
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Rapprochement', $response->getBody());
+        $this->assertStringContainsString('Paiements à traiter', $response->getBody());
     }
 
     public function testTheSplitTabProposesTheHouseholdsOtherReceivables(): void
@@ -206,7 +206,8 @@ class ReconciliationControllerTest extends TestCase
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
         $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
-        $this->credit('VANDENBRANDE M +++123/4567/89012+++', 60.00);
+        $this->credit('VANDENBRANDE M +++123/4567/89012+++', 45.00);
+        $this->credit('VANDENBRANDE M encore +++123/4567/89012+++', 15.00);
 
         $body = $this->controller->index($this->get(['tab' => 'overpaid']), [])->getBody();
 
@@ -271,6 +272,54 @@ class ReconciliationControllerTest extends TestCase
         );
 
         $this->assertSame(ReceivableSettlement::STATUS_UNPAID, $this->settlement($lucie)->status);
+    }
+
+    /**
+     * « Ce paiement ne correspond pas à une créance ScoutMagic » takes the
+     * credit off « Non imputés » for good (issue #837).
+     */
+    public function testDeclaringAnOrphanNoReceivableTakesItOffTheTab(): void
+    {
+        $transactionId = $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
+        $this->assertStringContainsString(
+            'Ce paiement ne correspond pas à une créance ScoutMagic',
+            $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody()
+        );
+
+        $response = $this->controller->declareNotAReceivable(
+            new Request('POST', '/x', [], [
+                '_csrf_token' => $this->csrfToken(),
+                'account_id' => (string) $this->accountId,
+            ], [], []),
+            ['transactionId' => (string) $transactionId]
+        );
+
+        $this->assertSame(
+            '/finance/reconciliation?account_id=' . $this->accountId . '&tab=orphans',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertStringContainsString(
+            'Non imputés (0)',
+            $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody()
+        );
+    }
+
+    public function testNothingIsDeclaredWithoutAValidCsrfToken(): void
+    {
+        $transactionId = $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
+
+        $this->controller->declareNotAReceivable(
+            new Request('POST', '/x', [], [
+                '_csrf_token' => 'wrong',
+                'account_id' => (string) $this->accountId,
+            ], [], []),
+            ['transactionId' => (string) $transactionId]
+        );
+
+        $this->assertStringContainsString(
+            'Non imputés (1)',
+            $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody()
+        );
     }
 
     public function testDeclaringASurplusOwedBackChangesTheStateAndNotTheMoney(): void
@@ -507,7 +556,7 @@ class ReconciliationControllerTest extends TestCase
     public function testTheOrphansTabOffersASearchableReceivablePickerRatherThanAnIdField(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
-        $this->credit('VIREMENT SANS COMMUNICATION', 45.00);
+        $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
 
         $body = $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody();
 
@@ -524,7 +573,7 @@ class ReconciliationControllerTest extends TestCase
     public function testNothingIsRenderedUnderTheReceivableFieldItself(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
-        $this->credit('VIREMENT SANS COMMUNICATION', 45.00);
+        $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
 
         $body = $this->controller->index($this->get(['tab' => 'orphans']), [])->getBody();
 

@@ -59,8 +59,17 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         ?string $label,
         ?int $memberId = null
     ): int {
-        if ($this->digitsOnly($communication) === '') {
-            throw new FinanceException('La communication doit contenir au moins un chiffre.');
+        // Every receivable carries a valid Belgian structured
+        // communication (issue #837). Automatic matching only ever reads
+        // those twelve digits, and « Paiements à traiter » counts a credit
+        // carrying a valid one that matches nothing as a decision waiting
+        // for the treasurer — which only means something if no receivable
+        // can be raised under anything looser. Stored in one canonical
+        // spelling, whichever the caller used.
+        if (!StructuredCommunicationService::isValid($communication)) {
+            throw new FinanceException(
+                'La communication doit être une communication structurée valide (+++123/4567/89002+++).'
+            );
         }
 
         $id = $this->repository->create(
@@ -68,7 +77,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             $sourceReferenceId,
             $accountId,
             $amountCents,
-            $communication,
+            StructuredCommunicationService::format(substr($this->digitsOnly($communication), 0, 10)),
             $label,
             $memberId
         );

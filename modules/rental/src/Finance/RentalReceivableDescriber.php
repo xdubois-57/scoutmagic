@@ -83,7 +83,8 @@ class RentalReceivableDescriber implements ReceivableSourceDescriberInterface, R
 
         // RentalManagementController::manageableAsset()'s own test, with the
         // same year, so the link is offered exactly when the page opens.
-        if (!$this->authorization->canManageAsset($viewer->email, $this->scoutYears->getAuthorizationYear()->id, $asset)) {
+        $yearId = $this->scoutYears->getAuthorizationYear()->id;
+        if (!$this->authorization->canManageAsset($viewer->email, $yearId, $asset)) {
             return null;
         }
 

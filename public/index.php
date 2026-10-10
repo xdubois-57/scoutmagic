@@ -8905,7 +8905,7 @@ if ($isEnabled('finance')) {
         )
     );
 
-    // « Rapprochement » (ARCHITECTURE.md §8.83) — the four situations the
+    // « Paiements à traiter » (ARCHITECTURE.md §8.83) — the four situations the
     // automatic matching cannot settle on its own. The QR generator is
     // the module's own, and the page degrades to the payment details in
     // text rather than a fatal if it is ever absent.

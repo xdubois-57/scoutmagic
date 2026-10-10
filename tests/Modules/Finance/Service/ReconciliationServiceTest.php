@@ -148,31 +148,40 @@ class ReconciliationServiceTest extends TestCase
 
     // ── non imputés ─────────────────────────────────────────────────────
 
-    public function testACreditNoCommunicationMatchedIsListedWithItsReason(): void
+    /**
+     * An ordinary income with no structured communication is a movement,
+     * not a payment waiting for a decision (issue #837): it stays on
+     * « Mouvements » and is in no tab here.
+     */
+    public function testACreditWithoutAStructuredCommunicationIsNotOnThisScreen(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
         $this->credit('DUPONT J « cotisation Léa »', 45.00);
+
+        $this->assertSame(['split' => 0, 'orphans' => 0, 'overpaid' => 0, 'cross_account' => 0], $this->build()['counts']);
+    }
+
+    /**
+     * Twelve digits whose check digits do not hold are free text — an
+     * invoice number, an order reference — not a structured communication.
+     */
+    public function testTwelveDigitsThatAreNoValidCommunicationAreNotAnOrphan(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->credit('Facture 999/8888/77766', 45.00);
+
+        $this->assertSame([], $this->build()['orphans']);
+    }
+
+    public function testAValidCommunicationThatNamesNoReceivableIsAnOrphan(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $this->credit('Virement +++999/8888/77758+++', 45.00);
 
         $view = $this->build();
 
         $this->assertCount(1, $view['orphans']);
         $this->assertSame(4500, $view['orphans'][0]['amount_cents']);
-        $this->assertStringContainsString('Aucune communication', $view['orphans'][0]['reason']);
-    }
-
-    /**
-     * "No communication at all" and "a communication that names nothing
-     * here" send a treasurer to two different places, so the screen says
-     * which one it is.
-     */
-    public function testACreditWhoseCommunicationNamesNothingHereSaysSo(): void
-    {
-        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
-        $this->credit('Virement +++999/8888/77766+++', 45.00);
-
-        $view = $this->build();
-
-        $this->assertCount(1, $view['orphans']);
         $this->assertStringContainsString('ne correspond à aucune créance', $view['orphans'][0]['reason']);
     }
 
@@ -180,18 +189,70 @@ class ReconciliationServiceTest extends TestCase
      * The same reading when the communication came in its own field (CODA,
      * issue #511) rather than inside the label.
      */
-    public function testACommunicationCarriedInItsOwnFieldIsReadForTheReasonToo(): void
+    public function testACommunicationCarriedInItsOwnFieldIsReadToo(): void
     {
         $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
         $this->transactions->create(
             $this->accountId, $this->scoutYearId, 'coda-1', '2026-02-18', 'Famille Martin', 45.00,
-            null, null, 'import', null, structuredCommunication: '999888877766'
+            null, null, 'import', null, structuredCommunication: '999888877758'
         );
 
-        $view = $this->build();
+        $this->assertCount(1, $this->build()['orphans']);
+    }
 
-        $this->assertCount(1, $view['orphans']);
-        $this->assertStringContainsString('ne correspond à aucune créance', $view['orphans'][0]['reason']);
+    /**
+     * The second way out of « Non imputés », and a lasting one: the next
+     * pass (an import, the nightly reconciliation) does not bring it back.
+     */
+    public function testAnOrphanDeclaredNoReceivableDoesNotComeBack(): void
+    {
+        $transactionId = $this->credit('Virement +++999/8888/77758+++', 45.00);
+        $this->assertCount(1, $this->build()['orphans']);
+
+        $this->service->declareNotAReceivable($transactionId, Role::INTENDANT, 7);
+
+        $this->assertSame([], $this->build()['orphans']);
+        $this->assertSame([], $this->build()['orphans']);
+        $stored = $this->pdo->query(
+            'SELECT not_a_receivable_at, not_a_receivable_by FROM finance_transactions WHERE id = ' . $transactionId
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotNull($stored['not_a_receivable_at']);
+        $this->assertSame(7, (int) $stored['not_a_receivable_by']);
+    }
+
+    public function testASecondDeclarationKeepsTheFirstAuthor(): void
+    {
+        $transactionId = $this->credit('Virement +++999/8888/77758+++', 45.00);
+
+        $this->service->declareNotAReceivable($transactionId, Role::INTENDANT, 7);
+        $this->service->declareNotAReceivable($transactionId, Role::INTENDANT, 8);
+
+        $this->assertSame(7, (int) $this->pdo->query(
+            'SELECT not_a_receivable_by FROM finance_transactions WHERE id = ' . $transactionId
+        )->fetchColumn());
+    }
+
+    public function testADebitCannotBeDeclaredNoReceivable(): void
+    {
+        $transactionId = $this->credit('Remboursement +++999/8888/77758+++', -45.00);
+
+        $this->expectException(FinanceException::class);
+        $this->service->declareNotAReceivable($transactionId, Role::INTENDANT, 7);
+    }
+
+    public function testAnUnknownMovementCannotBeDeclaredNoReceivable(): void
+    {
+        $this->expectException(FinanceException::class);
+        $this->service->declareNotAReceivable(999999, Role::INTENDANT, 7);
+    }
+
+    public function testAMovementOfAnAccountOutOfReachCannotBeDeclaredNoReceivable(): void
+    {
+        $this->pdo->exec("UPDATE finance_accounts SET role_min_view = 'chief' WHERE id = " . $this->accountId);
+        $transactionId = $this->credit('Virement +++999/8888/77758+++', 45.00);
+
+        $this->expectException(FinanceException::class);
+        $this->service->declareNotAReceivable($transactionId, Role::INTENDANT, 7);
     }
 
     public function testAFullySettledCreditIsInNoTabAtAll(): void
@@ -205,6 +266,75 @@ class ReconciliationServiceTest extends TestCase
         $this->assertSame(0, $view['counts']['orphans']);
         $this->assertSame(0, $view['counts']['overpaid']);
         $this->assertSame(0, $view['counts']['cross_account']);
+    }
+
+    // ── one situation, one tab (issue #837) ─────────────────────────────
+
+    /**
+     * The surplus a split proposal is about to place is not a trop-perçu
+     * as well: confirming the split is the answer.
+     */
+    public function testASurplusProposedForASplitIsNotAlsoATropPercu(): void
+    {
+        $this->receivable('Lucie', 3825, '+++123/4567/89012+++');
+        $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
+        $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+
+        $view = $this->build();
+
+        $this->assertCount(1, $view['split']);
+        $this->assertSame([], $view['overpaid']);
+        $this->assertSame(1, array_sum($view['counts']));
+    }
+
+    /**
+     * A payment for another account's receivable is « Mauvais compte »
+     * and never « Non imputé » as well.
+     */
+    public function testAPaymentForAnotherAccountIsNotAlsoAnOrphan(): void
+    {
+        $this->receivables->create('finance', 1, $this->otherAccountId, 4500, '+++123/4567/89002+++', null, $this->memberIds['Solo']);
+        $this->credit('Virement +++123/4567/89002+++', 45.00);
+
+        $view = $this->build();
+
+        $this->assertCount(1, $view['cross_account']['received_here']);
+        $this->assertSame([], $view['orphans']);
+        $this->assertSame(1, array_sum($view['counts']));
+    }
+
+    /**
+     * A credit naming a receivable of this account that is already paid is
+     * that receivable's trop-perçu — not an orphan beside it.
+     */
+    public function testASecondPaymentOfAPaidReceivableIsATropPercuOnly(): void
+    {
+        $this->receivable('Solo', 4500, '+++123/4567/89002+++');
+        $this->credit('Cotisation +++123/4567/89002+++', 45.00);
+        $this->credit('Cotisation, encore +++123/4567/89002+++', 45.00);
+
+        $view = $this->build();
+
+        $this->assertCount(1, $view['overpaid']);
+        $this->assertSame([], $view['orphans']);
+        $this->assertSame(1, array_sum($view['counts']));
+    }
+
+    /**
+     * When a credit names both a receivable here and one elsewhere, the
+     * one here wins: the money did arrive on an account that expected it.
+     */
+    public function testACreditNamingAReceivableHereIsNotSentToAnotherAccount(): void
+    {
+        $this->receivable('Solo', 4500, '+++123/4567/89002+++');
+        $this->credit('Cotisation +++123/4567/89002+++', 45.00);
+        $this->receivables->create('finance', 1, $this->otherAccountId, 4500, '+++123/4567/89103+++', null, $this->memberIds['Lucie']);
+        $this->credit('Deux enfants +++123/4567/89002+++ +++123/4567/89103+++', 45.00);
+
+        $view = $this->build();
+
+        $this->assertSame([], $view['cross_account']['received_here']);
+        $this->assertSame([], $view['orphans']);
     }
 
     // ── trop-perçus ─────────────────────────────────────────────────────
@@ -238,7 +368,8 @@ class ReconciliationServiceTest extends TestCase
     {
         $this->receivable('Lucie', 3825, '+++123/4567/89012+++');
         $antoine = $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
-        $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+        $this->credit('Cotisation +++123/4567/89012+++', 38.25);
+        $this->credit('Payé deux fois +++123/4567/89012+++', 38.25);
 
         $row = $this->build()['overpaid'][0];
 

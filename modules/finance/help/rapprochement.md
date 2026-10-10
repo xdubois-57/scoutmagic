@@ -1,63 +1,60 @@
 ---
 id: rapprochement
-title: Rapprocher un paiement qui tombe de travers
-summary: Les quatre situations que le site ne sait pas traiter seul, et le geste qui convient à chacune.
+title: Paiements à traiter
+summary: Les paiements que le site n'a pas su rattacher seul, rangés en quatre situations, et le geste qui convient à chacune.
 category: Espace animateurs
 role_min: intendant
 discovery: 3
 question: Un parent a payé pour trois enfants en un virement, que faire ?
-question: Un virement est arrivé sans communication, comment le rattacher ?
+question: Un virement porte une communication que le site ne reconnaît pas, que faire ?
 question: Comment rembourser une famille qui a payé en trop ?
 paths: /finance/reconciliation, /finance/receivables/*/qr
-related: campagnes, finances, importer-extraits
+related: campagnes, finances, importer-extraits, controle-des-creances
 ---
 
-**Rapprocher**, c'est dire à quoi correspond chaque somme arrivée sur le
-compte : quelle cotisation, quelle location, quelle facture ce virement
-règle. Le site le fait tout seul dès que la communication structurée
-désigne une créance qu'il connaît, ce qui est le cas de la plupart des
-virements.
+Le site rattache tout seul un virement dont la communication structurée
+désigne une créance qu'il connaît. « Paiements à traiter » réunit
+**uniquement** ce qui attend ensuite une décision de votre part. Une
+situation n'apparaît que dans **une seule** des quatre rubriques et
+chacune a une issue : quand tout est traité, la page est vide et la
+vignette du tableau de bord affiche 0.
 
-La page « Rapprochement » réunit les quatre situations où ça ne suffit
-pas, et où il préfère vous laisser trancher.
+Un mouvement **sans communication structurée** n'est pas un paiement à
+traiter : il reste dans « Mouvements », comme tout mouvement ordinaire.
 
 ## À répartir
 
-Un virement unique qui couvre plusieurs créances du même foyer. Nous
-demandons un virement par créance, mais une partie des familles paie
-groupé.
-
-Le site connaît le foyer, ses créances et leur total : il propose la
-répartition, vous corrigez si besoin, puis vous confirmez.
+Un virement unique qui couvre plusieurs créances du même foyer. Le site
+propose la répartition, vous corrigez si besoin, puis vous confirmez.
+Tant qu'une répartition est proposée, le surplus n'apparaît pas aussi en
+trop-perçu.
 
 ## Non imputés
 
-Un crédit dont la communication ne dit rien — absente, incomplète, ou
-recopiée à la main. Rattachez-le à une créance, ou laissez-le : un reste
-non imputé n'est pas une erreur en soi, ce peut être un paiement pour
-quelque chose qui n'a pas encore été facturé.
+Un crédit qui porte une **communication structurée valide** ne
+correspondant à aucune créance, sur aucun compte. Deux issues :
+
+- le **rattacher** à une créance, en tapant le nom du membre ;
+- indiquer que **ce paiement ne correspond pas à une créance
+  ScoutMagic**. Cette décision est conservée : le crédit ne reviendra
+  pas au prochain import, et il reste visible dans « Mouvements ».
 
 ## Trop-perçus
 
-Une créance qui a reçu plus que son montant, d'un seul versement ou de
-plusieurs dont la somme dépasse. Le site n'impute **jamais** au-delà du
-montant restant : l'excédent atterrit ici.
-
-Trois réponses. Déclarer le trop-perçu à rembourser — il passera tout
-seul à « remboursé » quand le débit correspondant apparaîtra, parce que
-le débit existe et non parce qu'une case a été cochée. L'imputer sur une
-autre créance du même foyer, souvent la bonne réponse : un parent qui
-arrondit veut payer, pas se faire rembourser 6,75 €. Ou laisser en
-l'état.
+Une créance qui a reçu plus que son montant, quand ce surplus n'est pas
+déjà proposé à la répartition. Deux réponses : le déclarer à rembourser
+— il passera à « remboursé » quand le débit correspondant apparaîtra —
+ou l'imputer sur une autre créance du même foyer, souvent la bonne
+réponse : un parent qui arrondit veut payer, pas se faire rembourser
+6,75 €.
 
 ## Mauvais compte
 
-Un paiement arrivé sur le compte d'à côté. **Rien ne s'impute à
-distance** : l'argent doit physiquement arriver sur le bon compte, sinon
-la comptabilité de la section concernée dirait qu'elle a encaissé
-quelque chose qu'elle n'a jamais reçu.
+Un paiement dont la communication désigne une créance d'un **autre
+compte** — jamais aussi « Non imputé ». **Rien ne s'impute à
+distance** : l'argent doit physiquement arriver sur le bon compte.
 
-Faites le virement entre les deux comptes, en **reprenant la
+Faites un vrai virement entre les deux comptes, en **reprenant la
 communication d'origine** — sans elle, le crédit qui arrive ne se
 rattache à rien. Catégorisez le débit d'un côté et le crédit de l'autre
 comme un **mouvement interne**, faute de quoi l'unité compte deux fois
