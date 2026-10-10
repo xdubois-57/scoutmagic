@@ -398,6 +398,24 @@ class FinanceServiceTest extends TestCase
         $this->assertSame(['Catégorie personnalisée'], $names);
     }
 
+    /**
+     * Activating an account creates its « Virement <compte> » category on
+     * its own. A site whose first step was that must still get the
+     * defaults — every receivable now names one of them (issue #838).
+     */
+    public function testEnsureDefaultCategoriesStillSeedsWhenOnlyATransferCategoryExists(): void
+    {
+        $this->pdo->exec("INSERT INTO finance_accounts (name, account_type, status) VALUES ('Compte Unité', 'bank', 'active')");
+        $this->categoryRepository->create('Virement Compte Unité', 'Transferts', (int) $this->pdo->lastInsertId());
+
+        $this->service->ensureDefaultCategories();
+
+        $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
+        $this->assertContains('Cotisations', $names);
+        $this->assertContains('Virement Compte Unité', $names);
+        $this->assertCount(12, $names);
+    }
+
     public function testEnsureDefaultCategoriesNeverResurrectsAFullyEmptiedList(): void
     {
         // Regression test: deleting every category (default or custom) —
