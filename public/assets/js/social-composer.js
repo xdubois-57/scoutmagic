@@ -50,10 +50,10 @@
     );
     const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
     const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
-    const address = canvas.getAttribute('data-card-address') || '';
-    const backgroundUrl = canvas.getAttribute('data-card-background') || '';
+    const address = canvas.dataset.cardAddress || '';
+    const backgroundUrl = canvas.dataset.cardBackground || '';
     /** The canvas carries the strength the server computed; the slider then owns it. */
-    const startingBlur = parseFloat(canvas.getAttribute('data-card-blur') || '0') || 0;
+    const startingBlur = Number.parseFloat(canvas.dataset.cardBlur || '0') || 0;
 
     /**
      * Whether this card has a photo to wait for. An empty address means
@@ -114,7 +114,7 @@
     }
 
     function title() {
-        return titleField ? titleField.value : (canvas.getAttribute('data-card-title') || '');
+        return titleField ? titleField.value : (canvas.dataset.cardTitle || '');
     }
 
     /**
@@ -129,7 +129,7 @@
             return startingBlur;
         }
 
-        return parseFloat(blurField.value) || 0;
+        return Number.parseFloat(blurField.value) || 0;
     }
 
     /**
@@ -289,7 +289,7 @@
             uploadInput.click();
         });
         uploadInput.addEventListener('change', function () {
-            if (uploadInput.files && uploadInput.files.length > 0) {
+            if (uploadInput.files?.length) {
                 // `requestSubmit` rather than `submit()`: it dispatches a
                 // real submit event, so the confirmation and the rest of
                 // the page's listeners still see it — and it carries a

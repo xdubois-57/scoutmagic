@@ -222,6 +222,14 @@ describe('fitLine', () => {
         expect(card().fitLine('abcd …', evenMeasure(10), 100, true)).toBe('abcd…');
     });
 
+    it('does not leave a space before the ellipsis it adds', () => {
+        // The shortening walks back one character at a time and can land
+        // on a space: « ab …  » reads as a gap, not as a cut word. The
+        // loop trims each step for that, and nothing covered it until
+        // the regex it used was replaced (SonarCloud S8786 on #850).
+        expect(card().fitLine('ab cdefgh', evenMeasure(10), 40, false)).toBe('ab…');
+    });
+
     it('answers a bare ellipsis when there is room for nothing else', () => {
         expect(card().fitLine('abcdef', evenMeasure(10), 5, false)).toBe('…');
     });

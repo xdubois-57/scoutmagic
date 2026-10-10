@@ -89,9 +89,17 @@
 
         // A line the cap already ended with « … » must not grow a second
         // one, so the existing ellipsis and the space before it go first.
-        let base = line.replace(/\s*…$/u, '').replace(/\s+$/u, '');
+        //
+        // `trimEnd()` rather than `/\s+$/`: a greedy quantifier anchored
+        // at the end backtracks from every start position, which is
+        // quadratic on a run of spaces and cubic inside this loop. The
+        // title is capped at 120 characters so nothing was ever at risk
+        // — but the shape is the one that bites when a cap moves, and
+        // trimming without a regex is also the plainer way to say it.
+        let base = line.endsWith('…') ? line.slice(0, -1) : line;
+        base = base.trimEnd();
         while (base !== '' && measure(base + '…') > maxWidth) {
-            base = base.slice(0, -1).replace(/\s+$/u, '');
+            base = base.slice(0, -1).trimEnd();
         }
 
         return base + '…';
@@ -265,8 +273,8 @@
 
         canvas.width = SIZE;
         canvas.height = SIZE;
-        if (card && card.image) {
-            drawBackground(ctx, card.image, card ? card.blurRatio : 0);
+        if (card?.image) {
+            drawBackground(ctx, card.image, card.blurRatio);
         } else {
             ctx.save();
             ctx.fillStyle = BACKDROP;

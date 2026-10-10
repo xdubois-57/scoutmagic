@@ -41,13 +41,14 @@
     {# 1. The image, as it will be published — it is what is judged. #}
     <div class="mb-3" data-communication-image data-card-composer>
         {% if has_image and preview_path %}
-            {# BOTH, on purpose (issue #706, IT-02). The <img> is the card
-               the server composes, and it is what a page whose JavaScript
-               did not load — or a browser that gives no 2D context — still
-               shows. `social-composer.js` draws the same card into the
-               canvas below and takes the <img>'s place only once a draw
-               has SUCCEEDED, so the page never ends up with a blank square
-               where the card was. That matters here more than elsewhere:
+            {# BOTH, on purpose (issue #706, IT-02). The image element
+               below carries the card the server composes, and it is what a
+               page whose JavaScript did not load — or a browser that gives
+               no 2D context — still shows. `social-composer.js` draws the
+               same card into the canvas and takes that element's place
+               only once a draw has SUCCEEDED, so the page never ends up
+               with a blank square where the card was. That matters here
+               more than elsewhere:
                on a source-backed composer « Publier » is the only button,
                so a page showing no image would make the first POST an
                irreversible public post of something nobody saw. #}
@@ -243,8 +244,9 @@
        Hidden rather than absent on a frozen share: the controller
        ignores a card once something has left, and a field that vanished
        would make the page's shape depend on state for no reason. #}
-    <input type="file" name="card" accept="image/jpeg" class="d-none" tabindex="-1"
-           aria-hidden="true" data-card-file>
+    <label for="communication-card" class="d-none">Carte composée</label>
+    <input type="file" name="card" id="communication-card" accept="image/jpeg"
+           class="d-none" tabindex="-1" aria-hidden="true" data-card-file>
 
     {# 5. The destinations, then publishing. #}
     {% if source and source.blockedReason %}
