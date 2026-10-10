@@ -38,7 +38,9 @@
     // click, un-applying every toggle as fast as it was applied (issue
     // #306). The shared wiring is idempotent per button: whichever of the
     // two gets there first wires them, the other finds them wired.
-    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    // Same options as editable.js: whichever script wires the shared modal
+    // first, the paste behaves the same.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent, null, { siteImages: true });
 
     function escapeAttr(value) {
         return value.replace(/["\\]/g, String.raw`\$&`);
@@ -49,7 +51,10 @@
             currentKey = /** @type {HTMLElement} */ (btn).dataset.key;
             currentSaveUrl = /** @type {HTMLElement} */ (btn).dataset.saveUrl;
             currentPreview = document.querySelector('.rich-text-field-preview[data-key="' + escapeAttr(currentKey) + '"]');
-            editorContent.innerHTML = currentPreview ? currentPreview.innerHTML : '';
+            // Canonical on opening, what the server accepted kept, as in editable.js (issue #844).
+            editorContent.replaceChildren(
+                window.ScoutMagicRichText.canonicalFragment(currentPreview ? currentPreview.innerHTML : '', { stored: true })
+            );
             modal.show();
         });
     });
@@ -57,7 +62,8 @@
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
         if (!currentKey) return;
 
-        var html = editorContent.innerHTML;
+        // Canonical on the way out, as in editable.js (issue #844).
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML, { stored: true });
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

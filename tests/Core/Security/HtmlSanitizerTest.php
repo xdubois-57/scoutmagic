@@ -197,4 +197,30 @@ class HtmlSanitizerTest extends TestCase
         $result = $this->sanitizer->sanitize($html);
         $this->assertStringContainsString('<blockquote>', $result);
     }
+
+    /**
+     * A control character before or inside a disallowed scheme used to hide
+     * it from the scheme check — the value read as relative — while the
+     * serialised attribute came out without it, as a working `javascript:`
+     * link. Any control character other than tab/CR/LF now refuses the URL.
+     */
+    public function testAControlCharacterCannotHideADisallowedScheme(): void
+    {
+        foreach (["\x01javascript:alert(1)", "java\x01script:alert(1)", " \x1Fjavascript:alert(1)", "\x7Fjavascript:alert(1)"] as $href) {
+            $result = $this->sanitizer->sanitize('<a href="' . $href . '">x</a>');
+            $this->assertStringNotContainsStringIgnoringCase('javascript', $result, bin2hex($href));
+            $this->assertStringNotContainsString('href=', $result, bin2hex($href));
+        }
+
+        $image = $this->sanitizer->sanitize('<p><img src="' . "\x01javascript:alert(1)" . '">x</p>');
+        $this->assertStringNotContainsString('<img', $image);
+    }
+
+    public function testALinkWithoutControlCharactersIsUntouched(): void
+    {
+        $this->assertSame(
+            '<a href="https://lesscouts.be/unite?x=1#ancre">x</a>',
+            $this->sanitizer->sanitize('<a href="https://lesscouts.be/unite?x=1#ancre">x</a>')
+        );
+    }
 }

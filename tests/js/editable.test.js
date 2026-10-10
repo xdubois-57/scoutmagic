@@ -149,6 +149,35 @@ describe('editable.js: editing a rich-text block', () => {
         expect(block().querySelector('.editable-overlay')).not.toBeNull();
     });
 
+    it('opens a stored text in the canonical form, as the toolbar would have written it (issue #844)', async () => {
+        await boot();
+        // A text saved before the canonical form existed, with what a paste
+        // used to leave behind: a browser's <b>, a stray wrapper.
+        block().insertAdjacentHTML('beforeend', '<div><b>Gras</b> <span>fin</span></div>');
+
+        document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
+
+        expect(document.getElementById('richTextEditorContent').innerHTML)
+            .toBe('<p>Texte actuel.</p><p><strong>Gras</strong> fin</p>');
+        // Nothing is stored by opening: the block itself is untouched.
+        expect(block().innerHTML).toContain('<div><b>Gras</b> <span>fin</span></div>');
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('keeps an image the stored text already holds, on opening and on saving', async () => {
+        await boot();
+        // No button here adds an image, but one the server accepted earlier
+        // is content: opening and saving must not drop it silently.
+        block().insertAdjacentHTML('beforeend', '<p><img src="/files/3" alt="Camp"></p>');
+
+        document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
+        expect(document.getElementById('richTextEditorContent').innerHTML).toContain('<img src="/files/3" alt="Camp">');
+
+        document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
+        await settle();
+        expect(postedBody().value).toContain('<img src="/files/3" alt="Camp">');
+    });
+
     it('stands down entirely when the save button is clicked without a block open', async () => {
         await boot();
 
@@ -274,7 +303,9 @@ describe('editable.js: the toolbar (issue #306)', () => {
         document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
         await settle();
 
-        expect(postedBody().value).toBe('<div><h1>Titre</h1><span class="x">Texte.</span></div>');
+        // What it sends is the canonical form (issue #844) — the server
+        // still answers with what it actually kept, and that is what shows.
+        expect(postedBody().value).toBe('<h2>Titre</h2><p>Texte.</p>');
         expect(block().innerHTML).toContain('<h2>Titre</h2>');
         expect(block().innerHTML).not.toContain('<h1>');
     });

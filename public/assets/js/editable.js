@@ -55,7 +55,11 @@
     // which cost the H2/H3/« Paragraphe » buttons their argument and
     // double-wired every other button against rich-text-field.js on the
     // pages that load both. See rich-text-link.js.
-    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    //
+    // A paste keeps an image only when it is one of this site's own files
+    // (`siteImages`): there is no image button here, but cutting an image
+    // the text already holds and pasting it elsewhere must not lose it.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent, null, { siteImages: true });
 
     // Open editor on rich text edit click
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {
@@ -67,7 +71,17 @@
             var clone = /** @type {HTMLElement} */ (container.cloneNode(true));
             var overlay = clone.querySelector('.editable-overlay');
             if (overlay) overlay.remove();
-            editorContent.innerHTML = clone.innerHTML;
+            // Opened in the canonical form (issue #844): a text stored
+            // before it, or pasted from a word processor back then, is
+            // shown as the toolbar would have written it — and nothing is
+            // stored until the author saves. What the server accepted
+            // earlier and no button here makes — an image, an <h4>, a
+            // quotation — is kept (`stored`): dropping it on save would
+            // change the text silently. Only a paste is held to the
+            // toolbar's own gestures.
+            editorContent.replaceChildren(
+                window.ScoutMagicRichText.canonicalFragment(clone.innerHTML, { stored: true })
+            );
             modal.show();
         });
     });
@@ -82,7 +96,11 @@
         // for the same reason.
         if (currentKey === null) return;
 
-        var html = editorContent.innerHTML;
+        // What leaves the editor is canonical, whichever gesture produced
+        // it: the Bold button's <b> and a pasted styled span both become
+        // <strong>. The server still sanitises it — this is about one look
+        // having one HTML, not about trust.
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML, { stored: true });
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

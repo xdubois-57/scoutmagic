@@ -199,6 +199,12 @@
         editable.addEventListener('input', function () {
             if (onChange) onChange(sanitizeHtml(editable.innerHTML));
         });
+        // A paste is rebuilt in the shared canonical form before it lands
+        // (issue #844) — Word's and Google Docs' styled spans become the
+        // <strong>/<em> the toolbar makes, instead of markup its buttons
+        // cannot toggle off. Images are part of this editor's grammar; the
+        // paste fires `input`, so onChange above still sees it.
+        window.ScoutMagicRichText.wireSurface(editable, { images: true });
 
         var imageInput = document.createElement('input');
         imageInput.type = 'file';

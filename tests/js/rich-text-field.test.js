@@ -266,7 +266,8 @@ describe('rich-text-field.js: the toolbar (issue #306)', () => {
         save();
         await settle();
 
-        expect(postedBody().value).toBe('<p><font color="red">Contrat</font> <b>signé</b>.</p>');
+        // Sent in the canonical form (issue #844); shown as the server kept it.
+        expect(postedBody().value).toBe('<p>Contrat <strong>signé</strong>.</p>');
         expect(preview('rental.contract').innerHTML).toBe('<p>Contrat <b>signé</b>.</p>');
     });
 

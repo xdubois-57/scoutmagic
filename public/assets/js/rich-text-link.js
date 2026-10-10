@@ -12,7 +12,9 @@
 // been `ScoutMagicRichText` rather than `…Link`, so the module's identity
 // was already the broader one.
 //
-// WHAT IS DELIBERATELY NOT HERE: a sanitiser. A first cut of the issue
+// WHAT IS DELIBERATELY NOT HERE: a sanitiser. (What IS here since issue
+// #844, the canonical form further down, is not one — see « The canonical
+// form » for the difference, which is the whole point.) A first cut of the issue
 // #306 fix carried one — an allowlist mirroring
 // `Core\Security\HtmlSanitizer`, so the editor could show what the server
 // was going to keep instead of markup it was about to drop. It was the
@@ -179,6 +181,1040 @@
         });
     }
 
+    // ————— The canonical form (issue #844) —————
+    //
+    // One representation for one look. The toolbar of every generic editor
+    // offers the same nine gestures — paragraph, H2, H3, bold, italic,
+    // underline, the two lists and a link — so the HTML those gestures can
+    // mean is a small, closed grammar:
+    //
+    //     blocks   p, h2, h3, ul > li, ol > li (a list may nest in an li)
+    //     inline   a[href] > strong > em > u > text, and <br>
+    //
+    // always nested in that order, never empty, never styled. A pasted
+    // `<span style="font-weight:700">` and the Bold button must both end up
+    // as `<strong>`: before this, the first one reached the server as a
+    // span, lost its style there, and came back as plain text — the « mise
+    // en forme qui change à l'enregistrement » of the issue — while the
+    // fragments the server did keep (Word's `<p class=MsoNormal>`, Google
+    // Docs' `<b style="font-weight:normal">` wrapper) were exactly the ones
+    // the buttons could no longer toggle off.
+    //
+    // WHY THIS IS NOT THE SANITISER THE HEADER REFUSES. That one copied the
+    // server's allowlist and pruned untrusted markup in place, so the page's
+    // safety rested on a hand-written filter. This builds NEW nodes: it
+    // reads the foreign markup in an inert DOMParser document (no browsing
+    // context — nothing loads, nothing runs), and writes only elements it
+    // creates itself from the grammar above, plus text nodes. No attribute
+    // is ever copied except an href or an image src that passed the scheme
+    // allowlist, and no foreign string is ever handed to an HTML parser on
+    // the live page. Security stays where it was: `Core\Security\
+    // HtmlSanitizer` cleans every string the server receives, whatever sent
+    // it, and the editors still repaint with what the server answers.
+    //
+    // Where it runs: on paste, on opening a stored text, and on the HTML
+    // an editor sends or posts. NOT after every toolbar command — rewriting
+    // the live DOM under the caret would break the selection and the
+    // browser's own undo history, which only knows its own commands. A
+    // command's `<b>` therefore becomes `<strong>` when it leaves the
+    // editor, which is when the two representations could ever be compared.
+    //
+    // Idempotent by construction: its own output is in the grammar, and the
+    // grammar maps onto itself.
+
+    /**
+     * @typedef {object} CanonicalOptions
+     * @property {boolean} [images] keep <img> — the news editor has an
+     *           image button; the generic surfaces do not
+     * @property {boolean} [siteImages] keep an <img> only when it is one of
+     *           this site's own files (a path from the root, or a full
+     *           address on this origin, kept as its path): a surface
+     *           without an image button must still let an author cut an
+     *           image the text already holds and paste it elsewhere in it,
+     *           without letting a paste bring one in from another site
+     * @property {boolean} [stored] the text is one the server already
+     *           accepted, being opened or saved again: what the sanitiser
+     *           keeps and no button makes — <img>, <h4>, <blockquote>, a
+     *           link's target, rel and title — survives, because dropping it on save would change the text
+     *           without anybody asking. A paste never gets this.
+     * @property {(container: HTMLElement) => void} [decorate] runs over a
+     *           pasted fragment before it is inserted — rich-text form
+     *           fields turn `{{ keyword }}` text into chips here
+     */
+
+    /**
+     * @typedef {object} Format
+     * @property {boolean} bold
+     * @property {boolean} italic
+     * @property {boolean} underline
+     * @property {string|null} href
+     * @property {Array<[string, string]>|null} [linkAttributes] the link's
+     *           target, rel and title, in their order — kept for a stored
+     *           text only (see `stored`)
+     */
+
+    /**
+     * @typedef {object} Segment
+     * @property {string} [text]
+     * @property {boolean} [br]
+     * @property {{src: string, alt: string|null, width: string|null, height: string|null}} [img]
+     * @property {Format} fmt
+     */
+
+    /** @type {Format} */
+    var PLAIN = { bold: false, italic: false, underline: false, href: null, linkAttributes: null };
+
+    // What a stored link keeps besides its href: what the sanitiser accepts
+    // on <a>, and no button writes.
+    var LINK_ATTRIBUTES = new Set(['target', 'rel', 'title']);
+
+    /**
+     * Everything that tells one link from another: two neighbours with the
+     * same href but a different target are two links.
+     *
+     * @param {Format} format
+     * @returns {string|null}
+     */
+    function linkKey(format) {
+        return format.href === null ? null : JSON.stringify([format.href, format.linkAttributes ?? null]);
+    }
+
+    /**
+     * @param {Format} format
+     * @returns {Format} the same link, and no formatting
+     */
+    function linkOnly(format) {
+        return { bold: false, italic: false, underline: false, href: format.href, linkAttributes: format.linkAttributes ?? null };
+    }
+
+    // Whatever a page or a word processor puts on the clipboard that is not
+    // text to keep: dropped with its content, as the server drops script,
+    // style, iframe, object, embed, form, textarea and select.
+    var DROPPED = new Set([
+        'script', 'style', 'template', 'noscript', 'head', 'title', 'meta', 'link',
+        'iframe', 'frame', 'object', 'embed', 'svg', 'math', 'canvas', 'video', 'audio',
+        'form', 'button', 'input', 'select', 'option', 'textarea'
+    ]);
+
+    // Containers that only separate blocks: their content is kept, they
+    // are not.
+    var TRANSPARENT_BLOCKS = new Set([
+        'div', 'section', 'article', 'header', 'footer', 'main', 'aside', 'nav',
+        'blockquote', 'figure', 'figcaption', 'address', 'center', 'fieldset',
+        'details', 'summary', 'dl', 'dt', 'dd',
+        'table', 'caption', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th'
+    ]);
+
+    // Six heading levels outside, two buttons inside.
+    var HEADINGS = { h1: 'h2', h2: 'h2', h3: 'h3', h4: 'h3', h5: 'h3', h6: 'h3' };
+
+    /**
+     * An href a pasted link may keep, or null. The scheme allowlist is
+     * insertLink()'s; tabs and newlines go first, as a browser drops them
+     * before reading a scheme (« java\tscript: »).
+     *
+     * @param {string|null} raw
+     * @param {boolean} [imageSource] an <img src>: web or relative only
+     * @returns {string|null}
+     */
+    function safeUrl(raw, imageSource) {
+        var url = String(raw == null ? '' : raw).replace(/[\t\r\n]+/g, '').trim();
+        // Any other control character refuses the link: a browser strips a
+        // leading one before reading the scheme, so « \x01javascript: » would
+        // otherwise pass as a relative URL. HtmlSanitizer refuses it too.
+        if (url === '' || /[\x00-\x1f\x7f]/.test(url)) {
+            return null;
+        }
+        var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+        if (!scheme) {
+            return url;
+        }
+        var name = scheme[1].toLowerCase();
+        if (imageSource) {
+            return name === 'http' || name === 'https' ? url : null;
+        }
+        return ALLOWED_SCHEMES.has(name) ? url : null;
+    }
+
+    /**
+     * An image source as a path from this site's root, or null when it is
+     * another site's. A path from the root is kept as it is; `//host` is
+     * another site, and so is `/\\host`, a browser reading a backslash as a
+     * slash. A full address on this site's own origin becomes its path:
+     * cutting an image and pasting it back puts it on the clipboard that way
+     * — Chromium resolves every `src` when it copies.
+     *
+     * @param {string} src a source safeUrl() already accepted
+     * @returns {string|null}
+     */
+    function sitePath(src) {
+        if (/^\/(?![/\\])/.test(src)) {
+            return src;
+        }
+        if (!/^https?:/i.test(src)) {
+            return null;
+        }
+        var url;
+        try {
+            url = new URL(src);
+        } catch {
+            // An address that does not parse is not this site's.
+            return null;
+        }
+        // The path is checked again: `https://this-site//host/x` is this
+        // origin, but its path would read as another site once written alone.
+        if (url.origin !== window.location.origin || !/^\/(?![/\\])/.test(url.pathname)) {
+            return null;
+        }
+        return url.pathname + url.search + url.hash;
+    }
+
+    /**
+     * The formatting an element puts on its text, on top of what it
+     * inherits. A style beats a tag, in both directions: Google Docs wraps a
+     * whole paste in `<b style="font-weight:normal">`, which is not bold,
+     * and every word processor marks bold with a styled span.
+     *
+     * @param {Element} element
+     * @param {Format} inherited
+     * @param {boolean} [stored] keep a link's target, rel and title
+     * @returns {Format}
+     */
+    function formatOf(element, inherited, stored) {
+        var tag = element.localName;
+        /** @type {Format} */
+        var format = {
+            bold: inherited.bold || tag === 'strong' || tag === 'b',
+            italic: inherited.italic || tag === 'em' || tag === 'i' || tag === 'cite' || tag === 'var' || tag === 'dfn',
+            underline: inherited.underline || tag === 'u' || tag === 'ins',
+            href: inherited.href,
+            linkAttributes: inherited.linkAttributes ?? null
+        };
+
+        if (tag === 'a') {
+            var href = safeUrl(element.getAttribute('href'));
+            if (href !== null) {
+                format.href = href;
+                format.linkAttributes = null;
+                if (stored) {
+                    /** @type {Array<[string, string]>} */
+                    var kept = [];
+                    Array.from(element.attributes).forEach(function (attribute) {
+                        if (LINK_ATTRIBUTES.has(attribute.name)) kept.push([attribute.name, attribute.value]);
+                    });
+                    format.linkAttributes = kept.length > 0 ? kept : null;
+                }
+            }
+        }
+
+        var style = (element.getAttribute('style') || '').toLowerCase();
+        var weight = /(?:^|;)\s*font-weight\s*:\s*([a-z0-9]+)/.exec(style);
+        if (weight) {
+            format.bold = weight[1] === 'bold' || weight[1] === 'bolder'
+                || (/^\d+$/.test(weight[1]) && Number(weight[1]) >= 600);
+        }
+        var slant = /(?:^|;)\s*font-style\s*:\s*([a-z]+)/.exec(style);
+        if (slant) {
+            format.italic = slant[1] === 'italic' || slant[1] === 'oblique';
+        }
+        var decoration = /(?:^|;)\s*text-decoration(?:-line)?\s*:\s*([^;]+)/.exec(style);
+        if (decoration) {
+            format.underline = /\bunderline\b/.test(decoration[1]);
+        }
+
+        return format;
+    }
+
+    /**
+     * Content a reader of the source never saw: `display:none`, and Word's
+     * list bullets (`mso-list:Ignore`), which are typed characters standing
+     * in for the list the grammar rebuilds.
+     *
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    function isHidden(element) {
+        var style = (element.getAttribute('style') || '').toLowerCase();
+        return /display\s*:\s*none/.test(style) || /mso-list\s*:\s*ignore/.test(style);
+    }
+
+    /**
+     * A Word list paragraph — Word puts no <ul> on the clipboard, only
+     * paragraphs styled `mso-list:l0 level1 lfo1`.
+     *
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    function isWordListItem(element) {
+        return /mso-list\s*:\s*l\d/.test((element.getAttribute('style') || '').toLowerCase());
+    }
+
+    /**
+     * Whether a Word list paragraph is numbered: its hidden bullet reads
+     * « 1. », « a) », « iv. ».
+     *
+     * @param {Element} element
+     * @returns {boolean}
+     */
+    function isNumberedWordItem(element) {
+        var bullets = element.querySelectorAll('[style]');
+        for (var bullet of Array.from(bullets)) {
+            if (/mso-list\s*:\s*ignore/i.test(bullet.getAttribute('style') || '')) {
+                return /^\s*(?:\d+|[a-z]|[ivxlcdm]+)[.)]/i.test(bullet.textContent || '');
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param {Format} a
+     * @param {Format} b
+     * @returns {boolean}
+     */
+    function sameFormat(a, b) {
+        return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && linkKey(a) === linkKey(b);
+    }
+
+    /**
+     * `text` without the plain spaces it ends with — a loop rather than
+     * `/ +$/`, which backtracks quadratically on a long run of spaces, and
+     * not trimEnd(), which would take a non-breaking space with them.
+     *
+     * @param {string} text
+     * @returns {string}
+     */
+    function withoutTrailingSpaces(text) {
+        var end = text.length;
+        while (end > 0 && text.codePointAt(end - 1) === 32) {
+            end--;
+        }
+        return text.slice(0, end);
+    }
+
+    /**
+     * A block's segments, cleaned: whitespace collapsed the way a browser
+     * renders it, nothing at either end of a line, equal neighbours merged,
+     * and the invisible trailing <br> of a non-empty line dropped.
+     *
+     * @param {Segment[]} segments
+     * @param {boolean} heading bold means nothing inside a heading
+     * @returns {Segment[]|null} null when nothing visible is left
+     */
+    function cleanSegments(segments, heading) {
+        /** @type {Segment[]} */
+        var out = [];
+        var lineStart = true;
+        var lastSpace = false;
+
+        /** @returns {void} */
+        function trimLineEnd() {
+            var last = out.at(-1);
+            if (last?.text !== undefined) {
+                last.text = withoutTrailingSpaces(last.text);
+                if (last.text === '') {
+                    out.pop();
+                }
+            }
+        }
+
+        segments.forEach(function (segment) {
+            var fmt = heading
+                ? Object.assign(linkOnly(segment.fmt), { italic: segment.fmt.italic, underline: segment.fmt.underline })
+                : segment.fmt;
+
+            if (segment.br) {
+                trimLineEnd();
+                out.push({ br: true, fmt: PLAIN });
+                lineStart = true;
+                lastSpace = false;
+                return;
+            }
+            if (segment.img) {
+                out.push({ img: segment.img, fmt: linkOnly(fmt) });
+                lineStart = false;
+                lastSpace = false;
+                return;
+            }
+
+            var text = String(segment.text).replace(/[ \t\n\r\f]+/g, ' ');
+            if (lineStart || lastSpace) {
+                text = text.replace(/^ +/, '');
+            }
+            if (text === '') {
+                return;
+            }
+            var previous = out.at(-1);
+            if (previous?.text !== undefined && sameFormat(previous.fmt, fmt)) {
+                previous.text += text;
+            } else {
+                out.push({ text: text, fmt: fmt });
+            }
+            lineStart = false;
+            lastSpace = text.endsWith(' ');
+        });
+        trimLineEnd();
+
+        var visible = out.some(function (segment) {
+            return segment.img !== undefined || (segment.text !== undefined && /\S/.test(segment.text));
+        });
+        if (!visible) {
+            return null;
+        }
+
+        // « a<br> » shows « a »; « a<br><br> » shows « a » and an empty
+        // line. Dropping only a LONE trailing <br> keeps the second as it is
+        // and keeps the rule idempotent.
+        var n = out.length;
+        if (n >= 2 && out[n - 1].br && !out[n - 2].br) {
+            out.pop();
+        }
+
+        // Trimming can leave equal neighbours side by side.
+        return out.reduce(function (merged, segment) {
+            var previous = merged.at(-1);
+            if (previous?.text !== undefined && segment.text !== undefined && sameFormat(previous.fmt, segment.fmt)) {
+                previous.text += segment.text;
+            } else {
+                merged.push(segment);
+            }
+            return merged;
+        }, /** @type {Segment[]} */ ([]));
+    }
+
+    // a > strong > em > u: one nesting order, so one HTML per look.
+    var NESTING = [
+        { key: 'href', tag: 'a' },
+        { key: 'bold', tag: 'strong' },
+        { key: 'italic', tag: 'em' },
+        { key: 'underline', tag: 'u' }
+    ];
+
+    /**
+     * Writes cleaned segments under `parent`, wrapping maximal runs that
+     * share a link, then bold, then italic, then underline.
+     *
+     * @param {Document} doc
+     * @param {Node} parent
+     * @param {Segment[]} segments
+     * @param {number} level
+     * @returns {void}
+     */
+    function emit(doc, parent, segments, level) {
+        if (level === NESTING.length) {
+            segments.forEach(function (segment) {
+                if (segment.br) {
+                    parent.appendChild(doc.createElement('br'));
+                } else if (segment.img) {
+                    var image = doc.createElement('img');
+                    image.setAttribute('src', segment.img.src);
+                    if (segment.img.alt) image.setAttribute('alt', segment.img.alt);
+                    if (segment.img.width) image.setAttribute('width', segment.img.width);
+                    if (segment.img.height) image.setAttribute('height', segment.img.height);
+                    parent.appendChild(image);
+                } else {
+                    parent.appendChild(doc.createTextNode(String(segment.text)));
+                }
+            });
+            return;
+        }
+
+        var key = NESTING[level].key;
+        /** @param {Format} format @returns {string|boolean|null} */
+        var valueOf = function (format) {
+            return key === 'href' ? linkKey(format) : format[key];
+        };
+        var i = 0;
+        while (i < segments.length) {
+            var value = valueOf(segments[i].fmt);
+            var j = i + 1;
+            while (j < segments.length && valueOf(segments[j].fmt) === value) {
+                j++;
+            }
+            var run = segments.slice(i, j);
+            if (value) {
+                var wrapper = doc.createElement(NESTING[level].tag);
+                if (key === 'href') {
+                    var link = segments[i].fmt;
+                    wrapper.setAttribute('href', String(link.href));
+                    (link.linkAttributes ?? []).forEach(function (attribute) {
+                        wrapper.setAttribute(attribute[0], attribute[1]);
+                    });
+                }
+                parent.appendChild(wrapper);
+                emit(doc, wrapper, run, level + 1);
+            } else {
+                emit(doc, parent, run, level + 1);
+            }
+            i = j;
+        }
+    }
+
+    /**
+     * An editor's own HTML → a fragment of the live document, in the
+     * canonical grammar. What is passed here is a stored text the server
+     * already sanitised, or the editor's own innerHTML on its way out —
+     * never the clipboard, which only ever reaches canonicalNodes() as the
+     * nodes the browser itself pasted (see wireSurface()). The string is
+     * read inside an inert DOMParser document; every node of the result is
+     * created here.
+     *
+     * @param {string} html
+     * @param {CanonicalOptions} [options]
+     * @returns {DocumentFragment}
+     */
+    function canonicalFragment(html, options) {
+        var source = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+        return canonicalNodes(source.body, options);
+    }
+
+    /**
+     * The children of `sourceRoot` → a fragment of the live document, in the
+     * canonical grammar. `sourceRoot` is only ever read.
+     *
+     * @param {Node} sourceRoot
+     * @param {CanonicalOptions} [options]
+     * @returns {DocumentFragment}
+     */
+    function canonicalNodes(sourceRoot, options) {
+        var stored = Boolean(options?.stored);
+        var images = stored || Boolean(options?.images);
+        var siteImages = Boolean(options?.siteImages);
+        var doc = document;
+
+        var root = doc.createDocumentFragment();
+        /** @type {Node} where finished blocks go */
+        var blockParent = root;
+        /** @type {HTMLElement|null} the list item being filled, if any */
+        var item = null;
+        var kind = 'p';
+        var preformatted = false;
+        /** @type {Segment[]} */
+        var segments = [];
+        /** @type {HTMLElement|null} the list Word paragraphs are joining */
+        var wordList = null;
+
+        /** @returns {void} */
+        function flush() {
+            if (segments.length === 0) {
+                return;
+            }
+            var heading = kind !== 'p';
+            // An empty line is one somebody made: a <br>, or the
+            // non-breaking space Word writes into an empty paragraph. Plain
+            // whitespace between two tags is not one.
+            var deliberate = segments.some(function (segment) {
+                return segment.br === true || (segment.text?.includes('\u00a0') === true);
+            });
+            var cleaned = cleanSegments(segments, heading && item === null);
+            segments = [];
+
+            if (item !== null) {
+                if (cleaned !== null) {
+                    emit(doc, item, cleaned, 0);
+                }
+                return;
+            }
+
+            if (cleaned === null && !deliberate) {
+                return;
+            }
+            var block = doc.createElement(cleaned === null ? 'p' : kind);
+            if (cleaned === null) {
+                // A line someone left empty on purpose — the only empty
+                // block there is.
+                block.appendChild(doc.createElement('br'));
+            } else {
+                emit(doc, block, cleaned, 0);
+            }
+            blockParent.appendChild(block);
+            wordList = null;
+        }
+
+        /** A block boundary: a new block, or a new line inside a list item. */
+        function boundary() {
+            if (item !== null) {
+                var last = segments.at(-1);
+                if (last !== undefined && !last.br) {
+                    segments.push({ br: true, fmt: PLAIN });
+                }
+                return;
+            }
+            flush();
+        }
+
+        /**
+         * @param {Element} source
+         * @param {Format} format
+         * @param {HTMLElement} list
+         * @returns {void}
+         */
+        function listItem(source, format, list) {
+            var li = doc.createElement('li');
+            list.appendChild(li);
+
+            var saved = { item: item, segments: segments, kind: kind };
+            item = li;
+            segments = [];
+            kind = 'p';
+            walk(source, format);
+            flush();
+            item = saved.item;
+            segments = saved.segments;
+            kind = saved.kind;
+
+            if (!li.hasChildNodes()) {
+                li.remove();
+            }
+        }
+
+        /**
+         * @param {Element} source
+         * @param {string} tag ul or ol
+         * @param {Format} format
+         * @returns {void}
+         */
+        function list(source, tag, format) {
+            flush();
+            var target = item !== null ? item : blockParent;
+            var element = doc.createElement(tag);
+            target.appendChild(element);
+
+            for (var child = source.firstChild; child !== null; child = child.nextSibling) {
+                if (child.nodeType === 1 && /** @type {Element} */ (child).localName === 'li') {
+                    listItem(/** @type {Element} */ (child), format, element);
+                } else if (child.nodeType === 1 || /\S/.test(child.textContent || '')) {
+                    // Content straight under the list: old HTML nests a list
+                    // in a list without the <li>; give it one.
+                    var wrapper = source.ownerDocument.createElement('li');
+                    wrapper.appendChild(child.cloneNode(true));
+                    listItem(wrapper, format, element);
+                }
+            }
+
+            if (!element.hasChildNodes()) {
+                element.remove();
+            }
+            if (item === null) {
+                wordList = null;
+            }
+        }
+
+        /**
+         * @param {Element} source
+         * @param {Format} format
+         * @returns {void}
+         */
+        function wordListItem(source, format) {
+            flush();
+            var tag = isNumberedWordItem(source) ? 'ol' : 'ul';
+            if (wordList?.localName !== tag || blockParent.lastChild !== wordList) {
+                wordList = doc.createElement(tag);
+                blockParent.appendChild(wordList);
+            }
+            listItem(source, format, wordList);
+            // A bullet paragraph with nothing but its hidden marker makes no
+            // item; a list that got none is no list either, as in list().
+            if (!wordList.hasChildNodes()) {
+                wordList.remove();
+                wordList = null;
+            }
+        }
+
+        /**
+         * @param {Element} source
+         * @param {string} blockKind
+         * @param {Format} format
+         * @returns {void}
+         */
+        function block(source, blockKind, format) {
+            if (item !== null) {
+                boundary();
+                walk(source, format);
+                boundary();
+                return;
+            }
+            flush();
+            var outer = kind;
+            kind = blockKind;
+            walk(source, format);
+            flush();
+            kind = outer;
+        }
+
+        /**
+         * @param {Text} node
+         * @param {Format} format
+         * @returns {void}
+         */
+        function visitText(node, format) {
+            var text = node.data;
+            if (preformatted) {
+                text.split('\n').forEach(function (line, index) {
+                    if (index > 0) segments.push({ br: true, fmt: PLAIN });
+                    if (line !== '') segments.push({ text: line, fmt: format });
+                });
+            } else if (text !== '') {
+                segments.push({ text: text, fmt: format });
+            }
+        }
+
+        /**
+         * An <img> as a segment, when this surface keeps images and its
+         * source passes; null otherwise.
+         *
+         * @param {Element} element
+         * @param {Format} format
+         * @returns {Segment|null}
+         */
+        function imageSegment(element, format) {
+            var src = images || siteImages ? safeUrl(element.getAttribute('src'), true) : null;
+            if (src !== null && !images) {
+                src = sitePath(src);
+            }
+            if (src === null) {
+                return null;
+            }
+            /** @param {string} name @returns {string|null} */
+            var dimension = function (name) {
+                var value = element.getAttribute(name) || '';
+                return /^\d{1,4}$/.test(value) ? value : null;
+            };
+            return {
+                img: { src: src, alt: element.getAttribute('alt'), width: dimension('width'), height: dimension('height') },
+                fmt: format
+            };
+        }
+
+        /**
+         * The elements with no content of their own to walk: a line break,
+         * an image, a rule.
+         *
+         * @param {Element} element
+         * @param {Format} format
+         * @returns {boolean} whether `element` was one
+         */
+        function visitLeaf(element, format) {
+            var tag = element.localName;
+            if (tag === 'br') {
+                segments.push({ br: true, fmt: PLAIN });
+            } else if (tag === 'img') {
+                var image = imageSegment(element, format);
+                if (image !== null) segments.push(image);
+            } else if (tag === 'hr') {
+                boundary();
+            } else {
+                return false;
+            }
+            return true;
+        }
+
+        /**
+         * @param {Element} element
+         * @param {Format} inner the formatting its content carries
+         * @returns {void}
+         */
+        function visitContainer(element, inner) {
+            var tag = element.localName;
+            if (tag === 'ul' || tag === 'ol') {
+                list(element, tag, inner);
+            } else if (item === null && isWordListItem(element)) {
+                wordListItem(element, inner);
+            } else if (tag === 'li' || tag === 'p') {
+                block(element, 'p', inner);
+            } else if (Object.hasOwn(HEADINGS, tag)) {
+                block(element, stored && tag === 'h4' ? 'h4' : HEADINGS[tag], inner);
+            } else if (tag === 'pre') {
+                preformatted = true;
+                block(element, 'p', inner);
+                preformatted = false;
+            } else if (stored && tag === 'blockquote' && item === null) {
+                quotation(element, inner);
+            } else if (TRANSPARENT_BLOCKS.has(tag)) {
+                boundary();
+                walk(element, inner);
+                boundary();
+            } else {
+                walk(element, inner);
+            }
+        }
+
+        /**
+         * A stored <blockquote>, kept as one: its content becomes blocks
+         * inside it rather than beside it.
+         *
+         * @param {Element} source
+         * @param {Format} format
+         * @returns {void}
+         */
+        function quotation(source, format) {
+            flush();
+            var quote = doc.createElement('blockquote');
+            blockParent.appendChild(quote);
+            var outer = blockParent;
+            blockParent = quote;
+            walk(source, format);
+            flush();
+            blockParent = outer;
+            wordList = null;
+            if (!quote.hasChildNodes()) {
+                quote.remove();
+            }
+        }
+
+        /**
+         * @param {Node} node
+         * @param {Format} format
+         * @returns {void}
+         */
+        function visit(node, format) {
+            if (node.nodeType === 3) {
+                visitText(/** @type {Text} */ (node), format);
+                return;
+            }
+            if (node.nodeType !== 1) {
+                return;
+            }
+            var element = /** @type {Element} */ (node);
+            if (DROPPED.has(element.localName) || isHidden(element) || visitLeaf(element, format)) {
+                return;
+            }
+            visitContainer(element, formatOf(element, format, stored));
+        }
+
+        /**
+         * @param {Node} parent
+         * @param {Format} format
+         * @returns {void}
+         */
+        function walk(parent, format) {
+            for (var child = parent.firstChild; child !== null; child = child.nextSibling) {
+                visit(child, format);
+            }
+        }
+
+        walk(sourceRoot, PLAIN);
+        flush();
+
+        return root;
+    }
+
+    /**
+     * Foreign HTML → canonical HTML, as a string. What an editor sends or
+     * posts goes through this.
+     *
+     * @param {string} html
+     * @param {CanonicalOptions} [options]
+     * @returns {string}
+     */
+    function canonicalHtml(html, options) {
+        var holder = document.createElement('div');
+        holder.appendChild(canonicalFragment(html, options));
+        return holder.innerHTML;
+    }
+
+    /**
+     * Plain text → a fragment: a blank line starts a paragraph, a single
+     * newline is a line break. What a paste without HTML becomes.
+     *
+     * @param {string} text
+     * @returns {DocumentFragment}
+     */
+    function plainTextFragment(text) {
+        var fragment = document.createDocumentFragment();
+        /** @type {string[]} the lines of the paragraph being read */
+        var lines = [];
+        var close = function () {
+            if (lines.length === 0) return;
+            var block = document.createElement('p');
+            lines.forEach(function (line, index) {
+                if (index > 0) block.appendChild(document.createElement('br'));
+                block.appendChild(document.createTextNode(line));
+            });
+            fragment.appendChild(block);
+            lines = [];
+        };
+        // Line by line, not one split on a pattern: a blank line closes the
+        // paragraph, so any run of them separates two, however long.
+        String(text).replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+            if (line.trim() === '') {
+                close();
+            } else {
+                lines.push(line);
+            }
+        });
+        close();
+        return fragment;
+    }
+
+    /**
+     * Puts a fragment at the caret. A lone paragraph goes in as its inline
+     * content — a word copied from a web page must not split the paragraph
+     * it lands in. `insertHTML` keeps the paste on the browser's undo stack;
+     * its HTML is the serialisation of nodes built above, never the
+     * clipboard's.
+     *
+     * @param {HTMLElement} surface
+     * @param {DocumentFragment} fragment
+     * @returns {void}
+     */
+    function insertFragment(surface, fragment) {
+        var content = fragment;
+        if (content.childNodes.length === 1 && /** @type {Element|null} */ (content.firstChild)?.localName === 'p') {
+            var paragraph = content.firstChild;
+            content = document.createDocumentFragment();
+            while (paragraph.firstChild) {
+                content.appendChild(paragraph.firstChild);
+            }
+        }
+        if (!content.hasChildNodes()) {
+            return;
+        }
+
+        var holder = document.createElement('div');
+        holder.appendChild(content.cloneNode(true));
+        if (document.execCommand('insertHTML', false, holder.innerHTML)) {
+            return;
+        }
+
+        // An engine without insertHTML: the same nodes, by hand.
+        var selection = window.getSelection();
+        var range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+        if (!selection || range === null || !surface.contains(range.commonAncestorContainer)) {
+            surface.appendChild(content);
+            return;
+        }
+        range.deleteContents();
+        var last = content.lastChild;
+        range.insertNode(content);
+        if (last) {
+            range.setStartAfter(last);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+    }
+
+    /**
+     * The paste bin of one surface: a hidden contenteditable right next to
+     * it, created on first use. Next to it rather than on <body>, because a
+     * Bootstrap modal hands focus straight back to itself when it moves
+     * anywhere outside it.
+     *
+     * @param {HTMLElement} surface
+     * @returns {HTMLElement}
+     */
+    function pasteBin(surface) {
+        var next = surface.nextElementSibling;
+        if (next instanceof HTMLElement && next.classList.contains('rich-text-paste-bin')) {
+            return next;
+        }
+        var bin = document.createElement('div');
+        bin.className = 'rich-text-paste-bin visually-hidden';
+        bin.setAttribute('contenteditable', 'true');
+        bin.setAttribute('aria-hidden', 'true');
+        bin.tabIndex = -1;
+        surface.after(bin);
+        return bin;
+    }
+
+    /**
+     * Puts a canonical fragment where the caret was, and says so.
+     *
+     * @param {HTMLElement} surface
+     * @param {DocumentFragment} fragment
+     * @param {CanonicalOptions|undefined} options
+     * @param {(() => void)|null|undefined} afterChange
+     * @returns {void}
+     */
+    function land(surface, fragment, options, afterChange) {
+        var content = fragment;
+        if (options?.decorate) {
+            var holder = document.createElement('div');
+            holder.appendChild(content);
+            options.decorate(holder);
+            content = document.createDocumentFragment();
+            while (holder.firstChild) {
+                content.appendChild(holder.firstChild);
+            }
+        }
+
+        insertFragment(surface, content);
+        surface.dispatchEvent(new Event('input', { bubbles: true }));
+        if (afterChange) afterChange();
+    }
+
+    /**
+     * Gives a contenteditable the canonical paste: every path that pastes
+     * — the keyboard, the context menu, a phone's « Coller » — fires
+     * `paste`, and what it carries is rebuilt before anything of it reaches
+     * the text. Idempotent per surface, like wireToolbar() per button: the
+     * shared modal is wired by two scripts.
+     *
+     * THE CLIPBOARD'S HTML IS NEVER READ AS A STRING. Parsing it here, even
+     * into an inert DOMParser document, is a cross-site scripting sink by
+     * CodeQL's reading, and the release refuses an open alert. So the
+     * browser does the parsing it does for every paste anyway — scripts
+     * and event handlers stripped by its own paste sanitiser — into a
+     * hidden contenteditable next to the surface (the « paste bin » of the
+     * established editors), and only the resulting NODES are read, by
+     * canonicalNodes(). The caret is put back and the canonical fragment
+     * inserted where it was, on the browser's undo stack.
+     *
+     * Plain text is read as text: it becomes text nodes and line breaks.
+     *
+     * @param {HTMLElement} surface
+     * @param {CanonicalOptions} [options]
+     * @param {(() => void)|null} [afterChange] run after a paste — form
+     *        fields sync their hidden input here
+     * @returns {void}
+     */
+    function wireSurface(surface, options, afterChange) {
+        if (surface.dataset.richTextSurface === 'yes') {
+            return;
+        }
+        surface.dataset.richTextSurface = 'yes';
+
+        surface.addEventListener('paste', function (event) {
+            var clipboard = event.clipboardData;
+            var types = Array.from(clipboard?.types ?? []);
+
+            if (types.includes('text/html')) {
+                var range = captureSelection();
+                var bin = pasteBin(surface);
+                bin.replaceChildren();
+                bin.focus();
+                var inBin = document.createRange();
+                inBin.selectNodeContents(bin);
+                var selection = window.getSelection();
+                if (selection) {
+                    selection.removeAllRanges();
+                    selection.addRange(inBin);
+                }
+
+                // No preventDefault(): the browser's own paste lands in the
+                // bin, and is read once it has.
+                window.setTimeout(function () {
+                    var fragment = canonicalNodes(bin, options);
+                    bin.replaceChildren();
+                    restoreSelection(surface, range);
+                    land(surface, fragment, options, afterChange);
+                }, 0);
+                return;
+            }
+
+            var text = clipboard?.getData('text/plain') ?? '';
+            if (text.trim() === '') {
+                // A file, a clipboard the page may not read, or only
+                // whitespace: nothing here to rebuild, and the browser's own
+                // paste still replaces a selection with it. What it inserts
+                // goes through the canonical form when it leaves the editor.
+                return;
+            }
+            event.preventDefault();
+            land(surface, plainTextFragment(text), options, afterChange);
+        });
+    }
+
     // ————— The toolbar —————
 
     /**
@@ -193,9 +1229,16 @@
      * @param {HTMLElement} surface the contenteditable they act on
      * @param {(() => void)|null} [afterCommand] run after each command —
      *        rich-text-form-field.js syncs its hidden input here
+     * @param {CanonicalOptions} [options] what this surface can hold
+     *        beyond the common grammar; see wireSurface()
      * @returns {void}
      */
-    function wireToolbar(root, surface, afterCommand) {
+    function wireToolbar(root, surface, afterCommand, options) {
+        // The surface gets its paste handling here because every generic
+        // editor already comes through this call — the shared modal (twice,
+        // see above), and each rich-text form field.
+        wireSurface(surface, options, afterCommand);
+
         root.querySelectorAll('[data-command]').forEach(function (node) {
             var button = /** @type {HTMLElement} */ (node);
             if (button.dataset.richTextWired === 'yes') {
@@ -230,8 +1273,11 @@
     }
 
     window.ScoutMagicRichText = {
+        canonicalFragment: canonicalFragment,
+        canonicalHtml: canonicalHtml,
         insertLink: insertLink,
         normalizeUrl: normalizeUrl,
+        wireSurface: wireSurface,
         wireToolbar: wireToolbar
     };
 })();
