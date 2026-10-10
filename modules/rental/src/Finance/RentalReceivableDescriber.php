@@ -15,7 +15,7 @@ use Modules\Rental\Service\RentalPaymentService;
  * What « Paiements attendus » calls this module's expectations.
  *
  * A booking's group used to be headed « Location #45 » — the row's own
- * primary key, above lines already reading « LOC-2027-0012 — Jean
+ * primary key, above lines already reading « LOC-D4E5F6 — Jean
  * Dupont ». Finance could not do better: it does not know what a booking
  * is, and by §7.5 it never will. So this says it instead.
  *

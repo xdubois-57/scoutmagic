@@ -247,6 +247,24 @@ class ReenrollmentCampaignHandlerTest extends TestCase
         ));
     }
 
+    /**
+     * Opened by hand in October with its opening e-mail (issue #796, D5):
+     * the scheduled opening of March still opens it on the clock, and
+     * writes to nobody a second time.
+     */
+    public function testTheScheduledOpeningAfterAManualOneSendsNothingAgain(): void
+    {
+        $this->settingService->setInternal(
+            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_OPENING),
+            self::CLOSING_DAY,
+            'registration'
+        );
+
+        $this->poll(self::OPENING_DAY . ' 08:00');
+
+        $this->assertSame([], $this->handedOverTypes());
+    }
+
     // ── the chain itself ──────────────────────────────────────────────
 
     public function testWithTheEmailsOffTheCampaignStillOpensAndClosesButWritesToNobody(): void

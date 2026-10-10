@@ -284,7 +284,7 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertNotNull($label);
         $this->assertStringContainsString('Domaine de Mozet', $label);
         $this->assertNull($consumer->describeReference('camp-999'));
-        $this->assertNull($consumer->describeReference('LOC-2027-0042'));
+        $this->assertNull($consumer->describeReference('LOC-K7Q2M4'));
     }
 
     public function testTheDirectoryFindsAStayByItsPlaceAndSaysWhereItLives(): void
@@ -312,7 +312,7 @@ class CampsMessageConsumerTest extends TestCase
         // Anything else — another module's reference, or the reserved
         // `unsorted` this module no longer mints — is not one of ours.
         $this->assertNull(CampsMessageConsumer::campIdFromReference('unsorted'));
-        $this->assertNull(CampsMessageConsumer::campIdFromReference('LOC-2027-0042'));
+        $this->assertNull(CampsMessageConsumer::campIdFromReference('LOC-K7Q2M4'));
     }
 
     // ── Storing a message on a stay that is no longer there ─────────
@@ -1223,6 +1223,36 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame('Correspondant', $contacts[0]->roleLabel);
 
         $this->assertCount(1, $consumer->analyze($this->message('epouse@example.org'))->links);
+    }
+
+    public function testAManualAssociationRereadsTheRulesWithoutRequeueingTheDeferredPass(): void
+    {
+        // The deferred pass's marker belongs to the message, not to this
+        // module: requeueing it here would make the rentals' model look
+        // again at mail it already declined on a shared box (#720, step 6).
+        $inbound = new class implements InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @var list<array{string, int, bool}> */
+            public array $reanalyses = [];
+
+            public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
+            {
+                $this->reanalyses[] = [$consumerId, $limit, $requeueStoredPass];
+
+                return ['examined' => 0, 'linked' => 0, 'proposed' => 0];
+            }
+        };
+
+        $this->consumer($inbound)->onLinked(
+            $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $this->assertSame(
+            [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::REANALYSIS_AFTER_DECISION, false]],
+            $inbound->reanalyses
+        );
     }
 
     public function testAKnownAddressIsNotAddedTwice(): void

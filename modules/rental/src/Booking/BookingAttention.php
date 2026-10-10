@@ -148,7 +148,6 @@ final class BookingAttention
             BookingMilestones::CONTRACT_COUNTERSIGNED => 'contresigner le contrat',
             'confirmed' => 'confirmer la réservation',
             BookingMilestones::ARRIVAL_INVENTORY => "l'état des lieux d'entrée",
-            BookingMilestones::METER_READINGS => 'relever les compteurs',
             BookingMilestones::DEPARTURE_INVENTORY => "l'état des lieux de sortie",
             BookingMilestones::FINAL_SETTLEMENT => 'établir le décompte final',
             BookingMilestones::SECURITY_DEPOSIT_RETURNED => 'restituer la caution',

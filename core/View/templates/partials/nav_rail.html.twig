@@ -46,7 +46,11 @@
   Parameters:
   - `picker_id`  — unique per instance on a page; it is the DOM id.
   - `items`      — `id` and `label` required, `selected`, `color`,
-                   `icon` and `align_end` optional. The link is
+                   `icon`, `count` and `align_end` optional. `count`, a
+                   number, is printed after the label in parentheses
+                   when it is above zero — « Modifications (1) » — so a
+                   page that wants visiting says so without being
+                   visited. Absent or zero, nothing changes. The link is
                    `{{ base_url }}{{ item.id }}{{ extra_query }}`, so an
                    `id` may equally be a numeric id or a full path.
                    `align_end` pushes an item — and everything after it —
@@ -81,7 +85,7 @@
                         {% if item.icon is defined and item.icon %}
                             <i class="bi {{ item.icon }}" aria-hidden="true"></i>
                         {% endif %}
-                        <span>{{ item.label }}</span>
+                        <span>{{ item.label }}{% if item.count is defined and item.count %} ({{ item.count }}){% endif %}</span>
                     </a>
                 </li>
             {% endfor %}

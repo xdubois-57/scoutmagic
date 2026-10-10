@@ -49,6 +49,8 @@ class ReminderPlanner
      *
      * @param array<string, mixed> $payment the shape RentalPaymentService::statusFor() returns
      * @param array{arrival: bool, departure: bool} $inventory whether each inventory has been recorded
+     * @param bool $hasSignedCopy whether the renter's signed copy of the contract came back (#708, IT-16)
+     * @param bool $awaitsSignedCopy whether a contract went out and its signed copy is still awaited
      * @return DueReminder[]
      */
     public function forBooking(
@@ -56,10 +58,11 @@ class ReminderPlanner
         RentalAsset $asset,
         array $payment,
         array $inventory,
-        bool $hasContract,
+        bool $hasSignedCopy,
         bool $hasSettlement,
         \DateTimeImmutable $today,
-        ?ReminderSchedule $schedule = null
+        ?ReminderSchedule $schedule = null,
+        bool $awaitsSignedCopy = false
     ): array {
         $schedule ??= ReminderSchedule::shipped();
         $due = [];
@@ -106,6 +109,29 @@ class ReminderPlanner
             );
         }
 
+        // The renter's signed copy, before the hold that waits for it ends
+        // (#708, IT-16): their dates would free themselves otherwise, and
+        // they would never know. To the renter, once.
+        if ($awaitsSignedCopy
+            && $booking->holdIsActive($today)
+            && $booking->holdUntil !== null
+            && $schedule->isActive(ReminderKind::SIGNED_COPY_DUE)
+            // Counted in days: the pass runs once a day, and « three days
+            // before » is the day, whatever the hour the hold ends.
+            && $booking->holdUntil->setTime(0, 0)
+                <= $midnight->modify('+' . $schedule->daysFor(ReminderKind::SIGNED_COPY_DUE) . ' days')
+        ) {
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::SIGNED_COPY_DUE,
+                sprintf(
+                    'La copie signée du contrat de %s est attendue avant la fin du blocage des dates.',
+                    $booking->reference
+                )
+            );
+        }
+
         if ($booking->status !== BookingStatus::CONFIRMED && $booking->status !== BookingStatus::CLOSED) {
             // Nothing below concerns a stay that is not going ahead.
             return $due;
@@ -115,17 +141,21 @@ class ReminderPlanner
         $due = array_merge($due, $this->paymentReminders($booking, $asset, $payment, $midnight, $schedule, $arrival));
 
         // ── Paperwork and the stay itself ────────────────────────────
-        if (!$hasContract
+        if (!$hasSignedCopy
             && $schedule->isActive(ReminderKind::CONTRACT_MISSING)
             && self::contractLateFrom($arrival, $schedule) <= $midnight
             && $arrival >= $midnight
         ) {
+            // Said as it is: a copy the renter has not sent back is theirs
+            // to send, a contract that never went out is the unit's.
             $due[] = $this->booking(
                 $booking,
                 $asset,
                 ReminderKind::CONTRACT_MISSING,
                 sprintf(
-                    "Aucun contrat n'a encore été établi pour %s, dont le séjour approche.",
+                    $awaitsSignedCopy
+                        ? "La copie signée du contrat de %s n'est pas encore reçue, et le séjour approche."
+                        : "Le contrat de %s n'est pas encore parti, et le séjour approche.",
                     $booking->reference
                 )
             );

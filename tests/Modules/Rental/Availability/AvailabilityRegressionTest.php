@@ -317,7 +317,7 @@ class AvailabilityRegressionTest extends TestCase
             2027,
             7,
             1,
-            [new Occupancy('2027-07-10', '2027-07-15', reference: 'LOC-2027-0001')],
+            [new Occupancy('2027-07-10', '2027-07-15', reference: 'LOC-A2B3C4')],
             BillingUnit::PER_NIGHT,
             new BookingConstraints(),
             $this->date('2027-06-01')

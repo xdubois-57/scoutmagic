@@ -1,6 +1,6 @@
 // End-to-end: the public home page boots and renders in a real browser.
 //
-// This is the foundational E2E scenario (see README.md § Tests de bout en
+// This is the foundational E2E scenario (see docs/developpement.md § Tests de bout en
 // bout for the full current list) — the first test in this repository
 // that answers "can the application actually start and serve a page to a
 // browser?", a question neither PHPUnit nor Vitest can answer:

@@ -24,7 +24,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text (README.md § Tests de bout en bout).
+// Roles and visible text (docs/developpement.md § Tests de bout en bout).
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/admin-login.js';
 

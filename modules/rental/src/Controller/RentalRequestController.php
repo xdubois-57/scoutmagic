@@ -65,6 +65,9 @@ class RentalRequestController extends AbstractController
     /** The notification a new request raises (#708, IT-05). */
     public const NEW_REQUEST_NOTIFICATION = 'rental.new_request';
 
+    /** The notification a renter's change request raises (#708, IT-20). */
+    public const CHANGE_REQUEST_NOTIFICATION = 'rental.change_request';
+
     public function __construct(
         Environment $twig,
         private RentalAssetRepository $assetRepository,
@@ -112,7 +115,9 @@ class RentalRequestController extends AbstractController
          */
         private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
         private ?\Modules\Rental\Service\RentalDocumentService $documentService = null,
-        private ?\Core\File\UploadHandler $uploadHandler = null
+        private ?\Core\File\UploadHandler $uploadHandler = null,
+        /** Whether a contract still says what its booking says (#708, IT-20). */
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null
     ) {
         parent::__construct($twig);
     }
@@ -486,6 +491,9 @@ class RentalRequestController extends AbstractController
             // negotiated total, and the manager was being told "le locataire
             // le voit immédiatement sur sa page de suivi".
             'quote' => $booking->effectivePrice(),
+            // What they have to do next, the sentence their e-mails end
+            // with (#708, IT-15): one source, so the two never disagree.
+            'next_step' => $this->mailService->renterNextStep($booking, $asset),
             // Only the managers explicitly flagged as renter contacts, and
             // the filter is in SQL rather than in the template: a template
             // that forgot the condition would hand every manager's details
@@ -726,7 +734,24 @@ class RentalRequestController extends AbstractController
             return $this->backToTracking($params);
         }
 
-        FlashMessage::set('success', 'Vos coordonnées de facturation ont été enregistrées.');
+        // The address and the VAT number are part of what the contract
+        // states (#708, IT-20): a correction voids it now, attributed to the
+        // edit that caused it, and the renter is told.
+        $asset = $this->assetRepository->findById($booking->assetId);
+        $fresh = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        ) ?? $booking;
+        $voided = $asset !== null
+            && ($this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false);
+
+        FlashMessage::set(
+            'success',
+            'Vos coordonnées de facturation ont été enregistrées.'
+            . ($voided
+                ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
+                : '')
+        );
 
         return $this->backToTracking($params);
     }
@@ -759,6 +784,7 @@ class RentalRequestController extends AbstractController
                 null,
                 $message
             );
+            $this->notifyChangeRequest($booking, $asset, $kind);
 
             FlashMessage::set(
                 'success',
@@ -770,6 +796,36 @@ class RentalRequestController extends AbstractController
         }
 
         return $this->backToTracking($params);
+    }
+
+    /**
+     * « Demande de modification reçue » (#708, IT-20): the managers learnt
+     * of a request only by opening « À traiter ». The asset, the reference
+     * and what is asked — never the renter's identity — and it leads to the
+     * booking's « Modifications » page.
+     */
+    private function notifyChangeRequest(RentalBooking $booking, RentalAsset $asset, ChangeRequestKind $kind): void
+    {
+        if ($this->notificationService === null || $this->recipientResolver === null) {
+            return;
+        }
+
+        try {
+            $recipients = $this->recipientResolver->recipientsFor($asset->id, 'demande de modification');
+            if ($recipients === []) {
+                return;
+            }
+
+            $this->notificationService->dispatch(self::CHANGE_REQUEST_NOTIFICATION, $recipients, [
+                'title' => 'Demande de modification — ' . $asset->name,
+                'body' => $booking->reference . ' : ' . $kind->label() . '.',
+                'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id
+                    . '/modifications',
+            ]);
+        } catch (\Throwable) {
+            // The request is recorded either way, and « À traiter » shows
+            // it; a failed notification is not the renter's problem.
+        }
     }
 
     /**
@@ -818,7 +874,20 @@ class RentalRequestController extends AbstractController
                     null,
                     new \DateTimeImmutable()
                 );
-                FlashMessage::set('success', 'Proposition acceptée. Votre réservation a été mise à jour.');
+                // The booking changed: the contract that described it may
+                // not any more (#708, IT-20), and the renter is told.
+                $fresh = $this->bookingService->findByTrackingToken(
+                    (int) ($params['id'] ?? 0),
+                    (string) ($params['token'] ?? '')
+                ) ?? $booking;
+                $voided = $this->contractValidity?->recheck($fresh, $asset, null, new \DateTimeImmutable()) ?? false;
+                FlashMessage::set(
+                    'success',
+                    'Proposition acceptée. Votre réservation a été mise à jour.'
+                    . ($voided
+                        ? ' Le contrat que vous aviez reçu ne vaut plus : un nouveau contrat va vous être envoyé.'
+                        : '')
+                );
             } else {
                 $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::RENTER, null);
                 FlashMessage::set('success', 'Proposition refusée. Votre réservation est inchangée.');

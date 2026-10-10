@@ -282,14 +282,129 @@ class ReenrollmentCampaignServiceTest extends TestCase
         $this->assertNull($this->campaign->closingDueToday(new \DateTimeImmutable('2027-05-14')));
     }
 
-    public function testTheCampaignKeyIsTheCloseDateOfTheWindowInProgress(): void
+    /**
+     * **One campaign: the target year's** (issue #796, D3). The public year
+     * is 2026-2027, so the families are asked about 2027-2028, whose
+     * campaign closes on 2027-05-15 — before its dates, during them and
+     * after them, whatever today is.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function datesOfTheYear(): array
     {
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-01')));
-        // Just after closing, still the campaign that has just ended —
-        // which is what makes a closing e-mail belong to it.
-        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-16')));
-        // Before the first opening of the year, last year's.
-        $this->assertSame('2026-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-02-01')));
+        return [
+            'the day the public year is 2026-2027' => ['2026-09-01'],
+            'in October, between two campaigns' => ['2026-10-04'],
+            'before the opening' => ['2027-02-20'],
+            'during the campaign' => ['2027-04-20'],
+            'the day it closes' => ['2027-05-15'],
+            'after the close' => ['2027-06-12'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('datesOfTheYear')]
+    public function testTheCampaignIsTheTargetYearsWhateverTheDay(string $today): void
+    {
+        $this->assertSame('2027-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable($today)));
+    }
+
+    public function testTheNextPublicYearMovesToTheNextCampaign(): void
+    {
+        $this->usePublicYear('2027-2028');
+
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-08-20')));
+    }
+
+    /**
+     * **The day the public year changes** moves the campaign with it, even a
+     * running one: everything that reads the families' answers follows the
+     * same target year, so the campaign cannot outlive its own.
+     */
+    public function testAPublicYearChangedMidCampaignMovesOnToTheNextCampaign(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_OPENED, '2027-05-15');
+        $this->usePublicYear('2027-2028');
+
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-04-20')));
+        $this->assertSame('2028-05-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-05-16')));
+    }
+
+    public function testACampaignIsJudgedStartedByTheOpeningDateBeingSaved(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $now = new \DateTimeImmutable('2027-01-10');
+
+        // Stored 10-01: opened since 2026-10-01. Being saved as 03-01: not yet.
+        $this->assertTrue($this->campaign->hasStarted('2027-05-15', $now));
+        $this->assertFalse($this->campaign->hasStarted('2027-05-15', $now, '03-01'));
+    }
+
+    /**
+     * A window that straddles new year (November → February): the campaign
+     * of 2027-2028 closes in February 2027 and opens in November 2026.
+     */
+    public function testAWindowAcrossNewYearOpensTheYearBeforeItCloses(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '11-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '02-15', 'registration');
+
+        $this->assertSame('2027-02-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2026-10-04')));
+        $this->assertSame('2027-02-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2026-11-01')));
+        $this->assertNull($this->campaign->openingDueToday(new \DateTimeImmutable('2027-11-01')));
+        $this->assertSame('2027-02-15', $this->campaign->closingDueToday(new \DateTimeImmutable('2027-02-15')));
+        $this->assertSame(
+            '2027-02-01',
+            $this->campaign->reminderDate(ReenrollmentCampaignService::EMAIL_REMINDER_1, new \DateTimeImmutable('2026-12-01'))
+                ?->format('Y-m-d')
+        );
+    }
+
+    /**
+     * A window wholly in autumn (open 10-01, close 12-15) closes before the
+     * year it asks about begins: the autumn before, never a year ahead.
+     */
+    public function testAnAutumnWindowOpensAndClosesInTheAutumnBeforeTheTargetYear(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '10-01', 'registration');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_CLOSE_AT, '12-15', 'registration');
+
+        $this->usePublicYear('2026-2027');
+        $this->assertSame('2026-12-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2026-10-01')));
+        $this->assertSame('2026-12-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2026-10-01')));
+        $this->assertSame('2026-12-15', $this->campaign->closingDueToday(new \DateTimeImmutable('2026-12-15')));
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2026-12-15'));
+
+        // The year after, once the public year has moved on.
+        $this->usePublicYear('2027-2028');
+        $this->assertSame('2027-12-15', $this->campaign->currentCampaignKey(new \DateTimeImmutable('2027-10-01')));
+        $this->assertSame('2027-12-15', $this->campaign->openingDueToday(new \DateTimeImmutable('2027-10-01')));
+    }
+
+    public function testTheYearACampaignAsksAboutIsTheOneStartingTheYearItCloses(): void
+    {
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2027-05-15'));
+        // A February close belongs to a window opened the November before.
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_OPEN_AT, '11-01', 'registration');
+        $this->assertSame('2027-2028', $this->campaign->targetLabelOf('2027-02-15'));
+    }
+
+    private function usePublicYear(string $label): void
+    {
+        $id = (new ScoutYearService($this->pdo))->ensureYear($label);
+        $this->settingService->set(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $id);
+    }
+
+    public function testAReminderOfAWindowStraddlingNewYearIsNotSkipped(): void
+    {
+        $close = new \DateTimeImmutable('2027-02-15');
+
+        // Open 2026-11-01, close 2027-02-15: 14 days before is 2027-02-01.
+        $due = ReenrollmentCampaignService::reminderDueOn($close, '11-01', '14');
+        $this->assertSame('2027-02-01', $due?->format('Y-m-d'));
+
+        // 120 days before the close falls on 2026-10-18, before the opening:
+        // skipped, never sent late.
+        $this->assertNull(ReenrollmentCampaignService::reminderDueOn($close, '11-01', '120'));
     }
 
     public function testTheManualSwitchWorksBothWaysAndTouchesNoMarker(): void
@@ -362,63 +477,181 @@ class ReenrollmentCampaignServiceTest extends TestCase
         );
     }
 
-    public function testTheSwitchShortlyAfterTheCloseReopensAFinishedCampaignAndAnnouncesNothing(): void
+    /**
+     * No distance rule (issue #796, D3): after its close, the switch reopens
+     * the same campaign — for a late family. Whether that writes to anybody
+     * is Service\ReenrollmentSavePlanner's answer.
+     */
+    public function testTheSwitchAfterTheCloseReopensTheSameCampaign(): void
     {
-        $opening = $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'));
-
-        $this->assertSame(['key' => null, 'scheduled' => false], $opening);
-        $this->assertFalse(
-            $this->campaign->openingSendsEmail($opening, true),
-            'an opening e-mail for a campaign whose deadline has passed would announce a date behind everybody'
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2027-05-20'))
         );
     }
 
-    public function testAnOpeningWritesToFamiliesOnlyWithTheEmailsOnAndNotYetSent(): void
+    /**
+     * And in October it opens the target year's campaign — never the one
+     * that ended in May, whichever date is nearer (D4).
+     */
+    public function testTheSwitchInOctoberOpensTheTargetYearsCampaign(): void
     {
-        $opening = ['key' => '2027-05-15', 'scheduled' => false];
-
-        $this->assertTrue($this->campaign->openingSendsEmail($opening, true));
-        $this->assertFalse($this->campaign->openingSendsEmail($opening, false), 'e-mails off: nothing leaves');
-        $this->assertFalse($this->campaign->openingSendsEmail(null, true), 'nothing opens: nothing leaves');
-
-        $this->campaign->markDone(ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_OPENING), '2027-05-15');
-        $this->assertFalse($this->campaign->openingSendsEmail($opening, true), 'once per campaign');
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2026-10-04'))
+        );
+        $this->assertSame(
+            ['key' => '2027-05-15', 'scheduled' => false],
+            $this->campaign->openingOnSave('03-01', '05-15', true, new \DateTimeImmutable('2026-10-08'))
+        );
     }
 
-    // ── where the automatic reminders stand (issue #732) ─────────────
+    // ── the campaign step by step (issue #796, D10) ──────────────────
 
-    public function testBeforeAnyReminderTheNextOneIsTheFirst(): void
+    /**
+     * The five states of a step: sent, planned, missed, skipped, off.
+     *
+     * @return array<string, string>
+     */
+    private function states(string $now): array
     {
-        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'));
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable($now));
+        $this->assertNotNull($timeline);
+        $states = [];
+        foreach ($timeline['steps'] as $step) {
+            $states[$step['type']] = $step['state'] . ($step['date'] !== null ? ' ' . $step['date'] : '');
+        }
 
-        $this->assertFalse($reminders['last_sent']);
-        $this->assertNull($reminders['last_at']);
-        $this->assertSame('2027-05-01', $reminders['next']?->format('Y-m-d'));
+        return $states;
     }
 
-    public function testAfterTheFirstReminderTheLastIsItAndTheNextIsTheSecond(): void
+    public function testBeforeTheOpeningEveryStepIsPlannedWithItsDate(): void
+    {
+        $this->assertSame([
+            'opening' => 'planned 2027-03-01',
+            'reminder_1' => 'planned 2027-05-01',
+            'reminder_2' => 'planned 2027-05-13',
+            'closing' => 'planned 2027-05-15',
+        ], $this->states('2027-02-20'));
+    }
+
+    public function testASentStepSaysWhenAndADateBehindUsUnsentIsMissed(): void
     {
         $this->campaign->markDone(
-            ReenrollmentCampaignService::emailMarker(ReenrollmentCampaignService::EMAIL_REMINDER_1),
+            ReenrollmentCampaignService::emailMarker('opening'),
             '2027-05-15',
-            new \DateTimeImmutable('2027-05-01 08:00')
+            new \DateTimeImmutable('2027-03-01 08:04')
         );
 
-        $reminders = $this->campaign->automaticReminders(new \DateTimeImmutable('2027-05-05'));
+        $states = $this->states('2027-05-03');
 
-        $this->assertTrue($reminders['last_sent']);
-        $this->assertSame('2027-05-01', $reminders['last_at']?->format('Y-m-d'));
-        $this->assertSame('2027-05-13', $reminders['next']?->format('Y-m-d'));
+        $this->assertSame('sent 2027-03-01', $states['opening']);
+        $this->assertSame('missed 2027-05-01', $states['reminder_1'], 'a missed date is missed, never sent late');
+        $this->assertSame('planned 2027-05-13', $states['reminder_2']);
     }
 
-    public function testWithTheEmailsOffNoReminderIsAnnouncedAsComing(): void
+    public function testAReminderBeforeTheOpeningIsSkippedWithItsDate(): void
+    {
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_REMINDER_1_DAYS, '90', 'registration');
+
+        $this->assertSame('skipped 2027-02-14', $this->states('2027-04-20')['reminder_1']);
+    }
+
+    public function testWithTheEmailsOffEveryStepIsOff(): void
     {
         $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
 
-        $this->assertNull($this->campaign->automaticReminders(new \DateTimeImmutable('2027-04-01'))['next']);
+        foreach ($this->states('2027-04-20') as $state) {
+            $this->assertStringStartsWith('off', $state);
+        }
     }
 
-    // ── the reminders ─────────────────────────────────────────────────
+    /**
+     * Opened by hand in October: the opening step says so, and the box
+     * shows the date it was opened rather than the planned one.
+     */
+    public function testAnOpeningByHandBeforeItsDateIsSaidSo(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker('opening'),
+            '2027-05-15',
+            new \DateTimeImmutable('2026-10-04 10:35')
+        );
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04 11:00'));
+
+        $this->assertTrue($timeline['steps'][0]['manual'] ?? false);
+        $this->assertSame('2026-10-04', $timeline['opened_early_at']?->format('Y-m-d'));
+        $this->assertTrue($timeline['started']);
+        $this->assertNull($timeline['previous'], 'a campaign under way has no « previous » line');
+    }
+
+    /**
+     * Between two campaigns the box describes the target year's campaign,
+     * and one grey line says how the previous one ended.
+     */
+    public function testBetweenTwoCampaignsTheBoxIsTheNextOneAndOneLineTheLast(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15', new \DateTimeImmutable('2026-05-15 23:30'));
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertSame('2027-05-15', $timeline['key']);
+        $this->assertSame('2027-2028', $timeline['label']);
+        $this->assertFalse($timeline['started']);
+        $this->assertSame(['label' => '2026-2027', 'closed_on' => '2026-05-15'], $timeline['previous']);
+    }
+
+    /**
+     * The line about the last campaign is read from what was recorded, not
+     * worked out from the settings: a unit that has never run one has none.
+     */
+    public function testAUnitThatNeverRanACampaignHasNoPreviousOne(): void
+    {
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertNull($timeline['previous']);
+    }
+
+    /**
+     * The switch writes no marker and, with the e-mails off, nothing else
+     * does: the campaign it opened is under way all the same, as the page's
+     * badge says, and no « previous campaign » line sits beside it.
+     */
+    public function testACampaignOpenedByHandWithTheEmailsOffIsUnderWay(): void
+    {
+        $this->campaign->markDone(ReenrollmentCampaignService::MARKER_CLOSED, '2026-05-15');
+        $this->settingService->setInternal(ReenrollmentCampaignService::SETTING_EMAILS_ENABLED, '0', 'registration');
+        $this->campaign->open();
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertTrue($timeline['started']);
+        $this->assertTrue($timeline['opened_early'], 'opened by the switch before its date, with no marker to show it');
+        $this->assertNull($timeline['previous']);
+    }
+
+    /**
+     * A campaign closed by hand ahead of its date, e-mails on, leaves its
+     * closing e-mail: the grey line says the day it really closed, not the
+     * scheduled one.
+     */
+    public function testAPreviousCampaignClosedByHandIsDatedByItsClosingEmail(): void
+    {
+        $this->campaign->markDone(
+            ReenrollmentCampaignService::emailMarker('closing'),
+            '2026-05-15',
+            new \DateTimeImmutable('2026-03-02 10:00')
+        );
+
+        $timeline = $this->campaign->timeline(new \DateTimeImmutable('2026-10-04'));
+        $this->assertNotNull($timeline);
+
+        $this->assertSame(['label' => '2026-2027', 'closed_on' => '2026-03-02'], $timeline['previous']);
+    }
 
     public function testAReminderIsDueItsConfiguredNumberOfDaysBeforeTheClose(): void
     {

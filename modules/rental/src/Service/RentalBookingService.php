@@ -13,6 +13,7 @@ use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
 use Modules\Rental\Availability\OccupancyProvider;
+use Modules\Rental\Booking\BookingReference;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\ChangeRequestStatus;
 use Modules\Rental\Booking\HoldOrigin;
@@ -44,6 +45,8 @@ class RentalBookingService implements OccupancyProvider
      */
     public const DEFAULT_AUTOMATIC_HOLD_DAYS = 30;
 
+    private BookingReference $references;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private JournalService $journal,
@@ -55,8 +58,10 @@ class RentalBookingService implements OccupancyProvider
          * booking expires and its pending requests stay pending.
          */
         private ?RentalChangeRequestRepository $changeRequestRepository = null,
-        private ?BookingAudit $bookingAudit = null
+        private ?BookingAudit $bookingAudit = null,
+        ?BookingReference $references = null
     ) {
+        $this->references = $references ?? BookingReference::secure();
     }
 
     /**
@@ -170,7 +175,7 @@ class RentalBookingService implements OccupancyProvider
             $now
         );
 
-        $created = $this->writeWithFreshReference($write, $now);
+        $created = $this->writeWithFreshReference($write);
 
         $booking = $this->bookingRepository->findById($created['id']);
         if ($booking === null) {
@@ -193,15 +198,15 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * Writes the booking, retrying **once** with a freshly claimed
-     * reference if the first one collided.
+     * Writes the booking under a freshly drawn reference, drawing again
+     * when the draw collides with one already spent.
      *
-     * `claimNextReferenceSequence()` takes a row lock, so the collision
-     * this covers is the narrow one it cannot: a reference already spent
-     * by a row the counter does not know about (a restored backup, a
-     * hand-inserted booking, a counter reset). One retry, not a loop — a
-     * second failure is a broken counter rather than contention, and
-     * hammering the table would only make it worse.
+     * A collision is one chance in 740 million per pair of bookings
+     * ({@see BookingReference}), so a second draw almost never happens and
+     * a third practically never does. The bound is there for
+     * the case that is not chance at all — a broken random source handing
+     * out the same value — where looping forever would hang the visitor's
+     * request instead of refusing it.
      *
      * **No `PDOException` may reach the visitor.** This runs on the public
      * request form, where a driver-level message would be both a 500 and a
@@ -213,22 +218,31 @@ class RentalBookingService implements OccupancyProvider
      * @return array{id: int, tracking_token: string}
      * @throws RentalException
      */
-    private function writeWithFreshReference(callable $write, \DateTimeImmutable $now): array
+    private function writeWithFreshReference(callable $write): array
     {
-        try {
-            return $write($this->allocateReference($now));
-        } catch (\PDOException $first) {
-            if (!self::isDuplicateKey($first)) {
-                throw new RentalException(self::SUBMISSION_FAILED, 0, $first);
+        $collision = null;
+        for ($draw = 0; $draw < self::REFERENCE_DRAWS; $draw++) {
+            try {
+                $reference = $this->allocateReference();
+            } catch (\RuntimeException $e) {
+                // The random source itself is broken (`BookingReference::draw()`).
+                throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+            }
+            try {
+                return $write($reference);
+            } catch (\PDOException $e) {
+                if (!self::isDuplicateKey($e)) {
+                    throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+                }
+                $collision = $e;
             }
         }
 
-        try {
-            return $write($this->allocateReference($now));
-        } catch (\PDOException $second) {
-            throw new RentalException(self::SUBMISSION_FAILED, 0, $second);
-        }
+        throw new RentalException(self::SUBMISSION_FAILED, 0, $collision);
     }
+
+    /** How many references one request may draw before it gives up. */
+    private const REFERENCE_DRAWS = 3;
 
     /**
      * What the visitor is told when the write cannot be completed. One
@@ -253,24 +267,14 @@ class RentalBookingService implements OccupancyProvider
     }
 
     /**
-     * Claims the next `LOC-YYYY-NNNN` for the year of $now.
+     * A fresh `LOC-XXXXXX`. Uniqueness is the `UNIQUE` index's
+     * job, and `writeWithFreshReference()` draws again when it refuses one.
      *
-     * The number comes from a forward-only counter, never from a MAX() over
-     * the surviving bookings: a deleted or purged booking must not free its
-     * number, or two rentals end up quoting the same reference to two
-     * renters. The year is when the request was *made*, so a reference stays
-     * stable even for a stay in a later year.
-     *
-     * The read takes a row lock, so two concurrent submissions queue rather
-     * than race; the `UNIQUE` constraint on the column remains the backstop
-     * against a number spent by a row the counter never saw, and
-     * `writeWithFreshReference()` is what retries on it.
+     * @throws \RuntimeException when the random source is broken
      */
-    public function allocateReference(\DateTimeImmutable $now): string
+    public function allocateReference(): string
     {
-        $year = (int) $now->format('Y');
-
-        return sprintf('LOC-%04d-%04d', $year, $this->bookingRepository->claimNextReferenceSequence($year));
+        return $this->references->draw();
     }
 
     /**
@@ -386,6 +390,64 @@ class RentalBookingService implements OccupancyProvider
         );
 
         return $token;
+    }
+
+    /**
+     * A manager adds one of the « Autres adresses du locataire » (#720,
+     * step 5): mail from or to it is matched like the renter's own.
+     *
+     * @throws RentalException
+     */
+    public function addOtherRenterEmail(RentalBooking $booking, string $email, ?int $actorMemberId): void
+    {
+        $normalized = RentalBookingRepository::normalizeEmail($email);
+        if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
+            throw new RentalException("Cette adresse e-mail n'est pas valide.");
+        }
+        if ($this->bookingRepository->isAddressOfBooking($booking, $normalized)) {
+            throw new RentalException('Cette adresse est déjà celle du locataire pour cette réservation.');
+        }
+        if (!$this->bookingRepository->addRenterEmail($booking->id, $normalized)) {
+            throw new RentalException("L'adresse n'a pas pu être ajoutée.");
+        }
+
+        $this->bookingAudit?->record(
+            $booking->id,
+            BookingAudit::OTHER_EMAIL_CHANGED,
+            null,
+            $normalized,
+            null,
+            $actorMemberId
+        );
+    }
+
+    /**
+     * A manager removes one of them — typed in by hand or « ajoutée
+     * automatiquement ». The messages already filed stay where they are;
+     * only the next ones are no longer matched through it.
+     *
+     * @throws RentalException
+     */
+    public function removeOtherRenterEmail(RentalBooking $booking, int $id, ?int $actorMemberId): void
+    {
+        $removed = null;
+        foreach ($this->bookingRepository->otherRenterEmails($booking->id) as $other) {
+            if ($other->id === $id) {
+                $removed = $other;
+            }
+        }
+        if ($removed === null || !$this->bookingRepository->removeRenterEmail($booking->id, $id)) {
+            throw new RentalException("Cette adresse n'appartient pas à cette réservation.");
+        }
+
+        $this->bookingAudit?->record(
+            $booking->id,
+            BookingAudit::OTHER_EMAIL_CHANGED,
+            $removed->email,
+            null,
+            null,
+            $actorMemberId
+        );
     }
 
     /**

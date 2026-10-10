@@ -16,7 +16,6 @@ use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterConsumption;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
@@ -127,8 +126,13 @@ class RentalStayService
         \DateTimeImmutable $readAt,
         ?int $fileId,
         ?string $comment,
-        ?int $actorMemberId
+        ?int $actorMemberId,
+        bool $arrivalTickedByHand = false
     ): void {
+        // A reading belongs to its inventory (#708, IT-17): frozen with it
+        // once validated, and the departure one waits for the arrival.
+        $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+
         $meter = $this->stayRepository->findMeter($meterId);
         // The asset check is the guard that matters: a meter id alone must
         // not let a manager of one asset write onto another's booking.
@@ -145,7 +149,7 @@ class RentalStayService
             throw new RentalException('Un index de compteur ne peut pas être négatif.');
         }
 
-        $this->stayRepository->saveReading(
+        $saved = $this->stayRepository->saveReading(
             $booking->id,
             $meterId,
             $phase,
@@ -155,6 +159,11 @@ class RentalStayService
             $comment,
             $actorMemberId
         );
+        if (!$saved) {
+            // Validated by someone else since the check above — the write
+            // itself refused it — or a correction that changed nothing.
+            $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+        }
 
         $this->bookingAudit->record(
             $booking->id,
@@ -306,8 +315,8 @@ class RentalStayService
      *         kind: InventoryKind,
      *         expected_count: ?int,
      *         sort_order: int,
-     *         arrival_state: InventoryState,
-     *         departure_state: InventoryState,
+     *         arrival_value: ?string,
+     *         departure_value: ?string,
      *         arrival_note: ?string,
      *         departure_note: ?string
      *     }
@@ -319,22 +328,137 @@ class RentalStayService
     }
 
     /**
+     * Whether this asset's inventories are kept on the site (#708, IT-17):
+     * it has items to check or meters to read. Without either, its
+     * walk-throughs are ticked by hand, like an inventory kept elsewhere.
+     */
+    public function keepsInventory(int $assetId): bool
+    {
+        return $this->inventoryTemplateFor($assetId) !== [] || $this->metersFor($assetId) !== [];
+    }
+
+    /**
+     * The same question for one booking, read from what that booking will
+     * actually be walked against: its own checklist once copied at the
+     * confirmation (the asset's template may have changed since, either
+     * way), the template before then; the asset's meters either way, since
+     * meters are read live rather than copied. What the page, the
+     * dashboard's steps, the reminders and the validation all agree on.
+     */
+    public function keepsInventoryFor(RentalBooking $booking): bool
+    {
+        $lines = $this->stayRepository->isInventorySnapshotted($booking->id)
+            ? $this->inventoryFor($booking->id)
+            : $this->inventoryTemplateFor($booking->assetId);
+
+        return $lines !== [] || $this->metersFor($booking->assetId) !== [];
+    }
+
+    /**
+     * The phases validated on this booking (#708, IT-17), keyed by phase.
+     *
+     * @return array<string, array{validated_at: \DateTimeImmutable, validated_by_member_id: ?int, document_id: ?int}>
+     */
+    public function inventoryValidations(int $bookingId): array
+    {
+        return $this->stayRepository->findInventoryValidations($bookingId);
+    }
+
+    /**
+     * What was found on one line (#708, IT-17): the value, which IS the
+     * check, and the note beside it.
+     *
+     * Refused on a phase already validated — the renter holds its PDF —
+     * and on the departure while the arrival is neither validated nor
+     * ticked by hand: the departure is read against the arrival.
+     *
      * @throws RentalException
      */
-    public function setInventoryState(
+    public function setInventoryValue(
         RentalBooking $booking,
         int $inventoryId,
         ReadingPhase $phase,
-        InventoryState $state,
-        ?string $note
+        string $rawValue,
+        ?string $note,
+        bool $arrivalTickedByHand = false
     ): void {
         // A checklist row id alone must not let a manager write onto
         // another booking's inventory.
-        if ($this->stayRepository->findInventoryBookingId($inventoryId) !== $booking->id) {
+        $line = null;
+        foreach ($this->inventoryFor($booking->id) as $row) {
+            if ($row['id'] === $inventoryId) {
+                $line = $row;
+            }
+        }
+        if ($line === null) {
             throw new RentalException("Cet élément n'appartient pas à cette réservation.");
         }
 
-        $this->stayRepository->setInventoryState($inventoryId, $phase, $state, $note);
+        $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+
+        try {
+            $value = $line['kind']->parseValue($rawValue);
+        } catch (\InvalidArgumentException $e) {
+            throw new RentalException($line['label'] . ' : ' . $e->getMessage());
+        }
+
+        if (!$this->stayRepository->setInventoryValue($inventoryId, $phase, $value, $note)) {
+            // Validated by someone else since the check above — the write
+            // itself refused it — or a save that changed nothing.
+            $this->assertPhaseOpen($booking->id, $phase, $arrivalTickedByHand);
+        }
+    }
+
+    /**
+     * @throws RentalException
+     */
+    public function assertPhaseOpen(int $bookingId, ReadingPhase $phase, bool $arrivalTickedByHand = false): void
+    {
+        $validations = $this->inventoryValidations($bookingId);
+        if (isset($validations[$phase->value])) {
+            throw new RentalException(
+                "L'état des lieux " . ($phase === ReadingPhase::ARRIVAL ? "d'entrée" : 'de sortie')
+                . ' est validé et envoyé au locataire : il ne se modifie plus.'
+            );
+        }
+        // An arrival ticked by hand was never validated itself, but the
+        // departure's PDF was read against it: frozen with that PDF.
+        foreach ($phase->frozenBy() as $later) {
+            if ($later !== $phase && isset($validations[$later->value])) {
+                throw new RentalException(
+                    "L'état des lieux de sortie est validé et envoyé au locataire : celui d'entrée, sur lequel "
+                    . 'il se lit, ne se modifie plus.'
+                );
+            }
+        }
+        if ($phase === ReadingPhase::DEPARTURE
+            && !isset($validations[ReadingPhase::ARRIVAL->value])
+            && !$arrivalTickedByHand
+        ) {
+            throw new RentalException("L'état des lieux de sortie commence une fois celui d'entrée validé.");
+        }
+    }
+
+    /**
+     * Freezes a phase (#708, IT-17). False when it already was.
+     */
+    public function recordInventoryValidation(
+        RentalBooking $booking,
+        ReadingPhase $phase,
+        \DateTimeImmutable $at,
+        ?int $actorMemberId
+    ): bool {
+        return $this->stayRepository->recordInventoryValidation($booking->id, $phase, $at, $actorMemberId);
+    }
+
+    public function attachInventoryDocument(RentalBooking $booking, ReadingPhase $phase, int $documentId): void
+    {
+        $this->stayRepository->setInventoryValidationDocument($booking->id, $phase, $documentId);
+    }
+
+    public function forgetInventoryValidation(RentalBooking $booking, ReadingPhase $phase): void
+    {
+        $this->stayRepository->forgetInventoryValidation($booking->id, $phase);
     }
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────
@@ -354,6 +478,17 @@ class RentalStayService
             throw new RentalException('Décrivez ce qui a été constaté.');
         }
 
+        // Observed during the stay, until the departure inventory closes
+        // it (#708, IT-17); deciding one stays possible after, since that
+        // is a billing decision, not an observation.
+        $closed = new RentalException(
+            "L'état des lieux de sortie est validé : un incident ne se constate plus. Ceux déjà constatés se "
+            . 'tranchent toujours.'
+        );
+        if (isset($this->inventoryValidations($booking->id)[ReadingPhase::DEPARTURE->value])) {
+            throw $closed;
+        }
+
         if ($proposedAmountCents !== null && $proposedAmountCents < 0) {
             throw new RentalException('Un montant ne peut pas être négatif.');
         }
@@ -365,6 +500,11 @@ class RentalStayService
             $fileId,
             $actorMemberId
         );
+        if ($id === null) {
+            // Validated by someone else since the check above: the insert
+            // itself refused it.
+            throw $closed;
+        }
 
         // Amount and ids only. The description is encrypted precisely
         // because it is about a renter's group (SECURITY.md §5).

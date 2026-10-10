@@ -1,0 +1,28 @@
+{#
+  The hold that waits for the renter's signed copy ends soon, and no copy
+  came back (#708, IT-16). Said once: without it their dates would free
+  themselves without them ever knowing.
+#}
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 20px;font-size:20px;line-height:1.3;color:#212529;">Votre contrat signé est attendu</h2>
+    <p style="margin:0 0 16px;">Bonjour {{ renter_name }},</p>
+    <p style="margin:0 0 16px;">
+        Nous n'avons pas encore reçu votre copie signée du contrat pour la location
+        <strong>{{ reference }}</strong> ({{ asset_name }}), du {{ arrival_date }} au {{ departure_date }}.
+    </p>
+    <p style="margin:0 0 16px;">
+        {% if hold_until %}Vos dates restent bloquées jusqu'au <strong>{{ hold_until }}</strong>. Passé
+        cette date, elles pourront être proposées à quelqu'un d'autre.{% else %}Sans elle, vos dates
+        pourront être proposées à quelqu'un d'autre.{% endif %} Déposez votre copie signée depuis votre
+        page de suivi : un PDF, un scan ou une photo lisible de chaque page suffit.
+    </p>
+    {% if tracking_url %}
+        <p style="margin:24px 0;text-align:center;">
+            <a href="{{ tracking_url }}"
+               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+                Déposer ma copie signée
+            </a>
+        </p>
+    {% endif %}
+{% endblock %}

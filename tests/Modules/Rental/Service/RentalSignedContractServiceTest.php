@@ -159,7 +159,7 @@ class RentalSignedContractServiceTest extends TestCase
     {
         $created = $this->bookingRepository->create(
             $this->assetId,
-            'LOC-2027-0042',
+            'LOC-K7Q2M4',
             '2027-07-01',
             '2027-07-04',
             1,
@@ -390,6 +390,36 @@ class RentalSignedContractServiceTest extends TestCase
      * The renter's pages, kept, and ONE page added at the end — never a
      * signature placed on a page whose layout nobody here can know.
      */
+    /**
+     * A copy signed from a contract the booking has outgrown (#708, IT-20)
+     * is answered by nobody — a page opened before the change still posts
+     * its id, and a countersignature would file a contract on void terms.
+     */
+    public function testAReplacedCopyCanNeitherBeCountersignedNorRefused(): void
+    {
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy($booking, $this->asset(), $this->storedFile(self::twoPagePdf(), 'pdf', 'application/pdf'));
+        $account = $this->account();
+        $this->signatures->save($account, self::signaturePng(), new \DateTimeImmutable());
+        $this->documentRepository->markSuperseded([$copy->id], new \DateTimeImmutable());
+
+        try {
+            $this->service->countersign($booking, $this->asset(), $copy->id, $account, null, 'Xavier Dubois', new \DateTimeImmutable());
+            $this->fail('a replaced copy was countersigned');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('remplacée', $e->getMessage());
+        }
+        try {
+            $this->service->refuseCopy($booking, $this->asset(), $copy->id, 'Illisible.', null, new \DateTimeImmutable());
+            $this->fail('a replaced copy was refused');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('remplacée', $e->getMessage());
+        }
+
+        $this->assertNull($this->service->finalContract($booking->id));
+        $this->assertSame([], $this->mails);
+    }
+
     public function testCountersigningAPdfKeepsItsPagesAndAddsOne(): void
     {
         $booking = $this->booking();
@@ -433,7 +463,7 @@ class RentalSignedContractServiceTest extends TestCase
         $copy = $this->service->receiveCopy($mine, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
         $created = $this->bookingRepository->create(
             $this->assetId,
-            'LOC-2027-0043',
+            'LOC-K7Q2M5',
             '2027-08-01',
             '2027-08-04',
             1,

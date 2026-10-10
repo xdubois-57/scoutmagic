@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques.",
-  "version": "1.37.0",
+  "version": "1.45.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -195,64 +195,37 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/courrier/rattacher",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageAttach",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
       "path": "/mes-locations/courrier/detacher",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageDetach",
+      "action": "detachMessage",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/mes-locations/courrier/ecarter",
+      "path": "/mes-locations/courrier/adresse-ajouter",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageSetAside",
+      "action": "addOtherRenterEmail",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/mes-locations/courrier/reprendre",
+      "path": "/mes-locations/courrier/adresse-retirer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageRestore",
+      "action": "removeOtherRenterEmail",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/mes-locations/courrier/proposition/confirmation",
+      "path": "/mes-locations/courrier/renvoyer",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageConfirm",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/courrier/proposition/rejet",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageReject",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
-      "path": "/mes-locations/courrier/relancer",
-      "method": "POST",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "triageReanalyze",
+      "action": "resendEmail",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -459,19 +432,28 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/releve",
+      "path": "/mes-locations/etat-des-lieux/ligne",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "recordReading",
+      "action": "saveInventoryLine",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
     },
     {
-      "path": "/mes-locations/inventaire",
+      "path": "/mes-locations/etat-des-lieux/valider",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "recordInventory",
+      "action": "validateInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/releve",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "recordReading",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -585,21 +567,6 @@
       }
     },
     {
-      "path": "/mes-locations/{slug}/reservations/{id}/sejour",
-      "method": "GET",
-      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
-      "action": "stay",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": "",
-      "breadcrumb": {
-        "label": "Séjour",
-        "parents": [
-          "Espace membres"
-        ]
-      }
-    },
-    {
       "path": "/mes-locations/{slug}/reservations/{id}/document/{type}",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -660,6 +627,21 @@
       }
     },
     {
+      "path": "/mes-locations/{slug}/reservations/{id}/modifications",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingChanges",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Modifications",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
       "path": "/mes-locations/{slug}/reservations/{id}/finances",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -684,6 +666,36 @@
       "label": "",
       "breadcrumb": {
         "label": "Documents",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/etat-des-lieux",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingInventory",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "État des lieux",
+        "parents": [
+          "Espace membres"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}/facture",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookingInvoice",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Facture",
         "parents": [
           "Espace membres"
         ]
@@ -719,6 +731,27 @@
         "label": "Biens à louer",
         "parents": [
           "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/admin/locations/nouveau",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "newAsset",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Ajouter un bien",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Biens à louer",
+            "path": "/admin/locations"
+          }
         ]
       }
     },
@@ -793,6 +826,27 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
+    },
+    {
+      "path": "/admin/locations/{id}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Bien",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Biens à louer",
+            "path": "/admin/locations"
+          }
+        ]
+      }
     },
     {
       "path": "/mes-locations/{slug}/reglages/tarif",
@@ -1220,8 +1274,8 @@
       "key": "reminder_contract_missing_days",
       "default_value": "14",
       "type": "number",
-      "label": "Contrat non établi — délai (jours)",
-      "description": "Nombre de jours avant le séjour à partir desquels un séjour sans contrat est signalé. Le rappel est dit une seconde fois lorsqu'il ne reste plus que trois jours ; cette seconde fois se déduit du délai réglé ici, de sorte qu'un délai court ne fasse pas tomber les deux envois l'un sur l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+      "label": "Copie signée du contrat non reçue — délai (jours)",
+      "description": "Nombre de jours avant le séjour à partir desquels une réservation dont la copie signée du contrat n'est pas revenue est signalée. Le rappel est dit une seconde fois lorsqu'il ne reste plus que trois jours ; cette seconde fois se déduit du délai réglé ici, de sorte qu'un délai court ne fasse pas tomber les deux envois l'un sur l'autre. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
     },
     {
       "key": "reminder_arrival_inventory_days",
@@ -1264,6 +1318,13 @@
       "type": "number",
       "label": "Informations pratiques au locataire — délai (jours)",
       "description": "Nombre de jours avant le séjour pour envoyer au locataire les horaires, les clés et les contacts. C'est le seul rappel qui s'adresse au locataire, et il part par email : un locataire n'a pas de compte sur le site. Dit une seule fois. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
+    },
+    {
+      "key": "reminder_signed_copy_due_days",
+      "default_value": "3",
+      "type": "number",
+      "label": "Copie signée attendue du locataire — délai (jours)",
+      "description": "Nombre de jours avant la fin du blocage des dates pour rappeler au locataire de déposer sa copie signée du contrat, s'il ne l'a pas encore fait. Il part par e-mail, une seule fois : sans lui, ses dates se libéreraient sans qu'il en soit prévenu. Un bien peut donner sa propre valeur, ou désactiver ce rappel, dans ses réglages."
     }
   ],
   "cookies": [],
@@ -1300,9 +1361,33 @@
       }
     },
     {
+      "id": "rental.new_message",
+      "label": "Nouveau message du locataire",
+      "description": "Un e-mail reçu vient d'être rattaché à une réservation d'un bien que vous gérez. La notification mène à la page Courrier de la réservation.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
       "id": "rental.signed_contract_received",
       "label": "Contrat signé reçu",
       "description": "Le locataire a déposé sa copie signée du contrat sur sa page de suivi : elle attend votre vérification et votre contresignature.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "rental.change_request",
+      "label": "Demande de modification reçue",
+      "description": "Un locataire demande à modifier sa réservation — d'autres dates, un autre nombre de participants, ou son annulation. Elle mène à la page « Modifications » de la réservation.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {
@@ -1361,8 +1446,8 @@
     },
     {
       "id": "rental.contract_missing",
-      "label": "Contrat non établi",
-      "description": "Le séjour approche et aucun contrat n'a encore été établi.",
+      "label": "Copie signée du contrat non reçue",
+      "description": "Le séjour approche et la copie signée du contrat n'est pas encore revenue.",
       "group": "Locations",
       "role_min": "identified",
       "channels": {
@@ -1442,32 +1527,20 @@
         "push": "default_on",
         "email": "off"
       }
-    },
-    {
-      "id": "rental.mail_proposition",
-      "label": "Message reçu à rattacher à une réservation",
-      "description": "Un e-mail reçu pourrait concerner une réservation d'un bien que vous gérez : le site n'a pas tranché et attend votre décision sur la réservation.",
-      "group": "Locations",
-      "role_min": "identified",
-      "channels": {
-        "in_app": "default_on",
-        "push": "default_on",
-        "email": "off"
-      }
     }
   ],
   "emails": [
     {
       "id": "rental.acknowledgement",
       "label": "Accusé de réception d'une demande de location",
-      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi.",
+      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre demande de location",
       "template": "@rental/email/acknowledgement.html.twig",
       "variables": [
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1504,7 +1577,7 @@
     {
       "id": "rental.decision",
       "label": "Réponse à une demande de location",
-      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande. Sept décisions passent par cet email (acceptée, refusée, proposition, précision demandée, modification acceptée ou refusée, annulation) : le sujet livré est celui de la décision. La référence de la réservation est ajoutée automatiquement devant, et ne peut pas être retirée — c'est elle qui rattache les réponses du demandeur à sa location.",
+      "description": "Envoyé au demandeur quand les gestionnaires acceptent ou refusent sa demande. Sept décisions passent par cet email (acceptée, refusée, proposition, précision demandée, modification acceptée ou refusée, annulation) : le sujet livré est celui de la décision. La référence de la réservation est ajoutée automatiquement devant, et ne peut pas être retirée — c'est elle qui rattache les réponses du demandeur à sa location. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "{{ decision_subject }}",
       "template": "@rental/email/decision.html.twig",
       "variables": [
@@ -1516,7 +1589,7 @@
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1563,7 +1636,7 @@
     {
       "id": "rental.document",
       "label": "Envoi d'un document de location",
-      "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe.",
+      "description": "Envoyé au demandeur avec un contrat, une facture ou un décompte en pièce jointe. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "{{ document_subject }}",
       "template": "@rental/email/document.html.twig",
       "variables": [
@@ -1580,7 +1653,56 @@
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        }
+      ]
+    },
+    {
+      "id": "rental.contract",
+      "label": "Envoi du contrat à signer",
+      "description": "Envoyé au demandeur avec le contrat en pièce jointe : il le signe et dépose sa copie sur sa page de suivi avant la fin du blocage des dates. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
+      "default_subject": "{{ document_subject }}",
+      "template": "@rental/email/contract.html.twig",
+      "variables": [
+        {
+          "name": "document_subject",
+          "label": "Sujet selon la version envoyée",
+          "example": "Contrat v1"
+        },
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
+        },
+        {
+          "name": "hold_until",
+          "label": "Fin du blocage des dates",
+          "example": "28/05/2027"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1607,7 +1729,7 @@
     {
       "id": "rental.copy_refused",
       "label": "Copie signée du contrat refusée",
-      "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif.",
+      "description": "Envoyé au demandeur quand un gestionnaire refuse la copie signée qu'il a déposée, avec le motif. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre copie signée du contrat n'a pas pu être acceptée",
       "template": "@rental/email/copy_refused.html.twig",
       "variables": [
@@ -1624,7 +1746,7 @@
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1651,7 +1773,7 @@
     {
       "id": "rental.signed_contract",
       "label": "Contrat signé par les deux parties",
-      "description": "Envoyé au demandeur avec le contrat contresigné par l'unité en pièce jointe.",
+      "description": "Envoyé au demandeur avec le contrat contresigné par l'unité en pièce jointe. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre contrat signé par les deux parties",
       "template": "@rental/email/signed_contract.html.twig",
       "variables": [
@@ -1663,7 +1785,7 @@
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1690,14 +1812,14 @@
     {
       "id": "rental.practical_info",
       "label": "Informations pratiques avant le séjour",
-      "description": "Envoyé au demandeur quelques jours avant son arrivée.",
+      "description": "Envoyé au demandeur quelques jours avant son arrivée. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Informations pratiques avant votre séjour",
       "template": "@rental/email/practical_info.html.twig",
       "variables": [
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",
@@ -1737,16 +1859,60 @@
       ]
     },
     {
+      "id": "rental.signed_copy_reminder",
+      "label": "Rappel de la copie signée du contrat",
+      "description": "Envoyé une fois au demandeur, peu avant la fin du blocage des dates, quand sa copie signée du contrat n'est pas encore arrivée. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
+      "default_subject": "Votre contrat signé est attendu",
+      "template": "@rental/email/signed_copy_reminder.html.twig",
+      "variables": [
+        {
+          "name": "tracking_url",
+          "label": "Lien vers la page de suivi",
+          "example": "https://exemple.be/locations/suivi/42/…"
+        },
+        {
+          "name": "hold_until",
+          "label": "Fin du blocage des dates",
+          "example": "28/05/2027"
+        },
+        {
+          "name": "reference",
+          "label": "Référence de la réservation",
+          "example": "LOC-K7Q2M4"
+        },
+        {
+          "name": "asset_name",
+          "label": "Nom du bien",
+          "example": "Ferme de La Hulpe"
+        },
+        {
+          "name": "renter_name",
+          "label": "Nom du demandeur",
+          "example": "Camille Dupont"
+        },
+        {
+          "name": "arrival_date",
+          "label": "Date d'arrivée",
+          "example": "14/08/2027"
+        },
+        {
+          "name": "departure_date",
+          "label": "Date de départ",
+          "example": "17/08/2027"
+        }
+      ]
+    },
+    {
       "id": "rental.tracking_link",
       "label": "Nouveau lien de suivi",
-      "description": "Envoyé au demandeur quand son lien de suivi est régénéré, l'ancien cessant alors de fonctionner.",
+      "description": "Envoyé au demandeur quand son lien de suivi est régénéré, l'ancien cessant alors de fonctionner. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
       "default_subject": "Votre nouveau lien de suivi",
       "template": "@rental/email/tracking_link.html.twig",
       "variables": [
         {
           "name": "reference",
           "label": "Référence de la réservation",
-          "example": "LOC-2027-0042"
+          "example": "LOC-K7Q2M4"
         },
         {
           "name": "asset_name",

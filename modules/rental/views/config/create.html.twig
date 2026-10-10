@@ -1,0 +1,44 @@
+{% extends 'base.html.twig' %}
+{% block title %}Ajouter un bien — {{ site_name }}{% endblock %}
+{#
+  Creating an asset, on a page of its own (issue #748): the form used to sit
+  at the bottom of the park page, under one asset's sections and the
+  module's settings. One primary action, and after it the new asset's own
+  page.
+#}
+{% block content %}
+    <div class="page-medium">
+        {% include 'partials/page_header.html.twig' with {
+            title: 'Ajouter un bien',
+            subtitle: "Ses règles de réservation, son tarif et son acompte se règlent ensuite dans son
+                espace de gestion, par ses gestionnaires ou par vous.",
+        } only %}
+
+        <div class="card">
+            <div class="card-body">
+                <form method="post" action="/admin/locations/create">
+                    {{ csrf_field()|raw }}
+                    {% include '@rental/config/_asset_fields.html.twig' with {
+                        asset: null,
+                        type_suggestions: type_suggestions,
+                        field_prefix: 'new',
+                    } %}
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-primary">Créer le bien</button>
+                        <a href="/admin/locations" class="btn btn-outline-secondary">Annuler</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="{{ asset('/assets/js/select-explanation.js') }}"></script>
+    {# Suggests a billing unit matching the chosen type (a hall → per person
+       per night, a trailer → per full day). Without it the form keeps its
+       server-rendered default. #}
+    <script type="module" src="{{ asset('/assets/js/rental-asset-defaults.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ dialog.title }} — {{ site_name }}{% endblock %}
+{% block content %}
+{#
+  The confirmation of a save, rendered by the server (issue #796, D7): what
+  a browser without reenrollment-config.js is shown, and what anybody sees
+  when the plan moved between the question and the answer. Same wording as
+  the script's dialog — both read ReenrollmentSavePlanPresenter::dialog().
+
+  The form's fields travel back unchanged, with the plan's fingerprint:
+  save() writes only if the plan is still the one shown here.
+#}
+<div class="page-medium">
+{% include 'partials/page_header.html.twig' with {
+    title: dialog.title,
+    subtitle: "Rien n'est enregistré tant que vous ne confirmez pas.",
+} only %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        {% if stale %}
+            <div class="alert alert-warning" role="alert">
+                La situation a changé depuis la question : rien n'a été enregistré. Relisez ce qui va se passer
+                maintenant avant de confirmer.
+            </div>
+        {% endif %}
+
+        {% if dialog.campaign %}
+            <div class="bg-body-tertiary rounded px-3 py-2 mb-3">
+                <strong>{{ dialog.campaign.title }}</strong>
+                <div class="small text-body-secondary mt-1">{{ dialog.campaign.detail }}</div>
+            </div>
+        {% endif %}
+
+        <h2 class="h6 text-body-secondary">Ce qui change</h2>
+        <ul>
+            {% for change in dialog.changes %}
+                <li>{{ change }}</li>
+            {% endfor %}
+        </ul>
+
+        {% if dialog.mail %}
+            <div class="alert alert-warning mb-0">
+                <strong>{{ dialog.mail.headline }}</strong>
+                <ul class="mb-1 mt-1">
+                    {% for line in dialog.mail.lines %}
+                        <li>{{ line }}</li>
+                    {% endfor %}
+                </ul>
+                <div class="small">{{ dialog.mail.note }}</div>
+            </div>
+        {% else %}
+            <div class="alert alert-success mb-0">
+                <strong>{{ dialog.none.headline }}</strong>
+                <div class="small">{{ dialog.none.reason }}</div>
+            </div>
+        {% endif %}
+
+        <form method="post" action="/config/reinscription/reglages" class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+            {{ csrf_field()|raw }}
+            {% for name, value in fields %}
+                <input type="hidden" name="{{ name }}" value="{{ value }}">
+            {% endfor %}
+            <input type="hidden" name="plan_fingerprint" value="{{ fingerprint }}">
+            <a href="/config/reinscription/reglages" class="btn btn-outline-secondary">Annuler</a>
+            <button type="submit" class="btn {{ dialog.sends ? 'btn-danger' : 'btn-primary' }}">{{ dialog.confirm_label }}</button>
+        </form>
+    </div>
+</div>
+</div>
+{% endblock %}

@@ -71,7 +71,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testAnIntendantWithNoTieToTheBusinessObjectIsRefused(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: false));
 
         // The whole point: the role floor is satisfied, and it is still no.
@@ -81,7 +81,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testTheManagerOfTheBusinessObjectIsAllowed(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: true));
 
         $this->assertTrue($this->registry->isAllowed($messageId, Role::INTENDANT, []));
@@ -90,7 +90,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testOneConsumerSayingYesIsEnoughWhenSeveralAreAssociated(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->messages->addLink($messageId, 'finance', 'ACC-7', LinkOrigin::SENDER);
         $this->consumers->register($this->consumer('rental', answers: false));
         $this->consumers->register($this->consumer('finance', answers: true));
@@ -101,13 +101,13 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testTheQuestionIsPutWithTheAssociationsOwnBusinessReference(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $consumer = $this->consumer('rental', answers: true);
         $this->consumers->register($consumer);
 
         $this->registry->isAllowed($messageId, Role::INTENDANT, [12, 34]);
 
-        $this->assertSame([['LOC-2027-0042', [12, 34], 'intendant']], $consumer->readQuestions);
+        $this->assertSame([['LOC-K7Q2M4', [12, 34], 'intendant']], $consumer->readQuestions);
     }
 
     // ── The two answers decided here rather than delegated ──────────────
@@ -127,7 +127,7 @@ class InboundMessageAccessRegistryTest extends TestCase
         // attachment visible on their screen but refusing to open would be
         // a broken page, not a protection.
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: false));
 
         $this->assertTrue($this->registry->isAllowed($messageId, Role::ADMIN, []));
@@ -138,7 +138,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testAConsumerThatThrowsIsARefusalRatherThanAGrant(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: false, throws: true));
 
         $this->assertFalse($this->registry->isAllowed($messageId, Role::INTENDANT, []));
@@ -177,7 +177,7 @@ class InboundMessageAccessRegistryTest extends TestCase
         $this->assertSame(0, $built);
 
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
         $this->assertTrue($this->registry->isAllowed($messageId, Role::INTENDANT, []));
         $this->assertTrue($this->registry->isAllowed($messageId, Role::INTENDANT, []));
@@ -196,7 +196,7 @@ class InboundMessageAccessRegistryTest extends TestCase
         });
 
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
 
         $this->assertFalse($this->registry->isAllowed($messageId, Role::INTENDANT, []));
         $this->assertSame(0, $built);
@@ -207,7 +207,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testFileAccessGuardRefusesTheAttachmentOfSomebodyElsesBooking(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: false));
 
         $files = new FileRepository($this->pdo);
@@ -248,7 +248,7 @@ class InboundMessageAccessRegistryTest extends TestCase
     public function testARefusedDownloadIsJournalledWithoutAnythingFromTheMessage(): void
     {
         $messageId = $this->storeMessage();
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::REFERENCE);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
         $this->consumers->register($this->consumer('rental', answers: false));
 
         $files = new FileRepository($this->pdo);
@@ -296,7 +296,7 @@ class InboundMessageAccessRegistryTest extends TestCase
         $this->assertStringContainsString('"file_id":' . $fileId, $context);
         $this->assertStringNotContainsString('contrat-signe-jeanne-martin', $context);
         $this->assertStringNotContainsString('jeanne@example.be', $context);
-        $this->assertStringNotContainsString('LOC-2027-0042', $context);
+        $this->assertStringNotContainsString('LOC-K7Q2M4', $context);
         $this->assertStringNotContainsString('Contrat', $context);
     }
 

@@ -99,7 +99,7 @@ class RentalVirtualEventProviderTest extends TestCase
     }
 
     private function createBooking(
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         ?int $assetId = null,
         BookingStatus $status = BookingStatus::CONFIRMED,
         ?\DateTimeImmutable $holdUntil = null
@@ -222,7 +222,7 @@ class RentalVirtualEventProviderTest extends TestCase
             'jeanne.martin@example.be',
             '+32 495 11 22 33',
             'Les Scouts de Nulle Part',
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
         ] as $secret) {
             $this->assertStringNotContainsString($secret, $serialized);
         }
@@ -289,7 +289,7 @@ class RentalVirtualEventProviderTest extends TestCase
             [$this->scoutYearId, $nextYearId]
         ));
 
-        $this->assertStringContainsString('LOC-2027-0001', (string) $withTheSet[0]->description);
+        $this->assertStringContainsString('LOC-A2B3C4', (string) $withTheSet[0]->description);
     }
 
     public function testAManagerOfTheAssetSeesTheDetail(): void
@@ -300,7 +300,7 @@ class RentalVirtualEventProviderTest extends TestCase
         $events = $this->collect($this->viewer('manager@test.be'));
 
         $this->assertSame('Local Saint-Georges — Les Scouts de Nulle Part', $events[0]->title);
-        $this->assertStringContainsString('LOC-2027-0001', (string) $events[0]->description);
+        $this->assertStringContainsString('LOC-A2B3C4', (string) $events[0]->description);
         $this->assertStringContainsString('Jeanne Martin', (string) $events[0]->description);
         $this->assertStringContainsString('20 participants', (string) $events[0]->description);
         $this->assertStringContainsString('/mes-locations/', (string) $events[0]->url);
@@ -324,7 +324,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         $this->makeUnitStaff('cheftaine@unite.test');
         $otherAssetId = $this->createAsset('Hangar', 'hangar');
-        $this->createBooking('LOC-2027-0002', $otherAssetId);
+        $this->createBooking('LOC-A2B3C5', $otherAssetId);
 
         $titles = array_map(
             static fn(VirtualEvent $event) => $event->title,
@@ -409,7 +409,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         // A request that comes to nothing must never have appeared.
         $this->createBooking(
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             null,
             BookingStatus::RECEIVED,
             (new \DateTimeImmutable())->modify('+2 days')
@@ -422,7 +422,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         $this->assetRepository->saveCalendarPublication($this->assetId, true, [self::CALENDAR_ID], PublishFrom::HOLD);
         $this->createBooking(
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             null,
             BookingStatus::RECEIVED,
             (new \DateTimeImmutable())->modify('+2 days')
@@ -447,7 +447,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         $this->assetRepository->saveCalendarPublication($this->assetId, true, [self::CALENDAR_ID], PublishFrom::HOLD);
         $this->createBooking(
-            'LOC-2027-0001',
+            'LOC-A2B3C4',
             null,
             BookingStatus::RECEIVED,
             (new \DateTimeImmutable())->modify('-1 hour')
@@ -462,7 +462,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         // A subscriber who already has it must be told it is off; dropping
         // it from the feed leaves it in their calendar forever.
-        $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $this->createBooking('LOC-A2B3C4', null, BookingStatus::CANCELLED);
 
         $events = $this->collect($this->viewer('nobody@test.be'));
 
@@ -472,7 +472,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testACancelledEventSerialisesAsCancelled(): void
     {
-        $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $this->createBooking('LOC-A2B3C4', null, BookingStatus::CANCELLED);
         $ics = (new IcsBuilder())->build('Animateurs', [], $this->collect($this->viewer('nobody@test.be')));
 
         $this->assertStringContainsString('STATUS:CANCELLED', $ics);
@@ -480,7 +480,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testACancelledEventCarriesAHigherSequenceSoClientsReplaceTheirCopy(): void
     {
-        $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $this->createBooking('LOC-A2B3C4', null, BookingStatus::CANCELLED);
 
         $this->assertSame(1, $this->collect($this->viewer('nobody@test.be'))[0]->sequence);
     }
@@ -490,7 +490,7 @@ class RentalVirtualEventProviderTest extends TestCase
         // Nothing was ever shown, so there is nothing to cancel — and
         // announcing a cancellation for it would disclose that somebody
         // asked.
-        $this->createBooking('LOC-2027-0001', null, BookingStatus::RECEIVED);
+        $this->createBooking('LOC-A2B3C4', null, BookingStatus::RECEIVED);
 
         $this->assertSame([], $this->collect($this->viewer('nobody@test.be')));
     }
@@ -538,7 +538,7 @@ class RentalVirtualEventProviderTest extends TestCase
         // The honest rendering of "we do not know the hour".
         $bare = $this->assetRepository->create('Terrain', 'Terrain', 'terrain', null, 1, null, null, null, true);
         $this->assetRepository->saveCalendarPublication($bare, true, [self::CALENDAR_ID], PublishFrom::CONFIRMATION);
-        $this->createBooking('LOC-2027-0002', $bare);
+        $this->createBooking('LOC-A2B3C5', $bare);
 
         $events = array_values(array_filter(
             $this->collect($this->viewer('nobody@test.be')),
@@ -582,14 +582,14 @@ class RentalVirtualEventProviderTest extends TestCase
             $this->createBooking('LOC-2027-01' . $i, $assetId);
             $this->blockRepository->create($assetId, '2027-07-20', '2027-07-22', null, null);
         }
-        $this->createBooking('LOC-2027-0001');
+        $this->createBooking('LOC-A2B3C4');
 
         // Counted through PDO's own statement construction: every read in
         // this path goes through prepare() or query().
         $before = $this->countQueriesForAWindow();
 
         // One asset only, for comparison.
-        $this->pdo->exec('DELETE FROM rental_bookings WHERE reference != "LOC-2027-0001"');
+        $this->pdo->exec('DELETE FROM rental_bookings WHERE reference != "LOC-A2B3C4"');
         $this->pdo->exec('DELETE FROM rental_blocks');
         $this->pdo->exec('DELETE FROM rental_assets WHERE id != ' . $this->assetId);
         $after = $this->countQueriesForAWindow();
@@ -890,7 +890,7 @@ class RentalVirtualEventProviderTest extends TestCase
         );
 
         $this->assertSame('Local Saint-Georges', $event->title);
-        $this->assertStringContainsString('LOC-2027-0001', (string) $event->description);
+        $this->assertStringContainsString('LOC-A2B3C4', (string) $event->description);
         $this->assertStringContainsString('Marc', (string) $event->description);
         $this->assertStringContainsString('+32 470 00 00 00', (string) $event->description);
         $this->assertStringContainsString('/locations/suivi/', (string) $event->url);
@@ -911,7 +911,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testACancelledBookingStillProducesAFeedRatherThanAnError(): void
     {
-        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $booking = $this->createBooking('LOC-A2B3C4', null, BookingStatus::CANCELLED);
         $asset = $this->assetRepository->findById($this->assetId);
         $this->assertNotNull($asset);
 
@@ -927,7 +927,7 @@ class RentalVirtualEventProviderTest extends TestCase
         // Published as CONFIRMED it reads, in the renter's own calendar,
         // exactly like the week they have been promised — and a refusal a
         // fortnight later leaves them having planned around it.
-        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::RECEIVED);
+        $booking = $this->createBooking('LOC-A2B3C4', null, BookingStatus::RECEIVED);
         $asset = $this->assetRepository->findById($this->assetId);
         $this->assertNotNull($asset);
 
@@ -940,7 +940,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testAConfirmedBookingIsPublishedAsConfirmed(): void
     {
-        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::CONFIRMED);
+        $booking = $this->createBooking('LOC-A2B3C4', null, BookingStatus::CONFIRMED);
         $asset = $this->assetRepository->findById($this->assetId);
         $this->assertNotNull($asset);
 
@@ -955,7 +955,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         // Cancelled wins: a subscriber who already has the event has to be
         // told it is off, not that it is undecided.
-        $booking = $this->createBooking('LOC-2027-0001', null, BookingStatus::CANCELLED);
+        $booking = $this->createBooking('LOC-A2B3C4', null, BookingStatus::CANCELLED);
         $asset = $this->assetRepository->findById($this->assetId);
         $this->assertNotNull($asset);
 

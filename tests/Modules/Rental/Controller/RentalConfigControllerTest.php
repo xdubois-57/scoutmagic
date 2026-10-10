@@ -385,37 +385,28 @@ class RentalConfigControllerTest extends TestCase
     {
         // The setup gap a visitor meets first: public, but priced by nobody.
         // Every estimate answers "Tarif sur demande" until the tariff is
-        // filled in, and this page is where a chief has to learn it.
-        $this->createAsset();
+        // filled in, and this page is where a chief has to learn it: a
+        // badge on the asset's line, the warning on its own page.
+        $assetId = $this->createAsset();
+        $controller = $this->controllerWithPricing();
 
-        $body = (string) $this->controllerWithPricing()
-            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
-            ->getBody();
-
-        $this->assertStringContainsString('Tarif manquant', $body);
-        $this->assertStringContainsString('encore aucun tarif', $body);
+        $this->assertStringContainsString('Tarif manquant', $this->listPage($controller));
+        $this->assertStringContainsString('encore aucun tarif', $this->assetPage($assetId, $controller));
     }
 
     /**
-     * The park page reads as facts, and offers to change them
+     * An asset's page reads as facts, and offers to change them
      * (design.md §1.9).
      *
-     * Five forms stood open at once — général, gestionnaires, compte,
+     * Five forms once stood open at once — général, gestionnaires, compte,
      * courrier, création — so five `btn-primary` competed on one screen.
-     * Only creating a bien is a creation action, which §7.4 keeps
-     * primary; every edit is a dialog now.
+     * Every edit is a dialog, and creating has its own page now (#748).
      */
-    public function testTheParkPageEditsThroughDialogsAndKeepsOneCreationPrimary(): void
+    public function testTheAssetPageEditsThroughDialogsAndHasNoPrimaryOutsideThem(): void
     {
-        $this->createAsset();
+        $assetId = $this->createAsset();
 
-        $body = (string) preg_replace(
-            '/\s+/',
-            ' ',
-            $this->controllerWithPricing()
-                ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
-                ->getBody()
-        );
+        $body = (string) preg_replace('/\s+/', ' ', $this->assetPage($assetId, $this->controllerWithPricing()));
 
         foreach (['#general-edit', '#gestionnaires-edit'] as $target) {
             $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
@@ -431,14 +422,13 @@ class RentalConfigControllerTest extends TestCase
             $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
         }
 
-        // Creating stays inline and stays the screen's one primary: it is
-        // the only submit outside a dialog.
+        // No submit outside a dialog is primary, and nothing here creates.
         $pageBody = substr($body, 0, strpos($body, '<div class="modal fade"') ?: strlen($body));
         $this->assertDoesNotMatchRegularExpression(
             '/<button[^>]*type="submit"[^>]*btn-primary/',
             $pageBody
         );
-        $this->assertStringContainsString('Créer le bien', $body);
+        $this->assertStringNotContainsString('/admin/locations/create', $body);
     }
 
     public function testArchivingAnAssetSaysWhatItCostsBeforeItHappens(): void
@@ -446,17 +436,15 @@ class RentalConfigControllerTest extends TestCase
         // « Archiver » sat in `btn-outline-warning` and fired on the first
         // click, right next to « Supprimer définitivement », which asked.
         // The louder-looking of the two was the one that never asked.
-        $this->createAsset();
+        $assetId = $this->createAsset();
 
-        $body = (string) $this->controllerWithPricing()
-            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
-            ->getBody();
-
-        $this->assertMatchesRegularExpression(
-            '#<form[^>]*action="/admin/locations/archive"[^>]*data-confirm="[^"]+"#s',
-            $body
-        );
-        $this->assertStringContainsString("Rien n'est supprimé.", $body);
+        foreach ([$this->listPage(), $this->assetPage($assetId)] as $body) {
+            $this->assertMatchesRegularExpression(
+                '#<form[^>]*action="/admin/locations/archive"[^>]*data-confirm="[^"]+"#s',
+                $body
+            );
+            $this->assertStringContainsString("Rien n'est supprimé.", $body);
+        }
     }
 
     public function testAPricedAssetIsNotFlagged(): void
@@ -468,24 +456,22 @@ class RentalConfigControllerTest extends TestCase
             new JournalService(new JournalRepository($this->pdo))
         ))->saveAssetPricing($assetId, 'per_night', 8000, null, null);
 
-        $body = (string) $this->controllerWithPricing()
-            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
-            ->getBody();
+        $controller = $this->controllerWithPricing();
 
-        $this->assertStringNotContainsString('Tarif manquant', $body);
-        $this->assertStringNotContainsString('encore aucun tarif', $body);
+        $this->assertStringNotContainsString('Tarif manquant', $this->listPage($controller));
+        $this->assertStringNotContainsString('encore aucun tarif', $this->assetPage($assetId, $controller));
     }
 
     /**
      * @param array<string, string> $body
      */
-    private function postCreate(array $body): void
+    private function postCreate(array $body): \Core\Http\Response
     {
         $body['_csrf_token'] = CsrfGuard::generateToken();
         $body['quantity'] ??= '1';
         $_POST = $body;
 
-        $this->controller->create(new Request('POST', '/admin/locations/create', [], $body, [], []), []);
+        return $this->controller->create(new Request('POST', '/admin/locations/create', [], $body, [], []), []);
     }
 
     private function billingUnitOf(string $name): string
@@ -554,10 +540,7 @@ class RentalConfigControllerTest extends TestCase
             )
         );
 
-        $body = (string) $controller->index(
-            new Request('GET', '/admin/locations', ['asset_id' => (string) $assetId], [], [], []),
-            []
-        )->getBody();
+        $body = $this->assetPage($assetId, $controller);
 
         $this->assertStringContainsString(
             "Ne peut pas être prévenu des demandes : n'a pas de compte sur le site",
@@ -581,6 +564,302 @@ class RentalConfigControllerTest extends TestCase
         $this->assertNotNull($grant);
         $this->assertTrue($grant->isActive);
         $this->assertTrue($grant->isRenterContact);
+    }
+
+    // ── The park as a list, an asset as a page (issue #748) ─────────────
+
+    private function listPage(?RentalConfigController $controller = null): string
+    {
+        return (string) ($controller ?? $this->controller)
+            ->index(new Request('GET', '/admin/locations', [], [], [], []), [])
+            ->getBody();
+    }
+
+    private function assetPage(int $assetId, ?RentalConfigController $controller = null): string
+    {
+        return (string) ($controller ?? $this->controller)
+            ->show(new Request('GET', '/admin/locations/' . $assetId, [], [], [], []), ['id' => (string) $assetId])
+            ->getBody();
+    }
+
+    private static function flat(string $html): string
+    {
+        return html_entity_decode((string) preg_replace('/\s+/', ' ', $html), ENT_QUOTES);
+    }
+
+    /**
+     * With no asset yet, the page says so, keeps « Ajouter un bien » in its
+     * header — the one primary action — and still shows the module's own
+     * settings under the empty list.
+     */
+    public function testAnEmptyParkSaysSoAndStillOffersCreationAndTheModuleSettings(): void
+    {
+        $body = self::flat($this->listPage());
+
+        $this->assertStringContainsString("Aucun bien n'est encore configuré.", $body);
+        $this->assertMatchesRegularExpression('#<a href="/admin/locations/nouveau" class="btn btn-primary[^"]*"#', $body);
+        $this->assertStringContainsString('Pour toutes les locations', $body);
+        $this->assertStringContainsString('Courrier entrant', $body);
+    }
+
+    /**
+     * One asset is still a list of one line — no picker, no page that
+     * quietly becomes that asset's page, no `?asset_id=`.
+     */
+    public function testASingleAssetIsAListOfOneLineLeadingToItsOwnPage(): void
+    {
+        $assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+
+        $body = $this->listPage();
+
+        $this->assertSame(1, substr_count($body, 'data-asset-row='));
+        $this->assertStringContainsString('href="/admin/locations/' . $assetId . '"', $body);
+        $this->assertStringNotContainsString('rental-asset-picker', $body);
+        $this->assertStringNotContainsString('asset_id=', $body);
+        // The asset's sections are on its own page, not here.
+        $this->assertStringNotContainsString('id="gestionnaires"', $body);
+        // Nor a creation form: « Ajouter un bien » leads to its own page.
+        $this->assertStringNotContainsString('action="/admin/locations/create"', $body);
+    }
+
+    /**
+     * Several assets: each its own line, the archived ones apart and badged,
+     * each line offering the life-cycle step it can take — and none of them
+     * offering a deletion, which stays on the asset's own page.
+     */
+    public function testEveryAssetHasALineAndTheArchivedOnesStandApart(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $tents = $this->createAsset('Tentes', 'tentes');
+        $old = $this->createAsset('Ancien local', 'ancien-local');
+        $this->assetRepository->setArchived($old, true);
+
+        $body = self::flat($this->listPage());
+
+        $this->assertSame(3, substr_count($body, 'data-asset-row='));
+        $active = substr($body, (int) strpos($body, 'data-active-assets'), (int) strpos($body, 'data-archived-assets') - (int) strpos($body, 'data-active-assets'));
+        $archived = substr($body, (int) strpos($body, 'data-archived-assets'));
+        foreach ([$hall, $tents] as $id) {
+            $this->assertStringContainsString('data-asset-row="' . $id . '"', $active);
+        }
+        $this->assertStringContainsString('data-asset-row="' . $old . '"', $archived);
+        $this->assertStringContainsString('Archivé', $archived);
+        $this->assertSame(2, substr_count($active, 'action="/admin/locations/archive"'));
+        $this->assertSame(1, substr_count($archived, 'action="/admin/locations/restore"'));
+        $this->assertStringNotContainsString('action="/admin/locations/delete"', $body);
+    }
+
+    public function testTheCreationPageHasItsFormAndOnePrimaryAction(): void
+    {
+        $body = (string) $this->controller
+            ->newAsset(new Request('GET', '/admin/locations/nouveau', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('action="/admin/locations/create"', $body);
+        $main = substr($body, (int) strpos($body, '<main'), (int) strpos($body, '</main>') - (int) strpos($body, '<main'));
+        $this->assertSame(1, preg_match_all('/class="btn btn-primary/', $main));
+        $this->assertStringContainsString('Créer le bien', $main);
+    }
+
+    /** After creating, the new asset's own page — not the list with a selection. */
+    public function testCreatingAnAssetLeadsToItsOwnPage(): void
+    {
+        $response = $this->postCreate(['name' => 'Remorque', 'asset_type' => 'Local']);
+
+        $stmt = $this->pdo->prepare('SELECT id FROM rental_assets WHERE name = ?');
+        $stmt->execute(['Remorque']);
+        $this->assertSame('/admin/locations/' . (int) $stmt->fetchColumn(), $response->getHeaders()['Location'] ?? null);
+    }
+
+    /** A refused creation comes back to the creation page, where the form is. */
+    public function testARefusedCreationComesBackToTheCreationPage(): void
+    {
+        $response = $this->postCreate(['name' => '   ', 'asset_type' => 'Local']);
+
+        $this->assertSame('/admin/locations/nouveau', $response->getHeaders()['Location'] ?? null);
+    }
+
+    /**
+     * Archiving from the list comes back to the list; from the asset's page,
+     * to that page. `from` is a fixed word, never a URL.
+     */
+    public function testALifeCycleStepComesBackWhereItWasTaken(): void
+    {
+        $assetId = $this->createAsset();
+
+        $fromList = $this->postLifecycle('archive', $assetId, 'list');
+        $this->assertSame('/admin/locations', $fromList->getHeaders()['Location'] ?? null);
+        $this->assertTrue($this->assetRepository->findById($assetId)?->isArchived);
+
+        $restored = $this->postLifecycle('restore', $assetId, 'list');
+        $this->assertSame('/admin/locations', $restored->getHeaders()['Location'] ?? null);
+        $this->assertFalse($this->assetRepository->findById($assetId)?->isArchived);
+
+        $fromPage = $this->postLifecycle('archive', $assetId, null);
+        $this->assertSame('/admin/locations/' . $assetId, $fromPage->getHeaders()['Location'] ?? null);
+
+        $forged = $this->postLifecycle('restore', $assetId, 'https://evil.example');
+        $this->assertSame('/admin/locations/' . $assetId, $forged->getHeaders()['Location'] ?? null);
+    }
+
+    /**
+     * The asset's page carries what belongs to it in the park — général,
+     * gestionnaires, compte, cycle de vie with deletion apart — and points
+     * to its managed space for what does not.
+     */
+    public function testTheAssetPageHoldsItsFourSections(): void
+    {
+        $assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+
+        $body = self::flat($this->assetPage($assetId));
+
+        foreach (['id="general"', 'id="gestionnaires"', 'id="compte"', 'id="cycle-de-vie"', 'id="suppression"'] as $section) {
+            $this->assertStringContainsString($section, $body, $section);
+        }
+        $this->assertStringContainsString('<title>Local Saint-Georges — Biens à louer', $body);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reglages"', $body);
+        // Without Finance, the section says so rather than offering nothing.
+        $this->assertStringContainsString("Le module « Finances » n'est pas actif sur ce site.", $body);
+        $this->assertStringNotContainsString('action="/admin/locations/compte"', $body);
+    }
+
+    public function testAnUnknownAssetIsNotFound(): void
+    {
+        $response = $this->controller->show(new Request('GET', '/admin/locations/999', [], [], [], []), ['id' => '999']);
+
+        $this->assertSame(404, $response->getStatusCode());
+        // The site's own 404 page, in French, not a bare "Not Found".
+        $this->assertStringContainsString('Page non trouvée', $response->getBody());
+    }
+
+    /** With Finance, the account is named on the page and picked in its dialog. */
+    public function testWithFinanceTheAssetPageOffersItsAccount(): void
+    {
+        $assetId = $this->createAsset();
+        $accounts = $this->createStub(\Modules\Finance\Api\FinanceAccountInterface::class);
+        $accounts->method('getConfiguredAccounts')->willReturn([
+            ['id' => 3, 'name' => 'Compte locations', 'iban' => 'BE68539007547034', 'holder_name' => null, 'section_id' => null],
+        ]);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $controller = new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService($this->assetRepository, new RentalSlugGenerator($this->assetRepository), $journal),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            new \Modules\Rental\Service\RentalPaymentService(
+                new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+                $journal,
+                $this->createStub(\Modules\Finance\Api\ExpectedReceivableInterface::class),
+                $this->createStub(\Modules\Finance\Api\StructuredCommunicationInterface::class),
+                null,
+                $accounts
+            )
+        );
+
+        $body = $this->assetPage($assetId, $controller);
+
+        $this->assertStringContainsString('action="/admin/locations/compte"', $body);
+        $this->assertStringContainsString('Compte locations', $body);
+    }
+
+    /**
+     * « Courrier entrant » lists the boxes in this module's scope and no
+     * others, asked of `inbound_mail` by consumer — never every box on the
+     * site, which would read as « Locations receives this ».
+     */
+    public function testInboundMailListsOnlyTheBoxesInTheRentalScope(): void
+    {
+        $inbound = new class implements \Modules\InboundMail\Api\InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            /** @var list<string> */
+            public array $askedFor = [];
+
+            public function listMailboxSummaries(): array
+            {
+                return [9 => ['name' => 'Camps', 'state' => 'OK', 'is_enabled' => true]];
+            }
+
+            public function listMailboxSummariesFor(string $consumerId): array
+            {
+                $this->askedFor[] = $consumerId;
+
+                return [
+                    4 => ['name' => 'Locations', 'state' => 'OK', 'is_enabled' => true],
+                    5 => ['name' => 'Unité partagée', 'state' => 'OK', 'is_enabled' => false],
+                ];
+            }
+        };
+
+        $body = self::flat(strip_tags($this->listPage($this->controllerWithInbound($inbound))));
+
+        $this->assertSame(['rental'], $inbound->askedFor);
+        $this->assertStringContainsString('Locations — OK', $body);
+        $this->assertStringContainsString('Unité partagée — OK, désactivée', $body);
+        $this->assertStringNotContainsString('Camps', $body);
+    }
+
+    /**
+     * No box in this module's scope is not « no box on the site »: the
+     * sentence says which one it is.
+     */
+    public function testNoBoxInTheRentalScopeIsSaidAsSuch(): void
+    {
+        $inbound = new class implements \Modules\InboundMail\Api\InboundMailInterface {
+            use \Tests\Modules\InboundMail\InertInboundMail;
+
+            public function listMailboxSummaries(): array
+            {
+                return [9 => ['name' => 'Camps', 'state' => 'OK', 'is_enabled' => true]];
+            }
+        };
+
+        $body = self::flat($this->listPage($this->controllerWithInbound($inbound)));
+
+        $this->assertStringContainsString("Aucune boîte n'est reliée au module Locations.", $body);
+        $this->assertStringNotContainsString('Camps', $body);
+    }
+
+    /** Without the module, the page says Locations works without it. */
+    public function testWithoutInboundMailThePageSaysLocationsWorksWithoutIt(): void
+    {
+        $this->assertStringContainsString(
+            "Le module « Courrier entrant » n'est pas actif sur ce site.",
+            self::flat($this->listPage())
+        );
+    }
+
+    private function controllerWithInbound(\Modules\InboundMail\Api\InboundMailInterface $inbound): RentalConfigController
+    {
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        return new RentalConfigController(
+            $this->twig,
+            $this->assetRepository,
+            new RentalAssetService($this->assetRepository, new RentalSlugGenerator($this->assetRepository), $journal),
+            $this->managerService,
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            inboundMail: $inbound
+        );
+    }
+
+    private function postLifecycle(string $action, int $assetId, ?string $from): \Core\Http\Response
+    {
+        $body = ['asset_id' => (string) $assetId, '_csrf_token' => CsrfGuard::generateToken()];
+        if ($from !== null) {
+            $body['from'] = $from;
+        }
+        $_POST = $body;
+
+        $request = new Request('POST', '/admin/locations/' . $action, [], $body, [], []);
+
+        return $action === 'archive'
+            ? $this->controller->archive($request, [])
+            : $this->controller->restore($request, []);
     }
 
     // ── saveGeneral() (§6.11) ───────────────────────────────────────────
@@ -616,7 +895,7 @@ class RentalConfigControllerTest extends TestCase
         ]);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/admin/locations?asset_id=' . $assetId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('/admin/locations/' . $assetId, $response->getHeaders()['Location'] ?? null);
 
         $asset = $this->assetRepository->findById($assetId);
         $this->assertSame('Local Saint-Georges', $asset?->name);

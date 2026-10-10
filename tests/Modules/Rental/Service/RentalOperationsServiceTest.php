@@ -149,7 +149,7 @@ class RentalOperationsServiceTest extends TestCase
     }
 
     private function createBooking(
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         string $arrival = '2027-07-01',
         string $departure = '2027-07-04',
         ?int $assetId = null,
@@ -430,7 +430,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
 
-        $this->assertStringContainsString('LOC-2027-0001', $journal);
+        $this->assertStringContainsString('LOC-A2B3C4', $journal);
         $this->assertStringNotContainsString('Jeanne Martin', $journal);
         $this->assertStringNotContainsString('+32 495 11 22 33', $journal);
     }
@@ -469,8 +469,8 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testTwoBookingsForTheSameWeekCannotBothBeConfirmed(): void
     {
-        $first = $this->createBooking('LOC-2027-0001');
-        $second = $this->createBooking('LOC-2027-0002');
+        $first = $this->createBooking('LOC-A2B3C4');
+        $second = $this->createBooking('LOC-A2B3C5');
 
         $this->service->confirm($first, $this->asset(), 1, $this->now());
 
@@ -482,8 +482,8 @@ class RentalOperationsServiceTest extends TestCase
 
     public function testTheSecondConfirmationLeavesTheLoserUntouched(): void
     {
-        $first = $this->createBooking('LOC-2027-0001');
-        $second = $this->createBooking('LOC-2027-0002');
+        $first = $this->createBooking('LOC-A2B3C4');
+        $second = $this->createBooking('LOC-A2B3C5');
         $this->service->confirm($first, $this->asset(), 1, $this->now());
 
         try {
@@ -529,8 +529,8 @@ class RentalOperationsServiceTest extends TestCase
         $stockId = $this->stockAsset(12);
         $asset = $this->asset($stockId);
 
-        $a = $this->createBooking('LOC-2027-0011', '2027-08-01', '2027-08-05', $stockId, 5);
-        $b = $this->createBooking('LOC-2027-0012', '2027-08-01', '2027-08-05', $stockId, 5);
+        $a = $this->createBooking('LOC-D4E5F5', '2027-08-01', '2027-08-05', $stockId, 5);
+        $b = $this->createBooking('LOC-D4E5F6', '2027-08-01', '2027-08-05', $stockId, 5);
         $c = $this->createBooking('LOC-2027-0013', '2027-08-01', '2027-08-05', $stockId, 5);
 
         $this->service->confirm($a, $asset, 1, $this->now());
@@ -548,7 +548,7 @@ class RentalOperationsServiceTest extends TestCase
         $asset = $this->asset($stockId);
 
         $this->service->confirm(
-            $this->createBooking('LOC-2027-0011', '2027-08-01', '2027-08-05', $stockId, 5),
+            $this->createBooking('LOC-D4E5F5', '2027-08-01', '2027-08-05', $stockId, 5),
             $asset,
             1,
             $this->now()
@@ -556,7 +556,7 @@ class RentalOperationsServiceTest extends TestCase
 
         // Seven left; a booking of seven must go through.
         $this->service->confirm(
-            $this->createBooking('LOC-2027-0012', '2027-08-01', '2027-08-05', $stockId, 7),
+            $this->createBooking('LOC-D4E5F6', '2027-08-01', '2027-08-05', $stockId, 7),
             $asset,
             1,
             $this->now()
@@ -966,10 +966,10 @@ class RentalOperationsServiceTest extends TestCase
      */
     public function testADateChangeOntoTakenDatesIsRefusedWhenItIsASKED(): void
     {
-        $other = $this->createBooking('LOC-2027-0002', '2027-07-08', '2027-07-11');
+        $other = $this->createBooking('LOC-A2B3C5', '2027-07-08', '2027-07-11');
         $this->service->confirm($other, $this->asset(), 1, $this->now());
 
-        $booking = $this->createBooking('LOC-2027-0003');
+        $booking = $this->createBooking('LOC-A2B3C6');
 
         try {
             $this->service->requestChange(
@@ -1002,7 +1002,7 @@ class RentalOperationsServiceTest extends TestCase
      */
     public function testDatesTakenAFTERTheRequestAreStillCaughtAtAcceptance(): void
     {
-        $booking = $this->createBooking('LOC-2027-0003');
+        $booking = $this->createBooking('LOC-A2B3C6');
 
         // Asked while the period is free — this passes the new check.
         $id = $this->service->requestChange(
@@ -1020,7 +1020,7 @@ class RentalOperationsServiceTest extends TestCase
         );
 
         // Somebody else takes them in the meantime.
-        $other = $this->createBooking('LOC-2027-0002', '2027-07-08', '2027-07-11');
+        $other = $this->createBooking('LOC-A2B3C5', '2027-07-08', '2027-07-11');
         $this->service->confirm($other, $this->asset(), 1, $this->now());
 
         $request = $this->changeRequestRepository->findById($id);
@@ -1632,7 +1632,7 @@ class RentalOperationsServiceTest extends TestCase
         // what `RentalBooking::occupiesTheAsset()` needs an ACTIVE hold to
         // say, so setting one is what makes this the competing request the
         // rule is about rather than an inert row.
-        $competitor = $this->createBooking(reference: 'LOC-2027-0002', arrival: '2027-07-10', departure: '2027-07-14');
+        $competitor = $this->createBooking(reference: 'LOC-A2B3C5', arrival: '2027-07-10', departure: '2027-07-14');
         $this->bookingRepository->setHold(
             $competitor->id,
             $this->now()->modify('+7 days'),

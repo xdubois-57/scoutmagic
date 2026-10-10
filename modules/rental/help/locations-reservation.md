@@ -7,14 +7,16 @@ role_min: identified
 question: Que montre le tableau de bord d'une réservation ?
 question: Comment bloquer les dates d'une réservation jusqu'à une échéance ?
 question: Comment revenir au bien depuis une réservation ?
-paths: /mes-locations/*/reservations/*
-related: locations-parcours, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
+paths: /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/modifications
+related: locations-parcours, locations-etat-des-lieux, locations-facture, locations-finances, gerer-les-locations, locations-documents, locations-courrier, locations-suivi, locations-conformite
 ---
 
-Une réservation tient en quatre pages, reliées par les pastilles sous
-son titre : **Tableau de bord**, **Finances**, **Documents** et
-**Courrier**. La pastille « Courrier » n'apparaît que si une boîte
-e-mail est dédiée aux locations, et une seule.
+Une réservation tient en plusieurs pages, reliées par les onglets sous
+son titre : **Tableau de bord**, **Modifications**, **Finances**,
+**Documents**, **État des lieux**, **Facture** et **Courrier**. La pastille
+« État des lieux » est toujours là : sans modèle d'état des lieux ni
+compteurs, la page ne garde que les incidents. La pastille « Courrier »
+aussi, quelle que soit la configuration des boîtes e-mail.
 
 Pour revenir au bien ou à la liste de ses réservations, utilisez le fil
 d'Ariane en haut de la page : chacune de ses étapes est un lien.
@@ -23,13 +25,13 @@ d'Ariane en haut de la page : chacune de ses étapes est un lien.
 
 Il se lit de haut en bas, en trois temps.
 
-### 1. « Où en est cette réservation »
+### 1. « Prochaine action » et « Cycle de vie »
 
-En tête, une phrase dit ce qui bloque, et **un seul bouton** propose
-l'action qui fait avancer la réservation ; les autres décisions sont
-derrière « Autres décisions ». Dessous, le parcours en cinq phases,
-la phase en cours dépliée. Le sujet « Le parcours d'une réservation »
-le décrit étape par étape.
+« Prochaine action » dit ce qui bloque et, quand c'est à l'unité d'agir,
+propose **un seul bouton** pour faire avancer la réservation ; les
+autres décisions sont derrière « Autres décisions ». « Cycle de vie »
+montre le parcours en cinq phases, la phase en cours dépliée. Le sujet
+« Le parcours d'une réservation » le décrit étape par étape.
 
 Une demande bloque ses dates automatiquement, au plus 30 jours et
 jamais au-delà du début du séjour ; passé ce délai, elles se libèrent,
@@ -48,16 +50,20 @@ et l'ancien cesse de fonctionner sur-le-champ.
 
 ### 3. « Le dossier »
 
-Les demandes et propositions, les commentaires internes et
-l'historique, repliés. Chaque ligne porte le chiffre qui répond à la
-question pour laquelle on l'aurait ouverte — le nombre de demandes
-encore en attente, de commentaires, de modifications — et s'ouvre d'un
-clic. Une boîte ouverte le reste pendant que vous y travaillez. Le
-séjour a sa propre page, et sa ligne y conduit.
+Les commentaires internes et l'historique, repliés. Chaque ligne porte
+le chiffre qui répond à la question pour laquelle on l'aurait ouverte —
+le nombre de commentaires, de modifications — et s'ouvre d'un clic. Une boîte ouverte le reste pendant que vous y travaillez.
 
 ## Les autres pages
 
-Le prix et les paiements sont sur « Finances », le contrat, la facture
-et les fichiers sur « Documents », les e-mails sur « Courrier » ;
+« Modifications » réunit les demandes de modification du locataire et
+vos propositions : les accepter, les refuser, proposer d'autres dates.
+Le nombre de celles qui attendent une réponse s'affiche à côté de son
+nom, « Modifications (1) », et une demande du locataire vous est
+notifiée.
+
+Le prix et les paiements sont sur « Finances », le contrat et les
+fichiers sur « Documents », le décompte final et la facture sur
+« Facture », les e-mails sur « Courrier » ;
 chacune a son sujet d'aide. Une étape du parcours qui se règle sur
 l'une d'elles y conduit directement, la bonne boîte ouverte.

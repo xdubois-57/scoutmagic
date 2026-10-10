@@ -123,7 +123,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $service->sendPracticalInfo($this->booking(), $this->asset());
 
         $this->assertSame(
-            ['locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be', 'locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be'],
+            ['locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be', 'locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be'],
             $replyTos
         );
     }
@@ -152,28 +152,12 @@ final class RentalBookingMailServiceTest extends TestCase
     }
 
     /**
-     * Signed addresses switched off: the renter's answer still has to reach
-     * the box the Courrier page reads, not the site's general reply address
-     * MailService would otherwise fall back on (issue #462, IT-04). Two
-     * dedicated boxes are no box at all — which one would be arbitrary.
-     *
-     * @return array<string, array{list<?string>, ?string}>
+     * Signed addresses switched off: no box of the rentals' own to fall
+     * back on (#720) — a dedicated box is no longer something rentals look
+     * at — so the mail goes out with no Reply-To, even with one box
+     * dedicated to them.
      */
-    public static function dedicatedBoxes(): array
-    {
-        return [
-            'one box: its address' => [['locations@unite.be'], 'locations@unite.be'],
-            'two boxes: none' => [['locations@unite.be', 'chalet@unite.be'], null],
-            'no box: none' => [[], null],
-            'one box on a bare login: none' => [[null], null],
-        ];
-    }
-
-    /**
-     * @param list<?string> $addresses
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('dedicatedBoxes')]
-    public function testWithoutASignedAddressTheReplyGoesToRentalsOwnBox(array $addresses, ?string $expected): void
+    public function testWithoutASignedAddressTheMailGoesOutWithNoReplyToEvenWithADedicatedBox(): void
     {
         $replyTos = [];
         $mail = $this->createStub(MailService::class);
@@ -182,22 +166,12 @@ final class RentalBookingMailServiceTest extends TestCase
                 $replyTos[] = $replyTo;
             }
         );
-        $inboundMail = new class ($addresses) implements \Modules\InboundMail\Api\InboundMailInterface {
+        $inboundMail = new class implements \Modules\InboundMail\Api\InboundMailInterface {
             use \Tests\Modules\InboundMail\InertInboundMail;
-
-            /** @param list<?string> $addresses */
-            public function __construct(private readonly array $addresses)
-            {
-            }
 
             public function dedicatedMailboxesFor(string $consumerId): array
             {
-                return $consumerId !== 'rental' ? [] : array_map(
-                    static fn (?string $address, int $i): \Modules\InboundMail\Api\DedicatedMailbox
-                        => new \Modules\InboundMail\Api\DedicatedMailbox($i + 1, 'Boîte ' . $i, $address),
-                    $this->addresses,
-                    array_keys($this->addresses)
-                );
+                return [new \Modules\InboundMail\Api\DedicatedMailbox(1, 'Locations', 'locations@unite.be')];
             }
         };
         $settings = $this->createStub(SettingService::class);
@@ -212,7 +186,7 @@ final class RentalBookingMailServiceTest extends TestCase
 
         $service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
 
-        $this->assertSame([$expected], $replyTos);
+        $this->assertSame([null], $replyTos);
     }
 
     private function recordingMailService(bool $succeeds = true): MailService
@@ -242,7 +216,7 @@ final class RentalBookingMailServiceTest extends TestCase
         return new RentalBooking(
             id: 42,
             assetId: 7,
-            reference: 'LOC-2027-0042',
+            reference: 'LOC-K7Q2M4',
             arrivalDate: '2027-08-14',
             departureDate: '2027-08-17',
             units: 1,
@@ -421,7 +395,7 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertSame('camille@example.test', $mail['to']);
         // The reference first, in every subject: it is the most reliable of
         // the inbound-matching rules (§7.6).
-        $this->assertStringStartsWith('[LOC-2027-0042] ', $mail['subject']);
+        $this->assertStringStartsWith('[LOC-K7Q2M4] ', $mail['subject']);
         $this->assertStringContainsString('confirmée', $mail['subject']);
     }
 
@@ -433,7 +407,7 @@ final class RentalBookingMailServiceTest extends TestCase
             $body = $this->onlyMail()[$part];
             $this->assertStringContainsString('Camille Renard', $body);
             $this->assertStringContainsString('Le Chalet', $body);
-            $this->assertStringContainsString('LOC-2027-0042', $body);
+            $this->assertStringContainsString('LOC-K7Q2M4', $body);
             // French dates, not '2027-08-14' — the renter is not reading a
             // database row.
             $this->assertStringContainsString('14/08/2027', $body);
@@ -581,12 +555,204 @@ final class RentalBookingMailServiceTest extends TestCase
                 'contrat.pdf'
             ),
             'practical_info' => fn () => $this->service->sendPracticalInfo($this->booking(), $this->asset()),
+            // The contract's two signatures (#708, IT-16).
+            'contract' => fn () => $this->service->sendContract(
+                $this->booking(),
+                $this->asset(),
+                'Contrat v1',
+                '/tmp/contract.pdf',
+                'contrat.pdf',
+                false,
+                str_repeat('a', 64),
+                new \DateTimeImmutable('2027-05-28')
+            ),
+            'signed_copy_reminder' => fn () => $this->service->sendSignedCopyReminder(
+                $this->booking(),
+                $this->asset(),
+                str_repeat('a', 64)
+            ),
+            'copy_refused' => fn () => $this->service->sendCopyRefused(
+                $this->booking(),
+                $this->asset(),
+                'La deuxième page n\'est pas signée.',
+                str_repeat('a', 64)
+            ),
+            'signed_contract' => fn () => $this->service->sendSignedContract(
+                $this->booking(),
+                $this->asset(),
+                '/tmp/contract.pdf',
+                'contrat-signe.pdf',
+                str_repeat('a', 64)
+            ),
             'tracking_link' => fn () => $this->service->sendTrackingLink(
                 $this->booking(),
                 $this->asset(),
                 str_repeat('a', 64)
             ),
         ];
+    }
+
+    /**
+     * The contract says what to do with it and by when (#708, IT-16) — and
+     * not that nothing can be downloaded, which the generic document
+     * e-mail says and the contract, the one document that comes back,
+     * contradicts.
+     */
+    public function testTheContractSaysToSignItAndSendItBackBeforeTheHoldEnds(): void
+    {
+        $this->sent = [];
+        ($this->everySender()['contract'])();
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('déposez votre copie signée sur votre page de suivi', $mail['text']);
+        $this->assertStringContainsString("jusqu'au 28/05/2027", $mail['text']);
+        $this->assertStringContainsString('/locations/suivi/', $mail['text']);
+        $this->assertStringNotContainsString('ne peut pas être téléchargé', $mail['text']);
+    }
+
+    // ── « Et maintenant ? » (#708, IT-15) ───────────────────────────────
+
+    /**
+     * A service whose journey answers the given step, and records the
+     * renderer it was built with so a test can customise a body.
+     */
+    private function serviceWithNextStep(
+        \Modules\Rental\Booking\RenterNextStep $step,
+        ?\Core\Mail\Template\EmailTemplateRenderer $renderer = null
+    ): RentalBookingMailService {
+        $journey = $this->createStub(\Modules\Rental\Service\RentalJourneyService::class);
+        $journey->method('renterNextStep')->willReturn($step);
+        $settings = $this->createStub(SettingService::class);
+        $settings->method('get')->willReturnCallback(
+            static fn (string $key): ?string => match ($key) {
+                'site_name' => 'Unité Test',
+                'base_url' => 'https://unite.test',
+                default => null,
+            }
+        );
+
+        return new RentalBookingMailService(
+            $this->recordingMailService(),
+            $renderer ?? EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $settings,
+            $this->createStub(JournalService::class),
+            journey: $journey
+        );
+    }
+
+    /** Every e-mail to the renter ends with the block, in both halves. */
+    public function testEveryEmailToTheRenterEndsWithWhatComesNext(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep(
+            "Rien à faire de votre côté pour l'instant : nous étudions votre demande et vous enverrons le contrat."
+        ));
+
+        foreach ($this->everySender() as $name => $send) {
+            $this->sent = [];
+            $send();
+            $mail = $this->onlyMail();
+
+            foreach (['html' => $mail['html'], 'text' => $mail['text']] as $half => $body) {
+                $this->assertStringContainsString('Et maintenant ?', $body, "{$name} {$half}");
+            }
+            // Each e-mail its own sentence where it knows better: the
+            // contract calls for its signature.
+            if ($name !== 'contract') {
+                $this->assertStringContainsString('nous étudions votre demande', $mail['text'], $name);
+            }
+        }
+    }
+
+    /** The contract calls for its signature, with the link to where it is done. */
+    public function testTheContractsBlockSaysToSignWithTheTrackingLink(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('Rien à faire.'));
+        $this->sent = [];
+        ($this->everySender()['contract'])();
+        $mail = $this->onlyMail();
+
+        $block = substr($mail['text'], (int) strpos($mail['text'], 'Et maintenant ?'));
+        $this->assertStringContainsString('À vous : signez le contrat', $block);
+        $this->assertStringContainsString("jusqu'au 28/05/2027", $block);
+        $this->assertStringContainsString('/locations/suivi/', $block);
+        $this->assertStringContainsString('Ouvrir ma page de suivi</a>', $mail['html']);
+    }
+
+    /** An invoice calls for its payment. */
+    public function testAnInvoicesBlockCallsForItsPayment(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('Rien à faire.'));
+        $this->sent = [];
+        $this->service->sendDocument(
+            $this->booking(),
+            $this->asset(),
+            'Facture v1',
+            '/tmp/invoice.pdf',
+            'facture.pdf',
+            false,
+            \Modules\Rental\Document\DocumentType::INVOICE
+        );
+
+        $this->assertStringContainsString('À vous : réglez la facture', $this->onlyMail()['text']);
+    }
+
+    /** No link is invented for a step that is not done on the tracking page. */
+    public function testNoLinkGoesWithAStepDoneElsewhere(): void
+    {
+        $this->service = $this->serviceWithNextStep(new \Modules\Rental\Booking\RenterNextStep('À vous : versez le solde.'));
+        $this->sent = [];
+        ($this->everySender()['decision'])();
+
+        $this->assertStringNotContainsString('Ouvrir ma page de suivi', $this->onlyMail()['html']);
+    }
+
+    /** A customised body cannot drop it: it is the frame's. */
+    public function testACustomisedBodyKeepsTheBlock(): void
+    {
+        $store = new \PDO('sqlite::memory:');
+        $store->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $store->exec('CREATE TABLE email_template_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, template_id TEXT NOT NULL UNIQUE, subject TEXT NOT NULL,
+            body_html TEXT NOT NULL, updated_at TEXT, updated_by INTEGER
+        )');
+        $overrides = new \Core\Mail\Template\EmailTemplateOverrideRepository($store);
+        $overrides->save('rental.acknowledgement', 'Merci', '<p>Notre propre texte.</p>', null);
+        $registry = new \Core\Mail\Template\EmailTemplateRegistry();
+        $registry->registerModuleManifest(
+            \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/rental/module.json')
+        );
+        $renderer = new \Core\Mail\Template\EmailTemplateRenderer($this->twig, $registry, $overrides);
+        $this->service = $this->serviceWithNextStep(
+            new \Modules\Rental\Booking\RenterNextStep('Rien à faire de votre côté pour l\'instant.'),
+            $renderer
+        );
+        $this->sent = [];
+        ($this->everySender()['acknowledgement'])();
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('Notre propre texte.', $mail['html']);
+        $this->assertStringContainsString('Et maintenant ?', $mail['html']);
+        $this->assertStringContainsString('Et maintenant ?', $mail['text']);
+    }
+
+    /** Without the journey, the e-mails go out as they did. */
+    public function testWithoutAJourneyTheEmailsCarryNoBlock(): void
+    {
+        $this->sent = [];
+        ($this->everySender()['acknowledgement'])();
+
+        $this->assertStringNotContainsString('Et maintenant ?', $this->onlyMail()['text']);
+    }
+
+    /** The unit's reason reaches the renter as written, and only as text. */
+    public function testARefusedCopyCarriesTheReasonEscaped(): void
+    {
+        $this->sent = [];
+        $this->service->sendCopyRefused($this->booking(), $this->asset(), '<b>Page 2</b> non signée', null);
+        $mail = $this->onlyMail();
+
+        $this->assertStringContainsString('&lt;b&gt;Page 2&lt;/b&gt; non signée', $mail['html']);
+        $this->assertStringContainsString('<b>Page 2</b> non signée', $mail['text']);
     }
 
     // ── The shared HTML frame ───────────────────────────────────────────

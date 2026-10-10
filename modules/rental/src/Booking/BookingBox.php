@@ -32,8 +32,10 @@ enum BookingBox: string
     case PAYMENT = 'payment';
     case DOCUMENTS = 'documents';
     case MAIL = 'mail';
-    case CHANGES = 'changes';
-    case STAY = 'stay';
+    /** The inventories, their meters and the incidents (#708, IT-17). */
+    case INVENTORY = 'inventory';
+    /** The billing details, the final settlement and the invoice (#708, IT-18). */
+    case INVOICE = 'invoice';
     case COMMENTS = 'comments';
     case HISTORY = 'history';
 
@@ -44,8 +46,8 @@ enum BookingBox: string
             self::PAYMENT => 'Paiements',
             self::DOCUMENTS => 'Documents',
             self::MAIL => 'Courrier',
-            self::CHANGES => 'Demandes et propositions',
-            self::STAY => 'Séjour',
+            self::INVENTORY => 'État des lieux',
+            self::INVOICE => 'Facture',
             self::COMMENTS => 'Commentaires internes',
             self::HISTORY => 'Historique',
         };
@@ -65,21 +67,19 @@ enum BookingBox: string
     }
 
     /**
-     * The booking page this box is rendered on, or null for the one box
-     * that is a page of its own.
-     *
-     * The stay has always had its own page, one level deeper in the
-     * breadcrumb, and it does not become one of the booking's chips
-     * (`BookingPage`): a chip would put it on the same level as the four.
+     * The booking page this box is rendered on. Every box has one since
+     * the stay's own page went (#708, IT-18): its inventories moved to
+     * « État des lieux », its settlement to « Facture ».
      */
-    public function page(): ?BookingPage
+    public function page(): BookingPage
     {
         return match ($this) {
             self::PRICE, self::PAYMENT => BookingPage::FINANCES,
             self::DOCUMENTS => BookingPage::DOCUMENTS,
             self::MAIL => BookingPage::MAIL,
-            self::CHANGES, self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
-            self::STAY => null,
+            self::INVENTORY => BookingPage::INVENTORY,
+            self::INVOICE => BookingPage::INVOICE,
+            self::COMMENTS, self::HISTORY => BookingPage::DASHBOARD,
         };
     }
 
@@ -88,17 +88,11 @@ enum BookingBox: string
      *
      * The page's URL and the box's anchor together: the box may sit on
      * another page than the link, and `public/assets/js/collapse-anchor.js`
-     * opens the box the fragment names once that page has loaded. The stay
-     * is a page, so its link is that page and nothing more — `#dossier-stay`
-     * would land on a line and leave the manager to click it a second time.
+     * opens the box the fragment names once that page has loaded.
      */
     public function href(string $bookingUrl): string
     {
-        $page = $this->page();
-
-        return $page === null
-            ? $bookingUrl . '/sejour'
-            : $page->url($bookingUrl) . '#' . $this->anchor();
+        return $this->page()->url($bookingUrl) . '#' . $this->anchor();
     }
 
     /**

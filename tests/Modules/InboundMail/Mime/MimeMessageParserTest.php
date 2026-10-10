@@ -205,7 +205,7 @@ class MimeMessageParserTest extends TestCase
             '--frontier',
             'Content-Type: text/plain; charset=UTF-8',
             '',
-            'Version texte [LOC-2027-0042]',
+            'Version texte [LOC-K7Q2M4]',
             '--frontier',
             'Content-Type: text/html; charset=UTF-8',
             '',
@@ -213,7 +213,7 @@ class MimeMessageParserTest extends TestCase
             '--frontier--'
         ), 1, 'INBOX');
 
-        $this->assertStringContainsString('Version texte [LOC-2027-0042]', $message->bodyText);
+        $this->assertStringContainsString('Version texte [LOC-K7Q2M4]', $message->bodyText);
         $this->assertStringContainsString('<strong>HTML</strong>', $message->bodyHtml);
     }
 
@@ -323,6 +323,111 @@ class MimeMessageParserTest extends TestCase
         $this->assertSame('contrat.pdf', $message->attachments[0]->filename);
         $this->assertSame('%PDF-1.4 fake', $message->attachments[0]->bytes);
         $this->assertFalse($message->attachments[0]->isInline);
+    }
+
+    /**
+     * The file whole, final line break included: most PDFs end `%%EOF\n`,
+     * and a byte cut off there made the stored file hash differently from
+     * the very contract the site generated (#720, step 8). A charset
+     * parameter on a binary part converts nothing either.
+     */
+    public function testABase64AttachmentKeepsItsLastByteAndIsNeverConverted(): void
+    {
+        $bytes = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n%%EOF\r\n";
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Voici le document.',
+            '--frontier',
+            'Content-Type: application/pdf; name="contrat.pdf"; charset=ISO-8859-1',
+            'Content-Disposition: attachment; filename="contrat.pdf"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode($bytes),
+            '--frontier--'
+        ), 1, 'INBOX');
+
+        $this->assertSame($bytes, $message->attachments[0]->bytes);
+        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
+    }
+
+    /**
+     * Quoted-printable carries its bytes whole too: an encoded line break
+     * at the end of the file is the file's, not the boundary's, and
+     * trimming it made the stored file hash differently (#720, step 8).
+     */
+    public function testAQuotedPrintableAttachmentKeepsAnEncodedFinalLineBreak(): void
+    {
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain; name="notes.txt"',
+            'Content-Disposition: attachment; filename="notes.txt"',
+            'Content-Transfer-Encoding: quoted-printable',
+            '',
+            'Cl=C3=A9s remises=0D=0A',
+            '--frontier--'
+        ), 1, 'INBOX');
+
+        $bytes = "Cl\xC3\xA9s remises\r\n";
+        $this->assertSame($bytes, $message->attachments[0]->bytes);
+        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
+    }
+
+    /**
+     * A part sent unencoded keeps its own line endings, mixed or not: the
+     * boundary owns the one line break before it, and nothing else is
+     * rewritten (#720, step 8).
+     */
+    public function testAnUnencodedAttachmentKeepsItsOwnLineEndings(): void
+    {
+        $bytes = "a\r\nb\nc\rd\n";
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: application/octet-stream',
+            'Content-Disposition: attachment; filename="lignes.bin"',
+            'Content-Transfer-Encoding: binary',
+            '',
+            $bytes,
+            '--frontier--'
+        ), 1, 'INBOX');
+
+        $this->assertSame($bytes, $message->attachments[0]->bytes);
+        $this->assertSame(hash('sha256', $bytes), $message->attachments[0]->contentHash());
+    }
+
+    public function testAnEmptyPartDoesNotSwallowTheNextOnes(): void
+    {
+        $message = $this->parser->parse($this->raw(
+            'From: jeanne@example.be',
+            'Message-ID: <a@b>',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            'Préambule ignoré.',
+            '--frontier',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Bonjour,',
+            'à bientôt.',
+            '--frontier--',
+            'Épilogue ignoré.'
+        ), 1, 'INBOX');
+
+        $this->assertSame("Bonjour,\nà bientôt.", $message->bodyText);
+        $this->assertSame([], $message->attachments);
     }
 
     public function testAnRfc2231EncodedFilenameIsDecoded(): void

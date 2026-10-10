@@ -52,11 +52,12 @@ enum BookingPhase: string
     public function description(): string
     {
         return match ($this) {
-            self::REQUEST => 'Ce que le locataire a demandé, et la décision qui lui revient.',
-            self::AGREEMENT => "Le contrat, ses signatures et l'acompte : ce qui engage les deux parties.",
+            self::REQUEST => 'Ce que le locataire a demandé, et les conditions qu\'il a acceptées.',
+            self::AGREEMENT => "Le contrat, généré, envoyé et signé par les deux parties, puis l'acompte : "
+                . 'ce qui engage les deux parties avant la confirmation.',
             self::BEFORE_STAY => "Le solde et la caution, avant que les clés ne changent de main.",
-            self::STAY => 'Les états des lieux et les relevés, pendant et autour du séjour.',
-            self::AFTER_STAY => 'Le décompte, la restitution de la caution et la clôture du dossier.',
+            self::STAY => 'Les états des lieux, les relevés et les incidents, pendant et autour du séjour.',
+            self::AFTER_STAY => 'La facture, le décompte, la restitution de la caution et la clôture du dossier.',
         };
     }
 
@@ -87,7 +88,6 @@ enum BookingPhase: string
             BookingMilestones::BALANCE_RECEIVED,
             BookingMilestones::SECURITY_DEPOSIT_RECEIVED => self::BEFORE_STAY,
             BookingMilestones::ARRIVAL_INVENTORY,
-            BookingMilestones::METER_READINGS,
             BookingMilestones::DEPARTURE_INVENTORY => self::STAY,
             BookingMilestones::FINAL_SETTLEMENT,
             BookingMilestones::SECURITY_DEPOSIT_RETURNED,

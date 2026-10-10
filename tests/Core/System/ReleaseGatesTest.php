@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
  * places that no compiler connects: the skip flag's variable, its argument
  * case, its documentation in the header, the `run_gate` call, the line that
  * reads the gate's report file, the assembled Markdown report — and then
- * three documents, `README.md`, `docs/quality-pipeline.md` and
+ * three documents, `docs/developpement.md`, `docs/quality-pipeline.md` and
  * `scripts/release.test.sh`, each of which drifted once before a test
  * covered it.
  *
@@ -288,8 +288,10 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * README.md's own numbered list of the gates, which is a SEVENTH place
-     * nothing connects — and the one that drifted.
+     * docs/developpement.md's own numbered list of the gates, which is a
+     * SEVENTH place nothing connects — and the one that drifted. (The list
+     * lived in README.md, where this happened, until the README became the
+     * short entry point for units; it moved with its test.)
      *
      * The gate added for issue #379 was wired into all six places above and
      * into AGENTS.md, and the README was updated where it lists the
@@ -303,9 +305,9 @@ class ReleaseGatesTest extends TestCase
      * drifting beside the thing it describes. A count is enough to make a
      * missing entry impossible to merge.
      */
-    public function testTheReadmeEnumeratesEveryGateItSaysTheScriptRuns(): void
+    public function testTheDevelopmentGuideEnumeratesEveryGateItSaysTheScriptRuns(): void
     {
-        $readme = (string) file_get_contents(dirname(__DIR__, 3) . '/README.md');
+        $guide = (string) file_get_contents(dirname(__DIR__, 3) . '/docs/developpement.md');
         $expected = count(self::launchedKeys());
 
         $numerals = [
@@ -316,22 +318,22 @@ class ReleaseGatesTest extends TestCase
         $sentence = "le script exécute {$numerals[$expected]} verrous";
         $this->assertStringContainsString(
             $sentence,
-            $readme,
-            "README.md § Releases must say « {$sentence} » — scripts/release.sh launches {$expected}"
+            $guide,
+            "docs/developpement.md § Créer une release must say « {$sentence} » — scripts/release.sh launches {$expected}"
         );
 
         // The list itself, bounded to the section that holds it — from the
         // count sentence to the next heading.
         //
         // Two narrower boundaries were tried and both read the « Installation
-        // sur hébergement mutualisé » list further down: the highest number
-        // in the rest of the file (7), and then a walk stopping at the first
+        // sur hébergement mutualisé » list that then followed it in
+        // README.md: the highest number in the rest of the file (7), and then a walk stopping at the first
         // number that did not continue the run — which also answered 7,
         // because that list's first BOLD item happens to be its seventh and
         // nothing before it matches. A section ends at a heading; that is the
         // only boundary here that means anything.
-        $start = (int) strpos($readme, $sentence);
-        $section = substr($readme, $start);
+        $start = (int) strpos($guide, $sentence);
+        $section = substr($guide, $start);
         $nextHeading = preg_match('/\n#{2,3} /', $section, $found, PREG_OFFSET_CAPTURE) === 1
             ? (int) $found[0][1]
             : strlen($section);
@@ -342,7 +344,7 @@ class ReleaseGatesTest extends TestCase
         $this->assertSame(
             $expected,
             $described,
-            'README.md § Releases numbers ' . $described . " gates while scripts/release.sh launches {$expected}"
+            'docs/developpement.md § Créer une release numbers ' . $described . " gates while scripts/release.sh launches {$expected}"
             . ' — one of them has no entry, so the file describes a release nobody runs'
         );
     }
@@ -503,6 +505,7 @@ class ReleaseGatesTest extends TestCase
         foreach ([
             'AGENTS.md',
             'README.md',
+            'docs/developpement.md',
             'docs/quality-pipeline.md',
             'scripts/release.sh',
             'scripts/release.test.sh',

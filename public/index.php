@@ -11388,7 +11388,19 @@ if ($isEnabled('registration')) {
             $registrationReenrollmentCampaign,
             $settingService,
             $schedulerService,
-            $journalService
+            $journalService,
+            // Issue #796: the one plan of what a save writes to families,
+            // counted over the same recipients the sender writes to.
+            \Modules\Registration\Service\ReenrollmentSavePlanner::countingWith(
+                $registrationReenrollmentCampaign,
+                $settingService,
+                new \Modules\Registration\Service\ReenrollmentRecipientService(
+                    $registrationPassageRosterRepo,
+                    $registrationReenrollmentRepository,
+                    $registrationPassageService
+                ),
+                $schedulerService
+            )
         )
     );
     \Modules\Registration\Task\ReenrollmentCampaignHandler::ensureScheduled($schedulerService);
@@ -11884,6 +11896,34 @@ if ($isEnabled('rental')) {
         // accepted with the request (#708, IT-16).
         $rentalConditionsService
     );
+    $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
+    $rentalStayService = new \Modules\Rental\Service\RentalStayService(
+        $rentalStayRepository,
+        $rentalBookingAudit,
+        $rentalPricingService,
+        new \Modules\Rental\Stay\SettlementCalculator(),
+        $journalService,
+        $rentalPaymentService
+    );
+
+    // « Marquer comme fait » on the steps the site cannot derive — the
+    // walk-throughs of an asset with no inventory (issue #462).
+    $rentalMilestoneMarkService = new \Modules\Rental\Service\RentalMilestoneMarkService(
+        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+        $rentalBookingAudit
+    );
+    // A booking's checklist, for the dashboard and for the renter's
+    // « Et maintenant ? » alike (#708, IT-15).
+    $rentalJourneyService = new \Modules\Rental\Service\RentalJourneyService(
+        $rentalBookingRepository,
+        $rentalStayService,
+        $rentalMilestoneMarkService,
+        $rentalDocumentService,
+        $rentalPaymentService,
+        // A proposal of the unit waits on the renter without a status of
+        // its own: their « Et maintenant ? » must say so (#708, IT-15).
+        $rentalChangeRequestRepository
+    );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
         $mailService,
         $emailTemplateRenderer,
@@ -11894,7 +11934,12 @@ if ($isEnabled('rental')) {
         $inboundMailForOthers,
         // Each email to the renter ends with the link to the version of
         // the conditions they accepted (issue #494).
-        $rentalConditionsService
+        $rentalConditionsService,
+        // … and with what they have to do next (#708, IT-15).
+        $rentalJourneyService,
+        // Every e-mail to the renter is recorded on the booking's
+        // « Courrier » page, sent or failed (#720, step 2).
+        new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
     );
 
     // The contract's two signatures (#708, IT-16): the renter's copy, the
@@ -11914,6 +11959,16 @@ if ($isEnabled('rental')) {
         $notificationService,
         $rentalManagerRecipients,
         static fn(int $bookingId): ?string => $rentalBookingService->trackingTokenFor($bookingId)
+    );
+    // A contract is void the moment its booking changes (#708, IT-20).
+    $rentalContractValidity = new \Modules\Rental\Service\RentalContractValidityService(
+        $rentalDocumentService,
+        $rentalDocumentRepository,
+        $rentalBookingRepository,
+        $rentalBookingAudit,
+        $rentalPaymentService,
+        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+        new \Modules\Rental\Repository\RentalReminderRepository($pdo)
     );
 
     // The asset paperwork register (§6.33). A reminder list, never a
@@ -11970,25 +12025,16 @@ if ($isEnabled('rental')) {
                     // « Rattacher à… » on the chief's screen names a
                     // booking by its asset (Api\ReferenceDirectory).
                     $rentalAssetRepository,
-                    // The model as a last resort between two bookings of
-                    // one renter — it orders the propositions and never
-                    // associates (§8.59). Null without the connector.
-                    new \Modules\Rental\Mail\BookingChoiceByModel($llmConnectorForOthers ?? null),
-                    // The asset's managers learn of a proposition from a
-                    // notification, not from opening the booking.
-                    new \Modules\Rental\Mail\RentalMailNotifier(
+                    // A message filed by hand from the unit's general mail
+                    // is announced like one the rules filed (#720).
+                    new \Modules\Rental\Mail\NewMessageNotifier(
                         $notificationService,
-                        $rentalManagerRepository,
-                        $memberYearRepo,
-                        $userAccountRepo,
-                        $rentalAssetRepository
+                        $rentalManagerRecipients,
+                        $rentalAssetRepository,
+                        $journalService
                     )
                 )
         );
-
-        // « Du courrier attend une décision sur une réservation » on the
-        // attention page (§8.79).
-        $attentionProviders[] = new \Modules\Rental\Service\RentalAttentionProvider($inboundMailForOthers);
     }
 
     // The stay itself (§6.21–§6.23): meters, inventory, incidents and the
@@ -12016,7 +12062,9 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $journalService,
             $inboundMailForOthers,
-            $fileRepository
+            $fileRepository,
+            // The « non lus » badges of the bookings' mail (#720).
+            new \Modules\Rental\Repository\RentalMailReadRepository($pdo)
         );
     }
 
@@ -12029,16 +12077,6 @@ if ($isEnabled('rental')) {
             (string) ($settingService->get('base_url') ?: '')
         ));
     }
-
-    $rentalStayRepository = new \Modules\Rental\Repository\RentalStayRepository($pdo, $encryptionService);
-    $rentalStayService = new \Modules\Rental\Service\RentalStayService(
-        $rentalStayRepository,
-        $rentalBookingAudit,
-        $rentalPricingService,
-        new \Modules\Rental\Stay\SettlementCalculator(),
-        $journalService,
-        $rentalPaymentService
-    );
 
     $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
         $rentalBookingRepository,
@@ -12107,10 +12145,7 @@ if ($isEnabled('rental')) {
             $settingService,
             // « Marquer comme fait » on the steps the site cannot derive —
             // the walk-throughs of an asset with no inventory (issue #462).
-            new \Modules\Rental\Service\RentalMilestoneMarkService(
-                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
-                $rentalBookingAudit
-            ),
+            $rentalMilestoneMarkService,
             // The overview warns when nobody on the asset can be told about
             // a request (#708, IT-05).
             $rentalManagerRecipients,
@@ -12120,7 +12155,23 @@ if ($isEnabled('rental')) {
             // The countersignature and each manager's own signature (#708,
             // IT-16).
             $rentalSignedContractService,
-            $rentalSignatureRepository
+            $rentalSignatureRepository,
+            // A contract the booking has outgrown is marked void (#708, IT-20).
+            $rentalContractValidity,
+            // « Valider l'état des lieux », its PDF and its e-mail (#708,
+            // IT-17).
+            new \Modules\Rental\Service\RentalInventoryValidationService(
+                $rentalStayService,
+                $rentalDocumentService,
+                $rentalBookingMailService,
+                new \Core\Pdf\DocumentPdfService(),
+                $settingService,
+                $rentalBookingAudit
+            ),
+            // What the site sent the renter, on « Courrier » (#720, step 2).
+            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),
+            // A signer is named by their account, not by a totem (#825).
+            new \Modules\Rental\Document\SignerName($userAccountRepo)
         )
     );
     $frontController->registerController(
@@ -12157,7 +12208,8 @@ if ($isEnabled('rental')) {
             // signed by both parties (#708, IT-16).
             $rentalSignedContractService,
             $rentalDocumentService,
-            $uploadHandler
+            $uploadHandler,
+            $rentalContractValidity
         )
     );
 

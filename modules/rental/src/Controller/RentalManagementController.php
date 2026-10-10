@@ -20,7 +20,6 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\View\DateFilterExtension;
 use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -32,9 +31,7 @@ use Modules\Rental\Availability\ManagedCalendarDays;
 use Modules\Rental\Availability\MonthWindow;
 use Modules\Rental\Booking\BookingBox;
 use Modules\Rental\Booking\BookingPage;
-use Modules\InboundMail\Api\ReanalysisReport;
-use Modules\InboundMail\Api\TriageFilter;
-use Modules\InboundMail\Api\TriageScreen;
+use Modules\Rental\Mail\BookingMailTimeline;
 use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
@@ -42,7 +39,6 @@ use Modules\Rental\Booking\BookingTransition;
 use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
-use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
@@ -78,7 +74,6 @@ use Modules\Rental\Service\RentalStatisticsService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Support;
 use Twig\Environment;
@@ -162,6 +157,9 @@ class RentalManagementController extends AbstractController
         'image/webp',
         'image/heic',
     ];
+
+    /** Built on first use (journeyService()). */
+    private ?\Modules\Rental\Service\RentalJourneyService $journeyService = null;
 
     public function __construct(
         Environment $twig,
@@ -254,7 +252,22 @@ class RentalManagementController extends AbstractController
         /** The contract's two signatures (#708, IT-16). Null offers neither. */
         private ?\Modules\Rental\Service\RentalSignedContractService $signedContractService = null,
         /** Each manager's own signature, readable by its owner alone. */
-        private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null
+        private ?\Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository = null,
+        /** Whether a contract still says what its booking says (#708, IT-20). */
+        private ?\Modules\Rental\Service\RentalContractValidityService $contractValidity = null,
+        /** « Valider l'état des lieux » and its PDF (#708, IT-17). */
+        private ?\Modules\Rental\Service\RentalInventoryValidationService $inventoryValidation = null,
+        /**
+         * What the site sent the renter (#720, step 2): the other half of
+         * « Courrier », shown even without `inbound_mail`.
+         */
+        private ?\Modules\Rental\Repository\RentalSentEmailRepository $sentEmails = null,
+        /**
+         * How the person who countersigns a contract or validates an
+         * inventory is named on it: by their account, never by a totem
+         * (issue #825). Null names them « un gestionnaire ».
+         */
+        private ?\Modules\Rental\Document\SignerName $signerName = null
     ) {
         parent::__construct($twig);
     }
@@ -623,6 +636,27 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * Stores the optional photo, then writes what it illustrates — and
+     * takes the photo back when that write is refused (a frozen phase, a
+     * value that does not parse): nothing would ever reference it.
+     *
+     * @param callable(?int): mixed $write
+     * @throws RentalException
+     */
+    private function withOptionalPhoto(Request $request, RentalBooking $booking, callable $write): void
+    {
+        $fileId = $this->uploadOptionalPhoto($request, $booking);
+        try {
+            $write($fileId);
+        } catch (\Throwable $e) {
+            if ($fileId !== null) {
+                $this->documentService?->discardUnusedUpload($fileId);
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * GET /mes-locations — every asset the visitor manages (§6.5).
      *
      * @param array<string, string> $params
@@ -709,6 +743,11 @@ class RentalManagementController extends AbstractController
             $now
         );
 
+        // « Nouveaux messages », for the person looking (#720): what was
+        // filed under each booking since THEY last opened its Courrier.
+        $accountId = AuthSession::getUserAccountId();
+        $unread = $accountId === null ? [] : ($this->communicationService?->unreadCounts($accountId, $bookings) ?? []);
+
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             // A public asset with no rate at all answers every visitor
@@ -729,6 +768,11 @@ class RentalManagementController extends AbstractController
             'in_progress' => array_values(array_filter(
                 $bookings,
                 static fn(RentalBooking $b) => $b->isInProgress($now)
+            )),
+            'mail_unread' => $unread,
+            'unread_bookings' => array_values(array_filter(
+                $bookings,
+                static fn(RentalBooking $b): bool => isset($unread[$b->id])
             )),
             'upcoming_blocks' => $this->blockService->upcomingFor($asset->id, $now),
             // The three figures of §6.34, read from the live bookings AND
@@ -870,6 +914,17 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * GET /mes-locations/{slug}/reservations/{id}/modifications — the
+     * renter's change requests and the unit's proposals (#708, IT-20).
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingChanges(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::CHANGES);
+    }
+
+    /**
      * GET /mes-locations/{slug}/reservations/{id}/finances — the price and
      * the payments of one booking.
      *
@@ -892,9 +947,31 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * GET /mes-locations/{slug}/reservations/{id}/etat-des-lieux — the
+     * inventories, their meters and the incidents (#708, IT-17); a 404 on
+     * an asset with nothing to walk.
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingInventory(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::INVENTORY);
+    }
+
+    /**
+     * GET /mes-locations/{slug}/reservations/{id}/facture — the billing
+     * details, the final settlement and the invoice (#708, IT-18).
+     *
+     * @param array<string, string> $params
+     */
+    public function bookingInvoice(Request $request, array $params): Response
+    {
+        return $this->bookingFilePage($request, $params, BookingPage::INVOICE);
+    }
+
+    /**
      * GET /mes-locations/{slug}/reservations/{id}/courrier — the mail of one
-     * booking; a 404 where `inbound_mail` collects nothing, the same answer
-     * as a page that does not exist, because here it does not.
+     * booking (#720). Always there, like every page of the file.
      *
      * @param array<string, string> $params
      */
@@ -920,11 +997,6 @@ class RentalManagementController extends AbstractController
         \DateTimeImmutable $now,
         ?\Modules\Rental\Document\ConditionsVersion $acceptedConditions = null
     ): array {
-        // Null, not [], when the stay module is unavailable: the checklist
-        // reads the difference between "no inventory on this asset" and
-        // "inventories do not exist here" (Booking\MilestoneEvidence).
-        $inventory = $this->stayService?->inventoryFor($booking->id);
-
         $marks = [];
         $marked = $this->decorateWithAuthors(
             $this->milestoneMarkService?->marksFor($booking->id) ?? [],
@@ -939,28 +1011,32 @@ class RentalManagementController extends AbstractController
             }
         }
 
-        $evidence = MilestoneEvidence::collect(
+        // The one derivation the renter's e-mails read too (#708, IT-15);
+        // only the names of who ticked a step are this page's own.
+        return $this->journeyService()->milestones(
             $booking,
+            $asset,
+            $now,
             $documents,
             $payment,
-            $inventory,
-            $this->stayService?->consumptionsFor($booking, $asset->id),
-            $this->stayService?->latestSettlement($booking->id),
-            // An asset with no inventory template has nothing the stay page
-            // could walk, so its walk-throughs are ticked by hand.
-            $this->stayService === null || $this->stayService->inventoryTemplateFor($asset->id) !== [],
             $marks,
-            $now,
             $acceptedConditions
         );
+    }
 
-        return BookingMilestones::for(
-            $booking,
-            $now,
-            $evidence->done,
-            $evidence->details,
-            $evidence->offsite,
-            $evidence->manual
+    /**
+     * Built here from the collaborators this controller already holds, so
+     * the checklist it shows is the one RentalJourneyService gives every
+     * other reader.
+     */
+    private function journeyService(): \Modules\Rental\Service\RentalJourneyService
+    {
+        return $this->journeyService ??= new \Modules\Rental\Service\RentalJourneyService(
+            $this->bookingRepository,
+            $this->stayService,
+            $this->milestoneMarkService,
+            $this->documentService,
+            $this->paymentService
         );
     }
 
@@ -1125,24 +1201,27 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * The pages this booking offers, in rail order: all four, minus
-     * « Courrier » unless rentals have a mailbox of their own — exactly one,
-     * designated by the configuration (issue #462, D8). The page shows that
-     * box's whole mail, so without it there is no page: an absent chip,
-     * never a disabled one.
+     * The pages this booking offers, in rail order. « Courrier » always
+     * (#720): it shows this booking's own mail, whatever the mailbox
+     * configuration, and says so when nothing gathers renters' replies.
      *
      * @return list<BookingPage>
      */
-    private function bookingPagesOffered(): array
+    private function bookingPagesOffered(RentalAsset $asset): array
     {
-        $communications = $this->communicationService?->dedicatedMailbox() !== null;
+        // « État des lieux » wherever the stay features are: the incidents
+        // live there (#708, IT-17), and an asset with nothing to walk can
+        // still be damaged. Its walk-throughs are ticked by hand on the
+        // dashboard; the page then shows only the incidents.
+        $inventory = $this->stayService !== null;
 
-        // Filtering drops « Courrier », the last case, so what remains is
-        // still a list in rail order.
-        return array_filter(
+        return array_values(array_filter(
             BookingPage::cases(),
-            static fn(BookingPage $page): bool => $page !== BookingPage::MAIL || $communications
-        );
+            static fn(BookingPage $page): bool => match ($page) {
+                BookingPage::INVENTORY => $inventory,
+                default => true,
+            }
+        ));
     }
 
     /**
@@ -1169,12 +1248,20 @@ class RentalManagementController extends AbstractController
             return $this->notFound();
         }
 
-        $pages = $this->bookingPagesOffered();
+        $pages = $this->bookingPagesOffered($asset);
         if (!in_array($page, $pages, true)) {
             return $this->notFound();
         }
 
         $now = new \DateTimeImmutable();
+
+        // Opening « Courrier » reads it, for this person only (#720) — and
+        // before the counts below, so its own chip does not still announce
+        // what is on the screen.
+        $accountId = AuthSession::getUserAccountId();
+        if ($page === BookingPage::MAIL && $accountId !== null) {
+            $this->communicationService?->markRead($booking, $accountId);
+        }
 
         // Keyed by the enum's own value so the template writes
         // `boxes.payment.anchor` rather than the string that anchor
@@ -1205,6 +1292,19 @@ class RentalManagementController extends AbstractController
             'is_in_progress' => $booking->isInProgress($now),
             'nav_page' => 'bookings',
             'boxes' => $boxes,
+            // « Modifications (1) » in the rail, on every page of the file:
+            // seeing that somebody waits is the reason to go there (#708,
+            // IT-20).
+            'booking_page_counts' => [
+                BookingPage::CHANGES->value => count(array_filter(
+                    $this->changeRequestRepository->findForBooking($booking->id),
+                    static fn($change): bool => $change->isPending()
+                )),
+                // « Courrier (2) »: what was filed since this person last
+                // opened it (#720).
+                BookingPage::MAIL->value => $accountId === null ? 0
+                    : ($this->communicationService?->unreadCounts($accountId, [$booking])[$booking->id] ?? 0),
+            ],
         ];
 
         // Each page loads what it renders and nothing else: the pages
@@ -1215,260 +1315,226 @@ class RentalManagementController extends AbstractController
             self::BOOKING_PAGE_TEMPLATES[$page->value],
             $context + match ($page) {
                 BookingPage::DASHBOARD => $this->dashboardContext($booking, $asset, $now),
+                BookingPage::CHANGES => [
+                    'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+                ],
                 BookingPage::FINANCES => [
                     'quote' => $this->operationsService->workingQuote($booking, $asset),
                     'payment' => $this->paymentStatus($booking, $asset),
                 ],
                 BookingPage::DOCUMENTS => [
-                    'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+                    'documents' => $documents = $this->documentService?->forBooking($booking->id) ?? [],
+                    // A contract whose stored PDF is gone cannot be sent
+                    // again, and the error says « Régénérez-le »: the page
+                    // must offer the way to (#708, IT-20).
+                    'contracts_without_file' => array_values(array_map(
+                        static fn(\Modules\Rental\Document\RentalDocument $d): int => $d->id,
+                        array_filter(
+                            $documents,
+                            fn(\Modules\Rental\Document\RentalDocument $d): bool => $d->type === DocumentType::CONTRACT
+                                && $this->documentService?->absolutePath($d) === null
+                        )
+                    )),
                     'uploadable_types' => DocumentType::uploadable(),
-                    'billing' => $this->operationsService->billingIdentity($booking->id),
                     // So the page can say, BEFORE a contract goes out, that
                     // it would print « — » where the landlord's address
                     // belongs (issue #497).
                     'landlord' => $this->documentService?->landlordFor($asset),
                 ],
+                BookingPage::INVENTORY => $this->inventoryContext($booking, $asset),
+                BookingPage::INVOICE => $this->invoiceContext($booking, $asset),
                 // Only offered at all when a mailbox collects, which
                 // `bookingPagesOffered()` settled above.
-                BookingPage::MAIL => $this->mailContext($request, $booking),
+                BookingPage::MAIL => $this->mailContext($booking),
             }
         );
     }
 
     /**
-     * The references the requester may file mail under — the triage
-     * screen's whole scope, recomputed on every action rather than trusted
-     * from the page (RentalCommunicationService::triageBookings()).
-     *
-     * @return array<string, RentalBooking>
-     */
-    private function triageScope(): array
-    {
-        return $this->communicationService?->triageBookings(AuthSession::getEmail(), $this->scoutYearId()) ?? [];
-    }
-
-    /**
-     * Whether the requester may also read the mail nothing attributes yet
-     * (RentalCommunicationService::sortsUnattributed()) — the other half of
-     * the screen's reach, recomputed on every action like the first.
-     */
-    private function sortsUnattributed(): bool
-    {
-        return $this->communicationService?->sortsUnattributed(AuthSession::getEmail(), $this->scoutYearId()) ?? false;
-    }
-
-    /**
-     * POST /mes-locations/courrier/rattacher — file a message of the triage
-     * list under one of the requester's bookings (issue #462, IT-03).
+     * POST /mes-locations/courrier/detacher — « Ce message ne concerne pas
+     * cette réservation » (#720). The message leaves this booking for good:
+     * its documents still `Non classé` go with it, and the module's rules
+     * never file it here again (RentalCommunicationService::detach()).
      *
      * @param array<string, string> $params
      */
-    public function triageAttach(Request $request, array $params): Response
+    public function detachMessage(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function () use ($request): void {
-            $scope = $this->triageScope();
-            $target = $scope[(string) $request->getBody('booking_reference', '')] ?? null;
-            if ($target === null || $this->communicationService === null) {
-                throw new RentalException('Choisissez la réservation à laquelle rattacher ce message.');
-            }
-
-            if (!$this->communicationService->attachToBooking(
-                $target,
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->communicationService === null || !$this->communicationService->detach(
+                $booking,
                 (int) $request->getBody('message_id', 0),
-                array_keys($scope),
-                $this->sortsUnattributed(),
+                $this->actorMemberId(),
                 AuthSession::getUserAccountId()
             )) {
-                throw new RentalException("Ce message n'a pas pu être rattaché.");
-            }
-
-            FlashMessage::set('success', 'Message rattaché à la réservation ' . $target->reference . '.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/courrier/detacher — take a message off one of the
-     * requester's bookings. Through the booking's own detach, so an
-     * attachment already filed as a document stays with the booking.
-     *
-     * @param array<string, string> $params
-     */
-    public function triageDetach(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function () use ($request): void {
-            $target = $this->triageScope()[(string) $request->getBody('business_reference', '')] ?? null;
-            $messageId = (int) $request->getBody('message_id', 0);
-            if ($target === null || $this->communicationService === null
-                || !$this->communicationService->detach($target, $messageId, $this->actorMemberId())
-            ) {
                 throw new RentalException("Ce message n'appartient pas à cette réservation.");
             }
 
-            FlashMessage::set('success', 'Message détaché de la réservation ' . $target->reference . '.');
+            FlashMessage::set('success', 'Message détaché de la réservation.');
         });
     }
 
     /**
-     * POST /mes-locations/courrier/ecarter — « ce courrier ne concerne pas
-     * les locations ». Deletes nothing.
+     * POST /mes-locations/courrier/adresse-ajouter — one more of the
+     * « Autres adresses du locataire » (#720, step 5).
      *
      * @param array<string, string> $params
      */
-    public function triageSetAside(Request $request, array $params): Response
+    public function addOtherRenterEmail(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function () use ($request): void {
-            if (!($this->communicationService?->setAside(
-                array_keys($this->triageScope()),
-                $this->sortsUnattributed(),
-                (int) $request->getBody('message_id', 0),
-                AuthSession::getUserAccountId()
-            ) ?? false)) {
-                throw new RentalException("Ce courrier n'a pas pu être écarté.");
-            }
-
-            // Said in full, because the button does less than the word
-            // suggests and a manager must not believe they deleted mail.
-            FlashMessage::set(
-                'success',
-                "Courrier écarté de la liste des locations. Il reste dans le courrier de l'unité."
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->otherRenterEmailService()->addOtherRenterEmail(
+                $booking,
+                (string) $request->getBody('email', ''),
+                $this->actorMemberId()
             );
+
+            FlashMessage::set('success', 'Adresse ajoutée.');
         });
     }
 
     /**
-     * POST /mes-locations/courrier/reprendre — put a set-aside message back.
+     * POST /mes-locations/courrier/adresse-retirer — one of them goes,
+     * whether a manager typed it or a filing taught it.
      *
      * @param array<string, string> $params
      */
-    public function triageRestore(Request $request, array $params): Response
+    public function removeOtherRenterEmail(Request $request, array $params): Response
     {
-        return $this->bookingAction($request, function () use ($request): void {
-            if (!($this->communicationService?->restore(
-                array_keys($this->triageScope()),
-                $this->sortsUnattributed(),
-                (int) $request->getBody('message_id', 0)
-            ) ?? false)) {
-                throw new RentalException("Ce courrier n'a pas pu être remis dans la liste.");
-            }
-
-            FlashMessage::set('success', 'Courrier remis dans la liste.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/courrier/proposition/confirmation
-     *
-     * @param array<string, string> $params
-     */
-    public function triageConfirm(Request $request, array $params): Response
-    {
-        return $this->triageDecide($request, true);
-    }
-
-    /**
-     * POST /mes-locations/courrier/proposition/rejet
-     *
-     * @param array<string, string> $params
-     */
-    public function triageReject(Request $request, array $params): Response
-    {
-        return $this->triageDecide($request, false);
-    }
-
-    private function triageDecide(Request $request, bool $confirm): Response
-    {
-        return $this->bookingAction($request, function () use ($request, $confirm): void {
-            if (!($this->communicationService?->decideCandidate(
-                array_keys($this->triageScope()),
-                (int) $request->getBody('message_id', 0),
-                (int) $request->getBody('candidate_id', 0),
-                $confirm,
-                AuthSession::getUserAccountId()
-            ) ?? false)) {
-                throw new RentalException("Cette proposition n'existe plus.");
-            }
-
-            FlashMessage::set('success', $confirm ? 'Message rattaché à la réservation.' : 'Proposition écartée.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/courrier/relancer — offer the unattributed mail
-     * to this module again, with what the site knows today.
-     *
-     * @param array<string, string> $params
-     */
-    public function triageReanalyze(Request $request, array $params): Response
-    {
-        return $this->bookingAction($request, function (): void {
-            if ($this->communicationService === null) {
-                throw new RentalException("Le courrier entrant n'est pas disponible.");
-            }
-
-            FlashMessage::set(
-                'success',
-                ReanalysisReport::fromArray($this->communicationService->reanalyze())->message()
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $this->otherRenterEmailService()->removeOtherRenterEmail(
+                $booking,
+                (int) $request->getBody('other_email_id', 0),
+                $this->actorMemberId()
             );
+
+            FlashMessage::set('success', 'Adresse retirée.');
+        });
+    }
+
+    /** @throws RentalException */
+    private function otherRenterEmailService(): RentalBookingService
+    {
+        return $this->bookingService
+            ?? throw new RentalException('Les adresses du locataire ne sont pas modifiables ici.');
+    }
+
+    /**
+     * POST /mes-locations/courrier/renvoyer — « Renvoyer » an e-mail the
+     * log shows as not sent (#720, step 2): the same text, with the
+     * booking's current tracking link and its attachments read from the
+     * documents they are.
+     *
+     * @param array<string, string> $params
+     */
+    public function resendEmail(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $sent = $this->sentEmails?->findById((int) $request->getBody('sent_email_id', 0));
+            if ($sent === null || $sent->bookingId !== $booking->id || $this->mailService === null) {
+                throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
+            }
+            // The button is only on a failure; a request naming an e-mail
+            // that went out is refused here too, not merely not offered.
+            if (!$sent->failed()) {
+                throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
+            }
+
+            /** @var list<\Modules\Rental\Document\RentalDocument> $documents */
+            $documents = [];
+            try {
+                $this->mailService->resend(
+                    $sent,
+                    $booking,
+                    $this->bookingService?->trackingTokenFor($booking->id),
+                    function (int $documentId) use ($booking, &$documents): ?array {
+                        $document = $this->documentService?->find($documentId);
+                        if ($document === null || $document->bookingId !== $booking->id) {
+                            return null;
+                        }
+                        // The same refusal as the Documents page's own
+                        // « Renvoyer » (sendDocument()): a void contract
+                        // describes a booking that no longer exists.
+                        if ($document->isSuperseded()) {
+                            throw new RentalException(
+                                'Ce document a été remplacé : la réservation a changé depuis. '
+                                    . 'Générez-en une nouvelle version et envoyez-la.'
+                            );
+                        }
+                        $path = $this->documentService->absolutePath($document);
+                        if ($path === null) {
+                            return null;
+                        }
+                        $documents[] = $document;
+
+                        return ['path' => $path, 'name' => $document->originalName ?? 'document.pdf'];
+                    }
+                );
+            } catch (RentalException $e) {
+                throw $e;
+            } catch (\Throwable) {
+                throw new RentalException("L'e-mail n'a pas pu partir. Il reste « Non envoyé » ; réessayez plus tard.");
+            }
+
+            // What a first send that worked would have recorded
+            // (sendDocument()): the document went out, and a contract makes
+            // the booking « Contrat envoyé » — without it the renter could
+            // not hand in the copy the e-mail asks them to sign.
+            $now = new \DateTimeImmutable();
+            foreach ($documents as $document) {
+                $this->documentService?->markSent($document->id, $now);
+                if ($document->type === DocumentType::CONTRACT) {
+                    $this->operationsService->contractSent(
+                        $booking,
+                        $this->actorMemberId(),
+                        $now,
+                        $this->contractHoldMinDays()
+                    );
+                }
+            }
+
+            FlashMessage::set('success', 'E-mail renvoyé.');
         });
     }
 
     /**
-     * What the Courrier page renders: the shared triage screen (issue #462,
-     * D9), the same component as the camps', over the mail of every booking
-     * this manager may reach — their scope and nothing wider
-     * (`RentalCommunicationService::triageBookings()`).
+     * The names of the booking's documents, for the attachments a sent
+     * e-mail names by id.
+     *
+     * @return array<int, string>
+     */
+    private function documentNames(RentalBooking $booking): array
+    {
+        $names = [];
+        foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
+            $names[$document->id] = $document->originalName ?? $document->label();
+        }
+
+        return $names;
+    }
+
+    /**
+     * What the Courrier page renders (#720): this booking's mail and
+     * nothing else, most recent first (Mail\BookingMailTimeline), and
+     * whether anything gathers renters' replies at all — the page is there
+     * either way, and says so when nothing does.
      *
      * @return array<string, mixed>
      */
-    private function mailContext(Request $request, RentalBooking $booking): array
+    private function mailContext(RentalBooking $booking): array
     {
-        $service = $this->communicationService;
-        if ($service === null) {
-            return [];
-        }
-
-        $bookings = $service->triageBookings(AuthSession::getEmail(), $this->scoutYearId());
-        $references = array_keys($bookings);
-        $unattributed = $this->sortsUnattributed();
-
-        $slugs = [];
-        $manageable = $this->authorizationService->listManageableAssets(AuthSession::getEmail(), $this->scoutYearId());
-        foreach ($manageable as $asset) {
-            $slugs[$asset->id] = $asset->slug;
-        }
-
-        $labels = [];
-        $urls = [];
-        $options = [];
-        foreach ($bookings as $reference => $candidate) {
-            $labels[$reference] = $reference . ' — ' . $candidate->renterName;
-            if (isset($slugs[$candidate->assetId])) {
-                $urls[$reference] = '/mes-locations/' . $slugs[$candidate->assetId] . '/reservations/' . $candidate->id;
-            }
-            $options[] = [
-                'value' => $reference,
-                'label' => $labels[$reference] . ' (' . DateFilterExtension::dateFr($candidate->arrivalDate) . ')',
-                'selected' => $candidate->id === $booking->id,
-            ];
-        }
-
-        $mailbox = $service->dedicatedMailbox();
-        $filter = TriageFilter::fromQuery((string) $request->getQuery('statut', ''));
-        $dismissed = $service->triageRows($references, $unattributed, true);
-
-        return TriageScreen::of(
-            $service->triageRows($references, $unattributed),
-            $filter,
-            (string) $request->getQuery('automatique', '') === '1',
-            $dismissed,
-            count($dismissed)
-        )->toArray() + [
-            'triage_labels' => $labels,
-            'triage_urls' => $urls,
-            'triage_booking_options' => $options,
-            'mailbox_address' => $mailbox?->address,
-            'sorts_unattributed' => $unattributed,
-            'mailbox_name' => $mailbox?->name,
+        return [
+            'mail_entries' => BookingMailTimeline::of(
+                $this->communicationService?->timeline($booking) ?? [],
+                $this->sentEmails?->findForBooking($booking->id) ?? [],
+                $this->documentNames($booking)
+            ),
+            'mail_module_active' => $this->communicationService !== null,
+            'mail_collected' => $this->communicationService?->collects() ?? false,
+            // Listed whether or not a box collects: they are the renter's
+            // addresses either way, and adding one before the box is
+            // opened is how its first message is filed straight away.
+            'other_renter_emails' => $this->bookingRepository->otherRenterEmails($booking->id),
         ];
     }
 
@@ -1500,7 +1566,7 @@ class RentalManagementController extends AbstractController
             // The checklist staged into the five stretches, with the heading
             // that says what holds the booking up — one derivation, one
             // component (Booking\BookingJourney, issue #462).
-            'journey' => BookingJourney::of($milestones, $booking->status),
+            'journey' => $this->journeyOf($booking, $asset, $milestones, $payment, $now),
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
@@ -1521,9 +1587,66 @@ class RentalManagementController extends AbstractController
                 AuditService::DEFAULT_PER_PAGE
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
-            'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
             'contract_step' => $this->contractStep($booking, $asset, $documents, $now),
         ];
+    }
+
+    /**
+     * The journey with what only this controller knows (#708, IT-19): a
+     * change the renter asked for, which comes before everything else; a
+     * proposal of the unit awaiting the renter; a step of the renter's now
+     * late (IT-12); dates no longer held on a request still waiting
+     * (IT-01).
+     *
+     * @param list<\Modules\Rental\Booking\BookingMilestone> $milestones
+     * @param array<string, mixed> $payment
+     */
+    private function journeyOf(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        array $milestones,
+        array $payment,
+        \DateTimeImmutable $now
+    ): BookingJourney {
+        $asked = null;
+        $proposalWaiting = false;
+        foreach ($this->changeRequestRepository->findForBooking($booking->id) as $change) {
+            if (!$change->isPending()) {
+                continue;
+            }
+            if ($change->origin === \Modules\Rental\Booking\ChangeRequestOrigin::RENTER) {
+                $asked ??= $change->summary();
+            } else {
+                $proposalWaiting = true;
+            }
+        }
+
+        $next = BookingJourney::firstOutstanding($milestones);
+        $lateSince = null;
+        if ($next !== null && $next->actor === \Modules\Rental\Booking\StepActor::RENTER) {
+            $deadline = \Modules\Rental\Reminder\ReminderPlanner::renterDeadline(
+                $next->key,
+                $booking,
+                $payment,
+                ReminderSchedule::of(
+                    $this->unitReminderDefaults(),
+                    $this->assetReminderRepository?->findForAsset($asset->id) ?? []
+                )
+            );
+            if ($deadline !== null && $deadline->isLate($now)) {
+                $lateSince = $deadline->expected;
+            }
+        }
+
+        return BookingJourney::of(
+            $milestones,
+            $booking->status,
+            $asked,
+            $proposalWaiting,
+            $booking->holdIsActive($now) ? $booking->holdUntil : null,
+            $lateSince,
+            $booking->holdLapsedSince($now)
+        );
     }
 
     /**
@@ -1548,7 +1671,7 @@ class RentalManagementController extends AbstractController
 
         $latest = null;
         foreach ($documents as $document) {
-            if ($document->type !== DocumentType::CONTRACT) {
+            if ($document->type !== DocumentType::CONTRACT || $document->isSuperseded()) {
                 continue;
             }
             if ($latest === null || $document->version > $latest->version) {
@@ -1576,6 +1699,36 @@ class RentalManagementController extends AbstractController
     }
 
     /**
+     * After any gesture on a booking, whether its contract still says what
+     * the booking says (#708, IT-20) — one generic question rather than a
+     * list of the gestures that change a date, a price or a name. When it
+     * no longer does, the manager is told in the same breath as their own
+     * gesture's answer.
+     */
+    private function recheckContract(int $bookingId, RentalAsset $asset): void
+    {
+        if ($this->contractValidity === null) {
+            return;
+        }
+        $fresh = $this->bookingRepository->findById($bookingId);
+        if ($fresh === null
+            || !$this->contractValidity->recheck($fresh, $asset, $this->actorMemberId(), new \DateTimeImmutable())
+        ) {
+            return;
+        }
+
+        $said = FlashMessage::get();
+        FlashMessage::set(
+            'warning',
+            trim(
+                ($said['message'] ?? '')
+                . ' La réservation ne correspond plus à son contrat : il est marqué « Remplacé », '
+                . 'et un nouveau contrat doit partir.'
+            )
+        );
+    }
+
+    /**
      * POST /mes-locations/contrat-contresigner — checks the renter's copy
      * and countersigns it with this manager's own signature, in one
      * gesture (#708, IT-16). The renter receives the contract signed by
@@ -1591,19 +1744,13 @@ class RentalManagementController extends AbstractController
                 throw new RentalException("La contresignature n'est pas disponible.");
             }
 
-            $memberId = $this->actorMemberId();
-            $names = $memberId !== null
-                ? $this->memberService->findDisplayNamesByMemberIds([$memberId], $this->scoutYearId())
-                : [];
-            $name = $memberId !== null ? ($names[$memberId] ?? null) : null;
-
             $final = $this->signedContractService->countersign(
                 $booking,
                 $asset,
                 (int) $request->getBody('document_id', 0),
                 $account,
-                $memberId,
-                $name ?? 'un gestionnaire',
+                $this->actorMemberId(),
+                $this->signerDisplayName(),
                 new \DateTimeImmutable()
             );
 
@@ -1953,6 +2100,9 @@ class RentalManagementController extends AbstractController
             if ($type === null || !$type->isGenerated()) {
                 throw new RentalException("Ce type de document ne se génère pas.");
             }
+            if ($type === DocumentType::INVOICE && $this->invoiceWaits($booking, $asset)) {
+                throw new RentalException("La facture se génère une fois l'état des lieux de sortie complété.");
+            }
 
             $settings = $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings();
             $communication = $this->paymentService?->statusFor($booking, $settings)['communication'] ?? null;
@@ -2003,21 +2153,48 @@ class RentalManagementController extends AbstractController
             if ($document === null || $document->bookingId !== $booking->id) {
                 throw new RentalException("Ce document n'existe pas.");
             }
+            // A void contract (#708, IT-20) describes a booking that no
+            // longer exists: sending it again would put the renter to work
+            // on the wrong terms, and take the booking back to « Contrat
+            // envoyé ».
+            if ($document->isSuperseded()) {
+                throw new RentalException(
+                    'Ce document a été remplacé : la réservation a changé depuis. '
+                        . 'Générez-en une nouvelle version.'
+                );
+            }
 
             $path = $this->documentService->absolutePath($document);
             if ($path === null) {
                 throw new RentalException("Le fichier de ce document est introuvable. Régénérez-le.");
             }
 
-            $this->mailService->sendDocument(
-                $booking,
-                $asset,
-                $document->label(),
-                $path,
-                $document->originalName ?? 'document.pdf',
-                $document->hasBeenSent()
-            );
             $now = new \DateTimeImmutable();
+            if ($document->type === DocumentType::CONTRACT) {
+                // What to do with it, and by when (#708, IT-16).
+                $this->mailService->sendContract(
+                    $booking,
+                    $asset,
+                    $document->label(),
+                    $path,
+                    $document->originalName ?? 'contrat.pdf',
+                    $document->hasBeenSent(),
+                    $this->bookingService?->trackingTokenFor($booking->id),
+                    $this->operationsService->contractHoldUntil($booking, $now, $this->contractHoldMinDays()),
+                    $document->id
+                );
+            } else {
+                $this->mailService->sendDocument(
+                    $booking,
+                    $asset,
+                    $document->label(),
+                    $path,
+                    $document->originalName ?? 'document.pdf',
+                    $document->hasBeenSent(),
+                    $document->type,
+                    $document->id
+                );
+            }
             $this->documentService->markSent($document->id, $now);
 
             // The contract is the unit's answer (#708, IT-13): « Contrat
@@ -2152,15 +2329,7 @@ class RentalManagementController extends AbstractController
      */
     private function paymentStatus(RentalBooking $booking, RentalAsset $asset): array
     {
-        if ($this->paymentService === null) {
-            return [
-                'available' => false,
-                'enabled' => false,
-                'security_deposit' => ['amount_cents' => null],
-            ];
-        }
-
-        return $this->paymentService->statusFor($booking, $this->paymentService->settingsFor($asset->id));
+        return $this->journeyService()->payment($booking, $asset);
     }
 
     /**
@@ -2781,63 +2950,227 @@ class RentalManagementController extends AbstractController
     }
 
     /**
-     * GET /mes-locations/{slug}/reservations/{id}/sejour — meters,
-     * inventory, incidents and the settlement (§6.21–§6.23).
+     * What « État des lieux » renders (#708, IT-17): one inventory at a
+     * time — the arrival until it is validated, then the departure, then a
+     * read-only summary with both PDFs — its lines with what each is
+     * checked against, the meters, and the incidents.
      *
-     * Its own page rather than another card on the booking's file: this is
-     * what a manager opens on the day, and burying it under a contract
-     * editor and a payment panel would make the one screen used with muddy
-     * boots on the hardest to reach.
-     *
-     * **Deliberately absent from `Core\Offline\OfflineWhitelist`** (§6.23).
-     * The module declares no `offline` section at all, so nothing here is
-     * ever cached — and it must stay that way: these are WRITE pages, and
-     * the offline layer caches reads. A cached inventory form would let a
-     * manager fill it in on a phone with no signal and lose everything on
-     * the way home. The documented workaround is the honest one: photograph
-     * on site, type it up on return.
-     *
-     * @param array<string, string> $params
+     * @return array<string, mixed>
      */
-    public function stay(Request $request, array $params): Response
+    private function inventoryContext(RentalBooking $booking, RentalAsset $asset): array
     {
-        $asset = $this->manageableAsset($params);
-        if ($asset === null || $this->stayService === null) {
-            return $this->notFound();
+        if ($this->stayService === null) {
+            return [];
         }
 
-        $booking = $this->bookingOfAsset($asset, (int) ($params['id'] ?? 0));
-        if ($booking === null) {
-            return $this->notFound();
+        $validations = $this->stayService->inventoryValidations($booking->id);
+        $arrivalByHand = $this->arrivalTickedByHand($booking);
+        $kept = $this->stayService->keepsInventoryFor($booking);
+        // A validated departure freezes the arrival too (frozenBy): unticking
+        // a hand-ticked arrival afterwards must not reopen a form whose every
+        // save would be refused.
+        $phase = match (true) {
+            // Nothing to walk: no phase to fill in, only the incidents.
+            !$kept => null,
+            !isset($validations['arrival']) && !$arrivalByHand && !isset($validations['departure'])
+                => ReadingPhase::ARRIVAL,
+            !isset($validations['departure']) => ReadingPhase::DEPARTURE,
+            default => null,
+        };
+
+        $lines = [];
+        foreach ($this->stayService->inventoryFor($booking->id) as $line) {
+            $lines[] = $line + [
+                'reference' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::reference($line, $phase) : null,
+                'value' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::value($line, $phase) : null,
+                'note' => $phase !== null ? \Modules\Rental\Stay\InventoryReport::note($line, $phase) : null,
+            ];
         }
 
+        $documents = [];
+        foreach ($validations as $validatedPhase => $validation) {
+            $documents[$validatedPhase] = $validation['document_id'] !== null
+                ? $this->documentService?->find($validation['document_id'])
+                : null;
+        }
+
+        return [
+            'inventory_kept' => $kept,
+            'inventory_phase' => $phase,
+            'inventory_lines' => $lines,
+            'inventory_validations' => $validations,
+            'inventory_documents' => $documents,
+            'arrival_by_hand' => $arrivalByHand,
+            'unchecked_count' => $phase !== null
+                ? \Modules\Rental\Stay\InventoryReport::uncheckedCount($lines, $phase)
+                : 0,
+            'missing_readings' => $phase !== null
+                ? ($this->inventoryValidation?->missingReadings($booking, $asset->id, $phase) ?? [])
+                : [],
+            'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
+            // An arrival ticked by hand was never read through this page:
+            // its meter readings stay to be taken beside the departure's
+            // until the departure is validated, or the consumption could
+            // never be billed.
+            'meter_phases' => match (true) {
+                $phase === ReadingPhase::DEPARTURE && $arrivalByHand && !isset($validations['arrival'])
+                    => [ReadingPhase::ARRIVAL, ReadingPhase::DEPARTURE],
+                $phase !== null => [$phase],
+                default => [],
+            },
+            'incidents' => $this->stayService->incidentsFor($booking->id),
+            'incident_decisions' => IncidentDecision::decidable(),
+            'incidents_open' => !isset($validations['departure']),
+        ];
+    }
+
+    /**
+     * Whether a manager ticked the arrival inventory by hand (#708, IT-14)
+     * — the departure then starts without a validated arrival.
+     */
+    private function arrivalTickedByHand(RentalBooking $booking): bool
+    {
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
+        return isset($marks[BookingMilestones::ARRIVAL_INVENTORY]);
+    }
+
+    /**
+     * What « Facture » renders (#708, IT-18): the billing details, the
+     * final settlement with the incidents decided on « État des lieux »,
+     * and the latest invoice.
+     *
+     * @return array<string, mixed>
+     */
+    private function invoiceContext(RentalBooking $booking, RentalAsset $asset): array
+    {
         // The count from the last settlement if one exists, else what was
         // announced — a manager correcting a figure should not have to
         // retype the one they already recorded.
-        $latestSettlement = $this->stayService->latestSettlement($booking->id);
+        $latestSettlement = $this->stayService?->latestSettlement($booking->id);
         $finalPersons = $latestSettlement !== null && $latestSettlement->finalPersons !== null
             ? $latestSettlement->finalPersons
             : $booking->estimatedPersons;
 
-        return $this->render('@rental/management/stay.html.twig', [
-            'asset' => $asset,
-            'booking' => $booking,
-            'breadcrumb_current' => 'Séjour',
-            'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
-            'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
-            'inventory' => $this->stayService->inventoryFor($booking->id),
-            'inventory_states' => InventoryState::all(),
-            'incidents' => $this->stayService->incidentsFor($booking->id),
-            'incident_decisions' => IncidentDecision::decidable(),
-            'settlements' => $this->stayService->settlementsFor($booking->id),
+        $invoice = null;
+        foreach ($this->documentService?->forBooking($booking->id) ?? [] as $document) {
+            if ($document->type === DocumentType::INVOICE
+                && !$document->isSuperseded()
+                && ($invoice === null || $document->version > $invoice->version)
+            ) {
+                $invoice = $document;
+            }
+        }
+
+        // The page that changes a decision exists wherever the stay
+        // features do (bookingPagesOffered()): the incidents live there.
+        $keepsInventory = $this->stayService !== null;
+
+        return [
+            'billing' => $this->operationsService->billingIdentity($booking->id),
+            'settlements' => $this->stayService?->settlementsFor($booking->id) ?? [],
             'final_persons' => $finalPersons,
-            // Recomputed live so a manager sees the effect of the reading
-            // they just typed — looking never creates a version.
-            'preview' => $this->stayService->previewSettlement($booking, $asset->id, $finalPersons),
-            'phases' => ReadingPhase::cases(),
-            'csrf_token' => CsrfGuard::generateToken(),
-            'nav_page' => 'bookings',
-        ]);
+            // Recomputed live, so the figure a manager sees is the one the
+            // next version would record — looking never creates a version.
+            'preview' => $this->stayService?->previewSettlement($booking, $asset->id, $finalPersons),
+            'decided_incidents' => array_values(array_filter(
+                $this->stayService?->incidentsFor($booking->id) ?? [],
+                static fn(\Modules\Rental\Stay\Incident $incident): bool
+                    => $incident->decision !== IncidentDecision::PENDING
+            )),
+            'inventory_url' => $keepsInventory
+                ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
+                : null,
+            'invoice' => $invoice,
+            'invoice_waits_for' => $this->invoiceWaits($booking, $asset)
+                ? BookingPage::INVENTORY->url($this->bookingUrl($asset, $booking))
+                : null,
+        ];
+    }
+
+    /**
+     * Whether the invoice still waits for the departure inventory (#708,
+     * IT-18): until it is validated or ticked by hand, what it would bill
+     * — the consumptions, the incidents — is not known. A booking with
+     * nothing to walk waits for nothing (keepsInventoryFor(): its own
+     * copied checklist, not the asset's current template).
+     */
+    private function invoiceWaits(RentalBooking $booking, RentalAsset $asset): bool
+    {
+        if ($this->stayService === null || !$this->stayService->keepsInventoryFor($booking)) {
+            return false;
+        }
+
+        $marks = $this->milestoneMarkService?->marksFor($booking->id) ?? [];
+
+        return !isset($this->stayService->inventoryValidations($booking->id)['departure'])
+            && !isset($marks[BookingMilestones::DEPARTURE_INVENTORY]);
+    }
+
+    /**
+     * POST /mes-locations/etat-des-lieux/ligne — what was found on one line
+     * (#708, IT-17), saved as it is typed: the page answers in JSON and
+     * stays where it is.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveInventoryLine(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null || $this->stayService === null) {
+                throw new RentalException("Cet état des lieux n'existe pas.");
+            }
+
+            $this->stayService->setInventoryValue(
+                $booking,
+                (int) $request->getBody('inventory_id', 0),
+                $phase,
+                (string) $request->getBody('value', ''),
+                Support::optionalString($request->getBody('note')),
+                $this->arrivalTickedByHand($booking)
+            );
+
+            FlashMessage::set('success', 'Enregistré.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/etat-des-lieux/valider — the phase frozen, its
+     * PDF filed and sent to the renter (#708, IT-17).
+     *
+     * @param array<string, string> $params
+     */
+    public function validateInventory(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
+            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
+            if ($phase === null || $this->inventoryValidation === null) {
+                throw new RentalException("Cet état des lieux n'existe pas.");
+            }
+
+            $result = $this->inventoryValidation->validate(
+                $booking,
+                $asset,
+                $phase,
+                $this->actorMemberId(),
+                $this->signerDisplayName(),
+                new \DateTimeImmutable(),
+                $this->arrivalTickedByHand($booking)
+            );
+
+            FlashMessage::set(
+                $result['sent'] ? 'success' : 'warning',
+                ($phase === ReadingPhase::ARRIVAL ? "État des lieux d'entrée" : 'État des lieux de sortie')
+                . ' validé et rangé dans les documents'
+                . ($result['sent']
+                    ? ', puis envoyé au locataire.'
+                    : ". Il n'a pas pu être envoyé : renvoyez-le depuis la page Documents.")
+            );
+        });
     }
 
     /**
@@ -2847,7 +3180,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordReading(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
             if ($phase === null) {
                 throw new RentalException("Cette phase n'existe pas.");
@@ -2856,9 +3192,7 @@ class RentalManagementController extends AbstractController
             $readAt = DateInput::parse(DateInput::ISO_DATETIME_LOCAL, (string) $request->getBody('read_at', ''))
                 ?? new \DateTimeImmutable();
 
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->recordReading(
+            $record = fn(?int $fileId) => $this->stayService?->recordReading(
                 $booking,
                 $asset->id,
                 (int) $request->getBody('meter_id', 0),
@@ -2867,36 +3201,12 @@ class RentalManagementController extends AbstractController
                 $readAt,
                 $fileId,
                 Support::optionalString($request->getBody('comment')),
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                $this->arrivalTickedByHand($booking)
             );
+            $this->withOptionalPhoto($request, $booking, $record);
 
             FlashMessage::set('success', 'Relevé enregistré.');
-        });
-    }
-
-    /**
-     * POST /mes-locations/inventaire — one checklist line (§6.23).
-     *
-     * @param array<string, string> $params
-     */
-    public function recordInventory(Request $request, array $params): Response
-    {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
-            $phase = ReadingPhase::tryFrom((string) $request->getBody('phase', ''));
-            $state = InventoryState::tryFrom((string) $request->getBody('state', ''));
-            if ($phase === null || $state === null) {
-                throw new RentalException("Cet état n'existe pas.");
-            }
-
-            $this->stayService?->setInventoryState(
-                $booking,
-                (int) $request->getBody('inventory_id', 0),
-                $phase,
-                $state,
-                Support::optionalString($request->getBody('note'))
-            );
-
-            FlashMessage::set('success', "État des lieux mis à jour.");
         });
     }
 
@@ -2907,16 +3217,15 @@ class RentalManagementController extends AbstractController
      */
     public function reportIncident(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
-            $fileId = $this->uploadOptionalPhoto($request, $booking);
-
-            $this->stayService?->reportIncident(
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            $report = fn(?int $fileId) => $this->stayService?->reportIncident(
                 $booking,
                 (string) $request->getBody('description', ''),
                 RentalPricingService::parseAmountToCents((string) $request->getBody('amount', '')),
                 $fileId,
                 $this->actorMemberId()
             );
+            $this->withOptionalPhoto($request, $booking, $report);
 
             FlashMessage::set(
                 'success',
@@ -2932,7 +3241,7 @@ class RentalManagementController extends AbstractController
      */
     public function decideIncident(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
             $decision = IncidentDecision::tryFrom((string) $request->getBody('decision', ''));
             if ($decision === null) {
                 throw new RentalException("Cette décision n'existe pas.");
@@ -2957,7 +3266,10 @@ class RentalManagementController extends AbstractController
      */
     public function recordSettlement(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking, RentalAsset $asset) use ($request): void {
+        return $this->bookingAction($request, function (
+            RentalBooking $booking,
+            RentalAsset $asset
+        ) use ($request): void {
             if ($this->stayService === null) {
                 throw new RentalException('Le décompte final n\'est pas disponible.');
             }
@@ -2985,7 +3297,7 @@ class RentalManagementController extends AbstractController
      */
     public function validateSettlement(Request $request, array $params): Response
     {
-        return $this->stayAction($request, function (RentalBooking $booking) use ($request): void {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
             $this->stayService?->validateSettlement(
                 $booking,
                 (int) $request->getBody('settlement_id', 0),
@@ -3529,6 +3841,7 @@ class RentalManagementController extends AbstractController
 
         try {
             $work($booking, $asset);
+            $this->recheckContract($booking->id, $asset);
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
@@ -3585,41 +3898,6 @@ class RentalManagementController extends AbstractController
             'type' => $type,
             'message' => isset($flash['message']) ? (string) $flash['message'] : null,
         ];
-    }
-
-    /**
-     * Same shape as `bookingAction()`, but back to the stay page.
-     *
-     * A manager recording eight meter readings should land where they were,
-     * not on the booking's file eight times.
-     *
-     * @param callable(RentalBooking, RentalAsset): void $work
-     */
-    private function stayAction(Request $request, callable $work): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/mes-locations')) !== null) {
-            return $guard;
-        }
-
-        $asset = $this->manageableAssetById((int) $request->getBody('asset_id', 0));
-        if ($asset === null || $this->stayService === null) {
-            return $this->notFound();
-        }
-
-        $booking = $this->bookingOfAsset($asset, (int) $request->getBody('booking_id', 0));
-        if ($booking === null) {
-            return $this->notFound();
-        }
-
-        try {
-            $work($booking, $asset);
-        } catch (RentalException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->redirect(
-            $this->bookingUrl($asset, $booking) . '/sejour'
-        );
     }
 
     /**
@@ -3756,8 +4034,11 @@ class RentalManagementController extends AbstractController
      */
     private const BOOKING_PAGE_TEMPLATES = [
         'dashboard' => '@rental/management/booking.html.twig',
+        'changes' => '@rental/management/booking_changes.html.twig',
         'finances' => '@rental/management/booking_finances.html.twig',
         'documents' => '@rental/management/booking_documents.html.twig',
+        'inventory' => '@rental/management/booking_inventory.html.twig',
+        'invoice' => '@rental/management/booking_invoice.html.twig',
         'mail' => '@rental/management/booking_mail.html.twig',
     ];
 
@@ -3804,6 +4085,17 @@ class RentalManagementController extends AbstractController
         return array_merge($this->assetTrail(), [
             ['label' => $asset->name, 'url' => '/mes-locations/' . $asset->slug],
         ]);
+    }
+
+    /**
+     * The name printed beside a signature on a document the renter reads:
+     * the signed-in account's own name, and « un gestionnaire » when it has
+     * none. Not the display name the rest of the site uses — that is a
+     * totem, which tells a tenant nothing (issue #825).
+     */
+    private function signerDisplayName(): string
+    {
+        return $this->signerName?->forAccount(AuthSession::getUserAccountId()) ?? 'un gestionnaire';
     }
 
     /**

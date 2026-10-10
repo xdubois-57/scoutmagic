@@ -121,10 +121,39 @@ class ModuleManifestTest extends TestCase
      * 1.37.0 brings the contract's two signatures (#708, IT-16): a refused
      * signed copy keeps its reason, and each manager's own signature is
      * kept encrypted.
+     *
+     * 1.38.0 voids a contract the booking has outgrown (#708, IT-20): its
+     * fingerprint at generation, and when it stopped holding.
+     *
+     * 1.39.0 replaces the inventory's states with what was found
+     * (`arrival_value`, `departure_value`) and freezes each phase once
+     * validated (`rental_inventory_validations`) (#708, IT-17).
+     *
+     * 1.40.0 draws a booking reference at random and drops the counter it
+     * used to come from (`rental_reference_sequences`) (#720, step 9).
+     *
+     * 1.41.0 makes « Courrier » one booking's own mail on every booking, with
+     * « Détacher » final for it, and retires the triage screen, the
+     * propositions and their notification (#720, steps 1 and 7).
+     *
+     * 1.42.0 announces a message filed under a booking
+     * (`rental.new_message`) and counts, per person, what they have not
+     * read yet (`rental_booking_mail_reads`) (#720, step 7).
+     *
+     * 1.43.0 keeps what the site sent the renter, sent or failed, with
+     * « Renvoyer » (`rental_booking_sent_emails`) (#720, step 2).
+     *
+     * 1.44.0 files what the unit wrote to the renter from its own box,
+     * read in its « Envoyés » and matched on the recipients (#720, steps
+     * 3 and 4).
+     *
+     * 1.45.0 remembers which message taught a booking one of its « Autres
+     * adresses du locataire » (`rental_booking_emails.learned_from_message_id`),
+     * so « Détacher » takes it back (#720, step 5).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.37.0', $this->manifest->version);
+        $this->assertSame('1.45.0', $this->manifest->version);
     }
 
     /**
@@ -159,7 +188,8 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/gabarits/etat-des-lieux/ordre',
             '/mes-locations/{slug}/gabarits/etat-des-lieux/retirer',
             '/mes-locations/releve',
-            '/mes-locations/inventaire',
+            '/mes-locations/etat-des-lieux/ligne',
+            '/mes-locations/etat-des-lieux/valider',
             '/mes-locations/incident',
             '/mes-locations/incident-decision',
             '/mes-locations/decompte',

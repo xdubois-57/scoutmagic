@@ -12,13 +12,6 @@ use Modules\Rental\Document\ConditionsVersion;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\RentalDocument;
 use Modules\Rental\Payment\SecurityDepositStatus;
-use Modules\Rental\Pricing\RentalFee;
-use Modules\Rental\Stay\InventoryState;
-use Modules\Rental\Stay\MeterConsumption;
-use Modules\Rental\Stay\MeterKind;
-use Modules\Rental\Stay\MeterReading;
-use Modules\Rental\Stay\ReadingPhase;
-use Modules\Rental\Stay\RentalMeter;
 use Modules\Rental\Stay\Settlement;
 use PHPUnit\Framework\TestCase;
 
@@ -38,7 +31,7 @@ class MilestoneEvidenceTest extends TestCase
         return new RentalBooking(
             id: 7,
             assetId: 1,
-            reference: 'LOC-2027-0042',
+            reference: 'LOC-K7Q2M4',
             arrivalDate: '2027-07-01',
             departureDate: '2027-07-04',
             units: 1,
@@ -107,48 +100,6 @@ class MilestoneEvidenceTest extends TestCase
         ], $overrides);
     }
 
-    /**
-     * @param array<int, array{0: InventoryState, 1: InventoryState}> $states
-     * @return array<int, array<string, mixed>>
-     */
-    private function inventory(array $states): array
-    {
-        $rows = [];
-        foreach ($states as $index => $pair) {
-            $rows[] = [
-                'id' => $index + 1,
-                'label' => 'Clés',
-                'sort_order' => $index,
-                'arrival_state' => $pair[0],
-                'departure_state' => $pair[1],
-                'arrival_note' => null,
-                'departure_note' => null,
-            ];
-        }
-
-        return $rows;
-    }
-
-    private function meter(int $id = 1): RentalMeter
-    {
-        return new RentalMeter($id, 1, 'Électricité', MeterKind::ELECTRICITY, 'kWh', null, 0, true);
-    }
-
-    private function reading(string $value): MeterReading
-    {
-        return new MeterReading(
-            id: 1,
-            bookingId: 7,
-            meterId: 1,
-            phase: ReadingPhase::ARRIVAL,
-            valueMilli: (int) ((float) $value * MeterReading::SCALE),
-            readAt: new \DateTimeImmutable('2027-07-01 10:00:00'),
-            fileId: null,
-            comment: null,
-            recordedByMemberId: null
-        );
-    }
-
     // ── The contract ────────────────────────────────────────────────────
 
     public function testAContractThatWasSentTicksItsLine(): void
@@ -157,7 +108,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [$this->document(DocumentType::CONTRACT, new \DateTimeImmutable('2027-03-04 08:00:00'))],
             $this->payment(),
-            null,
             null,
             null
         );
@@ -177,7 +127,6 @@ class MilestoneEvidenceTest extends TestCase
             [$this->document(DocumentType::CONTRACT)],
             $this->payment(),
             null,
-            null,
             null
         );
 
@@ -196,11 +145,11 @@ class MilestoneEvidenceTest extends TestCase
     {
         $booking = $this->booking(new \DateTimeImmutable('2027-01-01 10:00:00'));
 
-        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null, null);
+        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null);
         $this->assertSame('conditions acceptées le 01/01/2027', $evidence->details['request_received']);
 
         $version = new ConditionsVersion(3, 'a1b2c3d4e5f6', str_repeat('a', 64), '<p>…</p>', new \DateTimeImmutable('2026-09-12'));
-        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null, null, true, [], null, $version);
+        $evidence = MilestoneEvidence::collect($booking, [], $this->payment(), null, null, true, [], null, $version);
         $this->assertSame('conditions acceptées, version du 12/09/2026', $evidence->details['request_received']);
 
         $line = BookingMilestones::for($booking, new \DateTimeImmutable('2027-02-01'), $evidence->done, $evidence->details)[0];
@@ -231,7 +180,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->payment(),
             null,
             null,
-            null,
             acceptedConditions: $version
         );
 
@@ -248,7 +196,6 @@ class MilestoneEvidenceTest extends TestCase
                 $this->document(DocumentType::SIGNED_COPY, null, '2027-03-11 12:00:00', 2),
             ],
             $this->payment(),
-            null,
             null,
             null
         );
@@ -272,7 +219,6 @@ class MilestoneEvidenceTest extends TestCase
             ],
             $this->payment(),
             null,
-            null,
             null
         );
 
@@ -287,7 +233,7 @@ class MilestoneEvidenceTest extends TestCase
      */
     public function testWithoutDocumentsTheContractLinesAreNotApplicable(): void
     {
-        $evidence = MilestoneEvidence::collect($this->booking(), null, $this->payment(), null, null, null);
+        $evidence = MilestoneEvidence::collect($this->booking(), null, $this->payment(), null, null);
 
         foreach ([
             BookingMilestones::CONTRACT_GENERATED,
@@ -308,7 +254,6 @@ class MilestoneEvidenceTest extends TestCase
             [],
             $this->payment(['deposit_received' => true, 'fully_paid' => false]),
             null,
-            null,
             null
         );
 
@@ -323,7 +268,6 @@ class MilestoneEvidenceTest extends TestCase
             [],
             $this->payment(['deposit_cents' => null]),
             null,
-            null,
             null
         );
 
@@ -337,7 +281,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(['enabled' => false]),
-            null,
             null,
             null
         );
@@ -355,7 +298,6 @@ class MilestoneEvidenceTest extends TestCase
                 'status' => SecurityDepositStatus::RECEIVED,
                 'amount_cents' => 50000,
             ]]),
-            null,
             null,
             null
         );
@@ -375,7 +317,6 @@ class MilestoneEvidenceTest extends TestCase
                 'returned_at' => '2027-07-20',
             ]]),
             null,
-            null,
             null
         );
 
@@ -386,7 +327,7 @@ class MilestoneEvidenceTest extends TestCase
 
     public function testNoSecurityDepositMeansNoSecurityDepositLines(): void
     {
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null, null);
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null);
 
         $this->assertArrayNotHasKey(BookingMilestones::SECURITY_DEPOSIT_RECEIVED, $evidence->done);
         $this->assertArrayNotHasKey(BookingMilestones::SECURITY_DEPOSIT_RETURNED, $evidence->done);
@@ -394,52 +335,36 @@ class MilestoneEvidenceTest extends TestCase
 
     // ── The stay ────────────────────────────────────────────────────────
 
-    public function testAnInventoryTicksOnlyOncePhaseIsFullyObserved(): void
+    /**
+     * An inventory is done when it is VALIDATED (#708, IT-17) — its PDF
+     * sent to the renter — never because its lines were filled in.
+     */
+    public function testAnInventoryTicksOnceValidated(): void
     {
         $evidence = MilestoneEvidence::collect(
             $this->booking(),
             [],
             $this->payment(),
-            $this->inventory([
-                [InventoryState::OK, InventoryState::ISSUE],
-                [InventoryState::MISSING, InventoryState::NOT_CHECKED],
-            ]),
-            [],
+            ['arrival' => [
+                'validated_at' => new \DateTimeImmutable('2027-07-01 18:30'),
+                'validated_by_member_id' => null,
+                'document_id' => 4,
+            ]],
             null
         );
 
-        // Every arrival line was looked at — "manquant" IS an observation.
         $this->assertTrue($evidence->done[BookingMilestones::ARRIVAL_INVENTORY]);
-        // One departure line was never checked, so the phase is unfinished.
+        $this->assertSame('validé le 01/07/2027', $evidence->details[BookingMilestones::ARRIVAL_INVENTORY]);
         $this->assertFalse($evidence->done[BookingMilestones::DEPARTURE_INVENTORY]);
+        $this->assertSame([], $evidence->offsite);
     }
 
-    public function testAnAssetWithNoInventoryTemplateHasNoInventoryLines(): void
+    /** No « Relevés de compteurs » line any more: the readings are part of each inventory. */
+    public function testThereIsNoMeterLine(): void
     {
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], null);
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], null);
 
-        $this->assertArrayNotHasKey(BookingMilestones::ARRIVAL_INVENTORY, $evidence->done);
-        $this->assertArrayNotHasKey(BookingMilestones::DEPARTURE_INVENTORY, $evidence->done);
-    }
-
-    public function testMeterReadingsNeedBothEnds(): void
-    {
-        $fee = new RentalFee(1, 'Électricité', RentalFee::NATURE_METER, 30, 'kWh');
-        $onlyArrival = MeterConsumption::of($this->meter(), $this->reading('100'), null, $fee);
-        $both = MeterConsumption::of($this->meter(2), $this->reading('100'), $this->reading('180'), $fee);
-
-        $partial = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [$onlyArrival, $both], null);
-        $complete = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [$both], null);
-
-        $this->assertFalse($partial->done[BookingMilestones::METER_READINGS]);
-        $this->assertTrue($complete->done[BookingMilestones::METER_READINGS]);
-    }
-
-    public function testAnAssetWithNoMeterHasNoMeterLine(): void
-    {
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], null);
-
-        $this->assertArrayNotHasKey(BookingMilestones::METER_READINGS, $evidence->done);
+        $this->assertArrayNotHasKey('meter_readings', $evidence->done);
     }
 
     public function testTheSettlementLineTicksOnlyOnceValidated(): void
@@ -447,9 +372,9 @@ class MilestoneEvidenceTest extends TestCase
         $draft = $this->settlement(false);
         $validated = $this->settlement(true);
 
-        $withDraft = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], $draft);
-        $withValidated = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], $validated);
-        $withNone = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], null);
+        $withDraft = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], $draft);
+        $withValidated = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], $validated);
+        $withNone = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], null);
 
         $this->assertFalse($withDraft->done[BookingMilestones::FINAL_SETTLEMENT]);
         $this->assertSame('v2', $withDraft->details[BookingMilestones::FINAL_SETTLEMENT]);
@@ -461,16 +386,15 @@ class MilestoneEvidenceTest extends TestCase
 
     /**
      * Without the stay module, what only that module records does not
-     * apply — the meters, the settlement — but the walk-throughs still
+     * apply — the settlement — but the walk-throughs still
      * happen, on paper: nothing here can derive them, so they are the lines
      * a manager ticks by hand (issue #462, D5).
      */
     public function testWithoutTheStayModuleTheWalkThroughsAreTickedByHand(): void
     {
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null, null);
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), null, null);
 
         $this->assertArrayNotHasKey(BookingMilestones::FINAL_SETTLEMENT, $evidence->done);
-        $this->assertArrayNotHasKey(BookingMilestones::METER_READINGS, $evidence->done);
         $this->assertSame(
             [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
             $evidence->offsite
@@ -479,12 +403,12 @@ class MilestoneEvidenceTest extends TestCase
     }
 
     /**
-     * An asset with no inventory template has nothing the stay page could
-     * walk: same answer, with the stay module on.
+     * An asset with neither items nor meters has nothing an inventory
+     * could walk: same answer, with the stay module on.
      */
     public function testAnAssetWithNoInventoryHasItsWalkThroughsTickedByHand(): void
     {
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], [], null, false);
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $this->payment(), [], null, false);
 
         $this->assertSame(
             [BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY],
@@ -504,7 +428,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(),
-            [1 => ['arrival_state' => InventoryState::NOT_CHECKED, 'departure_state' => InventoryState::NOT_CHECKED]],
             [],
             null,
             true,
@@ -529,7 +452,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->payment(),
             null,
             null,
-            null,
             true,
             [BookingMilestones::CONTRACT_SENT => ['at' => new \DateTimeImmutable('2027-03-01'), 'by' => 'Jeanne']]
         );
@@ -551,7 +473,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(),
-            null,
             null,
             null,
             true,
@@ -583,7 +504,6 @@ class MilestoneEvidenceTest extends TestCase
             [$this->document(DocumentType::SIGNED_CONTRACT)],
             $this->payment(),
             null,
-            null,
             null
         );
 
@@ -595,7 +515,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [$this->document(DocumentType::CONTRACT)],
             $this->payment(),
-            null,
             null,
             null
         );
@@ -620,7 +539,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->payment(),
             null,
             null,
-            null,
             true,
             [BookingMilestones::CONTRACT_SENT => $at, BookingMilestones::SIGNED_COPY_RECEIVED => $at]
         );
@@ -636,7 +554,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             null,
             $this->payment(),
-            null,
             null,
             null,
             true,
@@ -660,7 +577,7 @@ class MilestoneEvidenceTest extends TestCase
         ]);
         $today = new \DateTimeImmutable('2027-03-05 14:00');
 
-        $evidence = MilestoneEvidence::collect($this->booking(), [], $payment, null, null, null, true, [], $today);
+        $evidence = MilestoneEvidence::collect($this->booking(), [], $payment, null, null, true, [], $today);
 
         $this->assertSame(
             '100,00 € attendus — échéance dépassée de 4 jours',
@@ -672,7 +589,7 @@ class MilestoneEvidenceTest extends TestCase
         );
 
         // Without a date to measure against, the amount alone.
-        $undated = MilestoneEvidence::collect($this->booking(), [], $payment, null, null, null);
+        $undated = MilestoneEvidence::collect($this->booking(), [], $payment, null, null);
         $this->assertSame('100,00 € attendus', $undated->details[BookingMilestones::DEPOSIT_RECEIVED]);
 
         // And nothing at all once it is paid.
@@ -680,7 +597,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(['received_cents' => 60000, 'deposit_received' => true, 'fully_paid' => true]),
-            null,
             null,
             null,
             true,
@@ -700,7 +616,6 @@ class MilestoneEvidenceTest extends TestCase
             $this->booking(),
             [],
             $this->payment(),
-            null,
             null,
             null,
             true,
@@ -725,7 +640,6 @@ class MilestoneEvidenceTest extends TestCase
             [$this->document(DocumentType::CONTRACT, new \DateTimeImmutable('2027-03-04 08:00:00'))],
             $this->payment(),
             null,
-            null,
             null
         );
 
@@ -745,7 +659,7 @@ class MilestoneEvidenceTest extends TestCase
         $this->assertTrue($byKey[BookingMilestones::CONTRACT_SENT]->isDone);
         $this->assertSame('v1 le 04/03/2027', $byKey[BookingMilestones::CONTRACT_SENT]->detail);
         // Untouched by this evidence, and still greyed rather than unticked.
-        $this->assertFalse($byKey[BookingMilestones::METER_READINGS]->isApplicable);
+        $this->assertFalse($byKey[BookingMilestones::SECURITY_DEPOSIT_RECEIVED]->isApplicable);
     }
 
     private function settlement(bool $validated): Settlement

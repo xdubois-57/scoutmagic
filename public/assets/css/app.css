@@ -1062,3 +1062,11 @@ body.cookie-banner-visible {
     min-width: 0;
 }
 
+/* « État des lieux » (#708, IT-17): each line saves as it is typed once
+   rental-inventory.js has run, so its « Enregistrer » — the way a browser
+   without JavaScript saves a line — goes. A class on <html> rather than
+   `hidden` on each button: the panel is re-rendered after a meter reading,
+   and the buttons it brings back must stay hidden too. */
+.inventory-autosave form[data-inventory-line] [data-inventory-save] {
+    display: none;
+}

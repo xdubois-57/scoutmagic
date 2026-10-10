@@ -1,0 +1,118 @@
+{#
+  Incidents and damage (§6.23), on the « État des lieux » page since #708
+  (IT-17): observed during the stay — description, estimated amount, photo
+  — until the departure inventory is validated; decided — added to the
+  settlement, withheld from the security deposit, not billed — at any time,
+  since deciding is about billing, not about what was seen.
+
+  Requires `incidents`, `incident_decisions`, `incidents_open`, `asset` and
+  `booking`.
+#}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Incidents et dégâts</h2>
+                <p class="text-body-secondary small">
+                    Rien n'est facturé automatiquement. Vous constatez, puis vous décidez : ajouter au
+                    décompte, retenir sur la caution, ou ne pas facturer. Tant que rien n'est tranché,
+                    aucun montant n'est demandé au locataire ; le PDF de l'état des lieux de sortie
+                    liste ce qui a été constaté, sans montant.
+                </p>
+
+                {% if incidents is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun incident.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for incident in incidents %}
+                            <li class="border-bottom py-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <span>
+                                        {{ incident.description }}
+                                        {% if incident.fileId %}
+                                            <a href="{{ file_url(incident.fileId) }}" class="small d-block">Photo</a>
+                                        {% endif %}
+                                    </span>
+                                    <span class="text-end">
+                                        {% include 'partials/status_badge.html.twig' with {
+                                            status: incident.isDecided ? 'closed' : 'pending',
+                                            label: incident.decision.label,
+                                        } only %}
+                                        {% if incident.effectiveAmountCents %}
+                                            <span class="d-block small">
+                                                {{ incident.effectiveAmountCents|money_cents }}
+                                            </span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <form method="post" action="/mes-locations/incident-decision"
+                                      class="row g-1 align-items-end mt-2">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                    <input type="hidden" name="booking_page" value="inventory">
+                                    <input type="hidden" name="incident_id" value="{{ incident.id }}">
+                                    <div class="col-12 col-md-5">
+                                        <label class="visually-hidden" for="decision-{{ incident.id }}">Décision</label>
+                                        <select class="form-select form-select-sm" name="decision"
+                                                id="decision-{{ incident.id }}">
+                                            {% for option in incident_decisions %}
+                                                <option value="{{ option.value }}"
+                                                        {{ incident.decision.value == option.value ? 'selected' : '' }}>
+                                                    {{ option.label }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-7 col-md-4">
+                                        <label class="visually-hidden" for="amount-{{ incident.id }}">Montant</label>
+                                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                                               id="amount-{{ incident.id }}" name="amount"
+                                               placeholder="Montant (€)"
+                                               value="{{ incident.effectiveAmountCents
+                                                   ? (incident.effectiveAmountCents / 100)|number_format(2, ',', '') : '' }}">
+                                    </div>
+                                    <div class="col-5 col-md-3">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Trancher</button>
+                                    </div>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if incidents_open %}
+                <form method="post" action="/mes-locations/incident" enctype="multipart/form-data"
+                      class="row g-2 align-items-end mt-2">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="booking_page" value="inventory">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label" for="incident-description">Constater un incident</label>
+                        <input type="text" class="form-control form-control-sm" id="incident-description"
+                               name="description" required>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="incident-amount">Montant estimé (€)</label>
+                        <input type="text" inputmode="decimal" class="form-control form-control-sm"
+                               id="incident-amount" name="amount">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="incident-photo">Photo</label>
+                        <input type="file" class="form-control form-control-sm" id="incident-photo"
+                               name="photo" accept="image/*">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
+                    </div>
+                </form>
+                {% else %}
+                    <p class="text-body-secondary small mb-0">
+                        L'état des lieux de sortie est validé : un incident ne se constate plus. Ceux déjà
+                        constatés se tranchent toujours.
+                    </p>
+                {% endif %}
+            </div>
+        </div>

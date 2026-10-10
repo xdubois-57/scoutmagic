@@ -409,6 +409,15 @@ class RentalDocumentService
             $actorMemberId
         );
 
+        // What this contract says about its booking, so the day the booking
+        // stops saying it the contract is known to be void (#708, IT-20).
+        if ($type === DocumentType::CONTRACT) {
+            $this->documentRepository->setFingerprint(
+                $documentId,
+                \Modules\Rental\Document\ContractFingerprint::of($values, $booking->effectivePrice())
+            );
+        }
+
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::STATUS_CHANGED,
@@ -591,6 +600,16 @@ class RentalDocumentService
         $path = $this->storagePath . '/' . $file->relativePath;
 
         return is_file($path) ? $path : null;
+    }
+
+    /**
+     * Removes a photo stored for a reading or an incident whose own row
+     * was then refused (#708, IT-17): the bytes and the `files` row exist,
+     * nothing references them and nothing ever will.
+     */
+    public function discardUnusedUpload(int $fileId): void
+    {
+        $this->fileRemover->removeOrphan($fileId);
     }
 
     /**

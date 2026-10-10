@@ -69,6 +69,9 @@ class SetupController extends AbstractController
      */
     private const PORTABLE_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
+    /** The restore mode's answer when the archive it was showing is gone (#719). */
+    private const NO_DEPOSITED_ARCHIVE = 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.';
+
     public function __construct(
         protected Environment $twig,
         private SecretManager $secretManager,
@@ -469,16 +472,16 @@ class SetupController extends AbstractController
         $deposit = new DepositedArchive($this->installRoot());
         if ((string) $request->getBody('source', '') === 'deposited') {
             if (!$deposit->exists()) {
-                return $this->json(
-                    ['success' => false, 'message' => 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.'],
-                    400
-                );
+                return $this->json(['success' => false, 'message' => self::NO_DEPOSITED_ARCHIVE], 400);
             }
             $archivePath = $deposit->path();
         } else {
             $uploaded = $this->assembledPortableUpload($request);
             if ($uploaded === null) {
-                return $this->json(['success' => false, 'message' => 'Archive introuvable — recommencez l\'envoi.'], 400);
+                return $this->json(
+                    ['success' => false, 'message' => 'Archive introuvable — recommencez l\'envoi.'],
+                    400
+                );
             }
             try {
                 $archivePath = $deposit->adopt($uploaded);
@@ -548,10 +551,7 @@ class SetupController extends AbstractController
 
         $deposit = new DepositedArchive($this->installRoot());
         if (!$deposit->exists()) {
-            return $this->json(
-                ['success' => false, 'message' => 'Aucune sauvegarde déposée sur le serveur — envoyez-la à nouveau.'],
-                400
-            );
+            return $this->json(['success' => false, 'message' => self::NO_DEPOSITED_ARCHIVE], 400);
         }
 
         try {

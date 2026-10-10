@@ -118,65 +118,107 @@ class RentalConfigController extends AbstractController
     }
 
     /**
-     * GET /admin/locations
+     * GET /admin/locations — the park: every asset as a line of its own,
+     * then what belongs to the module as a whole (issue #748).
+     *
+     * No asset is « selected » here any more. The page used to put a chip
+     * picker on top and the chosen asset's every section under it, then the
+     * module's own settings, then a whole creation form — three levels of
+     * the administration in one column, where an asset's mailbox and the
+     * asset above it read as one thing. Each asset now has its own page,
+     * creating one has its own page, and this one lists.
      *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
         $assets = $this->assetRepository->findAll();
-        $selected = $this->resolveSelectedAsset($request, $assets);
-        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
 
         return $this->render('@rental/config/index.html.twig', [
             'assets' => $assets,
-            'selected_asset' => $selected,
-            'managers' => $selected !== null
-                ? $this->managerService->listManagersForAsset($selected->id, $scoutYearId, false)
-                : [],
-            // The whole eligible roster, rendered as a plain <select> the
-            // search box replaces client-side. A no-JS visitor keeps a
-            // working control and the POST is identical either way —
-            // Modules\Groups' invite search sets the same precedent.
-            'candidates' => $selected !== null
-                ? $this->managerService->listCandidates($scoutYearId)
-                : [],
-            'manager_minimum_age' => $this->managerService->minimumAge(),
-            // Where a unit corrects it, rather than the day a request lands
-            // nowhere (#708, IT-05): who cannot be told, and why.
-            'unreachable_managers' => $selected !== null && $this->recipientResolver !== null
-                ? $this->recipientResolver->unreachableManagers($selected->id)
-                : [],
-            'managers_unreachable' => $selected !== null && $this->recipientResolver !== null
-                && !$this->recipientResolver->hasReachableManager($selected->id),
-            'type_suggestions' => $this->typeSuggestions(),
             // Ids of the public, live assets that have no rate configured at
             // all — the one setup gap this page could not show and a visitor
-            // meets first. The chip picker badges them and the selected
-            // asset gets a warning linking to its own tariff page.
+            // meets first. Each one's line carries a badge.
             'tariff_missing_ids' => $this->tariffMissingIds($assets),
-            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
-            // Finance is a nullable dependency: with it off, the section
-            // says so rather than rendering a broken account picker.
-            'finance_available' => $this->paymentService?->isAvailable() ?? false,
-            'finance_accounts' => $this->paymentService?->availableAccounts() ?? [],
-            'payment_settings' => $selected !== null && $this->paymentService !== null
-                ? $this->paymentService->settingsFor($selected->id)
-                : new PaymentSettings(),
-            // Inbound mail is a nullable dependency too (§7.5): without it
-            // the section explains that instead of offering a picker with
-            // nothing in it. A manager sees each box's name and state —
-            // never its host, port or account (§7.4).
+            // Inbound mail is a nullable dependency (§7.5): without it the
+            // section explains that instead of listing nothing. Only the
+            // boxes this module may analyse — a dedicated one, or a shared
+            // one whose scope opens it to Locations — never every box on
+            // the site; name and state only, never host, port or account
+            // (§7.4).
             'inbound_mail_available' => $this->inboundMail !== null,
-            'inbound_mailboxes' => $this->inboundMail?->listMailboxSummaries() ?? [],
+            'inbound_mailboxes' => $this->inboundMail?->listMailboxSummariesFor(
+                \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID
+            ) ?? [],
             // The cron warning (§6.29). Same signal and same 10-minute
             // window the push-notification page uses — a real crontab
             // typically runs every minute, and the generous window only
             // avoids a false alarm right after a fresh install. Said out
-            // loud rather than hidden: on shared hosting without a crontab
-            // the reminders still go out, but hours late, and a unit that
-            // does not know that will read the delay as a bug.
+            // loud rather than hidden: without a crontab the reminders do
+            // not go out at all.
             'cron_detected' => self::cronDetected($this->settingService),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'current_path' => '/admin/locations',
+        ]);
+    }
+
+    /**
+     * GET /admin/locations/nouveau — creating an asset, on a page of its
+     * own with one primary action (issue #748).
+     *
+     * @param array<string, string> $params
+     */
+    public function newAsset(Request $request, array $params): Response
+    {
+        return $this->render('@rental/config/create.html.twig', [
+            'type_suggestions' => $this->typeSuggestions(),
+            'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'current_path' => '/admin/locations',
+        ]);
+    }
+
+    /**
+     * GET /admin/locations/{id} — one asset's administration: its general
+     * information, its managers, the Finance account its money lands on,
+     * and its life cycle (issue #748).
+     *
+     * Its booking rules, tariff and deposit stay in its managed space
+     * (`/mes-locations/{slug}/reglages`), with the people who run it.
+     *
+     * @param array<string, string> $params
+     */
+    public function show(Request $request, array $params): Response
+    {
+        $asset = $this->assetRepository->findById((int) ($params['id'] ?? 0));
+        if ($asset === null) {
+            return $this->notFound();
+        }
+
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+
+        return $this->render('@rental/config/asset.html.twig', [
+            'asset' => $asset,
+            'breadcrumb_current' => $asset->name,
+            'managers' => $this->managerService->listManagersForAsset($asset->id, $scoutYearId, false),
+            // The whole eligible roster, rendered as a plain <select> the
+            // search box replaces client-side. A no-JS visitor keeps a
+            // working control and the POST is identical either way —
+            // Modules\Groups' invite search sets the same precedent.
+            'candidates' => $this->managerService->listCandidates($scoutYearId),
+            'manager_minimum_age' => $this->managerService->minimumAge(),
+            // Where a unit corrects it, rather than the day a request lands
+            // nowhere (#708, IT-05): who cannot be told, and why.
+            'unreachable_managers' => $this->recipientResolver?->unreachableManagers($asset->id) ?? [],
+            'managers_unreachable' => $this->recipientResolver !== null
+                && !$this->recipientResolver->hasReachableManager($asset->id),
+            'type_suggestions' => $this->typeSuggestions(),
+            'tariff_missing' => in_array($asset->id, $this->tariffMissingIds([$asset]), true),
+            // Finance is a nullable dependency: with it off, the section
+            // says so rather than rendering a broken account picker.
+            'finance_available' => $this->paymentService?->isAvailable() ?? false,
+            'finance_accounts' => $this->paymentService?->availableAccounts() ?? [],
+            'payment_settings' => $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings(),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);
@@ -223,7 +265,7 @@ class RentalConfigController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
         }
 
-        return $this->redirect('/admin/locations?asset_id=' . $assetId . '#compte');
+        return $this->redirect(self::assetUrl($assetId) . '#compte');
     }
 
     /**
@@ -289,11 +331,11 @@ class RentalConfigController extends AbstractController
             );
             FlashMessage::set('success', 'Le bien a été créé.');
 
-            return $this->redirect('/admin/locations?asset_id=' . $id);
+            return $this->redirect(self::assetUrl($id));
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect('/admin/locations');
+            return $this->redirect('/admin/locations/nouveau');
         }
     }
 
@@ -328,7 +370,7 @@ class RentalConfigController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
         }
 
-        return $this->redirect('/admin/locations?asset_id=' . $assetId);
+        return $this->redirect(self::assetUrl($assetId));
     }
 
     /**
@@ -425,7 +467,7 @@ class RentalConfigController extends AbstractController
 
         FlashMessage::set('success', 'Les gestionnaires ont été enregistrés.');
 
-        return $this->redirect('/admin/locations?asset_id=' . $assetId);
+        return $this->redirect(self::assetUrl($assetId) . '#gestionnaires');
     }
 
     /**
@@ -494,6 +536,11 @@ class RentalConfigController extends AbstractController
         }
 
         $assetId = (int) $request->getBody('asset_id', 0);
+        // Archiving and restoring are offered on the list too (issue #748):
+        // a form posted from there says so, and the answer comes back to
+        // the list rather than to a page the visitor never opened. A fixed
+        // value, never a URL, so this cannot be turned into a redirect.
+        $fromList = $request->getBody('from') === 'list';
 
         try {
             $operation($assetId, AuthSession::getUserAccountId());
@@ -501,32 +548,18 @@ class RentalConfigController extends AbstractController
         } catch (RentalException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect('/admin/locations?asset_id=' . $assetId);
+            return $this->redirect($fromList ? '/admin/locations' : self::assetUrl($assetId));
         }
 
-        return $backToAsset
-            ? $this->redirect('/admin/locations?asset_id=' . $assetId)
+        return $backToAsset && !$fromList
+            ? $this->redirect(self::assetUrl($assetId))
             : $this->redirect('/admin/locations');
     }
 
-    /**
-     * The asset the chip picker currently points at — the one named in the
-     * query string when it is real, else the first in the list, else null
-     * on an empty installation.
-     *
-     * @param \Modules\Rental\Repository\RentalAsset[] $assets
-     */
-    private function resolveSelectedAsset(Request $request, array $assets): ?\Modules\Rental\Repository\RentalAsset
+    /** One asset's own administration page (issue #748). */
+    private static function assetUrl(int $assetId): string
     {
-        $requestedId = (int) $request->getQuery('asset_id', 0);
-
-        foreach ($assets as $asset) {
-            if ($asset->id === $requestedId) {
-                return $asset;
-            }
-        }
-
-        return $assets[0] ?? null;
+        return '/admin/locations/' . $assetId;
     }
 
     /**

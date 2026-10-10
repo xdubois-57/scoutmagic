@@ -1,0 +1,172 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\Rental\Repository;
+
+use Core\Security\EncryptionService;
+use Core\Service\DateInput;
+use Modules\Rental\Mail\SentEmail;
+
+/**
+ * What the site sent the renter about each booking (#720,
+ * `rental_booking_sent_emails`). Recipient, subject and both bodies are
+ * encrypted, each under its own context; the tracking link reaches this
+ * class already masked (`RentalBookingMailService::deliver()`).
+ */
+class RentalSentEmailRepository
+{
+    private const CTX_RECIPIENT = 'rental_booking_sent_emails.recipient';
+    private const CTX_SUBJECT = 'rental_booking_sent_emails.subject';
+    private const CTX_TEXT = 'rental_booking_sent_emails.body_text';
+    private const CTX_HTML = 'rental_booking_sent_emails.body_html';
+
+    public function __construct(private \PDO $pdo, private EncryptionService $encryption)
+    {
+    }
+
+    /**
+     * @param list<int> $documentIds
+     * @return int the new row's id
+     */
+    public function record(
+        int $bookingId,
+        string $kind,
+        string $recipient,
+        string $subject,
+        string $bodyText,
+        string $bodyHtml,
+        array $documentIds,
+        string $messageId,
+        string $status,
+        \DateTimeImmutable $sentAt
+    ): int {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rental_booking_sent_emails
+                (booking_id, kind, recipient_encrypted, subject_encrypted, body_text_encrypted,
+                 body_html_encrypted, document_ids, message_id, status, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $bookingId,
+            $kind,
+            $this->encryption->encrypt($recipient, self::CTX_RECIPIENT),
+            $this->encryption->encrypt($subject, self::CTX_SUBJECT),
+            $this->encryption->encrypt($bodyText, self::CTX_TEXT),
+            $this->encryption->encrypt($bodyHtml, self::CTX_HTML),
+            implode(',', array_map('intval', $documentIds)),
+            $messageId,
+            $status,
+            $sentAt->format('Y-m-d H:i:s'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Every e-mail sent about this booking, oldest first.
+     *
+     * @return list<SentEmail>
+     */
+    public function findForBooking(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM rental_booking_sent_emails WHERE booking_id = ? ORDER BY sent_at ASC, id ASC'
+        );
+        $stmt->execute([$bookingId]);
+
+        return array_map(fn(array $row): SentEmail => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    public function findById(int $id): ?SentEmail
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM rental_booking_sent_emails WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
+    /**
+     * Take a failed e-mail for a new attempt, atomically: true for the one
+     * request that changed it from failed to sending, false for every
+     * other. A claim older than `SentEmail::STALE_CLAIM_MINUTES` — a
+     * request that died between claiming and recording — may be taken
+     * again, so an e-mail is never stuck out of reach of « Renvoyer ».
+     */
+    public function claimForRetry(int $id, \DateTimeImmutable $now): bool
+    {
+        $stale = $now->modify('-' . SentEmail::STALE_CLAIM_MINUTES . ' minutes');
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_booking_sent_emails
+                SET status = ?, sent_at = ?
+              WHERE id = ? AND (status = ? OR (status = ? AND sent_at < ?))'
+        );
+        $stmt->execute([
+            SentEmail::STATUS_SENDING,
+            $now->format('Y-m-d H:i:s'),
+            $id,
+            SentEmail::STATUS_FAILED,
+            SentEmail::STATUS_SENDING,
+            $stale->format('Y-m-d H:i:s'),
+        ]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * A new attempt at an e-mail already in the log (« Renvoyer »): the
+     * same row, so the page shows one e-mail that eventually went out, or
+     * still did not — never a second entry per click. The text and the
+     * documents stay as they were; who it went to, when, under which
+     * Message-ID and how it ended are the new attempt's.
+     */
+    public function recordAttempt(
+        int $id,
+        string $recipient,
+        string $messageId,
+        string $status,
+        \DateTimeImmutable $sentAt
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_booking_sent_emails
+                SET recipient_encrypted = ?, message_id = ?, status = ?, sent_at = ?
+              WHERE id = ?'
+        );
+        $stmt->execute([
+            $this->encryption->encrypt($recipient, self::CTX_RECIPIENT),
+            $messageId,
+            $status,
+            $sentAt->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function hydrate(array $row): SentEmail
+    {
+        $documentIds = (string) $row['document_ids'] === ''
+            ? []
+            : array_map('intval', explode(',', (string) $row['document_ids']));
+
+        return new SentEmail(
+            (int) $row['id'],
+            (int) $row['booking_id'],
+            (string) $row['kind'],
+            $this->encryption->decrypt((string) $row['recipient_encrypted'], self::CTX_RECIPIENT),
+            $this->encryption->decrypt((string) $row['subject_encrypted'], self::CTX_SUBJECT),
+            $this->encryption->decrypt((string) $row['body_text_encrypted'], self::CTX_TEXT),
+            $this->encryption->decrypt((string) $row['body_html_encrypted'], self::CTX_HTML),
+            $documentIds,
+            (string) $row['message_id'],
+            (string) $row['status'],
+            DateInput::requireFromStorage((string) $row['sent_at'], 'rental_booking_sent_emails.sent_at')
+        );
+    }
+}

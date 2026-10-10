@@ -97,7 +97,7 @@ class ReanalyzeUnlinkedTest extends TestCase
         // Somebody's reading already settled it; offering it around again
         // could only produce a second claim on what is not in doubt.
         $messageId = $this->storeMessage('settled@mail');
-        $this->messages->addLink($messageId, 'rental', 'LOC-2027-0042', LinkOrigin::MANUAL, 0, null);
+        $this->messages->addLink($messageId, 'rental', 'LOC-K7Q2M4', LinkOrigin::MANUAL, 0, null);
         $seen = 0;
         $this->consumers->register(new FakeMessageConsumer('camps', function () use (&$seen): AnalysisResult {
             $seen++;
@@ -187,6 +187,20 @@ class ReanalyzeUnlinkedTest extends TestCase
         $this->service->reanalyzeUnlinked('camps');
 
         $this->assertSame([$messageId], $this->messages->findMessagesAwaitingStoredAnalysis(10));
+    }
+
+    public function testAConsumerReReadingAfterItsOwnDecisionLeavesTheSlowHalfAlone(): void
+    {
+        // A model call already answered, or a budget already spent, is not
+        // started again from zero because somebody filed another message
+        // (#720, step 6).
+        $messageId = $this->storeMessage('deferred@mail');
+        $this->messages->markStoredAnalysisDone($messageId, new \DateTimeImmutable());
+        $this->consumers->register(new FakeMessageConsumer('camps'));
+
+        $this->service->reanalyzeUnlinked('camps', 100, false);
+
+        $this->assertSame([], $this->messages->findMessagesAwaitingStoredAnalysis(10));
     }
 
     public function testAModuleWithNoConsumerRegisteredChangesNothing(): void

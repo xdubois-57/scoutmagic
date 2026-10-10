@@ -46,7 +46,7 @@
 //     outstanding, which is the whole reason `BookingMilestone::
 //     $isApplicable` exists.
 //   - That confirming really froze the asset's inventory checklist into
-//     this booking (§6.23): the lines appear on the stay page, and the
+//     this booking (§6.23): the lines appear on « État des lieux », and the
 //     matching milestone stops being « sans objet » the moment they do.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
@@ -73,7 +73,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own. The milestone lines carry neither a role nor
 // an id, so they are addressed through the panel wrapper
@@ -151,14 +151,14 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // foot of a very long page; see ../support/cookie-banner.js.
         await answerCookieBanner(page);
 
-        await page.goto('/admin/locations', { waitUntil: 'load' });
+        await page.goto('/admin/locations/nouveau', { waitUntil: 'load' });
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
         await creation.locator('select[name="asset_type"]').selectOption('Local');
         await creation.locator('input[name="capacity"]').fill('40');
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
-        await expect(page).toHaveURL(/\/admin\/locations\?asset_id=\d+/);
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
 
         await grantManagerBySearch(page);
 
@@ -307,7 +307,6 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // so the two inventory lines have become reachable work.
         await expect(milestone(page, "État des lieux d'entrée")).toContainText(TODO);
         await expect(milestone(page, 'État des lieux de sortie')).toContainText(TODO);
-        await expect(milestone(page, 'Relevés de compteurs')).toContainText(TODO);
         await expect(milestone(page, 'Décompte final réglé')).toContainText(TODO);
         await expect(milestone(page, 'Location clôturée')).toContainText(TODO);
 
@@ -320,75 +319,90 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Caution reçue')).toContainText(NOT_APPLICABLE);
         await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
 
-        // ── The stay: meters, then the two inventories ───────────────────
-        // A different page, and deliberately a plainer one: stay.html.twig
-        // is not wrapped in `[data-rental-booking]`, so every form here
-        // posts, redirects and re-renders the way it always did.
-        await page.goto(`${bookingUrl(page)}/sejour`, { waitUntil: 'load' });
+        // ── The two inventories, with their meters (#708, IT-17) ─────────
+        // A page of the booking now, inside `[data-rental-booking]`: the
+        // meter readings post without a page load and the panel is
+        // re-rendered; each inventory line saves on its own as it is typed
+        // (rental-inventory.js), and « = » takes the line's reference.
+        await page.goto(`${bookingUrl(page)}/etat-des-lieux`, { waitUntil: 'load' });
 
-        await expect(page.getByLabel(`${INVENTORY_KEYS} — Entrée`)).toBeVisible();
+        // Nothing is pre-filled: an empty field is « pas encore regardé ».
+        await expect(page.getByLabel(INVENTORY_KEYS, { exact: true })).toHaveValue('');
 
-        // A photo on both readings, and not as decoration. The form's file
-        // input is optional to a manager but never ABSENT from the request:
-        // a browser submits an empty file part for it, PHP turns that into a
-        // `$_FILES` entry carrying `UPLOAD_ERR_NO_FILE`, and
-        // `RentalManagementController::recordReading()` hands that entry
-        // straight to `UploadHandler`, which refuses it — so a reading typed
-        // with no photo comes back « Erreur lors de l'envoi du fichier (code
-        // 4) » and is not saved. (`uploadDocument()` guards exactly that
-        // case; this action and `reportIncident()` do not.) No controller
-        // test can see it, because PHPUnit never populates `$_FILES` at all.
-        // Photographing the dial is also what the page's own advice tells a
-        // manager to do, so the scenario does that.
+        // A photo on the reading, and not as decoration: the form's file
+        // input is optional to a manager but never ABSENT from the request
+        // — a browser submits an empty file part for it — so this is the
+        // body a real manager's reading carries. Photographing the dial is
+        // also what the page's own advice tells a manager to do.
         await recordReading(page, 'entrée', '4210,5');
-        await recordReading(page, 'sortie', '4386,25');
 
-        // « Non vérifié » is a real state, never a placeholder: one line
-        // looked at is not an inventory, and the milestone must not move
-        // until every line has been.
-        await setInventoryState(page, INVENTORY_KEYS, 'Entrée', 'ok');
+        // The keys as expected, in one gesture; the kitchen left unchecked,
+        // which the validation's question then counts.
+        await takeReference(page, INVENTORY_KEYS);
+        await expect(page.getByLabel(INVENTORY_KEYS, { exact: true })).toHaveValue('1');
+        await expect(page.locator('form[data-inventory-validate]'))
+            .toHaveAttribute('data-confirm', /1 élément sans valeur/);
+
+        await validateInventory(page, "Valider l'état des lieux d'entrée");
+        // Frozen and filed: the page moves on to the departure, read
+        // against what the arrival found.
+        await expect(page.locator('[data-booking-panel="inventory"]')).toContainText('État des lieux de sortie');
+        await expect(page.locator('[data-booking-panel="inventory"]')).toContainText('ouvrir le PDF');
+
         await page.goto(bookingUrl(page), { waitUntil: 'load' });
-        await expect(milestone(page, "État des lieux d'entrée")).toContainText(TODO);
-        // The meters, on the other hand, are complete — both ends read.
-        await expect(milestone(page, 'Relevés de compteurs')).toContainText(DONE);
+        await expect(milestone(page, "État des lieux d'entrée")).toContainText(DONE);
+        await expect(milestone(page, 'État des lieux de sortie')).toContainText(TODO);
 
-        await page.goto(`${bookingUrl(page)}/sejour`, { waitUntil: 'load' });
-        await setInventoryState(page, INVENTORY_KITCHEN, 'Entrée', 'ok');
-        await setInventoryState(page, INVENTORY_KEYS, 'Sortie', 'ok');
-        // A line found broken IS a completed observation — the checklist
-        // asks whether somebody looked, not whether everything was fine.
-        await setInventoryState(page, INVENTORY_KITCHEN, 'Sortie', 'issue');
+        await page.goto(`${bookingUrl(page)}/etat-des-lieux`, { waitUntil: 'load' });
+        await recordReading(page, 'sortie', '4386,25');
+        await takeReference(page, INVENTORY_KEYS);
+        // A « non » IS a completed observation — the inventory asks what
+        // was found, not whether everything was fine.
+        await saveLine(page, page.getByLabel(INVENTORY_KITCHEN, { exact: true }), (field) => field.selectOption('no'));
+        await validateInventory(page, "Valider l'état des lieux de sortie");
+        await expect(page.locator('[data-booking-panel="inventory"]'))
+            .toContainText('Les deux états des lieux sont validés');
 
-        // ── The final settlement ─────────────────────────────────────────
+        // ── The final settlement, then the invoice (#708, IT-18) ─────────
+        // On « Facture », inside `[data-rental-booking]`: the settlement's
+        // forms post without a page load and the panel is re-rendered.
         // Its own lines, and it never touches the agreed price (§6.21).
+        await page.goto(`${bookingUrl(page)}/facture`, { waitUntil: 'load' });
         await page.locator('#final-persons').fill('28');
-        await submitAndReload(
+        await submitAndRefresh(
             page,
             '/mes-locations/decompte',
-            page.getByRole('button', { name: 'Enregistrer un décompte' }),
+            () => page.getByRole('button', { name: 'Enregistrer un décompte' }).click(),
         );
         // A version now exists, and it is offered for validation — which is
         // also the proof that pressing « Enregistrer un décompte » created
-        // one rather than only redirecting.
-        await expect(page.getByRole('button', { name: 'Valider' })).toBeVisible();
+        // one rather than only answering.
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toBeVisible();
 
         // A version exists but nobody has signed it off, so the line names
         // the version while staying unticked — the shape of a settlement
         // still being argued about.
         await page.goto(bookingUrl(page), { waitUntil: 'load' });
-        await expect(milestone(page, "État des lieux d'entrée")).toContainText(DONE);
         await expect(milestone(page, 'État des lieux de sortie')).toContainText(DONE);
         await expect(milestone(page, 'Décompte final réglé')).toContainText(TODO);
         await expect(milestone(page, 'Décompte final réglé')).toContainText('v1');
 
-        await page.goto(`${bookingUrl(page)}/sejour`, { waitUntil: 'load' });
-        await submitAndReload(
+        await page.goto(`${bookingUrl(page)}/facture`, { waitUntil: 'load' });
+        await submitAndRefresh(
             page,
             '/mes-locations/decompte-valider',
-            page.getByRole('button', { name: 'Valider' }),
+            () => page.getByRole('button', { name: 'Valider', exact: true }).click(),
         );
         // Validated is final: the control that would change it is gone.
-        await expect(page.getByRole('button', { name: 'Valider' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Valider', exact: true })).toHaveCount(0);
+
+        // The departure inventory is validated, so the invoice can be made.
+        await submitAndRefresh(
+            page,
+            '/mes-locations/document-generer',
+            () => page.getByRole('button', { name: 'Générer la facture' }).click(),
+        );
+        await expect(page.getByRole('button', { name: 'Envoyer la facture' })).toBeVisible();
 
         // ── The closure ──────────────────────────────────────────────────
         await page.goto(bookingUrl(page), { waitUntil: 'load' });
@@ -412,7 +426,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
 });
 
 /**
- * One line of « Où en est cette réservation », by the label
+ * One line of « Cycle de vie », by the label
  * `Booking\BookingMilestones` gives it.
  *
  * Addressed through `[data-booking-panel="milestones"]` because that
@@ -442,24 +456,24 @@ function milestone(page, label) {
 /**
  * The booking's own URL, taken from the address bar.
  *
- * The stay page hangs off it and every form there redirects back to it, so
- * the scenario moves between the two by path rather than by hunting for a
- * link — the booking id is never written down in this file.
+ * Every page of the file hangs off it, so the scenario moves between them
+ * by path rather than by hunting for a link — the booking id is never
+ * written down in this file.
  *
  * @param {import('@playwright/test').Page} page
  */
 function bookingUrl(page) {
-    return page.url().split(/[?#]/)[0].replace(/\/(sejour|finances|documents|courrier)$/, '');
+    return page.url().split(/[?#]/)[0].replace(/\/(modifications|finances|documents|etat-des-lieux|facture|courrier)$/, '');
 }
 
 /**
- * Submit one of the module's PLAIN forms — the asset's templates page and
- * the stay page, neither of which is inside `[data-rental-booking]` — and
- * wait for the page it redirects to.
+ * Submit one of the module's PLAIN forms — the asset's templates page,
+ * which is not inside `[data-rental-booking]` — and wait for the page it
+ * redirects to.
  *
- * Needed because `RentalManagementController`'s `assetSetupAction()` and
- * `stayAction()` both redirect back to the SAME url with no new text of
- * their own — several of these actions even set the same flash — so there
+ * Needed because `RentalManagementController`'s `assetSetupAction()`
+ * redirects back to the SAME url with no new text of its own — several
+ * of these actions even set the same flash — so there
  * is nothing for a following assertion to wait on, and a bare click would
  * let the next action race the navigation it just started. Waiting for the
  * POST's own response and then for the document that follows it is the one
@@ -483,7 +497,35 @@ async function submitAndReload(page, action, button) {
 }
 
 /**
- * Record one end of a meter reading on the stay page.
+ * Wait for one of the booking page's ASYNC forms: its POST, then the GET
+ * of this same page that rental-booking.js re-renders the panels from.
+ * Nothing navigates, so a following assertion could otherwise read the
+ * panel the refresh is about to replace.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} action the form's action path
+ * @param {() => Promise<void>} submit what presses it
+ */
+async function submitAndRefresh(page, action, submit) {
+    const here = page.url().split(/[?#]/)[0];
+    const posted = waitForServerResponse(page,
+        (response) => response.url().endsWith(action) && response.request().method() === 'POST',
+    );
+    const refreshed = waitForServerResponse(page,
+        (response) => response.url().split(/[?#]/)[0] === here && response.request().method() === 'GET',
+    );
+    await submit();
+    await posted;
+    await refreshed;
+    // The answer is in, but the panels are swapped only once it is parsed;
+    // rental-booking.js says busy until then. An inventory line saved in
+    // between is replaced by its older render, value and « Enregistré »
+    // gone (#809).
+    await expect(page.locator('[data-rental-booking]')).not.toHaveAttribute('aria-busy', 'true');
+}
+
+/**
+ * Record one end of a meter reading on « État des lieux ».
  *
  * @param {import('@playwright/test').Page} page
  * @param {'entrée' | 'sortie'} phase as the field's own label spells it
@@ -494,44 +536,64 @@ async function recordReading(page, phase, value) {
         .filter({ has: page.getByLabel(`Relevé ${phase}`) });
 
     await form.locator('input[name="value"]').fill(value);
-    // See the call site for why the photo is not optional here.
     await form.locator('input[name="photo"]').setInputFiles({
         name: `compteur-${phase}.png`,
         mimeType: 'image/png',
         buffer: pngBuffer(320, 240),
     });
-    // `exact` for the same reason as the document upload's « Ajouter »:
-    // « Enregistrer » is a substring of the settlement's « Enregistrer un
-    // décompte » further down the page, so only the form scoping keeps this
-    // to one element. Saying both is cheaper than relying on either.
-    await submitAndReload(
+    await submitAndRefresh(
         page,
         '/mes-locations/releve',
-        form.getByRole('button', { name: 'Enregistrer', exact: true }),
+        () => form.getByRole('button', { name: 'Enregistrer', exact: true }).click(),
     );
 }
 
 /**
- * Set one inventory line, one phase, on the stay page.
+ * Save one inventory line the way the page does — on its own, as it is
+ * typed — and wait for the line to say so.
  *
- * The select is found by the accessible name the template gives it — a
- * visually-hidden « {élément} — {phase} » — because the grid renders one
- * identical form per cell and nothing else tells them apart. The state is
- * chosen by value rather than by label: `Stay\InventoryState`'s values are
- * the contract the form posts, and the labels are prose that may be
- * reworded.
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} field the line's value field
+ * @param {(field: import('@playwright/test').Locator) => Promise<unknown>} act
+ */
+async function saveLine(page, field, act) {
+    const saved = waitForServerResponse(page,
+        (response) => response.url().endsWith('/mes-locations/etat-des-lieux/ligne')
+            && response.request().method() === 'POST',
+    );
+    await act(field);
+    await saved;
+    await expect(page.locator('form[data-inventory-line]').filter({ has: field })
+        .locator('[data-inventory-status]')).toHaveText('Enregistré');
+}
+
+/**
+ * « = » on one line: the reference taken, and saved.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} item the inventory line's label
- * @param {'Entrée' | 'Sortie'} phase
- * @param {'ok' | 'issue' | 'missing'} state
  */
-async function setInventoryState(page, item, phase, state) {
-    const select = page.getByLabel(`${item} — ${phase}`);
-    await select.selectOption(state);
+async function takeReference(page, item) {
+    await saveLine(
+        page,
+        page.getByLabel(item, { exact: true }),
+        () => page.getByRole('button', { name: `Reprendre la référence pour ${item}` }).click(),
+    );
+}
 
-    const form = page.locator('form[action="/mes-locations/inventaire"]').filter({ has: select });
-    await submitAndReload(page, '/mes-locations/inventaire', form.getByRole('button', { name: 'OK' }));
+/**
+ * Validate the phase on screen; the confirmation is answered « oui » by
+ * the run's autoConfirm.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} label the button's label
+ */
+async function validateInventory(page, label) {
+    await submitAndRefresh(
+        page,
+        '/mes-locations/etat-des-lieux/valider',
+        () => page.getByRole('button', { name: label }).click(),
+    );
 }
 
 /**
@@ -544,7 +606,7 @@ async function setInventoryState(page, item, phase, state) {
  * `rental-request.spec.js`'s subject, not this file's.
  *
  * @param {import('@playwright/test').Browser} browser
- * @returns {Promise<string>} the booking's LOC-YYYY-N reference
+ * @returns {Promise<string>} the booking's LOC-XXXXXX reference
  */
 async function requestTheHall(browser) {
     const visitor = await browser.newContext();
@@ -573,10 +635,10 @@ async function requestTheHall(browser) {
         await waitOutHumanCheckDelay(page);
         await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
-        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
 
-        return (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
+        return (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
     } finally {
         await visitor.close();
     }

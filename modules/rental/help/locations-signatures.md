@@ -29,15 +29,36 @@ copie reçue, puis choisissez :
 
 - **« Valider et contresigner »** : le site reprend la copie du
   locataire et lui ajoute **une dernière page** — qui a contresigné pour
-  l'unité, quand, votre signature, la référence de la réservation. Le
-  locataire reçoit le contrat signé par les deux parties par e-mail, et
-  peut le télécharger depuis sa page de suivi : c'est le seul document
-  téléchargeable depuis cette page.
+  l'unité, quand, votre signature, la référence de la réservation. Vous
+  y êtes désigné par le nom de votre compte (« Mon compte »), jamais par
+  votre totem : le locataire est extérieur à l'unité et ne le connaît
+  pas. Le locataire reçoit le contrat signé par les deux parties par
+  e-mail, et peut le télécharger depuis sa page de suivi : c'est le seul
+  document téléchargeable depuis cette page.
 - **« Refuser la copie »** : écrivez un court motif, 300 caractères au
   plus. Le locataire le reçoit par e-mail et peut déposer une autre copie.
 
 Une page ajoutée plutôt qu'une signature posée sur le contrat : sur un
 scan ou une photo, le site ne peut pas savoir où se trouve l'emplacement.
+
+Peu avant la fin du blocage des dates, le locataire qui n'a pas encore
+déposé sa copie reçoit un rappel par e-mail, une seule fois.
+
+## Un contrat qui ne correspond plus
+
+Dès que la réservation change — dates, participants, prix, coordonnées
+du locataire —, son contrat ne vaut plus. Il reste dans les documents,
+marqué « Remplacé », avec les copies signées à partir de lui ; les étapes
+du contrat se rouvrent, et un nouveau contrat doit partir. Une demande
+qui attendait la signature revient à « Demande reçue » ; une réservation
+confirmée le reste.
+
+Compléter un renseignement que le contrat laissait vide — l'adresse de
+facturation que le locataire remplit après l'envoi, par exemple — ne
+change rien à ce qu'il a signé, et le contrat reste valable. Modifier les
+réglages du bien (son nom, ses heures, son acompte, sa caution) ne rend
+pas non plus les contrats déjà générés caducs. Une réservation clôturée
+garde son contrat.
 
 ## Ma signature
 

@@ -53,7 +53,9 @@
      * every page that never asks anything.
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
-     *          variant: string, input: ({value: string, placeholder: string, inputType: string,
+     *          variant: string, content?: Array<{kind?: string, tone?: string, title?: string,
+     *          text?: string, items?: string[], note?: string}>,
+     *          input: ({value: string, placeholder: string, inputType: string,
      *          readonly: boolean, multiline: boolean, label: string, maxLength?: number}|null)}} opts
      * @returns {{root: HTMLElement, confirmBtn: HTMLButtonElement,
      *            cancelBtn: HTMLButtonElement, field: (HTMLInputElement|null)}}
@@ -93,6 +95,9 @@
         // Newlines in it stay visible as line breaks.
         messageEl.style.whiteSpace = 'pre-line';
         messageEl.textContent = opts.message;
+        (opts.content || []).forEach(function (block) {
+            messageEl.appendChild(renderBlock(block));
+        });
         body.appendChild(messageEl);
 
         var field = null;
@@ -171,6 +176,68 @@
     }
 
     /**
+     * One block of a structured question — what a confirmation shows when a
+     * sentence is not enough: what an action concerns, the list of what it
+     * changes, and its consequence set apart in colour. Generic on purpose:
+     * the reenrollment settings were the first to need it (issue #796), and
+     * a second dialog builder for them would have been the second dialog of
+     * the site.
+     *
+     * Text only, always, as for the message: every string is set with
+     * textContent, so nothing a caller passes is ever read as markup.
+     *
+     *   {kind: 'box',  tone?: 'muted'|'warning'|'success', title?, text?, items?, note?}
+     *   {kind: 'list', title?, items: string[]}
+     *
+     * @param {{kind?: string, tone?: string, title?: string, text?: string,
+     *          items?: string[], note?: string}} block
+     * @returns {HTMLElement}
+     */
+    function renderBlock(block) {
+        var el = document.createElement('div');
+        var toneClass = {
+            muted: 'bg-body-tertiary rounded px-3 py-2',
+            warning: 'alert alert-warning py-2',
+            success: 'alert alert-success py-2'
+        }[block.tone || ''];
+        el.className = 'mt-3 ' + (block.kind === 'box' ? (toneClass || 'bg-body-tertiary rounded px-3 py-2') : '');
+        el.style.whiteSpace = 'normal';
+
+        if (block.title) {
+            var title = document.createElement(block.kind === 'list' ? 'div' : 'strong');
+            if (block.kind === 'list') {
+                title.className = 'small fw-semibold text-body-secondary mb-1';
+            }
+            title.textContent = block.title;
+            el.appendChild(title);
+        }
+        if (block.text) {
+            var text = document.createElement('div');
+            text.className = block.kind === 'box' && block.title ? 'small mt-1' : '';
+            text.textContent = block.text;
+            el.appendChild(text);
+        }
+        if (block.items?.length) {
+            var list = document.createElement('ul');
+            list.className = 'mb-0 mt-1';
+            block.items.forEach(function (item) {
+                var li = document.createElement('li');
+                li.textContent = item;
+                list.appendChild(li);
+            });
+            el.appendChild(list);
+        }
+        if (block.note) {
+            var note = document.createElement('div');
+            note.className = 'small mt-1';
+            note.textContent = block.note;
+            el.appendChild(note);
+        }
+
+        return el;
+    }
+
+    /**
      * Answers the open dialog once and tears it down. Calling it again
      * after the first answer is a no-op — Escape landing on the same frame
      * as a click must not resolve the promise twice.
@@ -242,7 +309,9 @@
      * question they are answering.
      *
      * @param {{message: string, title: string, confirmLabel: string, cancelLabel: string,
-     *          variant: string, input: ({value: string, placeholder: string, inputType: string,
+     *          variant: string, content?: Array<{kind?: string, tone?: string, title?: string,
+     *          text?: string, items?: string[], note?: string}>,
+     *          input: ({value: string, placeholder: string, inputType: string,
      *          readonly: boolean, selectOnOpen: boolean, multiline: boolean, maxLength?: number,
      *          label: string}|null)}} opts
      * @param {boolean|null} cancelValue what a dismissal resolves to
@@ -319,13 +388,18 @@
      * Asks the visitor to confirm, and resolves to their answer.
      *
      * @param {string|{message: string, title?: string, confirmLabel?: string,
-     *                 cancelLabel?: string, variant?: 'danger'|'primary'}} input
-     *        A bare string is the message, which is the common case.
+     *                 cancelLabel?: string, variant?: 'danger'|'primary',
+     *                 content?: Array<{kind?: string, tone?: string, title?: string,
+     *                                  text?: string, items?: string[], note?: string}>}} input
+     *        A bare string is the message, which is the common case;
+     *        `content` adds structured blocks under it (see renderBlock()).
      * @returns {Promise<boolean>} true when confirmed, false on cancel,
      *          Escape, backdrop click or the close button.
      */
     function ask(input) {
-        /** @type {{message?: string, title?: string, confirmLabel?: string, cancelLabel?: string, variant?: string}} */
+        /** @type {{message?: string, title?: string, confirmLabel?: string, cancelLabel?: string, variant?: string,
+         *          content?: Array<{kind?: string, tone?: string, title?: string, text?: string,
+         *                           items?: string[], note?: string}>}} */
         var raw = typeof input === 'string' ? { message: input } : (input || {});
 
         return /** @type {Promise<boolean>} */ (show({
@@ -337,6 +411,7 @@
             // delete, remove, refuse or revoke (design.md §7.5), which is
             // also what nearly every call site here is doing.
             variant: raw.variant === 'primary' ? 'primary' : 'danger',
+            content: Array.isArray(raw.content) ? raw.content : [],
             input: null
         }, false));
     }

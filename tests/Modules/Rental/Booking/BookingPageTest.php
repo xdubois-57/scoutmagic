@@ -27,17 +27,21 @@ final class BookingPageTest extends TestCase
      */
     public function testEachPageHoldsTheBoxesItWasGiven(): void
     {
-        $this->assertSame([BookingBox::CHANGES, BookingBox::COMMENTS, BookingBox::HISTORY], BookingPage::DASHBOARD->boxes());
+        $this->assertSame([BookingBox::COMMENTS, BookingBox::HISTORY], BookingPage::DASHBOARD->boxes());
+        // « Modifications » is a page of its own, not a box (#708, IT-20).
+        $this->assertSame([], BookingPage::CHANGES->boxes());
         $this->assertSame([BookingBox::PRICE, BookingBox::PAYMENT], BookingPage::FINANCES->boxes());
         $this->assertSame([BookingBox::DOCUMENTS], BookingPage::DOCUMENTS->boxes());
+        $this->assertSame([BookingBox::INVENTORY], BookingPage::INVENTORY->boxes());
+        $this->assertSame([BookingBox::INVOICE], BookingPage::INVOICE->boxes());
         $this->assertSame([BookingBox::MAIL], BookingPage::MAIL->boxes());
     }
 
     /**
-     * Every box but the stay is on exactly one page, and the stay on none:
-     * it has its own page, one level deeper, and never becomes a chip.
+     * Every box is on exactly one page — the stay's own page is gone (#708,
+     * IT-18), so there is no exception left.
      */
-    public function testEveryBoxButTheStayIsOnExactlyOnePage(): void
+    public function testEveryBoxIsOnExactlyOnePage(): void
     {
         foreach (BookingBox::cases() as $box) {
             $pages = array_filter(
@@ -45,7 +49,7 @@ final class BookingPageTest extends TestCase
                 static fn(BookingPage $page): bool => in_array($box, $page->boxes(), true)
             );
 
-            $this->assertCount($box === BookingBox::STAY ? 0 : 1, $pages, $box->value);
+            $this->assertCount(1, $pages, $box->value);
         }
     }
 
@@ -62,27 +66,28 @@ final class BookingPageTest extends TestCase
         $this->assertSame($suffixes, array_unique($suffixes));
         foreach (BookingPage::cases() as $page) {
             if ($page !== BookingPage::DASHBOARD) {
-                $this->assertMatchesRegularExpression('#^/[a-z]+$#', $page->pathSuffix());
+                $this->assertMatchesRegularExpression('#^/[a-z]+(-[a-z]+)*$#', $page->pathSuffix());
             }
         }
     }
 
-    /**
-     * A link into a box names the page the box is on and the box's anchor;
-     * the stay's link is its page and nothing more.
-     */
+    /** A link into a box names the page the box is on and the box's anchor. */
     public function testALinkIntoABoxNamesItsPageAndItsAnchor(): void
     {
         $this->assertSame(self::BOOKING . '/finances#dossier-payment', BookingBox::PAYMENT->href(self::BOOKING));
         $this->assertSame(self::BOOKING . '/documents#dossier-documents', BookingBox::DOCUMENTS->href(self::BOOKING));
         $this->assertSame(self::BOOKING . '#dossier-history', BookingBox::HISTORY->href(self::BOOKING));
-        $this->assertSame(self::BOOKING . '/sejour', BookingBox::STAY->href(self::BOOKING));
+        $this->assertSame(self::BOOKING . '/facture#dossier-invoice', BookingBox::INVOICE->href(self::BOOKING));
+        $this->assertSame(
+            self::BOOKING . '/etat-des-lieux#dossier-inventory',
+            BookingBox::INVENTORY->href(self::BOOKING)
+        );
     }
 
     public function testEachPageHasAFrenchLabel(): void
     {
         $this->assertSame(
-            ['Tableau de bord', 'Finances', 'Documents', 'Courrier'],
+            ['Tableau de bord', 'Modifications', 'Finances', 'Documents', 'État des lieux', 'Facture', 'Courrier'],
             array_map(static fn(BookingPage $page): string => $page->label(), BookingPage::cases())
         );
     }

@@ -121,6 +121,28 @@ class SendReenrollmentEmailsHandlerTest extends TestCase
         );
     }
 
+    // ── the year an e-mail names (issue #796) ─────────────────────────
+
+    /**
+     * The label comes from the campaign, never from the public year at the
+     * moment of sending: the closing e-mail of the campaign that closed on
+     * 15/05/2026 said « 2027-2028 » in October, beside a 2026 date.
+     */
+    public function testAnEmailNamesItsCampaignsYearInMayAsInOctober(): void
+    {
+        $this->createAnime('Alix', 'famille@example.be');
+
+        (new SendReenrollmentEmailsHandler())->handle(
+            ['type' => ReenrollmentCampaignService::EMAIL_CLOSING, 'campaign' => '2026-05-15', 'after_key' => 0],
+            $this->context
+        );
+
+        $this->assertCount(1, $this->sent);
+        $this->assertStringContainsString('2026-2027', $this->sent[0]['subject'] . $this->sent[0]['html']);
+        $this->assertStringNotContainsString('2027-2028', $this->sent[0]['subject'] . $this->sent[0]['html']);
+        $this->assertStringContainsString('15/05/2026', $this->sent[0]['html']);
+    }
+
     // ── one message per family, not per child ─────────────────────────
 
     public function testAFamilyOfThreeReceivesOneMessageNamingAllThree(): void

@@ -101,6 +101,16 @@ class InboundMailService implements InboundMailInterface
         return $this->messageRepository->findForReference($consumerId, $businessReference);
     }
 
+    public function latestLinkPosition(string $consumerId, string $businessReference): int
+    {
+        return $this->messageRepository->latestLinkId($consumerId, $businessReference);
+    }
+
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        return $this->messageRepository->countLinksAfter($consumerId, $afterByReference);
+    }
+
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage
     {
         return $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
@@ -383,7 +393,9 @@ class InboundMailService implements InboundMailInterface
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool {
         // Read once, before the association goes: the consumer is told
         // about the message it filed things from, and after the removal
@@ -391,6 +403,13 @@ class InboundMailService implements InboundMailInterface
         $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
         if ($stored === null) {
             return false;
+        }
+
+        // Before the link goes: a synchronisation running between the two
+        // writes would otherwise find an unlinked message with nothing yet
+        // to keep it off this object.
+        if ($excludeFromAnalysis) {
+            $this->messageRepository->excludeReference($messageId, $consumerId, $businessReference, $userAccountId);
         }
 
         if (!$this->messageRepository->removeLink($messageId, $consumerId, $businessReference)) {
@@ -635,6 +654,16 @@ class InboundMailService implements InboundMailInterface
         $this->messageRepository->recordOutboundMessageId($consumerId, $businessReference, $messageId);
     }
 
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool
+    {
+        return $this->messageRepository->isExcluded($messageId, $consumerId, $businessReference);
+    }
+
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool
+    {
+        return $this->messageRepository->isOutboundMessageId($consumerId, $messageId);
+    }
+
     /**
      * @return array<int, array{name: string, state: string, is_enabled: bool}>
      */
@@ -643,6 +672,22 @@ class InboundMailService implements InboundMailInterface
         $summaries = [];
         foreach ($this->mailboxRepository->findAll() as $mailbox) {
             $summaries[$mailbox->id] = $mailbox->publicSummary();
+        }
+
+        return $summaries;
+    }
+
+    public function listMailboxSummariesFor(string $consumerId): array
+    {
+        if ($this->scopeService === null) {
+            return [];
+        }
+
+        $summaries = [];
+        foreach ($this->mailboxRepository->findAll() as $mailbox) {
+            if ($this->scopeService->scopeFor($mailbox, $consumerId)->analyzes) {
+                $summaries[$mailbox->id] = $mailbox->publicSummary();
+            }
         }
 
         return $summaries;
@@ -749,7 +794,7 @@ class InboundMailService implements InboundMailInterface
     /**
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
     {
         $none = ['examined' => 0, 'linked' => 0, 'proposed' => 0];
         $consumer = $this->consumerRegistry?->find($consumerId);
@@ -789,15 +834,23 @@ class InboundMailService implements InboundMailInterface
             $applied = $applier->applyAndReport($message->id, $results);
             $notifier->notify($message->id, $applied->links, $applied->candidates);
 
+            // What was WRITTEN, not what was said: a link to an object the
+            // message was detached from for good is dropped by the applier
+            // (#720), and counting it would report a filing that never
+            // happened.
+            $linked += count($applied->links);
             foreach ($results as $result) {
-                $linked += count($result->links);
                 $proposed += count($result->candidates);
             }
         }
 
         // And the slow half, for the hourly task: an attachment's text and
-        // a model call are readings a request cannot afford to wait for.
-        $this->messageRepository->queueForStoredAnalysis($ids);
+        // a model call are readings a request cannot afford to wait for —
+        // unless the caller is a consumer re-reading after its own decision,
+        // which must not hand every unlinked message a fresh model call.
+        if ($requeueStoredPass) {
+            $this->messageRepository->queueForStoredAnalysis($ids);
+        }
 
         return ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed];
     }
@@ -865,7 +918,8 @@ class InboundMailService implements InboundMailInterface
             ),
             rawHeaders: $message->rawHeaders,
             mailboxDedicatedTo: $dedicatedTo,
-            addressedTo: $this->replyAddresses?->resolve($message->toEmails)
+            addressedTo: $this->replyAddresses?->resolve($message->toEmails),
+            direction: $message->direction
         );
     }
 }

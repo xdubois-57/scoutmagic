@@ -41,7 +41,6 @@ final class BookingMilestones
     public const BALANCE_RECEIVED = 'balance_received';
     public const SECURITY_DEPOSIT_RECEIVED = 'security_deposit_received';
     public const ARRIVAL_INVENTORY = 'arrival_inventory';
-    public const METER_READINGS = 'meter_readings';
     public const DEPARTURE_INVENTORY = 'departure_inventory';
     public const FINAL_SETTLEMENT = 'final_settlement';
     public const SECURITY_DEPOSIT_RETURNED = 'security_deposit_returned';
@@ -50,7 +49,7 @@ final class BookingMilestones
      * The lines a manager may tick by hand when the site cannot derive them
      * — the walk-throughs, on an asset whose inventory the site does not
      * keep (issue #462, D5). A line becomes one only per booking, through
-     * `$offsite`: where the stay page records the inventory line by line,
+     * `$offsite`: where « État des lieux » records the inventory line by line,
      * the same line derives itself and carries no box.
      */
     public const MARKABLE = [self::ARRIVAL_INVENTORY, self::DEPARTURE_INVENTORY];
@@ -81,7 +80,6 @@ final class BookingMilestones
         self::BALANCE_RECEIVED => StepActor::RENTER,
         self::SECURITY_DEPOSIT_RECEIVED => StepActor::RENTER,
         self::ARRIVAL_INVENTORY => StepActor::UNIT,
-        self::METER_READINGS => StepActor::UNIT,
         self::DEPARTURE_INVENTORY => StepActor::UNIT,
         self::FINAL_SETTLEMENT => StepActor::UNIT,
         self::SECURITY_DEPOSIT_RETURNED => StepActor::UNIT,
@@ -214,7 +212,8 @@ final class BookingMilestones
         $milestones[] = self::extra($extras, $abandoned, self::BALANCE_RECEIVED, 'Solde reçu', $details);
         $milestones[] = self::extra($extras, $abandoned, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue', $details);
         $milestones[] = self::extra($extras, $abandoned, self::ARRIVAL_INVENTORY, "État des lieux d'entrée", $details);
-        $milestones[] = self::extra($extras, $abandoned, self::METER_READINGS, 'Relevés de compteurs', $details);
+        // No « Relevés de compteurs » line any more (#708, IT-17): the
+        // readings are part of each inventory, validated with it.
         $milestones[] = self::extra(
             $extras,
             $abandoned,
@@ -355,18 +354,14 @@ final class BookingMilestones
                     break;
                 }
                 $kind = MilestoneKind::HERE;
-                $explanation = "L'inventaire se vérifie ligne par ligne sur la page Séjour.";
-                $action = MilestoneAction::openBox("Faire l'état des lieux", BookingBox::STAY);
-                break;
-            case self::METER_READINGS:
-                $kind = MilestoneKind::HERE;
-                $explanation = "Chaque compteur se relève à l'arrivée et au départ, sur la page Séjour.";
-                $action = MilestoneAction::openBox('Relever les compteurs', BookingBox::STAY);
+                $explanation = "Chaque élément se constate sur la page État des lieux, avec les relevés de "
+                    . "compteurs ; l'étape se coche à la validation, qui envoie le PDF au locataire.";
+                $action = MilestoneAction::openBox("Faire l'état des lieux", BookingBox::INVENTORY);
                 break;
             case self::FINAL_SETTLEMENT:
                 $kind = MilestoneKind::HERE;
-                $explanation = "Le décompte s'établit et se valide sur la page Séjour.";
-                $action = MilestoneAction::openBox('Établir le décompte', BookingBox::STAY);
+                $explanation = "Le décompte s'établit et se valide sur la page Facture.";
+                $action = MilestoneAction::openBox('Établir le décompte', BookingBox::INVOICE);
                 break;
             case self::SECURITY_DEPOSIT_RETURNED:
                 $kind = MilestoneKind::HERE;

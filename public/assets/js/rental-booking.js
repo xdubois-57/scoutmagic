@@ -67,9 +67,17 @@
      * like any other — matching on the wrapper and replacing its contents,
      * never trying to find a card that is not there any more.
      *
+     * The page says it is busy until the panels are swapped, not merely
+     * until the answer arrives: parsing and swapping come after, and a
+     * line typed in between — an inventory line saves on its own
+     * (rental-inventory.js) — would be replaced by its older render.
+     *
      * @returns {Promise<void>}
      */
     function refreshPanels() {
+        var page = /** @type {HTMLElement} */ (root);
+        page.setAttribute('aria-busy', 'true');
+
         return fetch(window.location.href, {
             headers: { Accept: 'text/html' },
             // Re-reading our own page: it must be the state the server has
@@ -86,7 +94,18 @@
                 var name = /** @type {HTMLElement} */ (panel).dataset.bookingPanel;
                 var replacement = fresh.querySelector('[data-booking-panel="' + name + '"]');
                 if (replacement) {
+                    // An element still saving on its own — an inventory
+                    // line, rental-inventory.js — stays as it is: the
+                    // render fetched here may predate its save, and would
+                    // put the older value back and wipe its status.
+                    var kept = Array.prototype.slice.call(panel.querySelectorAll('[data-booking-keep][id]'));
                     panel.innerHTML = replacement.innerHTML;
+                    kept.forEach(function (live) {
+                        var twin = document.getElementById(live.id);
+                        if (twin && twin !== live) {
+                            twin.replaceWith(live);
+                        }
+                    });
                 }
             });
 
@@ -100,6 +119,11 @@
             // A refresh that fails leaves the panels as they were: the
             // action itself already succeeded and was reported, and a page
             // wiped by a network hiccup would be the worse answer.
+        }).finally(function () {
+            page.removeAttribute('aria-busy');
+            // Said once the panels are in: rental-inventory.js holds on to
+            // the lines a save ended on during this refresh until then.
+            page.dispatchEvent(new CustomEvent('rental-booking:refreshed', { bubbles: true }));
         });
     }
 

@@ -343,7 +343,7 @@ trap 'exit 143' TERM
 # scripts/e2e.sh and scripts/release.sh's gates.
 # ---------------------------------------------------------------
 command -v php > /dev/null 2>&1 || { echo "ERROR: php is required to run the security scan." >&2; exit 1; }
-command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the security scan (Node.js >= 22)." >&2; exit 1; }
+command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the security scan (Node.js ^22.22.2, ^24.15.0 or >=26 — see docs/developpement.md § Prérequis)." >&2; exit 1; }
 [[ -f "${REPO_ROOT}/vendor/autoload.php" ]] || { echo "ERROR: vendor/autoload.php not found — run 'composer install' first." >&2; exit 1; }
 # The matrix profile drives no browser and starts no scanner, so it is
 # not made to depend on either being installed — a prerequisite that is

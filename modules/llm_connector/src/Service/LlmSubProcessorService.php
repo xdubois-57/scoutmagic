@@ -50,7 +50,8 @@ final class LlmSubProcessorService implements SubProcessorProvider
         return [new SubProcessorView(
             SubProcessorView::CATEGORY_AI,
             $name,
-            'Traitement par intelligence artificielle (génération de texte, lecture de reçus et de photos)',
+            'Traitement par intelligence artificielle (génération de texte, lecture de reçus et de photos, '
+                . 'classement du courrier reçu des camps et des locations)',
             $this->assignedModels((int) $provider['id']),
         )];
     }

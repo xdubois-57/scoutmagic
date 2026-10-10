@@ -670,7 +670,7 @@ what six of the seven decisions send. **The computed subject is therefore a
 declared variable** — the manifests declare `{{ decision_subject }}` and
 `{{ document_subject }}` — so the shipped subject is still exactly what the
 sender computes, and a unit that rewords the e-mail can place the decision's
-own words wherever it wants them. `rental`'s `[LOC-2027-0042]` prefix, by
+own words wherever it wants them. `rental`'s `[LOC-K7Q2M4]` prefix, by
 contrast, stays OUTSIDE the renderer: it is what ties a renter's reply back to
 their booking, and an administrator must not be able to break the threading of
 every conversation by rewording a subject.
@@ -1336,6 +1336,40 @@ Folding goes through `Core\Service\TextNormalizerService::fold()`. The previous 
 
 **`householdMemberYearIds()`** was split out of `PassageService::resolveHouseholds()` rather than copied: a second query answering « même adresse » its own way would be a second definition of the one notion this page is most careful never to call « fratrie ».
 
+### 8.37quinquies Registration module — the reenrollment campaign: one campaign, one send plan, one confirmation (issue #796)
+
+On 4 October 2026 a chef d'unité turned « Campagne ouverte » off. The silent families then received a closing e-mail, five months late and with no question asked. Its campaign had closed on 15 May. The e-mail named « 2027-2028 » beside a 2026 date. Three rules came out of it.
+
+**One campaign at a time: the target year's, identified by its close date.** `ReenrollmentCampaignService::currentCampaignKey()` returned « the window that contains or most recently preceded today », which in October is May's — over. It now returns the campaign of the **target year**, the scout year after the public one (`years()`), through `campaignKeyFor()`. That campaign is **the last window that opens before its target year begins on 1 September** (`SCOUT_YEAR_START`): `closeYearFor()` places the opening in the target year's own calendar year for a spring opening and in the year before for an autumn one (an opening date on or after `09-01`), and the close the year after the opening when the window straddles New Year. So with the defaults 2027-2028 closes on `2027-05-15`; a window opened on `10-01` and closed on `12-15` is 2027-2028's too, closing on `2026-12-15`; one opened on `11-15` and closed on `02-15` closes on `2027-02-15`. A key derived from the close date alone would have put a window lying wholly in autumn a year ahead of itself, where it would never open. The key does not depend on today: it changes only when the public year does, and then **the campaign changes with it** — families' answers, menu, counts and e-mails all read the same target year, so a campaign cannot outlive its own year. One still running on that day ends without a closing e-mail and the next year's takes over. The key is still the close date, so every marker written before the change kept its meaning. `openingDateOf()` places the opening in the year before when the window straddles New Year. `targetLabelOf($key, $openAt)` gives the year a campaign asks about from its **opening date** — the stored one, or the one being saved when a save is described — and `SendReenrollmentEmailsHandler` takes the label of every e-mail from it rather than from the public year at the moment of sending. `hasStarted($key, $now, $openAt)` takes the same opening date for the same reason: it says whether the clock has reached the opening or an e-mail of the campaign has gone out. The manual switch opens and closes that one campaign. The distance rule that guessed, outside the dates, between « reopen the last one » and « open the next one early » is gone: the same click used to do either depending on the date, and nothing said so.
+
+**One send plan, computed once, on the server.** `Service\ReenrollmentSavePlanner` turns « what is stored » and « what is about to be saved » into a `Service\ReenrollmentSavePlan`. The plan records:
+
+- what changes;
+- the opening or closing the save causes, and for which campaign, with its dates;
+- each e-mail that will leave: type, campaign, number of families — counted by the sender's own `ReenrollmentRecipientService` — and whether it leaves now or at the next hourly pass;
+- or the one reason none leaves: nothing changes, settings only, e-mails off, already gone, campaign not begun, campaign over, no campaign, nobody to write to (no family owes an answer — the confirmation never says « 0 e-mails »).
+
+Three things read that plan:
+
+- the confirmation shows it;
+- `ReenrollmentConfigController::save()` queues exactly its immediate e-mails;
+- the server compares it again at the moment of writing.
+
+Two computations could disagree, and a dialogue saying « aucun e-mail » for a send that then leaves is precisely what the plan exists to make impossible. « Already gone » includes an e-mail queued but not yet marked sent — the guard `ReenrollmentCampaignHandler::handOver()` applies — because the plan must never announce what the hand-over will refuse. The same holds for the opening: an opening e-mail still queued counts as the campaign having started (`openingInFlight()`), so a closing saved right after the switch is not read as « campaign not begun ». The plan's own summary of the campaign leaves out reminders whose date has already passed: they will not leave, and a dialogue listing them would announce what it never sends. « Deferred » covers what the save does not send itself but makes due today: a reminder whose delay now lands on today, a close date moved to today. The question is whether anything leaves, not whether it leaves within the second.
+
+**Every save that can write to families is confirmed, and says what happened.** The rule is broader than that: every save that changes anything is confirmed, and the server enforces it. `save()` writes nothing unless the form carries the plan's `fingerprint()` as it is computed at that moment.
+
+- **No fingerprint.** The server renders the confirmation itself (`reenrollment_confirm.html.twig`), with the form's fields carried back. That is what a browser without the script gets.
+- **A different fingerprint.** Something moved between the question and the answer — a family answered, an e-mail left, another chief saved. The same screen comes back, saying so.
+
+`Service\ReenrollmentSavePlanPresenter` words the plan once for both screens. `reenrollment-config.js` only fetches it from `/config/reinscription/apercu` and shows it through `window.ScoutMagicConfirm.ask()`. `ask()` takes structured, text-only `content` blocks for that purpose, a generic extension rather than a second dialog. A save that changes nothing asks nothing. After a save, the flash message says what left and what did not.
+
+**The page is two sub-pages on one rail**: `/config/reinscription` (dashboard) and `/config/reinscription/reglages` (settings), the second with a full breadcrumb through `ancestors`. `ReenrollmentCampaignService::timeline()` is the one source of everything the dashboard says about the campaign — its « État » card, its « Relancer maintenant » box and the question of the button — so that no two surfaces of the page can disagree. It returns each of the four e-mails of the target year's campaign in one of five states: sent, planned, missed, skipped, off. Its reminder dates are counted from that campaign's close. They used to be counted from a campaign already over, which is how the question once said « aucun autre rappel n'est prévu » while the settings planned two. Three rules keep it honest:
+
+- **One answer to « opened ahead of its date ».** `opened_early` is computed once, in `timeline()`: by the opening e-mail on record or, when none was recorded — the switch writes no marker — by the clock. The controller and the view read it; none recomputes it.
+- **A campaign the switch opened is under way** even with the e-mails off, when nothing else writes a mark: `started` is `hasStarted()` or `isOpen()`.
+- **The « previous campaign » line is a record, not a calculation.** Between two campaigns one grey line says how the last one ended, read from the last closing marker before the current campaign (the clock's, or the closing e-mail's) and dated by the moment that marker recorded — the day a hand-closed campaign really closed, not the scheduled one. A unit that never ran a campaign has no such line, and a campaign closed by hand with the e-mails off leaves no mark and so none: a wrong answer looks worse than none. The next reminder the question announces is the earliest planned date, the two delays being independent.
+
 ### 8.38 Registration module — Prévisions and the year-transition veto (iteration 7)
 
 The module's final iteration: a read-only headcount projection, and the first veto a module ever opposes to a core operation.
@@ -1405,6 +1439,8 @@ Private discussion groups for a unit: a per-section group where a section's memb
 **A group is read as a member, and acted in as a login.** Membership is a fact about a member — invited, or in one of the group's sections — but everything somebody *does* here belongs to the identified address that did it: a post and a comment are signed by the account (which is why there is no "publier en tant que" to choose from; the membership stored beside them only feeds what is keyed on one — the rate limit, the read state, "vu par"), editing and deleting ask whether the login matches, and **the moderator flag names one `user_accounts` row**. Two addresses can reach the same member — their own, plus a secondary one they confirmed (§8.27) — and before this, granting the flag to either handed it to both, which is the same privilege-by-shared-member the secondary-address login work removed from login itself (SECURITY.md §2). `discussion_group_members.moderator_user_account_id` is what the grant names; a row that names nobody (granted before this rule) moderates nothing, and `Service\ModeratorBindingService` binds the unambiguous ones — a member with exactly one account — from the group list's own page load and the nightly ensure task, leaving the ambiguous ones to a human, since that ambiguity is the whole reason the flag stopped being a property of the member. The members page grants per login and is **the one place in this module that shows an email address**: two addresses of the same human carry the same name, so the name alone cannot say which one is being empowered.
 
 **Two membership sources, resolved per request, never materialised.** A member belongs to a group either through an explicit `discussion_group_members` row (invited by a chief; the row also carries the `is_moderator` flag and the login it was granted to) or by having a `member_section_periods` period in one of the group's `discussion_group_sections` for the group's year. `Service\GroupAccessService` reads that account-first (which of *my* linked members is in this group), `Service\GroupRecipientResolver` reads the same rule group-first (who is in this group) — the two share the year resolution so they can never disagree about an archived group. Nothing is ever copied into a membership table, which is what makes a Desk import that moves a member between sections take effect on the next page load with nothing to invalidate. `discussion_groups.scout_year_id` is deliberately nullable, against AGENTS.md's "every member-related table carries `scout_year_id`": a section group always has one (which is what keeps a past-year group readable by exactly whoever was there), an invitation group has one only if the chief wanted it.
+
+**The « Nouveau » badge belongs to members, and the home band asks again after a back navigation (#712, #704).** A site admin *reads* every group, but only a member's visit leaves a reading position (`Service\GroupReadStateService::markRead()` records nothing for an admin looking in, so as not to mark the group read for a member they merely share an id with). A badge the visit cannot clear is a permanent one: `Service\GroupListService::findReadable()` therefore sets `hasUnread` only on a group one of the caller's linked members really belongs to — invited or through a section, the same rule as `GroupAccessService::memberIdsAllowedToPostAs()` — and an admin is not told « Nouveau » about groups they only moderate. The home page's « Du nouveau dans vos groupes » band reads that same flag (`Service\HomeActivityService`), so it follows. That band is also the server's answer *at the moment of the request*: the back button restores the page from the browser's back/forward cache without asking again, which is how a band for messages just read came back. `pages/home.html.twig` wraps the band (`data-home-band`), marks the group one (`data-home-group-activity`) and loads `home-group-activity.js` only when it is shown; on a `pageshow` with `persisted` the script fetches the page again and swaps the band for what the server says now, and keeps it when the request fails.
 
 **One name for one human (`Service\MemberIdentityService`).** Everywhere this module names somebody — a message, a comment, "qui a réagi", "vu par", the members page — it writes the **account first, then in parentheses every membership that account carries for the year in question**: `Marie Dupont (Akéla, Baloo)`. The account is the human who actually typed it; the memberships are what that human has. It used to read the other way round (`Akéla (Marie Dupont)`), which put a child's totem in front of a message a parent had written, and made the same person read differently here than on the members page, where only the totem appeared.
 
@@ -1511,10 +1547,12 @@ Renting out the unit's own assets — halls, grounds, tents, trailers, equipment
 
 | | Where | `role_min` | What actually protects it |
 |---|---|---|---|
-| Administration of the **park** | `Espace chefs d'U > Locations` (`/admin/locations`) | `admin` | The route guard |
+| Administration of the **park** | `Espace chefs d'U > Biens à louer` (`/admin/locations`, `/admin/locations/nouveau`, `/admin/locations/{id}`) | `admin` | The route guard |
 | Everything about **one asset** | the asset's own managed space, `/mes-locations` | `identified` | `Service\RentalAuthorizationService` |
 
 The managed space's `identified` floor is not an oversight. A manager is explicitly **not** required to be a chief, so the route guard grants nearly everything and the per-asset check is what stands between a logged-in visitor and someone else's bookings. It is re-run server-side on every action; a hidden "Gérer ce bien" button, an absent menu entry and a breadcrumb are presentation, never a boundary (§12).
+
+**The park is a list, an asset a page of its own (issue #748).** `/admin/locations` lists every asset — active ones first, archived ones apart — with « Éditer » and « Archiver » / « Désarchiver » on each line, and keeps below the list only what concerns the module as a whole: the cron warning and the inbound mail. Creating an asset has its own page, and each asset's page carries its four sections (général, gestionnaires, compte, cycle de vie, with deletion apart). The inbound-mail section lists only the boxes whose effective scope lets `rental` analyse them, through `InboundMailInterface::listMailboxSummariesFor()`, never every box on the site.
 
 **There is one authority, not two.** "Manager of this asset" is the only per-object right this module has, and unit staff hold it over every asset by virtue of their function. So the split above is *what is being administered*, never *who is trusted*: the admin page answers "which assets exist and who runs each one", and everything that is a property of one asset — its booking rules, its tariff, its deposit rules, its bookings, its documents, its stay — lives in that asset's own space, reachable by the people who actually run it. Unit staff reach it there as implicit managers rather than through a second, admin-only screen.
 
@@ -2018,9 +2056,9 @@ Every unresolved value is written to the journal at import time, in `info`, carr
 
 **Two emails that cannot be switched off** (`specifications.md` §22.5, §22.11): the renter's acknowledgement, because it carries their only way back to their booking, and the managers' notification, because without it a request can sit unread indefinitely. Neither takes an `enabled` flag. Both are sent *after* the booking is committed and each is guarded independently — a delivery failure must never throw away a stored request.
 
-**Every subject carries the reference first** (`[LOC-2027-0042] …`) and every outgoing message a `Message-ID` we generate and record ourselves. That is what later lets a reply be threaded back onto the right booking through `In-Reply-To`/`References` rather than guessed from the sender (`specifications.md` §22.9). An id the MTA invented is an id we never saw, and cannot match a reply against; the local part is random and never derived from the booking, so a threaded reply cannot be forged from a guessed id.
+**Every subject carries the reference first** (`[LOC-K7Q2M4] …`) and every outgoing message a `Message-ID` we generate and record ourselves. That is what later lets a reply be threaded back onto the right booking through `In-Reply-To`/`References` rather than guessed from the sender (`specifications.md` §22.9). An id the MTA invented is an id we never saw, and cannot match a reply against; the local part is random and never derived from the booking, so a threaded reply cannot be forged from a guessed id.
 
-**References come from a forward-only counter** (`rental_reference_sequences`), never from a `MAX()` over the surviving bookings. A booking deleted by mistake — or purged on schedule once retention lands — would otherwise free its number, and two different rentals would end up quoting the same reference to two different renters. The year is the year the request was *made* in, so a 2027 request for a 2028 camp stays a 2027 reference. The `UNIQUE` constraint on the column is the backstop against a genuine race.
+**References are drawn at random** (`Booking\BookingReference`, #720): `LOC-XXXXXX`, six characters from a 31-character alphabet with no `0`/`O` or `1`/`I`/`L`, so a reference can be read out on the phone. A counter told anyone holding one reference where its neighbours were (#231); a random one does not — it is harder to guess, and nothing more: the tracking token is what protects a booking, and no text presents the reference as a secret. Random also removes the reason a counter had to be forward-only: a deleted booking frees nothing anybody can predict. **No year**: the reference opens every subject line, and four digits the renter already knows pushed the subject itself out of view on a phone. Without the year, six letters or six digits after `LOC-` is how ordinary text reads (« loc-marche »), so a draw holding only one kind of character is drawn again and the pattern refuses it — about 740 million values remain. The `UNIQUE` index is what guarantees uniqueness, and the service draws again when it refuses a draw, at most three times before answering the visitor in French; a random source that never yields a usable draw is refused the same way rather than looped on. **Nothing migrates the earlier forms** (`LOC-YYYY-NNNN`, then `LOC-YYYY-XXXXXX`): a booking keeps the reference it was given, and `Mail\BookingReferenceMatcher` no longer recognises it in a subject — its replies are still matched by the signed reply address, the thread and the renter's address.
 
 **One hold mechanism, two meanings.** A single deadline (`hold_until`) and a single origin (`hold_origin`). An **automatic** hold is created by the request itself and is short (48 h by default, configurable, `0` disables it); when it lapses the dates are released and the request simply goes back to waiting — nobody promised anything, so nothing is refused. A **manager** option was promised with a deadline, so lapsing makes the booking `expired`. To the public the two are indistinguishable, because `Occupancy` has no discriminator to distinguish them by (§8.45).
 
@@ -2066,7 +2104,7 @@ The edited quote is stored as `agreed_price_snapshot`, a **second column** besid
 
 **The booking file acts without reloading.** Its sixteen POST forms all funnel through `RentalManagementController::bookingAction()`, so one branch there — `X-Requested-With: XMLHttpRequest` answers `{success, type, message}` (the flash, consumed, since nothing is going to render it) instead of redirecting — makes the whole page asynchronous with no per-handler change. `public/assets/js/rental-booking.js` posts each form with `fetch`, toasts that message, then **re-fetches the page and swaps the contents of every `[data-booking-panel]` wrapper**. Re-rendering rather than patching is deliberate: one action moves several panels at once — sending the contract also ticks a milestone and writes a history line — and a client-side guess about which is how a page starts lying. The wrappers are always present even when what they hold is conditional, so a card that appears or disappears swaps like any other. Without JavaScript every form still posts, redirects and renders its flash exactly as before.
 
-**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier needs the rentals' own mailbox, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
+**The booking is four pages, not one long file** (issue #462). `Booking\BookingPage` names them — « Tableau de bord » (the booking's own URL), « Finances », « Documents », « Courrier » — and `_booking_nav.html.twig` renders them as a rail under a frame (`_booking_frame.html.twig`) that every one of them shares: the reference, the renter and the dates, once, and « En cours » while the stay is under way. Where the booking stands is not repeated there: the dashboard's journey header says it. `Booking\BookingBox::page()` says which page each box lives on (price and payments on Finances, documents on Documents, mail on Courrier, change requests, comments and history on the dashboard) and `href()` builds a link into a box from anywhere on the booking — the page's URL and the box's anchor — so a journey line pointing at the contract lands on the Documents page with that box open, and the link and the card it aims at cannot become two strings. The stay keeps its own page one level deeper, deliberately not a fifth chip. `RentalManagementController::bookingFilePage()` serves all four and loads only what the page it renders shows; `bookingPagesOffered()` is the one place deciding which exist (Courrier always, whatever the mailboxes, §8.59), and a page not offered answers **404**, never an empty page. A form posts a hidden `booking_page` so a submission without JavaScript comes back to the page it was on.
 
 **The dashboard leads with the journey, and the journey is the checklist staged** (`Booking\BookingJourney`). It takes what `BookingMilestones::for()` produced and adds no fact of its own, which is the whole point: the phases and their lines cannot tell different stories because there is only one derivation. Its header states where the booking stands (`headline()`), offers the one step that moves it on (`primaryAction()`) and the status's other decisions beside it (`otherDecisions()`) — **every status decision is rendered once on the page**, in that header, because a page offering « Confirmer la réservation » twice is one where pressing either is a guess. Below it the phases are listed step by step; a phase after the current one whose booking is not yet confirmed is shown as future and offers nothing.
 
@@ -2134,7 +2172,7 @@ file on somebody's list.
 
 **The shipped standard bodies are a real default, not a button** (`Document\StandardTemplates`, `RentalDocumentService::templateOrStandard()`). While an asset's stored template is blank, the template editor opens pre-filled with the standard Belgian body (modelled on the Atouts Camps rental contract — capacity, meter readings at cost, contradictory inventory, security deposit, cancellation, Belgian courts) and generation uses that same text — a unit that never opens the editor still hands its renter a complete contract. `template()` keeps returning the raw stored value, so "nothing written yet" stays observable; the template page tells the manager which regime is in force and offers « Réinitialiser au modèle standard » (a plain save of the standard body) once the text has been customised. The is-it-still-standard comparison ignores whitespace, because the sanitizer may reflow what a reset stored — misreading a fresh reset as a customisation would show a no-op reset button, the harmless direction to fail in.
 
-**A generated document is never overwritten.** Regenerating produces v2 beside v1, because v1 may already have been sent, printed and signed — and a signature refers to a text, not to a file name. The version comes from a **forward-only counter** on the booking's own copy, never `MAX(version)` over the surviving documents: deleting v2 must not make the next generation v2 again, exactly the same reasoning (and the same shape) as `rental_reference_sequences` for booking references. The values a version was rendered from are frozen beside it, so "why does v1 say 467,50 € when the booking says 400,00 €?" still has an answer six months later.
+**A generated document is never overwritten.** Regenerating produces v2 beside v1, because v1 may already have been sent, printed and signed — and a signature refers to a text, not to a file name. The version comes from a **forward-only counter** on the booking's own copy, never `MAX(version)` over the surviving documents: deleting v2 must not make the next generation v2 again, since v2 may already have been sent. The values a version was rendered from are frozen beside it, so "why does v1 say 467,50 € when the booking says 400,00 €?" still has an answer six months later.
 
 **Substitution happens after sanitizing, and every value is escaped** (`Document\DocumentKeywords`). The other order would run the sanitizer over renter-supplied content and let it decide whether that content should have been markup. dompdf renders HTML, and these values come from a form an anonymous visitor filled in — a renter's name or organisation containing `<`, `&` or a quote is not exotic, it is Tuesday. The keyword list is **closed**: a template can say exactly these things and nothing else, and anything else it asks for is reported to its author **at edit time** rather than surviving into a signed contract as literal braces. An unknown keyword is left visible rather than blanked — a contract showing `{{ prix_ttc }}` is obviously wrong to whoever reads it, a silently emptied one reads as a clause that says nothing.
 
@@ -2216,7 +2254,7 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **Camps' reserved `unsorted` reference is gone.** It was a business object that was not one — a bucket masquerading as a stay, with its own retention setting, its own screen and its own nightly purge task, all duplicating what this module now does once for every consumer. A dedicated mailbox no longer produces an association for mail nobody could attribute: the message is stored like any other, the chief sees it in the unit's mail, and the module's own users see it too because a dedicated box grants them `ReadMode::ALL`. The migration is a `DELETE` of those association rows and nothing else — the messages stay, become "nothing points at this", and fall under the retention they should always have been under. Automatic stay creation moved with it, from `onLinked()` (which hung off the `unsorted` association) to `analyzeStored()`, where a stored message and a bounded hourly pass already meet — `StayFromMailService` reads the body and may call the AI connector, neither of which `CandidateMessage` can carry.
 
-**Ambiguity produces propositions now, where it used to produce silence.** Several bookings of one renter in range, or several stays of one contact, used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a renter with a standing booking every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing.
+**Ambiguity produces propositions — for the consumers that want them.** Several stays of one contact used to mean no association at all. That was right about not choosing — filing a message under whichever of two objects sorted first is worse than leaving it unattached, because the manager reading the wrong one has no way to know — and wrong about stopping there: the module knows something, it just does not know which. Bounded per message, because a contact with a stay every month would otherwise turn one email into a wall nobody reads, which is a different way of saying nothing. `rental` no longer proposes (#720, §8.59): its ambiguity files nothing.
 
 **Orienting is confirming a proposition or naming a target, and both live on `/courrier`.** A consumer that wants the chief to be able to file a message under one of its objects implements `Api\ReferenceDirectory`, an optional companion of the consumer contract in the same family as `MessageRetentionPreference`: `searchReferences()` answers « quel séjour, quelle réservation, quel compte ? » as a person would name them, and `referenceUrl()` says where each one lives. The screen offers « Rattacher à… » only towards modules that publish a directory, and accepts an association only towards a reference that module's own search returned — which is what stops a hand-crafted POST filing a message under an object that does not exist, without `inbound_mail` learning what a reference looks like. Every rattachement on the message page links to its object through the same directory. Camps, Locations and Finances all publish one; a consumer that does not is exactly what it was.
 
@@ -2230,7 +2268,11 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **`Rafraîchir maintenant` runs a synchronisation inside the request, behind an expiring lock.** Two clicks a second apart would open two IMAP sessions on one box and race on the cursor — and the loser's write moves it *backwards*, so the next scheduled run re-reads what was already read. The lock is a setting rather than a table (one row, no schema, readable from the scheduled path too) and it expires after ten minutes, because a request killed by `max_execution_time` never clears it and a permanently locked button is a feature that silently stopped existing. `Service\ManualRefreshService` takes a **closure**, not the sync service: it is constructed on every page view so the button can exist, and assembling a synchronisation graph is the one thing a page view must never do.
 
-**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further — rentals do (§8.59); the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail and the rentals' « Courrier » page are its two callers today. `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
+**A consumer may also detach a message for good** (#720): `detach(…, excludeFromAnalysis: true)` writes `inbound_message_exclusions` — one row per (message, consumer, object) — before removing the link, and `Service\AnalysisResultApplier`, which every automatic path goes through (arrival, deferred pass, « Relancer l'analyse »), drops a link or a proposition towards an excluded object. Without it a detached message is merely unlinked, and the next re-analysis files it under the very object a person just took it off. Narrower than a dismissal on purpose: the message stays open to the consumer's other objects, and a person attaching it by hand on `/courrier` decides past it. Camps detach without the flag and keep their behaviour.
+
+**The box's sent mail is read for the consumers that ask for it, and kept only when one of them files it** (#720). `Api\MessageDirection` (received / sent) is on `CandidateMessage` and `InboundMessage` and in `inbound_messages.direction`. A consumer declares `Api\HandlesOutboundMail` — an empty marker, the same optional-companion shape as `PruningConsumerInterface` — to be handed sent messages; `MessageConsumerRegistry` never offers one to any other consumer, on the arrival pass and the stored one alike, because their rules read the sender as the person writing to the unit and on a sent message the sender is the unit. Only when a box is opened to such a consumer does the synchronisation look for its sent folder: the one the operator named (`inbound_mailboxes.sent_folder`, « Dossier des envoyés »), otherwise the one the server marks with the RFC 6154 attribute `\Sent` on the LIST `listFolders()` already sends (`Client\RemoteFolder`; the raw listing, because the library's `Folder` keeps only the attributes it knows). Names are never guessed, and a folder already watched is never read a second time from the other side. The reverse of received mail: a sent message no consumer files is not written to `inbound_messages` — the unit's sent mail is its own business, and only what concerns one of a module's objects belongs on the site. It is never pruned, never handed to the payload pass, never counted among an object's unread messages (`countLinksAfter()` reads received mail only), and a message the unit sent to its own box is kept once, as received. `wasSentByThisSite()` answers whether a Message-ID is one the consumer recorded as sent by the site, so a copy the provider filed in « Envoyés » is not shown twice.
+
+**One triage screen for every consumer that has one** (`views/partials/triage.html.twig`, issue #462). The list a consumer's users sort is `InboundMailInterface::triageRows()` — `findForTriage()`'s messages with this consumer's own links and propositions, written once in `Service\TriageRowBuilder` so that every implementation of the interface answers it the same way — so it inherits that interface's scoping and adds none of its own. `Api\TriageScreen` (an immutable value object) makes one tab of it, with `Api\TriageFilter` for the tabs and their counts, and `Api\ReanalysisReport` says what « Relancer l'analyse » found; nothing in `Api\` computes on its own (§7.5). A consumer whose users are narrower than the module filters the rows further; the partial renders it with the reading dialog (`public/assets/js/mail-message-dialog.js`, one document-level listener, so a list re-rendered in place still opens). A consumer passes what is its own in `triage_ui`: the noun for its objects, its action URLs, its picker template. The camps' unsorted mail is its caller today; the rentals' « Courrier » page shows one booking's own mail instead (§8.59). `dedicatedMailboxesFor()` tells a consumer which enabled boxes are dedicated to it — `Api\DedicatedMailbox`, an id, a name and an address, never a host or an account — and the mailbox list warns when two are dedicated to the same module, since a consumer with two has none of its own.
 
 **The inter-module API is scoped to one consumer and one business reference on every call** (`Api\InboundMailInterface`). There is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement: a manager who may open a booking must not thereby gain a window onto the unit's whole mailbox. Detaching removes **one association**, and stops there. It used to destroy the message once the last association went, which meant that correcting a mis-filing destroyed the thing being corrected — the message could never reach the right booking. It now falls back into the general mail and lives out the retention. `purgeReference()` is the one that still destroys, and the distinction is the point: it is a consumer's RGPD erasure of a business object, where the promise made to the person concerned is that the mail attached to their file goes with the file. A file the consumer re-classified is *released* from the message (`AttachmentOmission::RECLASSIFIED`) rather than left pointing at it, so the retention purge ninety days on cannot take a booking's signed contract away with the email it arrived in; the consumer that names it takes over `files.owner_id` with it. What this module cannot check is whether the *user* may reach the reference — only the consumer knows its own authorisation rules, so that check stays in the consumer's controller and the interface says so.
 
@@ -2238,9 +2280,9 @@ What does protect the files is the ordinary mechanism: `File\RentalDocumentOwner
 
 **The polling task is the one module task registered by hand** rather than auto-resolved from its manifest, because it needs the consumer registry and only a composition root can build one — as a lazy factory in `public/scheduler-bootstrap.php`, the single file both entry points call (§8.5), so the graph is only assembled when a sync task is actually due and the registration cannot exist under one trigger and not the other. `Tests\Modules\InboundMail\CompositionRootWiringTest` pins the factory's load-bearing facts, the camps consumer's last position included.
 
-**The site's own mail carries a signed reply address, and a bare « Répondre » names its object** (`Service\ReplyAddressService`, `LinkOrigin::REPLY_ADDRESS`). Every other rule reads something the correspondent wrote, and each fails on an ordinary day — a subject rewritten, the group's treasurer answering instead of the renter. What the site puts in the `Reply-To` of what it sends (`locations+rental.LOC-2027-0042.9f3a1b2c4d5e@unite.be`) comes back untouched: the gateway verifies the twelve-character keyed hash before any consumer is asked, hands the object over as `CandidateMessage::$addressedTo`, and the consumer only checks the object still exists. Signed over the **lowercase** form because the IMAP layer lowercases recipients, so the consumer canonicalises the reference's case itself. Minted through `InboundMailInterface::replyAddressFor()` — the box dedicated to the consumer, else the first enabled box it analyses whose account is an address, else nothing — behind a setting on by default (`inbound_mail_reply_addressing`), since a provider that rejects `+tag` addresses would bounce every reply; recognition ignores the setting, because mail sent while it was on keeps being answered for months. Consumers of it today: `Modules\Rental\Service\RentalBookingMailService`, on every mail about a booking.
+**The site's own mail carries a signed reply address, and a bare « Répondre » names its object** (`Service\ReplyAddressService`, `LinkOrigin::REPLY_ADDRESS`). Every other rule reads something the correspondent wrote, and each fails on an ordinary day — a subject rewritten, the group's treasurer answering instead of the renter. What the site puts in the `Reply-To` of what it sends (`locations+rental.LOC-K7Q2M4.9f3a1b2c4d5e@unite.be`) comes back untouched: the gateway verifies the twelve-character keyed hash before any consumer is asked, hands the object over as `CandidateMessage::$addressedTo`, and the consumer only checks the object still exists. Signed over the **lowercase** form because the IMAP layer lowercases recipients, so the consumer canonicalises the reference's case itself. Minted through `InboundMailInterface::replyAddressFor()` — the box dedicated to the consumer, else the first enabled box it analyses whose account is an address, else nothing — behind a setting on by default (`inbound_mail_reply_addressing`), since a provider that rejects `+tag` addresses would bounce every reply; recognition ignores the setting, because mail sent while it was on keeps being answered for months. Consumers of it today: `Modules\Rental\Service\RentalBookingMailService`, on every mail about a booking.
 
-**A consumer that wants to hear of its own propositions says so** (`Api\PropositionListener`, the same optional-companion shape as `ReferenceDirectory`). `AnalysisResultApplier::applyAndReport()` reports the candidates that were actually NEW, and `Service\LinkedMessageNotifier` — the one owner of the callbacks on all three passes — calls `onProposed()` once per message and consumer with them, catching and journalling what the listener throws. That is what turns a proposition into a notification to the people who settle it (`rental.mail_proposition` to the asset's managers, `camps.mail_proposition` and `camps.stay_from_mail` to the stay's chiefs, `finance.mail_proposition` to the treasurers), each declared in its module's manifest, each carrying the object's name and never the sender or the subject. And what the attention page counts (§8.79): `countCandidatesFor()` feeds one provider per module, so a proposition nobody settles is visible at the unit's level and not only on the booking of a manager who is away.
+**A consumer that wants to hear of its own propositions says so** (`Api\PropositionListener`, the same optional-companion shape as `ReferenceDirectory`). `AnalysisResultApplier::applyAndReport()` reports the candidates that were actually NEW, and `Service\LinkedMessageNotifier` — the one owner of the callbacks on all three passes — calls `onProposed()` once per message and consumer with them, catching and journalling what the listener throws. That is what turns a proposition into a notification to the people who settle it (`camps.mail_proposition` and `camps.stay_from_mail` to the stay's chiefs, `finance.mail_proposition` to the treasurers), each declared in its module's manifest, each carrying the object's name and never the sender or the subject. And what the attention page counts (§8.79): `countCandidatesFor()` feeds one provider per module, so a proposition nobody settles is visible at the unit's level and not only on the booking of a manager who is away.
 
 **The thread rule knows what the site sent, not only what it received** (`inbound_outbound_message_ids`). The ordinary first reply — « Re: votre demande », the reference gone from the subject, sent from the group's treasurer rather than the renter — answers a message the SITE wrote; looking only at inbound Message-IDs meant the thread rule recognised a reply to a reply and never the reply itself. A consumer records the ids of what it sends about an object (`InboundMailInterface::recordOutboundMessageId()`, called by `Modules\Rental\Service\RentalBookingMailService` on every booking mail), stored as a blind index — never the content, never an address — and `findReferenceByThread()` consults both tables. `LinkOrigin::IBAN` joined the origins for the same reason `PERIOD` did: an association a consumer makes on a fact in the text, labelled as such on every screen, and « pas certain » because a text can be wrong.
 
@@ -2276,9 +2318,10 @@ answer:**
    only for a booking that still exists. It comes before the reference
    below: the site minted it for one booking and the gateway verified it,
    while a subject can quote any reference.
-1. **A reference in the subject** (`[LOC-2027-0042]`) — the module put it
-   there itself, so a reply carrying it back is as close to certain as
-   automatic attachment gets. Bracketed beats bare, and the subject beats
+1. **A reference in the subject** (`[LOC-K7Q2MX]`), **from one of the
+   renter's addresses** (their own or one of the booking's others, below) — the module put it there itself, so the
+   renter's reply carrying it back is as close to certain as automatic
+   attachment gets; a stranger quoting it files nothing (#231). Bracketed beats bare, and the subject beats
    the body, because a body is full of quoted history. **Two different
    references means no match**: a renter forwarding one booking's email
    while asking about another leaves both in the text.
@@ -2290,35 +2333,108 @@ answer:**
    look inside the other module's storage. The reference still wins when
    both point, since a thread can be hijacked by replying to an old email
    about a different booking.
-3. **The sender's address** — the renter's own, or one a manager taught the
-   booking by filing a message from it by hand (`rental_booking_emails`,
-   blind-indexed like the renter's). A renter with **exactly one booking**
+3. **The sender's address** — the renter's own, or one of the booking's
+   « Autres adresses du locataire » (`rental_booking_emails`,
+   blind-indexed like the renter's, below). A renter with **exactly one booking**
    is attached whatever the date: the window exists to tell two bookings
    apart, and there is nothing to tell apart. With several, the message
    must fall between the request and some weeks after the departure of
    one of them, and a booking the unit refused, cancelled or let lapse
    does not compete with the live one — left in, a group refused once and
-   booked again had every message turned into two propositions.
+   booked again had every message filed nowhere.
 
-**Ambiguity is answered with propositions, never with a choice.** Two
-live bookings matching the sender inside the window attach nothing — a
-manager reading the wrong file has no way to know it is the wrong file,
-which makes a wrong attachment worse than none — but each of them becomes a
-`MessageCandidate` (§8.58), bounded at `RentalMessageConsumer::MAX_PROPOSITIONS`,
-so the module says what it knows and leaves the choice to a person. **The
-model comes last, and only to order** (`Mail\BookingChoiceByModel`): with
-the connector present and a model on the cheap tier, the subject and body
-go to it with the shortlist, and its pick leads the list, marked `ai` and
-saying so in its explanation — the other bookings stay proposed, and
-nothing is associated on its word. Without a connector the list is what the
-rules made. **A manual filing teaches the booking the sender's address**
-(`onLinked()` on `LinkOrigin::MANUAL` only) and re-examines the mail
-nobody could attribute (`REANALYSIS_AFTER_DECISION`), so the treasurer of a
-group writing from their own address is filed by hand once, not on every
-message.
+**What the unit sent is matched the same way, from the recipients**
+(#720, `HandlesOutboundMail`). A message read in the box's « Envoyés » is
+first checked against the Message-IDs the site recorded
+(`wasSentByThisSite()`): a copy of an e-mail the site sent is filed
+nowhere, since the page already shows it from the site's own log with its
+document and « Renvoyer ». Otherwise the reference counts when one of the
+recipients is the renter, the thread headers count as they are, and the
+address level reads the recipients (`LinkOrigin::RECIPIENT`, shown as
+uncertain) with the same window and the same silence on ambiguity. There
+is no reply-address level: that is something the renter writes to. A sent
+message is never announced and never teaches the booking an address — its
+sender is the unit — unless a person or the AI filed it, below.
+
+**The rules answer ambiguity with nothing; the model settles it later**
+(#720, step 6). Two live bookings matching the sender inside the window
+attach nothing on arrival — a manager reading the wrong file has no way to
+know it is the wrong file, which makes a wrong guess worse than none — and
+nobody is asked to choose: the propositions, their notification and the
+attention point that counted them are gone. What the rules left standing
+goes to the model in the hourly deferred pass (`analyzeStored()`, §8.58's
+`AnalyzeStoredMessagesHandler`): several bookings of one renter in range,
+or the one booking a reference names when it was quoted by an address the
+booking does not know. **In practice that is received mail.** A sent
+message is kept only when a consumer filed it at arrival
+(`MailboxSyncService::store()`, §8.58), so an ambiguous one is never stored
+and never reaches the model; the sent branch only serves a sent message
+detached from the booking it was filed under while others still stand.
+`Mail\BookingChoiceByModel` chooses
+**only among that list** or answers nothing, and its pick is filed
+`LinkOrigin::AI` — shown as uncertain, learning the address like a
+person's decision, undone by « Détacher ». A booking the message was
+detached from is left out before the model is asked
+(`InboundMailInterface::isExcluded()`). Bounded by the pass: ten messages
+an hour, each call capped in characters, tokens and time; a call that
+failed answers `readingFailed()` and is retried at most
+`MAX_ANALYSIS_ATTEMPTS` times, while a model that declines is an answer and
+is not asked again. Without the connector or a cheap model nothing is
+asked and the message appears on no booking. The text read is anybody's
+(#231), so the model only ever picks among the bookings the rules put
+forward — on the address path at least two, a cancelled booking included
+when nothing covers the message's date, since a single one would be a
+rubber stamp. **The reference case is the weak one, and it is deliberate**
+(the chantier asks for it): there the rules put forward one booking only
+because the message named it, so the model is confirming, not choosing. Two
+things bound it. Only a random reference is recognised at all
+(`BookingReference`, #720 step 9: six characters out of 31, a digit and a
+letter among them, about 740 million values — the earlier forms, counted
+or carrying a year, are not recognised any more) — and it travels
+only in that booking's own mail, so quoting it means having seen that mail — the treasurer the renter
+forwarded it to, which is the case this exists for. And what it obtains is
+a message, and an address, filed under the booking for its managers alone:
+nothing is sent to the sender, the attachments stay `Non classé` and
+internal, the filing is shown as the model's, and « Détacher » undoes both.
+
+**« Autres adresses du locataire »** (#720, step 5, `rental_booking_emails`).
+The booking's other addresses — the treasurer, a partner, a work address —
+count wherever the renter's own does: for the reference of level 1, for
+the sender of level 3, and for the recipients of a sent message
+(`RentalBookingRepository::isAddressOfBooking()`, which every one of those
+reads). The Courrier page lists them; a manager adds or removes one
+(`POST /mes-locations/courrier/adresse-ajouter` and `adresse-retirer`,
+through `bookingAction()` and `RentalBookingService`, recorded in the
+booking's history as `other_email_changed`). Removing one leaves the
+messages already filed where they are. **A decision teaches an address**:
+`onLinked()` on `LinkOrigin::MANUAL` — the unit's general mail screen — or
+`LinkOrigin::AI` adds the sender, or for a sent message its recipient when
+there is exactly one, with `learned_from_message_id` naming the message;
+the page marks it « ajoutée automatiquement », and « Détacher » on that
+message forgets it (`onUnlinked()`) while an address typed by hand stays —
+and so does one another message filed by a decision teaches too: one row
+exists per address, so it is handed over to that message
+(`repointLearnedEmail()`) rather than deleted. A decision
+then re-examines the mail nobody could attribute
+(`REANALYSIS_AFTER_DECISION`, the rules only), so the treasurer is filed
+once, not on every message.
 
 **An attachment becomes a `Non classé`, internal document of the booking**,
-pointing at the very file `UploadHandler` stored rather than a copy. Never
+pointing at the very file `UploadHandler` stored rather than a copy — a
+received message's and a sent one's alike, and only a PDF, a Word file or
+an image (`DOCUMENT_MIME_TYPES`; `AttachmentPolicy` has already dropped
+signature logos and images under its minimum size, #720 step 8). A
+spreadsheet or an OpenDocument file stays on the message. **Never twice,
+by content**: an attachment whose SHA-256 (`InboundAttachment::
+$contentHash`) is that of a file the booking already holds is not filed
+again — the contract the site generated, sent back by hand from the box,
+is the document it already is. That comparison only holds because the
+MIME parser hands an attachment over byte for byte, whatever its transfer
+encoding (`MimeMessageParser::decodeAttachment()`): its text decoding used
+to strip the final line break, which cut the last byte off every PDF ending
+`%%EOF\n`, and the multipart split rewrote every line ending of a part to
+CRLF. `splitOnBoundary()` now drops only the line break RFC 2046 gives to
+the delimiter, and text is normalised where it is decoded. Never
 presumed to be the signed contract (that would put an unverified PDF where a
 signed contract goes) and never "for the renter" (that flag queues it to be
 emailed back to them). `RentalDocumentService::reclassify()` is the one-click
@@ -2326,98 +2442,99 @@ correction, and it refuses generated documents: a contract or invoice is what
 the module produced from a template, and renaming one would break the
 versioning a signed v1 depends on.
 
-**Correcting the automatic rules is bounded by what the manager manages.**
-Detaching removes the association and the `Non classé` documents nobody
+**« Détacher » is the one correction, and it is final for the booking**
+(#720). It removes the association and the `Non classé` documents nobody
 re-classified; the message itself falls back into the unit's general mail
 (§8.58) and a document already filed as a signed contract survives — it is
 the manager's, not the message's, and `onUnlinked()` takes back only what is
-still `Non classé`. Attaching is offered only to bookings of that manager's own
-assets, and the target list is **built from their assets** rather than
-filtered from a global list, so the picker is never itself a window onto the
-unit's other bookings; a hand-crafted POST naming somebody else's booking
-gets the same "not accessible" as one naming a booking that does not exist.
-The screen offers no « move »: changing a message's booking is detaching it
-and attaching it to the right one, as on the camps screen. The service's
+still `Non classé`. `RentalCommunicationService::detach()` asks for the
+exclusion (§8.58, `inbound_message_exclusions`), so the rules never file the
+message under that booking again, while another booking stays open to it.
+There is no attaching by hand in the rentals any more. The service's
 `move()` stays — a moved message takes its documents with it, moved *before*
-the association changes hands, and is recorded as `manual` (D20).
-
-**Attaching by hand is confirming a proposition, or naming an object the
-requester may reach** (`InboundMailInterface::attach()`, `confirmCandidate()`),
-never browsing the mailbox: the scoped API (`specifications.md` §23.5) hands a
-consumer only the messages it recognised or proposed on. `attach()` leaves the
-authorisation to its caller, so `RentalCommunicationService::attachToBooking()`
-first requires the message to be in the manager's own triage list — attaching
-an arbitrary message id to one's own booking would be reading it.
+the association changes hands, and is recorded as `manual` (D20) — and its
+targets are **built from the manager's own assets** rather than filtered
+from a global list.
 
 **Which mailboxes feed the module is the mailbox configuration's answer, and
 nothing of the module's own.** `rental` used to keep its own list of box ids
 next to the scope screen's per-box answers, and the two could disagree: a box
 ticked on the rental page that the superadmin had never opened to the module
 produced nothing, and nothing on either screen said why. The list is gone; the
-rental configuration page names the unit's boxes and their state — never a
-host, a port or an account, `listMailboxSummaries()` is the whole of what
-crosses that boundary — and points at the scope screen for the rest.
+rental configuration page names the boxes whose scope opens them to `rental`
+and their state — never a host, a port or an account, and never another
+module's box: `listMailboxSummariesFor('rental')` is the whole of what
+crosses that boundary (issue #748) — and points at the scope screen for the
+rest.
 
-**The « Courrier » page is the camps' triage screen, not a look-alike**
-(issue #462). Both modules render `@inbound_mail/partials/triage.html.twig`
-over `triageRows()` and `Api\TriageScreen` (§8.58): the same tabs and counts (« À trier »,
-« Rattachés », « Tous », « Écartés »), the same dialog for reading a message,
-the same propositions to confirm or dismiss, the same attach, detach, set
-aside, restore and « Relancer l'analyse ». What differs is passed in
-`triage_ui` — the name of the module's objects, its action URLs, its picker —
-and one scenario (`TriageScreenScenario`) is played against both screens so
-they cannot drift into two behaviours. The rentals' list is the manager's
-scope, not the page's: every booking of every asset they manage
-(`triageBookings()`), recomputed on each action rather than trusted from the
-form; the booking of the page is only the picker's default.
+**The « Courrier » page is one booking's own mail** (#720). It lists what
+the rules filed under that booking — `findForReference()`, nothing wider —
+most recent first (`Mail\BookingMailTimeline`), each entry marked by its
+direction and opened in the same dialog as the inbound mail screens. It is
+offered on every booking, whatever the mailboxes: dedicated or shared makes
+no difference to the rentals any more, while the configuration keeps the
+distinction for the other modules. `RentalCommunicationService::collects()`
+— an enabled box whose scope opens it to `rental` — only decides whether the
+page says that nothing gathers renters' replies. The old triage screen, its
+tabs, the attach, set aside, restore and « Relancer l'analyse » routes and
+the propositions are gone; `POST /mes-locations/courrier/detacher` is the
+one form left, through `bookingAction()` like every form of the booking.
 
-**A manager reads only the mail within their reach**
-(`RentalCommunicationService::withinReach()`). On a box dedicated to
-rentals, `findForTriage()` answers for the *module*, which reads the whole
-box; a manager is narrower than the module. A row stays when a link or a
-proposition names one of their own bookings — and then carries only those,
-so another booking's reference never reaches the page — or when nothing
-attributes it and they manage every asset
-(`RentalAuthorizationService::managesEveryAsset()`: the Staff d'U, or a
-manager named on each), since such a message may be about any of them.
-Attach, set aside and restore check a posted message id against that same
-list: what a manager cannot see, they cannot act on. For somebody who does
-not manage every asset the narrowing starts in the query
-(`findForTriage(…, ownReferencesOnly: true)` leaves the box read in full
-out), before the screenful's limit: the whole box's hundred most recent
-messages are not a sample of anybody's own. The seven
-`/mes-locations/courrier/*` routes go through `bookingAction()` like every
-form of the booking.
+**What the site sent is on the page too** (#720, step 2,
+`rental_booking_sent_emails`). Every e-mail to the renter goes through ONE
+write point, `RentalBookingMailService::deliver()`, which sends it and
+records it — sent, or failed and re-thrown, so each caller keeps the answer
+it always gave; a log that cannot be written is journaled and never stands
+in the e-mail's way. Recipient, subject and both bodies are encrypted; the
+tracking link is masked BEFORE encryption (`SentEmail::MASKED_LINK`, the URL
+raw and HTML-escaped and the bare token wherever else it appears), because a
+copy of a credential in a log outlives the regeneration that killed it.
+Attachments are the booking's documents, named by id, never copied. The
+Message-ID stays in clear: the id the renter's reply will quote.
+« Renvoyer » (`resend()`, `POST /mes-locations/courrier/renvoyer`) applies
+to a failed e-mail only — the server checks it, not just the page — and
+sends the logged text again with the booking's CURRENT link in place of
+the mask and the documents re-read from disk, refusing in French when the
+link or a document is gone. It updates the entry it retries
+(`recordAttempt()`) rather than adding one: the page shows one e-mail
+that eventually went out, or still did not, however many clicks it took.
+The entry is claimed first by a conditional write (`claimForRetry()`,
+failed → sending), so of two clicks arriving together only one sends; a
+claim abandoned by a request that died counts as failed again after
+`SentEmail::STALE_CLAIM_MINUTES`. A resend is the first send that worked,
+so it records what that send would have: its documents are marked sent, a
+contract takes the booking to « Contrat envoyé » — and a contract voided
+since is refused, as on the Documents page. The page shows the plain
+text, never the stored HTML, in its own dialog — so the sent half needs
+nothing of `inbound_mail` and is there without it.
 
-**The page exists only for rentals' own mailbox, and only when there is
-exactly one.** `InboundMailInterface::dedicatedMailboxesFor()` names the
-enabled boxes dedicated to a consumer; `dedicatedMailbox()` answers one only
-when the list holds exactly one. Two boxes dedicated to rentals give **no**
-page: the page shows one box's mail, and choosing between two would be
-arbitrary — the incoming-mail configuration list says so where it can be
-fixed (`Service\MailboxAdminService::dedicationConflicts()`), and the
-change that brings a box into the case is journaled once
-(`inbound_mailbox_dedication_conflict`) — compared by box id, so a rename
-or a later save that leaves the case as it was writes nothing. A shared
-box feeds the automatic
-filing and the booking's history, never this page.
+**A filed message is announced, and counted until read — per person**
+(#720). `RentalMessageConsumer::onLinked()` tells the asset's managers
+(`Mail\NewMessageNotifier`, `rental.new_message`, through
+`ManagerRecipientResolver` like a new request) once per message-level
+association, whichever path wrote it; the booking and the link to its
+« Courrier », never the sender or the subject, and a notification that
+fails never stops the filing. The badge — « Courrier (2) » on the rail,
+« Nouveaux messages » on the overview, a count on the « À traiter » row —
+is `rental_booking_mail_reads`: per booking AND account, a position in
+inbound_mail's associations (`latestLinkPosition()`, `countLinksAfter()`)
+rather than a date, so « what came after » is the order the messages were
+filed in and never a comparison of two clocks. Opening the page reads up
+to the latest position, before the rail is counted, and never moves the
+position back.
 
-**A renter's « Répondre » reaches that box.** Every booking mail carries the
-signed reply address when the operator allows it
-(`ReplyAddressService::mailboxFor()` mints it on the box dedicated to
-rentals, else on the first shared box that analyses them). With signed
-addresses off, it carries the dedicated box's own address when there is
-exactly one, passed explicitly: `MailService` would fall back on the site's
-reply address, and the answer would go to the unit's general inbox instead
-of the page that reads it. Otherwise — signed addresses off and no dedicated
-box, or two — nothing is passed and the site's ordinary reply address
-applies. The mass mail module never goes through `RentalBookingMailService`
-and is untouched.
+**A renter's « Répondre » names the booking.** Every booking mail carries
+the signed reply address when the operator allows it
+(`ReplyAddressService::mailboxFor()` mints it on a box dedicated to rentals,
+else on the first shared box that analyses them). With signed addresses
+off, nothing is passed and the site's ordinary reply address applies: the
+rentals have no box of their own to fall back on (#720), and a reply quoting
+the reference is still matched wherever it lands. The mass mail module never
+goes through `RentalBookingMailService` and is untouched.
 
-**Without `inbound_mail` the booking page loses its « Courrier » chip and
-nothing else.** `RentalCommunicationService` takes the API as a nullable
-dependency and answers as though no message ever arrived, which is exactly
-true.
+**Without `inbound_mail` the « Courrier » page says so and shows nothing
+else.** `RentalCommunicationService` takes the API as a nullable dependency
+and answers as though no message ever arrived, which is exactly true.
 
 ### 8.60 The paperwork register and the reminders (`Modules\Rental\Compliance`, `Modules\Rental\Reminder`)
 
@@ -2963,7 +3080,7 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **Registration order is immaterial.** `MessageConsumerRegistry` asks every consumer the box is open to and applies every answer (§8.58); which module sees a dedicated camps box is the mailbox configuration's decision, not the position of a `register()` call. `Tests\Modules\Camps\Mail\ConsumerRegistrationOrderTest` now pins only what the web path builds the consumer with — that it can file a document and re-analyse — which is what actually failed silently.
 
-**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the same shape as rental's, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
+**Two signals crossed before anybody is asked.** A farmer who hosts the unit every summer always has two stays in the sender window, and the period the message states is what a chief would read to tell them apart — so `fromSender()` intersects the sender's stays with `ExistingStayMatcher::matching()` on any box, shared included, and one stay in both lists is an association on the sender: the period only narrowed a list the sender had already drawn, which is why this is safe where reading the period alone on a shared box is not. **Ambiguity is answered with propositions.** Two stays still matching one sender, or two stays over the same days, claim nothing — putting a farmer's e-mail on whichever of two stays sorted first is worse than leaving it where it was, because the chief reading the wrong stay has no way to know — and each becomes a proposition the chief settles on `/chefs/camps/courrier`. **The model comes last, and only to order** (`Mail\StayChoiceByModel`, the shape rental's had before #720 let its model file, §8.59): its pick leads the list marked `ai`, the others stay, nothing is associated on its word. **A cancelled stay takes part in none of the rules**: not the sender window, not the period, not the duplicate check before a stay is created. Left in, a stay cancelled and re-booked with the same farmer turned every one of their messages into two propositions for sixteen months. **A manual filing makes the sender a contact of the stay** (`onLinked()` on `LinkOrigin::MANUAL`, role « Correspondant », never overwriting a contact the chief typed) and re-examines the unattributed mail, so the farmer's spouse writing from their own address is filed by hand once.
 
 **A module asks the connector about the tier it is going to use.** `LlmConnectorInterface::isAvailable()` answers "is anything configured at all" and every AI feature in this module used it, while every call it makes is `LlmTier::CHEAP` — so an installation with a model on `capable` and none on `cheap` passed the check, the place sheet offered « Écrire le résumé maintenant », and `complete()` refused the tier before reaching a provider: no summary, and (until the connector started journaling its own refusals) nothing anywhere saying why. `Service\PlaceSummaryService`, `Service\DuplicatePlaceDetector` and `Mail\StayFromMailService` all ask `isTierAvailable(LlmTier::CHEAP)` now, which is the same question their `complete()` will ask.
 
@@ -5796,7 +5913,9 @@ The site depends on pages it does not control: the federal fees page « Chercher
 
 FTP is used exactly once: the operator uploads a single self-contained `bootstrap/bootstrap.php` to an empty web folder and opens it in a browser. It has no Composer dependency (it must run before `vendor/` exists) and never touches `Core\Maintenance\BackupService`, `InstallUpdateHandler`, `RestoreBackupHandler`, or `FileAccessGuard` — it is their first-run twin, not a rewrite of them: same `VERSION` format (`Core\Maintenance\VersionFile`), same archive-root handling as `InstallUpdateHandler::resolveBranchArchiveRoot()` (decided from source type, never entry count), same "no new dependency" constraint.
 
-It resolves the latest published GitHub release (hardcoded repo, never read from the request), picks one of two supported layouts, runs an 11-step POST-driven install (the browser drives a short poll loop — a single long request would time out on shared hosting), then a full acceptance gate, then writes `token.php` and deletes itself.
+**Before any of that, two blocking questions (#719, B).** Over plain `http://` it asks nothing and sends the operator to the `https://` address, so the token never travels in clear. On its first load over HTTPS it writes `token.php` and asks for its value before anything else — the operator reads it over FTP; a wrong value counts toward the setup wizard's own lockout ladder (4/6/8/10 failures → 1 min/5 min/30 min/24 h), kept in `.bootstrap-access.php` since no session exists, and a typed token is never echoed back. A right one sets `scoutmagic_setup_proof` (`Core\Security\BootstrapHandoff`: an expiry and its HMAC keyed by the token, two hours, re-signed on every authorized request so a long upload cannot outlive it, HttpOnly, SameSite=Strict), required on every action but typing the token, and accepted by the wizard in place of a second typing. Then the site must answer over HTTPS: a probe file is fetched back through `https://<host>/`, and step 1 refuses until it has been. The operator may then pick a portable archive: the browser alone reads its last 65 557 bytes for the zip comment (Core\Maintenance\Portable\PortableArchiveHints), and the release that wrote it is installed (`releases/tags/vX.Y.Z`, a bare release number or nothing) instead of the latest one, so the restore runs on its own version and the site is updated afterwards along the ordinary path.
+
+It resolves the latest published GitHub release — or that archive's (hardcoded repo, the version validated before it is put in a URL) — picks one of two supported layouts, runs an 11-step POST-driven install (the browser drives a short poll loop — a single long request would time out on shared hosting), then a full acceptance gate. With an archive, it is then sent in resumable chunks of 2 MB, each appended only at the offset the server holds, into `storage/restore/incoming/` — in layout B only after a canary proved that folder unreachable through the site, otherwise not at all (the wizard takes the upload; the verdict is kept server-side, in the step state, so a chunk sent anyway is refused) — bound to the file announced, so a leftover resumes only that same file and never splices two — checked to name the release just installed, and moved to `storage/restore/portable-restore.zip`, where the wizard's restore mode finds it. It deletes itself and sends the operator to `/setup`, or to `/setup?restauration=1` when an archive waits. What crosses from bootstrap to wizard is frozen (`BootstrapHandoff`, pinned by `Tests\Bootstrap\BootstrapHandoffContractTest`): the bootstrap is always newer than the release it installs.
 
 **Layout A — "Natural" (preferred)**: the document root sits inside a writable parent directory. The artifact's `public/` contents are merged directly into the document root; everything else (`core/`, `modules/`, `storage/`, `vendor/`, `schema/`, `config/`) goes into the parent. The result is the exact project tree in §12, with the document root simply *being* `public/`.
 
@@ -5804,11 +5923,11 @@ It resolves the latest published GitHub release (hardcoded repo, never read from
 
 Either way, no code elsewhere in the codebase is aware of which layout is in use — `dirname(__DIR__)` from `public/index.php` resolves to the same project root in both cases by construction. The one narrow exception is the token-gate check in `SetupController`, which tries the two fixed candidate locations for `token.php` itself (see §9.2) — not a general path-resolution abstraction.
 
-**Acceptance gate**: before the wizard is reachable, `bootstrap.php` runs server-side checks (`VERSION`, `vendor/autoload.php`, `schema/core.sql`, `storage/` subdirectories and permissions, no `.htaccess` shipped in the artifact, temp dir cleaned up) and has the *browser itself* fetch a set of canary files it just wrote (a positive control, `token.php` executing as PHP rather than being served as source, `storage/keys/`, a `storage/` subdirectory created moments earlier, `vendor/autoload.php`, a docroot dotfile, no `storage/` directory listing) to prove what's and isn't web-reachable — trusting the browser's report is deliberate here, the same precedent `MaintenanceController::installUpdate()` sets for accepting client-observed results server-side, and it's safe because only the operator running the install can forge the verdict and doing so grants no privilege. Any failure rolls back the entire installed tree — not just the failing piece — and no `token.php` is ever written. Full report also saved to `storage/config/install-report.json` on success.
+**Acceptance gate**: before the wizard is reachable, `bootstrap.php` runs server-side checks (`VERSION`, `vendor/autoload.php`, `schema/core.sql`, `storage/` subdirectories and permissions, no `.htaccess` shipped in the artifact, temp dir cleaned up) and has the *browser itself* fetch a set of canary files it just wrote (a positive control, `token.php` executing as PHP rather than being served as source, `storage/keys/`, a `storage/` subdirectory created moments earlier, `vendor/autoload.php`, a docroot dotfile, no `storage/` directory listing) to prove what's and isn't web-reachable — trusting the browser's report is deliberate here, the same precedent `MaintenanceController::installUpdate()` sets for accepting client-observed results server-side, and it's safe because only the operator running the install can forge the verdict and doing so grants no privilege. Any failure rolls back the entire installed tree — not just the failing piece — and `token.php` with it, so the next attempt starts from a new token. Full report also saved to `storage/config/install-report.json` on success.
 
 ### 9.2 Setup wizard token gate
 
-Until `secrets.enc` exists, `/setup` (`Core\Http\Controller\SetupController`) is gated behind `token.php`, which `bootstrap.php` writes to the document root only after its acceptance gate fully passes. `SetupController` never generates a token itself: if `token.php` is missing, it refuses and displays the exact file content to create over FTP; if present, it compares a submitted value against the file's own content via `hash_equals()`, with session-based progressive lockout (there is no database yet at this point, so `Core\Security\LoginThrottler`'s DB-backed pattern doesn't apply) escalating to a hard stop after ~10 attempts. On successful completion of first-time setup, `token.php` is deleted; a persistent journal entry (and a flash message) warns the operator if deletion fails, since leaving it in place is an unnecessary — though not by itself exploitable — risk.
+Until `secrets.enc` exists, `/setup` (`Core\Http\Controller\SetupController`) is gated behind `token.php`, which `bootstrap.php` writes to the document root on its first load and has the operator type before anything else; the wizard accepts the bootstrap's proof cookie in its place (#719). `SetupController` never generates a token itself: if `token.php` is missing, it refuses and displays the exact file content to create over FTP; if present, it compares a submitted value against the file's own content via `hash_equals()`, with session-based progressive lockout (there is no database yet at this point, so `Core\Security\LoginThrottler`'s DB-backed pattern doesn't apply) escalating to a hard stop after ~10 attempts. On successful completion of first-time setup, `token.php` is deleted; a persistent journal entry (and a flash message) warns the operator if deletion fails, since leaving it in place is an unnecessary — though not by itself exploitable — risk.
 
 Collects DB credentials, unit settings (including short name ≤5 chars), email config, initial admin email. Once `secrets.enc` exists, `/setup` reverts to being a normal `superadmin` Configuration page under `RbacGuard`, unchanged — the token gate never applies again.
 
@@ -5957,6 +6076,8 @@ scripts/
                     when E2E_COVERAGE=1 (§15)
 
 docs/
+  installation.md  Installing a site, in full — README.md is the short version
+  developpement.md Development setup, the test suites, CI and releases
   module-development.md
   rental-guide.md, inbound-mail-setup.md
                    The two end-user guides README links
@@ -6035,14 +6156,14 @@ Three complementary, independently-runnable automated test stacks:
 
 - **PHPUnit** (`tests/`, mirroring the structure of `core/` and `modules/`) — the server-side test suite: Services, Repositories (against a test database), Controllers/routes (including the RBAC boundary at every `role_min`), and the rest of the PHP application. Five suites, all of them run by a bare `vendor/bin/phpunit`: `Core`, `Modules`, `Bootstrap`, `Security` (`tests/Security/` — the source-level audits AGENTS.md § Security checklist leans on: SQL injection, encryption of personal data, file access, upload MIME trust, response headers, POST size limits) and `Integration` (`tests/Integration/` — scenarios spanning several services at once). **A directory absent from `phpunit.xml` is a suite that does not run**: `Security` and `Integration` existed for a long time without being listed, so eight files silently stopped being executed and drifted; anything added under `tests/` must be reachable from a `<testsuite>` or it is decoration.
 - **Vitest + jsdom** (`tests/js/`) — isolated unit tests for first-party browser JavaScript (`public/assets/js/`), run under Node with a simulated DOM (jsdom): no PHP server, no MySQL, no real network. `fetch`, the Service Worker, WebAuthn, etc. are mocked where a script under test touches them. These are development/test tooling only (§1) — they exercise the real production `.js` files directly, never a reimplementation of their logic, and exist to catch regressions in deterministic, DOM-adjacent frontend logic (form validation, client-side computed state) fast and without a browser.
-- **Playwright + headless Chromium** (`tests/e2e/`) — end-to-end tests against a real, running ScoutMagic. One canonical command, `npm run e2e` (`scripts/e2e.sh`), provisions a throwaway install (its own `storage/`, its own generated secrets, its own empty database migrated from `schema/core.sql` by the real `Core\Database\MigrationRunner`, and **every** module activated through the real `Core\Module\ModuleManager::activate()` — the instance points its statistics destination at itself, so even the receiver-only module is visible and wired), serves it with `php -S` over the **real** `public/index.php`, drives it with a real browser, and tears all of it down — on success, on failure, and on Ctrl-C. It answers the one question the other two stacks structurally cannot: *does the application boot at all?* PHPUnit instantiates controllers directly and never executes the composition root in `public/index.php`, which is exactly how a `TypeError` on every request once reached production (see AGENTS.md § Static analysis). Every module is activated at provisioning time for the same reason: that composition root wires each enabled module before routing anything, so a module left off is a block of it no scenario executes — and the second time that `TypeError` reached production, it was in a module the harness did not enable. `all-modules-enabled.spec.js` asserts the invariant against the real Modules page, so a module added later is covered the day it lands. Deliberately kept to high-value scenarios only — one per surface where the browser decides what the server receives (hand-built request bodies, chunked uploads, polling loops, flows finished inside an email) or where a rule is only observable between two differently-privileged browsers — never a per-page smoke sweep: this is a merge-blocking CI check and a release gate (`scripts/release.sh`), so determinism matters far more than coverage, and every scenario must prove itself deterministic from a clean state before it lands. Assertions are semantic (ARIA roles, accessible names, the document title) wherever a role or a name identifies the element; the few places where none does fall back to the ids and classes the module's own JavaScript binds to — a contract rather than incidental structure — and say so in the spec that does it. Beyond "does it boot", the suite walks the application's riskiest browser↔server seams (the full inventory lives in README.md § Tests de bout en bout); three scenarios illustrate the recurring shapes. `scout-year-transition.spec.js` replays the whole scout-year changeover — preview, Desk import, staff year, public switch — against the workflow described on `/admin/scout-year`, which is its specification and carries a reminder to that effect (as does `ScoutYearController::buildTransitionSteps()`, where the step wording lives). `gallery-download.spec.js` fills an album with two photos a phone gave the same name, turns the task queue through the instance's own `public/cron.php` (`tests/e2e/support/scheduler.js` — the first scenario to need a background task to have run, since a gallery upload has no renditions until `gallery`/`process_photo` does), and then saves each photo and the album's ZIP from a real browser: whether a click SAVES a file and under WHAT NAME is decided between the `download` attribute and `Content-Disposition`, which PHPUnit and Vitest each see only half of — and the two downloads are checked against EACH OTHER (`Modules\Gallery\Service\MediaFileName`), never against a string written in the test. `groups-discussion.spec.js` writes in a discussion group — a message, a message carrying a link, a poll and a vote, a comment, a reaction, and then a second member commenting so the first is told something is new and can report it, a phone-sized viewport with `groups.js` blocked (the only check anywhere that this module's standing "everything still works with no JavaScript" promise holds), and a comment whose whole content is a photo, previewed before it is sent — because the groups composer is the one place where the BROWSER decides what the server receives: `public/assets/js/groups.js` intercepts the form's submit and hand-builds the request body, so neither PHPUnit (a `$_POST` array the test wrote) nor Vitest (a jsdom form with no server behind it) can see whether that body still carries what the form declares. Three defects lived in exactly that gap and were found by adding the scenario. It needs the super-admin to have a member identity and a name on the account, both hard requirements of `Modules\Groups\Service\GroupAccessService`, which `scripts/e2e-support.php` provisions (`e2eSeedMemberForAdmin()`) rather than bypasses — plus a second ordinary member and a section both belong to, since a comment is never new to whoever wrote it and reporting is never offered on your own message; because that fixture is bound to the current scout year, the scenario must run before `scout-year-transition.spec.js` moves the public year — Playwright's alphabetical file ordering is what guarantees it. The harness drops `storage/temp/twig_cache` at provisioning, and `tests/bootstrap.php` does the same for PHPUnit: `TwigFactory` keys compiled templates on VERSION alone with `auto_reload` off whenever `debug` is false — right for production, where an install upgrades by version, and wrong for a checkout that edits templates all day, where it makes both suites assert against a template that is no longer on disk (`Tests\Bootstrap\TwigCacheFreshnessTest` is the guard that keeps the drop happening). Optionally, the run also reports PHP line coverage: with `E2E_COVERAGE=1`, pcov collects inside the `php -S` process through an `auto_prepend_file` (`scripts/e2e-coverage-prepend.php`, one fragment per request) and `scripts/e2e-support.php merge-coverage` folds the fragments into `coverage-e2e.xml`, which SonarQube Cloud merges with PHPUnit's report — the only coverage `public/index.php` ever gets. Canonical documentation: README.md § Tests de bout en bout.
+- **Playwright + headless Chromium** (`tests/e2e/`) — end-to-end tests against a real, running ScoutMagic. One canonical command, `npm run e2e` (`scripts/e2e.sh`), provisions a throwaway install (its own `storage/`, its own generated secrets, its own empty database migrated from `schema/core.sql` by the real `Core\Database\MigrationRunner`, and **every** module activated through the real `Core\Module\ModuleManager::activate()` — the instance points its statistics destination at itself, so even the receiver-only module is visible and wired), serves it with `php -S` over the **real** `public/index.php`, drives it with a real browser, and tears all of it down — on success, on failure, and on Ctrl-C. It answers the one question the other two stacks structurally cannot: *does the application boot at all?* PHPUnit instantiates controllers directly and never executes the composition root in `public/index.php`, which is exactly how a `TypeError` on every request once reached production (see AGENTS.md § Static analysis). Every module is activated at provisioning time for the same reason: that composition root wires each enabled module before routing anything, so a module left off is a block of it no scenario executes — and the second time that `TypeError` reached production, it was in a module the harness did not enable. `all-modules-enabled.spec.js` asserts the invariant against the real Modules page, so a module added later is covered the day it lands. Deliberately kept to high-value scenarios only — one per surface where the browser decides what the server receives (hand-built request bodies, chunked uploads, polling loops, flows finished inside an email) or where a rule is only observable between two differently-privileged browsers — never a per-page smoke sweep: this is a merge-blocking CI check and a release gate (`scripts/release.sh`), so determinism matters far more than coverage, and every scenario must prove itself deterministic from a clean state before it lands. Assertions are semantic (ARIA roles, accessible names, the document title) wherever a role or a name identifies the element; the few places where none does fall back to the ids and classes the module's own JavaScript binds to — a contract rather than incidental structure — and say so in the spec that does it. Beyond "does it boot", the suite walks the application's riskiest browser↔server seams (the full inventory lives in docs/developpement.md § Tests de bout en bout); three scenarios illustrate the recurring shapes. `scout-year-transition.spec.js` replays the whole scout-year changeover — preview, Desk import, staff year, public switch — against the workflow described on `/admin/scout-year`, which is its specification and carries a reminder to that effect (as does `ScoutYearController::buildTransitionSteps()`, where the step wording lives). `gallery-download.spec.js` fills an album with two photos a phone gave the same name, turns the task queue through the instance's own `public/cron.php` (`tests/e2e/support/scheduler.js` — the first scenario to need a background task to have run, since a gallery upload has no renditions until `gallery`/`process_photo` does), and then saves each photo and the album's ZIP from a real browser: whether a click SAVES a file and under WHAT NAME is decided between the `download` attribute and `Content-Disposition`, which PHPUnit and Vitest each see only half of — and the two downloads are checked against EACH OTHER (`Modules\Gallery\Service\MediaFileName`), never against a string written in the test. `groups-discussion.spec.js` writes in a discussion group — a message, a message carrying a link, a poll and a vote, a comment, a reaction, and then a second member commenting so the first is told something is new and can report it, a phone-sized viewport with `groups.js` blocked (the only check anywhere that this module's standing "everything still works with no JavaScript" promise holds), and a comment whose whole content is a photo, previewed before it is sent — because the groups composer is the one place where the BROWSER decides what the server receives: `public/assets/js/groups.js` intercepts the form's submit and hand-builds the request body, so neither PHPUnit (a `$_POST` array the test wrote) nor Vitest (a jsdom form with no server behind it) can see whether that body still carries what the form declares. Three defects lived in exactly that gap and were found by adding the scenario. It needs the super-admin to have a member identity and a name on the account, both hard requirements of `Modules\Groups\Service\GroupAccessService`, which `scripts/e2e-support.php` provisions (`e2eSeedMemberForAdmin()`) rather than bypasses — plus a second ordinary member and a section both belong to, since a comment is never new to whoever wrote it and reporting is never offered on your own message; because that fixture is bound to the current scout year, the scenario must run before `scout-year-transition.spec.js` moves the public year — Playwright's alphabetical file ordering is what guarantees it. The harness drops `storage/temp/twig_cache` at provisioning, and `tests/bootstrap.php` does the same for PHPUnit: `TwigFactory` keys compiled templates on VERSION alone with `auto_reload` off whenever `debug` is false — right for production, where an install upgrades by version, and wrong for a checkout that edits templates all day, where it makes both suites assert against a template that is no longer on disk (`Tests\Bootstrap\TwigCacheFreshnessTest` is the guard that keeps the drop happening). Optionally, the run also reports PHP line coverage: with `E2E_COVERAGE=1`, pcov collects inside the `php -S` process through an `auto_prepend_file` (`scripts/e2e-coverage-prepend.php`, one fragment per request) and `scripts/e2e-support.php merge-coverage` folds the fragments into `coverage-e2e.xml`, which SonarQube Cloud merges with PHPUnit's report — the only coverage `public/index.php` ever gets. Canonical documentation: docs/developpement.md § Tests de bout en bout.
 
 A fourth stack sits beside them, answering a question none of the three asks — **does the running application behave safely on the wire?**
 
-- **OWASP ZAP** (`tests/dast/`, `scripts/dast.sh`) — dynamic application security testing. `./scripts/dast.sh --profile=passive` provisions a throwaway install through **the same `scripts/e2e-support.php provision` the browser suite uses** (never a second copy of it), serves it over self-signed HTTPS, replays the Playwright suite through a ZAP proxy, and fails on any finding at Medium or above. The attack surface is deliberately the browser suite rather than ZAP's spider: a spider cannot follow a magic link out of the browser and back through a mailbox, confirm an address, or register a passkey, and the end-to-end suite already drives all three as several signed-in identities. Two pieces of the harness carry their own reasoning and their own files: `scripts/dast-tls-proxy.php` terminates TLS in front of `php -S` (which speaks none), because the `Secure` cookie flag and HSTS are unobservable in cleartext — it sets `X-Forwarded-Proto`, which the instance believes only through `Core\Http\RequestScheme`'s per-deployment opt-in (SECURITY.md § 9), enabled on that instance and nowhere else; and `scripts/dast-support.php` holds everything needing more than a line of shell, including the check that fails the run when ZAP's site map does not contain the authenticated pages the suite visits. That check exists because the failure it catches is otherwise silent: Chromium bypasses a proxy for loopback addresses unless told not to, and without `--proxy-bypass-list=<-loopback>` every scenario passes, ZAP records nothing, and the report is clean because it examined nothing. `npm run e2e` is strictly unaffected — the proxy, the HTTPS scheme and the widened timeouts are all behind environment variables only `scripts/dast.sh` sets, following the `E2E_CHROMIUM_EXECUTABLE` precedent that was already there. Canonical documentation: README.md § Analyse de sécurité dynamique, and SECURITY.md § 15 for what a scanner can and cannot tell you about this codebase.
+- **OWASP ZAP** (`tests/dast/`, `scripts/dast.sh`) — dynamic application security testing. `./scripts/dast.sh --profile=passive` provisions a throwaway install through **the same `scripts/e2e-support.php provision` the browser suite uses** (never a second copy of it), serves it over self-signed HTTPS, replays the Playwright suite through a ZAP proxy, and fails on any finding at Medium or above. The attack surface is deliberately the browser suite rather than ZAP's spider: a spider cannot follow a magic link out of the browser and back through a mailbox, confirm an address, or register a passkey, and the end-to-end suite already drives all three as several signed-in identities. Two pieces of the harness carry their own reasoning and their own files: `scripts/dast-tls-proxy.php` terminates TLS in front of `php -S` (which speaks none), because the `Secure` cookie flag and HSTS are unobservable in cleartext — it sets `X-Forwarded-Proto`, which the instance believes only through `Core\Http\RequestScheme`'s per-deployment opt-in (SECURITY.md § 9), enabled on that instance and nowhere else; and `scripts/dast-support.php` holds everything needing more than a line of shell, including the check that fails the run when ZAP's site map does not contain the authenticated pages the suite visits. That check exists because the failure it catches is otherwise silent: Chromium bypasses a proxy for loopback addresses unless told not to, and without `--proxy-bypass-list=<-loopback>` every scenario passes, ZAP records nothing, and the report is clean because it examined nothing. `npm run e2e` is strictly unaffected — the proxy, the HTTPS scheme and the widened timeouts are all behind environment variables only `scripts/dast.sh` sets, following the `E2E_CHROMIUM_EXECUTABLE` precedent that was already there. Canonical documentation: docs/developpement.md § Analyse de sécurité dynamique, and SECURITY.md § 15 for what a scanner can and cannot tell you about this codebase.
 
 Frontend unit tests are a complement to, never a replacement for, PHPUnit's integration tests or the manual mobile (~375px) and desktop (~1280px) visual verification every page/component still requires — they mock the server/browser boundary precisely so they can run in isolation, which is also exactly why they can't substitute for either of those two.
 
-A fourth, non-test mechanism runs alongside these three: JavaScript static analysis (`npm run typecheck`, TypeScript's `checkJs` over `public/assets/js/`, no build step — see `AGENTS.md` § Static analysis and README.md § Analyse statique JavaScript) is the JavaScript equivalent of `vendor/bin/phpstan analyse` — it catches unresolved identifiers, wrong argument counts, and statically-detectable invalid property access *before* any test runs, which is a different guarantee than Vitest exercising behavior at runtime.
+A fourth, non-test mechanism runs alongside these three: JavaScript static analysis (`npm run typecheck`, TypeScript's `checkJs` over `public/assets/js/`, no build step — see `AGENTS.md` § Static analysis and docs/developpement.md § Analyse statique JavaScript) is the JavaScript equivalent of `vendor/bin/phpstan analyse` — it catches unresolved identifiers, wrong argument counts, and statically-detectable invalid property access *before* any test runs, which is a different guarantee than Vitest exercising behavior at runtime.
 
 Automated tests are mandatory for every feature and must be kept up to date as the codebase evolves. The RBAC guard must have explicit test coverage on every role boundary.

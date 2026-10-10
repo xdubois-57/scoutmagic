@@ -53,7 +53,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own.
 import { test, expect } from '@playwright/test';
@@ -89,6 +89,7 @@ test.describe('Rentals', () => {
         // --- The unit puts a hall online. ---
         await loginAsAdmin(page);
         await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
 
         await expect(page.getByRole('heading', { name: 'Ajouter un bien' })).toBeVisible();
 
@@ -103,7 +104,9 @@ test.describe('Rentals', () => {
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
 
-        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
+        // Straight to the new hall's own page (issue #748).
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name: ASSET_NAME })).toBeVisible();
 
         // --- And designates somebody to look after it. ---
         // Creating a hall does not give anybody the managed space: asset
@@ -222,13 +225,16 @@ test.describe('Rentals', () => {
         // line carries back (§7.6, level 1) — and the tracking page itself,
         // reached with no account and no session at all: the link in their
         // acknowledgement IS the authorisation (§6.26).
-        const heading = renter.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        const heading = renter.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
-        const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
+        const reference = (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
 
         // The dates are held while the unit answers, and the page says
-        // until when rather than leaving the visitor guessing (specifications.md §22.5).
-        await expect(renter.getByText(/Dates bloquées/)).toBeVisible();
+        // until when rather than leaving the visitor guessing (specifications.md §22.5)
+        // — in the « Et maintenant ? » sentence their e-mails end with
+        // too (#708, IT-15).
+        await expect(renter.locator('[data-renter-next-step]')).toContainText(/Rien à faire de votre côté/);
+        await expect(renter.locator('[data-renter-next-step]')).toContainText(/réservées jusqu'au \d{2}\/\d{2}\/\d{4}/);
 
         // The link IS the authorisation (§6.26): no account, no session,
         // and it still opens on a cold browser. Keeping the URL and
@@ -252,7 +258,7 @@ test.describe('Rentals', () => {
         // closed notification menu would otherwise answer first, hidden.
         const content = page.locator('#main-content');
         await expect(content.getByText(ASSET_NAME).first()).toBeVisible();
-        await expect(content.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+        await expect(content.getByText(/LOC-[2-9A-HJKMNP-Z]{6}/).first()).toBeVisible();
 
         // --- What the renter never sees of it. ---
         // A manager's internal comment is the one thing §6.6 is most
@@ -295,14 +301,15 @@ test.describe('Rentals', () => {
         await page.goto(`/mes-locations/${ASSET_SLUG}/reservations`);
         await page.getByRole('link', { name: new RegExp(reference) }).first().click();
 
-        // Same again for « Demandes et propositions » — and it has to be
-        // re-opened, because the page was reloaded in between.
-        await openCard(page, 'dossier-changes');
+        // The requests and proposals have a page of their own,
+        // « Modifications », right after the dashboard (#708, IT-20).
+        await page.locator('#rental-booking-picker').getByRole('link', { name: /^Modifications/ }).click();
+        await page.waitForURL(/\/reservations\/\d+\/modifications$/, { waitUntil: 'load' });
 
         const proposal = page.locator('form[action="/mes-locations/proposition"]');
         await proposal.locator('input[name="arrival"]').fill(PROPOSED_ARRIVAL);
         await proposal.locator('input[name="departure"]').fill(PROPOSED_DEPARTURE);
-        await proposal.locator('input[name="message"]').fill(PROPOSAL_MESSAGE);
+        await proposal.locator('textarea[name="message"]').fill(PROPOSAL_MESSAGE);
         await proposal.getByRole('button', { name: 'Proposer' }).click();
 
         // The manager's own screen still shows the ORIGINAL dates: a

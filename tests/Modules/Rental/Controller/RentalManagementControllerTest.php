@@ -87,7 +87,6 @@ use Core\Member\Repository\MemberProfileRepository;
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 class RentalManagementControllerTest extends TestCase
 {
-    use \Tests\Modules\InboundMail\TriageScreenScenario;
 
     private \PDO $pdo;
     private Environment $twig;
@@ -106,6 +105,9 @@ class RentalManagementControllerTest extends TestCase
     private int $scoutYearId;
     private int $assetId;
     private int $otherAssetId;
+
+    /** @var list<array{sent_id: int, booking_id: int, token: ?string}> what « Renvoyer » asked for */
+    private array $resends = [];
     private string $storagePath;
     private \Core\File\FileRepository $fileRepository;
     private \Modules\Rental\Service\RentalDocumentService $documentService;
@@ -315,7 +317,32 @@ class RentalManagementControllerTest extends TestCase
                 new \Core\Pdf\PdfCompressor($this->storagePath . '/temp'),
                 $journal
             ),
-            $this->signatureRepository
+            $this->signatureRepository,
+            // A contract the booking has outgrown is voided (#708, IT-20).
+            new \Modules\Rental\Service\RentalContractValidityService(
+                $this->documentService,
+                new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+                $this->bookingRepository,
+                $bookingAudit,
+                $this->paymentService,
+                new \Modules\Rental\Repository\RentalMilestoneMarkRepository($this->pdo),
+                new \Modules\Rental\Repository\RentalReminderRepository($this->pdo)
+            ),
+            // « Valider l'état des lieux » (#708, IT-17).
+            new \Modules\Rental\Service\RentalInventoryValidationService(
+                $this->stayService,
+                $this->documentService,
+                $this->recordingMailService(),
+                new \Core\Pdf\DocumentPdfService(),
+                $settingService,
+                $bookingAudit
+            ),
+            // What the site sent the renter, on « Courrier » (#720, step 2).
+            null,
+            // Who signs a document is named by their account (#825).
+            new \Modules\Rental\Document\SignerName(
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption)
+            )
         );
 
         $this->assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
@@ -328,6 +355,7 @@ class RentalManagementControllerTest extends TestCase
         $_POST = [];
         $this->renterEmails = [];
         $this->trackingLinkEmails = [];
+        $this->documentEmails = [];
     }
 
     /**
@@ -338,6 +366,9 @@ class RentalManagementControllerTest extends TestCase
      * reached it, with which manager's word, and — for the ones a renter
      * can still act on — with a token at all.
      */
+    /** @var list<array{booking_id: int, label: string}> */
+    private array $documentEmails = [];
+
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Modules\Rental\Repository\RentalManagerSignatureRepository $signatureRepository;
 
@@ -360,6 +391,29 @@ class RentalManagementControllerTest extends TestCase
                 ];
 
                 return true;
+            }
+        );
+        $mock->method('sendDocument')->willReturnCallback(
+            function (
+                \Modules\Rental\Booking\RentalBooking $booking,
+                \Modules\Rental\Repository\RentalAsset $asset,
+                string $documentLabel
+            ): string {
+                $this->documentEmails[] = ['booking_id' => $booking->id, 'label' => $documentLabel];
+
+                return '<test@scoutmagic>';
+            }
+        );
+        $mock->method('resend')->willReturnCallback(
+            function (\Modules\Rental\Mail\SentEmail $sent, RentalBooking $booking, ?string $trackingToken, \Closure $attachmentOf): void {
+                // As the real service does: every document read again first,
+                // and the e-mail refused when one is gone.
+                foreach ($sent->documentIds as $documentId) {
+                    if ($attachmentOf($documentId) === null) {
+                        throw new \Modules\Rental\Service\RentalException("Une pièce jointe de cet e-mail n'existe plus.");
+                    }
+                }
+                $this->resends[] = ['sent_id' => $sent->id, 'booking_id' => $booking->id, 'token' => $trackingToken];
             }
         );
         $mock->method('sendTrackingLink')->willReturnCallback(
@@ -429,7 +483,7 @@ class RentalManagementControllerTest extends TestCase
 
     private function createBooking(
         ?int $assetId = null,
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         ?string $organisation = null
     ): RentalBooking {
         $created = $this->bookingRepository->create(
@@ -618,16 +672,15 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Makes « Courrier » available: a mailbox collects. Set on the
+     * A mailbox gathers mail for the rentals. Set on the
      * controller the setUp built rather than on a second one, so every
      * other collaborator stays the one the other tests use.
      */
     private function withCollectingMailbox(): \Modules\InboundMail\Api\InboundMailInterface&\PHPUnit\Framework\MockObject\MockObject
     {
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('isCollecting')->willReturn(true);
-        $inbound->method('dedicatedMailboxesFor')->willReturn([
-            new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
+        $inbound->method('listMailboxSummariesFor')->willReturn([
+            3 => ['name' => 'Locations', 'state' => 'OK', 'is_enabled' => true],
         ]);
         $this->withMailbox($inbound);
 
@@ -652,274 +705,19 @@ class RentalManagementControllerTest extends TestCase
                 $this->managerRepository
             ),
             new JournalService(new JournalRepository($this->pdo)),
-            $inbound
+            $inbound,
+            null,
+            new \Modules\Rental\Repository\RentalMailReadRepository($this->pdo)
         );
         (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
             ->setValue($this->controller, $service);
     }
 
-    // ── The shared triage screen, rentals' side (issue #462, IT-03) ─────
-
-    private ?RentalBooking $triageBooking = null;
+    // ── « Courrier », one booking's own mail (#720) ─────────────────────
 
     /**
-     * The booking the scenario's page belongs to, and the one object the
-     * manager files message 7 under.
-     */
-    private function triageBooking(): RentalBooking
-    {
-        if ($this->triageBooking === null) {
-            $this->loginAsManager();
-            // Message 7 names no booking, so only somebody who manages
-            // every asset may sort it (RentalCommunicationService::withinReach()).
-            $this->addManager($this->otherAssetId, 'manager@test.be');
-            $this->withMailbox(new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage()));
-            $this->triageBooking = $this->createBooking();
-        }
-
-        return $this->triageBooking;
-    }
-
-    /**
-     * **The component widens no scope.** The list is read with the
-     * references of the bookings this manager may reach, and only those —
-     * never another asset's, whatever booking the page belongs to.
-     */
-    public function testTheTriageListIsReadWithTheManagersReferencesOnly(): void
-    {
-        $this->loginAsManager();
-        $inbound = $this->withCollectingMailbox();
-        $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
-
-        // And narrowed in the query, not after it: this manager does not
-        // run every asset, so the box read in full is left out before the
-        // limit (InboundMailInterface::findForTriage(), $ownReferencesOnly).
-        $inbound->expects($this->atLeastOnce())->method('triageRows')
-            ->with('rental', $this->callback(
-                static fn(array $references): bool => in_array($mine->reference, $references, true)
-                    && !in_array($theirs->reference, $references, true)
-            ), $this->anything(), $this->anything(), true)
-            ->willReturn([]);
-
-        $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getStatusCode());
-    }
-
-    /**
-     * A booking of an asset the manager does not run is not a place to file
-     * mail, whatever a hand-made form says.
-     */
-    public function testMailCannotBeFiledUnderABookingOutsideTheScope(): void
-    {
-        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(\Tests\Modules\InboundMail\InMemoryTriageMail::aMessage());
-        $this->loginAsManager();
-        $this->withMailbox($mail);
-        $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
-
-        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '7',
-            'booking_reference' => $theirs->reference,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
-        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    /**
-     * A box dedicated to rentals is read in full by the MODULE, and its
-     * managers are not one audience: a manager of one asset reads the mail
-     * filed or proposed under their own bookings, and not what belongs to
-     * another asset's — nor what nothing attributes yet, which may be
-     * about any asset.
-     */
-    public function testAManagerOfOneAssetReadsOnlyTheMailOfTheirOwnBookings(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'tous'])->getBody();
-
-        $this->assertStringContainsString('data-triage-message="9"', $body, 'filed under their own booking');
-        $this->assertStringContainsString('data-triage-message="10"', $body, 'proposed for their own booking');
-        $this->assertStringNotContainsString('data-triage-message="8"', $body, "filed under another asset's booking");
-        $this->assertStringNotContainsString('data-triage-message="7"', $body, 'attributed to nobody yet');
-        $this->assertStringNotContainsString($theirs->reference, $body);
-    }
-
-    /**
-     * What is not on a manager's list cannot be reached by posting its id.
-     */
-    public function testMailOutsideTheReachCannotBeAttachedOrSetAside(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
-
-        $this->post('/mes-locations/courrier/rattacher', 'triageAttach', $form + [
-            'message_id' => '8',
-            'booking_reference' => $mine->reference,
-        ]);
-        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', $form + ['message_id' => '7']);
-
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 8));
-        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
-    }
-
-    /**
-     * A set-aside is the module's, not one manager's: a message proposed
-     * for their booking AND for another asset's is not theirs alone to
-     * write off, or it would vanish from the other managers' lists.
-     */
-    public function testAMessageAlsoProposedForAnotherAssetCannotBeSetAside(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $mail->propose(10, 'rental', $theirs->reference);
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
-        $this->post('/mes-locations/courrier/ecarter', 'triageSetAside', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-        ]);
-
-        $this->assertStringContainsString('data-triage-message="10"', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/ecarter', $body);
-        $this->assertSame(0, $mail->countDismissedMessages('rental', [$mine->reference]));
-    }
-
-    /**
-     * The service's own guard, beneath the controller's: a target booking
-     * outside the references it is given is refused even for a message
-     * that IS on the requester's list.
-     */
-    public function testTheServiceRefusesATargetOutsideTheReferencesItIsGiven(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $service = (new \ReflectionProperty(RentalManagementController::class, 'communicationService'))
-            ->getValue($this->controller);
-        $this->assertInstanceOf(\Modules\Rental\Service\RentalCommunicationService::class, $service);
-
-        $this->assertFalse($service->attachToBooking($theirs, 9, [$mine->reference], false, null));
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 9));
-    }
-
-    /**
-     * The same message, set aside by somebody who manages both assets, is
-     * still a set-aside message on the one-asset manager's « Écartés » tab:
-     * shown as such, never as work to sort, and not theirs to put back.
-     */
-    public function testASharedSetAsideMessageStaysSetAsideForAOneAssetManager(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $mail->propose(10, 'rental', $theirs->reference);
-        $this->assertTrue($mail->dismissMessage('rental', [$mine->reference, $theirs->reference], 10));
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id, ['statut' => 'ecartes'])->getBody();
-
-        $this->assertStringContainsString('data-triage-message="10"', $body);
-        $this->assertStringNotContainsString('Remettre dans la liste', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/proposition/confirmation', $body);
-        $this->assertStringNotContainsString('/mes-locations/courrier/rattacher', $body);
-    }
-
-    public function testWhoeverManagesEveryAssetSortsTheUnattributedMail(): void
-    {
-        [, $mine] = $this->mailAcrossTwoAssets();
-        $this->addManager($this->otherAssetId, 'manager@test.be');
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
-
-        $this->assertStringContainsString('data-triage-message="7"', $body);
-    }
-
-    public function testAPropositionIsConfirmedFromTheCourrierPage(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-
-        $this->assertNotNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    public function testAPropositionIsDismissedFromTheCourrierPage(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/proposition/rejet', 'triageReject', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame([], $mail->findCandidatesFor('rental', [10]));
-    }
-
-    public function testAPropositionForAnotherAssetsBookingIsRefused(): void
-    {
-        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
-        $foreign = $mail->propose(7, 'rental', $theirs->reference);
-
-        $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-            'message_id' => '7',
-            'candidate_id' => (string) $foreign,
-        ]);
-
-        $this->assertNull($mail->findOneForReference('rental', $theirs->reference, 7));
-        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
-    }
-
-    public function testRelancerLAnalyseSaysWhatItFound(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-
-        $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', [
-            'asset_id' => (string) $this->assetId,
-            'booking_id' => (string) $mine->id,
-        ]);
-
-        $this->assertSame(1, $mail->reanalyses);
-        $this->assertStringContainsString('réexaminé', \Core\Http\FlashMessage::get()['message'] ?? '');
-    }
-
-    /**
-     * The routes are `identified`, and that is not the protection: somebody
-     * who manages nothing is answered 404, and nothing is decided.
-     */
-    public function testTheCourrierActionsAreNotFoundForSomebodyWhoManagesNothing(): void
-    {
-        [$mail, $mine] = $this->mailAcrossTwoAssets();
-        AuthSession::login(2, 'personne@test.be', 'identified');
-        $form = ['asset_id' => (string) $this->assetId, 'booking_id' => (string) $mine->id];
-
-        $confirm = $this->post('/mes-locations/courrier/proposition/confirmation', 'triageConfirm', $form + [
-            'message_id' => '10',
-            'candidate_id' => (string) $this->proposition,
-        ]);
-        $reanalyze = $this->post('/mes-locations/courrier/relancer', 'triageReanalyze', $form);
-
-        $this->assertSame(404, $confirm->getStatusCode());
-        $this->assertSame(404, $reanalyze->getStatusCode());
-        $this->assertNull($mail->findOneForReference('rental', $mine->reference, 10));
-        $this->assertSame(0, $mail->reanalyses);
-    }
-
-    private int $proposition = 0;
-
-    /**
-     * A box holding four messages, for a manager of the first asset only:
-     * 7 attributed to nobody, 8 filed under the other asset's booking, 9
-     * filed under theirs, 10 proposed for theirs.
+     * Messages 7 (filed nowhere), 8 (filed under the other asset's
+     * booking) and 9 (filed under this manager's), and the two bookings.
      *
      * @return array{\Tests\Modules\InboundMail\InMemoryTriageMail, RentalBooking, RentalBooking}
      */
@@ -927,71 +725,670 @@ class RentalManagementControllerTest extends TestCase
     {
         $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
             \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(7, 'Une question'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(8, 'Pour le local des autres'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local'),
-            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(10, 'Peut-être pour le local')
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(8, 'Pour le chalet'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local')
         );
         $this->loginAsManager();
         $this->withMailbox($mail);
         $mine = $this->createBooking();
-        $theirs = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-K7Q2MX');
         $mail->link(8, 'rental', $theirs->reference);
         $mail->link(9, 'rental', $mine->reference);
-        $this->proposition = $mail->propose(10, 'rental', $mine->reference);
 
         return [$mail, $mine, $theirs];
     }
 
-    protected function triageScreen(string $status = ''): string
+    /**
+     * @return array<string, array{bool}>
+     */
+    public static function mailboxConfigurations(): array
     {
-        $booking = $this->triageBooking();
-
-        return (string) $this->filePage(
-            BookingPage::MAIL,
-            'local-saint-georges',
-            $booking->id,
-            $status === '' ? [] : ['statut' => $status]
-        )->getBody();
+        return [
+            'a box gathering mail for rentals, dedicated or shared' => [true],
+            'no box gathering mail for rentals' => [false],
+        ];
     }
 
     /**
-     * @param array<string, string> $body
+     * The page is there whatever the mailbox configuration (#720):
+     * dedicated, shared or none — and without a box it says how replies
+     * would reach it rather than disappearing.
      */
-    private function triagePost(string $path, string $action, int $id, array $body = []): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxConfigurations')]
+    public function testTheCourrierPageIsThereWhateverTheMailboxes(bool $collects): void
     {
-        $booking = $this->triageBooking();
-        $response = $this->post($path, $action, $body + [
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+        $mail->collects = $collects;
+
+        $dashboard = (string) $this->bookingPage('local-saint-georges', $mine->id)->getBody();
+        $this->assertStringContainsString('/reservations/' . $mine->id . '/courrier"', $dashboard);
+
+        $response = $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+        $this->assertSame(200, $response->getStatusCode());
+        $body = (string) $response->getBody();
+        if ($collects) {
+            $this->assertStringNotContainsString('data-mail-not-collected', $body);
+        } else {
+            $this->assertStringContainsString('Aucune boîte e-mail ne relève le courrier des locations', $body);
+        }
+        $this->assertStringNotContainsString('Cette page existe', $body);
+    }
+
+    public function testWithoutTheInboundMailModuleThePageIsStillThereAndSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString("Le module « Courrier entrant » n'est pas actif", (string) $response->getBody());
+        $this->assertStringContainsString('Aucun message pour cette réservation.', (string) $response->getBody());
+    }
+
+    /**
+     * Only what the rules filed under THIS booking: not the other asset's
+     * mail, not the mail filed nowhere — and nothing to sort, attach,
+     * set aside or confirm.
+     */
+    public function testThePageShowsThisBookingsMailAndNothingElse(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+
+        $this->assertStringContainsString('data-mail-entry="9"', $body);
+        $this->assertStringNotContainsString('data-mail-entry="8"', $body);
+        $this->assertStringNotContainsString('data-mail-entry="7"', $body);
+        $this->assertStringContainsString('Reçu', $body);
+        $this->assertStringContainsString('Lire le message', $body);
+        // Filed on the reference here: certain, so no warning.
+        $this->assertStringNotContainsString('Rattachement incertain', $body);
+        foreach (['Rattacher', 'Écarter', "Relancer l'analyse", 'Propositions', '/mes-locations/courrier/rattacher'] as $gone) {
+            $this->assertStringNotContainsString($gone, $body);
+        }
+    }
+
+    public function testAMessageFiledOnTheSenderAloneSaysItIsAGuess(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(9, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::SENDER);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Rattachement incertain', $body);
+    }
+
+    public function testWhatTheUnitSentFromItsBoxIsShownAsSentToTheRenter(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aMessage(9, 'Pour le local'),
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aSentMessage(10, 'Les clés')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(9, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::REFERENCE);
+        $mail->linkAs(10, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::RECIPIENT);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertMatchesRegularExpression('#data-mail-entry="10" data-mail-direction="sent"#', $body);
+        $this->assertMatchesRegularExpression('#data-mail-entry="9" data-mail-direction="received"#', $body);
+        $this->assertStringContainsString('À : j.leroy@example.be', $body);
+        $this->assertStringContainsString('Rattachement incertain · Adresse du destinataire', $body);
+    }
+
+    public function testAMessageTheUnitSentIsNeverAnUnreadOne(): void
+    {
+        $mail = new \Tests\Modules\InboundMail\InMemoryTriageMail(
+            \Tests\Modules\InboundMail\InMemoryTriageMail::aSentMessage(10, 'Les clés')
+        );
+        $this->loginAsManager();
+        $this->withMailbox($mail);
+        $booking = $this->createBooking();
+        $mail->linkAs(10, 'rental', $booking->reference, \Modules\InboundMail\Api\LinkOrigin::RECIPIENT);
+
+        $this->assertSame([], $mail->countLinksAfter('rental', [$booking->reference => 0]));
+    }
+
+    public function testDetachAsksFirst(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '#<form method="post" action="/mes-locations/courrier/detacher"\s+data-confirm="Ce message ne concerne pas cette réservation \?#',
+            $body
+        );
+    }
+
+    /**
+     * « Détacher » takes the message off this booking for good: the
+     * exclusion is asked of inbound_mail, and the page no longer shows it.
+     */
+    public function testDetachingTakesTheMessageOffThisBookingForGood(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $response = $this->detachPost($mine, 9);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertSame([['rental', $mine->reference, 9]], $mail->exclusions);
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->assertStringNotContainsString('data-mail-entry="9"', $body);
+    }
+
+    public function testAMessageOfAnotherBookingCannotBeDetachedFromThisOne(): void
+    {
+        [$mail, $mine, $theirs] = $this->mailAcrossTwoAssets();
+
+        $this->detachPost($mine, 8);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $mail->exclusions);
+        $this->assertNotNull($mail->findOneForReference('rental', $theirs->reference, 8));
+    }
+
+    public function testABookingOfAnAssetTheyDoNotManageIsNotFound(): void
+    {
+        [$mail, , $theirs] = $this->mailAcrossTwoAssets();
+
+        $response = $this->detachPost($theirs, 8);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $mail->exclusions);
+    }
+
+    /** The routes of the old triage screen are gone, the detach stays. */
+    public function testTheTriageRoutesAreGone(): void
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $paths = array_column($manifest['routes'], 'path');
+
+        $this->assertContains('/mes-locations/courrier/detacher', $paths);
+        foreach (['rattacher', 'ecarter', 'reprendre', 'relancer', 'proposition/confirmation', 'proposition/rejet'] as $gone) {
+            $this->assertNotContains('/mes-locations/courrier/' . $gone, $paths);
+        }
+    }
+
+    // ── « Autres adresses du locataire » (#720, step 5) ─────────────────
+
+    /** The service with its journal, as public/index.php wires it. */
+    private function withAuditedBookingService(): void
+    {
+        (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
+            $this->controller,
+            new RentalBookingService(
+                $this->bookingRepository,
+                new JournalService(new JournalRepository($this->pdo)),
+                null,
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+            )
+        );
+    }
+
+    /** @param array<string, string> $fields */
+    private function addressPost(string $action, RentalBooking $booking, array $fields): Response
+    {
+        $path = $action === 'addOtherRenterEmail' ? '/mes-locations/courrier/adresse-ajouter' : '/mes-locations/courrier/adresse-retirer';
+
+        return $this->post($path, $action, [
+            'asset_id' => (string) $booking->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+        ] + $fields);
+    }
+
+    public function testTheCourrierPageListsTheOtherAddressesAndWhichWereLearned(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Autres adresses du locataire', $body);
+        $this->assertStringContainsString('partenaire@maison.example', $body);
+        $this->assertStringContainsString('tresorier@groupe.example', $body);
+        $this->assertSame(1, substr_count($body, 'ajoutée automatiquement'));
+        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+        $this->assertMatchesRegularExpression(
+            '#action="/mes-locations/courrier/adresse-retirer" class="ms-auto"\s+data-confirm="Retirer partenaire@maison.example \?#',
+            $body
+        );
+    }
+
+    public function testWithNoOtherAddressThePageSaysSo(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Aucune autre adresse.', $body);
+    }
+
+    public function testAManagerAddsAnAddressAndTheHistorySaysSo(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => ' Tresorier@Groupe.example ']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
+        $this->assertFalse($others[0]->wasLearned());
+
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $last = end($history);
+        $this->assertNotFalse($last);
+        $this->assertSame(\Modules\Rental\Audit\BookingAudit::OTHER_EMAIL_CHANGED, $last->fieldKey);
+        $this->assertNull($last->fromValue);
+        $this->assertSame('tresorier@groupe.example', $last->toValue);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function refusedAddresses(): array
+    {
+        return [
+            'not an address' => ['tresorier'],
+            "the renter's own" => ['JEANNE@example.be'],
+            'already listed' => ['partenaire@maison.example'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedAddresses')]
+    public function testAnAddressThatAddsNothingIsRefused(string $email): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => $email]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerRemovesALearnedAddress(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $id = $this->bookingRepository->otherRenterEmails($booking->id)[0]->id;
+
+        $this->addressPost('removeOtherRenterEmail', $booking, ['other_email_id' => (string) $id]);
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+        $this->assertSame([], $this->bookingRepository->findByRenterEmail('tresorier@groupe.example'));
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $last = end($history);
+        $this->assertNotFalse($last);
+        $this->assertSame('tresorier@groupe.example', $last->fromValue);
+        $this->assertNull($last->toValue);
+    }
+
+    public function testAnAddressOfAnotherBookingCannotBeRemovedThroughThisOne(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $mine = $this->createBooking();
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
+        $this->bookingRepository->addRenterEmail($other->id, 'tresorier@groupe.example');
+        $id = $this->bookingRepository->otherRenterEmails($other->id)[0]->id;
+
+        $this->addressPost('removeOtherRenterEmail', $mine, ['other_email_id' => (string) $id]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($other->id));
+    }
+
+    public function testNobodyAddsAnAddressToABookingOfAnAssetTheyDoNotManage(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $theirs = $this->createBooking($this->otherAssetId, 'LOC-K7Q2MX');
+
+        $response = $this->addressPost('addOtherRenterEmail', $theirs, ['email' => 'intrus@ailleurs.example']);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($theirs->id));
+    }
+
+    // ── What the site sent the renter (#720, step 2) ────────────────────
+
+    private function withSentLog(): \Modules\Rental\Repository\RentalSentEmailRepository
+    {
+        $log = new \Modules\Rental\Repository\RentalSentEmailRepository($this->pdo, $this->encryption);
+        (new \ReflectionProperty(RentalManagementController::class, 'sentEmails'))->setValue($this->controller, $log);
+
+        return $log;
+    }
+
+    /**
+     * @param list<int> $documentIds
+     */
+    private function logEmail(
+        \Modules\Rental\Repository\RentalSentEmailRepository $log,
+        RentalBooking $booking,
+        string $status,
+        string $subject = '[LOC-A2B3C4] Votre demande de location',
+        string $kind = 'rental.acknowledgement',
+        array $documentIds = []
+    ): int {
+        return $log->record(
+            $booking->id,
+            $kind,
+            'jeanne@example.be',
+            $subject,
+            "Bonjour,\nVotre lien : " . \Modules\Rental\Mail\SentEmail::MASKED_LINK,
+            '<p>Bonjour</p>',
+            $documentIds,
+            '<m1@unite.test>',
+            $status,
+            new \DateTimeImmutable('2027-06-01 10:00:00')
+        );
+    }
+
+    public function testWhatTheSiteSentIsOnTheCourrierPageEvenWithoutTheInboundMailModule(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_SENT);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-sent-entry=', $body);
+        $this->assertStringContainsString('Envoyé', $body);
+        $this->assertStringContainsString('À jeanne@example.be', $body);
+        $this->assertStringContainsString('[LOC-A2B3C4] Votre demande de location', $body);
+        $this->assertStringContainsString(\Modules\Rental\Mail\SentEmail::MASKED_LINK_LABEL, $body);
+        $this->assertStringNotContainsString('/mes-locations/courrier/renvoyer', $body, 'a sent e-mail has nothing to resend');
+        // The page's own dialog: no template of the absent module.
+        $this->assertStringContainsString('id="mail-message-modal"', $body);
+    }
+
+    public function testAnEmailThatFailedIsMarkedAndOffersRenvoyer(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('Non envoyé', $body);
+        $this->assertStringContainsString('action="/mes-locations/courrier/renvoyer"', $body);
+        $this->assertStringContainsString('name="sent_email_id" value="' . $id . '"', $body);
+    }
+
+    public function testRenvoyerSendsItAgainWithTheBookingsCurrentLink(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
             'booking_page' => 'mail',
-            'message_id' => (string) $id,
+            'sent_email_id' => (string) $id,
         ]);
-        $this->assertSame(302, $response->getStatusCode());
+
         $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertCount(1, $this->resends);
+        $this->assertSame($id, $this->resends[0]['sent_id']);
+        $this->assertNotNull($this->resends[0]['token'], 'the current tracking link goes back in');
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
     }
 
-    protected function triageAttach(int $id): void
+    public function testAnotherBookingsEmailIsNotResentFromThisOne(): void
     {
-        $this->triagePost('/mes-locations/courrier/rattacher', 'triageAttach', $id, [
-            'booking_reference' => $this->triageBooking()->reference,
+        $this->loginAsManager();
+        $mine = $this->createBooking();
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
+        $id = $this->logEmail($this->withSentLog(), $other, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $mine->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
         ]);
+
+        $this->assertSame([], $this->resends);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
     }
 
-    protected function triageDetach(int $id): void
+    public function testAnEmailThatWentOutCannotBeResentByARequestNamingIt(): void
     {
-        $this->triagePost('/mes-locations/courrier/detacher', 'triageDetach', $id, [
-            'business_reference' => $this->triageBooking()->reference,
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_SENT);
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
         ]);
+
+        $this->assertSame([], $this->resends);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('déjà parti', (string) ($flash['message'] ?? ''));
     }
 
-    protected function triageSetAside(int $id): void
+    /**
+     * « Renvoyer » at both sides of its role boundary: the route is
+     * `identified`, and what keeps it to the asset's managers is the
+     * asset check behind it (§22.9).
+     */
+    public function testAContractThatFinallyGoesOutIsRecordedAsSent(): void
     {
-        $this->triagePost('/mes-locations/courrier/ecarter', 'triageSetAside', $id);
+        // Its first send failed: nothing marked it sent, the booking never
+        // reached « Contrat envoyé ». « Renvoyer » is that first send.
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED, 'Contrat', 'rental.contract', [$contract->id]);
+        \Core\Http\FlashMessage::get();
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->resends);
+        $this->assertTrue($this->documentService->find($contract->id)?->hasBeenSent());
+        $this->assertSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
     }
 
-    protected function triageRestore(int $id): void
+    public function testAVoidContractIsNotResentFromTheCourrierPageEither(): void
     {
-        $this->triagePost('/mes-locations/courrier/reprendre', 'triageRestore', $id);
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        (new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo))->markSuperseded([$contract->id], new \DateTimeImmutable());
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED, 'Contrat', 'rental.contract', [$contract->id]);
+        \Core\Http\FlashMessage::get();
+
+        $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $refusal = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $refusal['type'] ?? null);
+        $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
+        $this->assertSame([], $this->resends);
+        $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    public function testAnAnonymousVisitorCannotAddAnAddressToABooking(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        AuthSession::logout();
+
+        $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'intrus@ailleurs.example']);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAnAnonymousVisitorCannotRemoveAnAddressFromABooking(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $id = $this->bookingRepository->otherRenterEmails($booking->id)[0]->id;
+        AuthSession::logout();
+
+        $response = $this->addressPost('removeOtherRenterEmail', $booking, ['other_email_id' => (string) $id]);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAnAnonymousVisitorCannotResendAnything(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+        AuthSession::logout();
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+        $this->assertSame([], $this->resends);
+    }
+
+    public function testAnIdentifiedMemberWhoManagesNothingCannotResend(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $id = $this->logEmail($this->withSentLog(), $booking, \Modules\Rental\Mail\SentEmail::STATUS_FAILED);
+        AuthSession::logout();
+        AuthSession::login(9, 'nobody@test.be', 'identified');
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame([], $this->resends);
+        $this->assertNotSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    // ── « Non lus », per person (#720) ──────────────────────────────────
+
+    public function testTheCourrierChipCountsWhatWasFiledSinceThePersonLastLooked(): void
+    {
+        [$mail, $mine] = $this->mailAcrossTwoAssets();
+
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+
+        // Opening the page reads it — and its own chip does not announce
+        // what is already on the screen.
+        $page = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id)->getBody();
+        $this->assertStringContainsString('<span>Courrier</span>', $page);
+        $this->assertStringContainsString('<span>Courrier</span>', $this->dashboardOf($mine));
+
+        $mail->link(7, 'rental', $mine->reference);
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+    }
+
+    public function testReadingIsEachPersonsOwn(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+        $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+
+        // A second manager of the same hall still has the message to read.
+        $this->addManager($this->assetId, 'second@test.be');
+        AuthSession::login(2, 'second@test.be', 'identified');
+
+        $this->assertStringContainsString('<span>Courrier (1)</span>', $this->dashboardOf($mine));
+    }
+
+    public function testTheOverviewListsTheBookingsWithNewMessages(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+        $this->assertStringContainsString('data-unread-mail', $body);
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges/reservations/' . $mine->id . '/courrier"', $body);
+        $this->assertStringContainsString('1 nouveau message', $body);
+
+        $this->filePage(BookingPage::MAIL, 'local-saint-georges', $mine->id);
+        $this->assertStringNotContainsString('data-unread-mail', (string) $this->overview('local-saint-georges')->getBody());
+    }
+
+    public function testABookingToDealWithCarriesItsUnreadBadgeToo(): void
+    {
+        [, $mine] = $this->mailAcrossTwoAssets();   // a new request: « À traiter »
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertMatchesRegularExpression('#data-unread-badge>\s*<i class="bi bi-envelope" aria-hidden="true"></i>\s*1<span class="visually-hidden"> nouveau message</span>#', $body);
+    }
+
+    private function dashboardOf(RentalBooking $booking): string
+    {
+        return (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+    }
+
+    private function detachPost(RentalBooking $booking, int $messageId): Response
+    {
+        return $this->post('/mes-locations/courrier/detacher', 'detachMessage', [
+            'asset_id' => (string) $booking->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'message_id' => (string) $messageId,
+        ]);
     }
 
     // ── The authorisation matrix ────────────────────────────────────────
@@ -1219,7 +1616,8 @@ class RentalManagementControllerTest extends TestCase
             ['/mes-locations/document-supprimer', 'deleteDocument', ['document_id' => '1']],
             ['/mes-locations/facturation', 'saveBillingIdentity', ['billing_name' => 'x']],
             ['/mes-locations/releve', 'recordReading', ['meter_id' => '1', 'phase' => 'arrival', 'value' => '1000']],
-            ['/mes-locations/inventaire', 'recordInventory', ['inventory_id' => '1', 'phase' => 'arrival', 'state' => 'ok']],
+            ['/mes-locations/etat-des-lieux/ligne', 'saveInventoryLine', ['inventory_id' => '1', 'phase' => 'arrival', 'value' => '1']],
+            ['/mes-locations/etat-des-lieux/valider', 'validateInventory', ['phase' => 'arrival']],
             ['/mes-locations/incident', 'reportIncident', ['description' => 'x']],
             ['/mes-locations/incident-decision', 'decideIncident', ['incident_id' => '1', 'decision' => 'charge']],
             ['/mes-locations/decompte', 'recordSettlement', ['final_persons' => '10']],
@@ -1280,7 +1678,7 @@ class RentalManagementControllerTest extends TestCase
         // in the URL, so without the asset check a manager of one asset
         // could read every booking of every other by walking the ids.
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $this->assertSame(404, $this->bookingPage('local-saint-georges', $foreign->id)->getStatusCode());
@@ -1289,7 +1687,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAWriteAgainstAnotherAssetsBookingIsA404(): void
     {
         $this->addManager($this->assetId, 'manager@test.be');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         AuthSession::login(1, 'manager@test.be', 'identified');
 
         $response = $this->post('/mes-locations/statut', 'changeStatus', [
@@ -1968,8 +2366,8 @@ class RentalManagementControllerTest extends TestCase
     public function testTheBookingsListFiltersOnWhatNeedsAttention(): void
     {
         $this->loginAsManager();
-        $needsMe = $this->createBooking(null, 'LOC-2027-0001');
-        $done = $this->createBooking(null, 'LOC-2027-0002');
+        $needsMe = $this->createBooking(null, 'LOC-A2B3C4');
+        $done = $this->createBooking(null, 'LOC-A2B3C5');
         $this->post('/mes-locations/statut', 'changeStatus', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $done->id,
@@ -2000,26 +2398,26 @@ class RentalManagementControllerTest extends TestCase
     public function testTheBookingsListSearchesByReferenceAndByName(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
-        $this->createBooking(null, 'LOC-2028-0009');
+        $this->createBooking(null, 'LOC-A2B3C4');
+        $this->createBooking(null, 'LOC-Y2Y3Y4');
 
-        $byReference = $this->bookingsList(['q' => '2028']);
-        $this->assertStringContainsString('LOC-2028-0009', $byReference);
-        $this->assertStringNotContainsString('LOC-2027-0001', $byReference);
+        $byReference = $this->bookingsList(['q' => 'Y2Y3']);
+        $this->assertStringContainsString('LOC-Y2Y3Y4', $byReference);
+        $this->assertStringNotContainsString('LOC-A2B3C4', $byReference);
 
         // The renter's name is encrypted, so this can only ever be
         // answered after hydration — which is exactly why the filtering
         // happens in PHP.
-        $this->assertStringContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Jeanne']));
-        $this->assertStringNotContainsString('LOC-2027-0001', $this->bookingsList(['q' => 'Gudule']));
+        $this->assertStringContainsString('LOC-A2B3C4', $this->bookingsList(['q' => 'Jeanne']));
+        $this->assertStringNotContainsString('LOC-A2B3C4', $this->bookingsList(['q' => 'Gudule']));
     }
 
     public function testTheBookingsListFiltersByYear(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
+        $this->createBooking(null, 'LOC-A2B3C4');
         $other = $this->bookingRepository->create(
-            $this->assetId, 'LOC-2029-0001', '2029-07-01', '2029-07-04', 1, 20, null,
+            $this->assetId, 'LOC-Z2Z3Z4', '2029-07-01', '2029-07-04', 1, 20, null,
             ['name' => 'Marc', 'email' => 'marc@example.be', 'phone' => null,
              'organisation' => null, 'purpose' => null, 'comment' => null],
             null, null, null, 'v1', str_repeat('0', 64), 'v1', str_repeat('0', 64),
@@ -2029,8 +2427,8 @@ class RentalManagementControllerTest extends TestCase
 
         $body = $this->bookingsList(['annee' => '2029']);
 
-        $this->assertStringContainsString('LOC-2029-0001', $body);
-        $this->assertStringNotContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-Z2Z3Z4', $body);
+        $this->assertStringNotContainsString('LOC-A2B3C4', $body);
     }
 
     public function testTheBookingsListIsPaged(): void
@@ -2066,7 +2464,7 @@ class RentalManagementControllerTest extends TestCase
             ['month' => '2027-07']
         )->getBody();
 
-        $this->assertStringContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-A2B3C4', $body);
         $this->assertStringContainsString('Chantier toiture', $body);
         $this->assertStringContainsString("Périodes réservées par l'unité", $body);
     }
@@ -2090,23 +2488,23 @@ class RentalManagementControllerTest extends TestCase
     public function testMyRentalsCountsWhatIsWaitingOnEachAsset(): void
     {
         $this->loginAsManager();
-        $this->createBooking(null, 'LOC-2027-0001');
-        $this->createBooking(null, 'LOC-2027-0002');
+        $this->createBooking(null, 'LOC-A2B3C4');
+        $this->createBooking(null, 'LOC-A2B3C5');
 
         $body = (string) $this->get('/mes-locations', '/mes-locations', 'myRentals')->getBody();
 
         $this->assertStringContainsString('2 à traiter', $body);
-        $this->assertStringContainsString('LOC-2027-0001', $body);
+        $this->assertStringContainsString('LOC-A2B3C4', $body);
     }
 
     public function testMyRentalsNeverListsAnotherManagersBookings(): void
     {
         $this->loginAsManager();
-        $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $body = (string) $this->get('/mes-locations', '/mes-locations', 'myRentals')->getBody();
 
-        $this->assertStringNotContainsString('LOC-2027-0099', $body);
+        $this->assertStringNotContainsString('LOC-W9Y8X7', $body);
         $this->assertStringNotContainsString('Local des autres', $body);
     }
 
@@ -2160,7 +2558,7 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $documents = $this->documentService->forBooking($booking->id);
         $this->assertCount(1, $documents);
-        $this->assertSame('contrat-LOC-2027-0001-v1.pdf', $documents[0]->originalName);
+        $this->assertSame('contrat-LOC-A2B3C4-v1.pdf', $documents[0]->originalName);
     }
 
     /**
@@ -2393,6 +2791,102 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_countersigned'));
     }
 
+    // ── Who signs a document (#825) ─────────────────────────────────────
+
+    /**
+     * A manager the unit's roster knows by a totem — « Loutre » — under a
+     * child's first name, the way a family's shared address often reads,
+     * and whose ACCOUNT carries the name the person logs in under. The two
+     * say different things about one login, and a tenant must read only
+     * the second.
+     *
+     * @return int the account id
+     */
+    private function loginAsManagerKnownByATotem(): int
+    {
+        $email = 'marie@test.be';
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-TOTEM001');
+        RentalTestHelper::insertMemberYear(
+            $this->pdo,
+            $this->encryption,
+            $memberId,
+            $this->scoutYearId,
+            $email,
+            'Léa',
+            null,
+            'Petit',
+            'Loutre'
+        );
+        $this->managerRepository->grant($this->assetId, $memberId, false);
+
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        $account = $accounts->create($email);
+        $accounts->updateProfile($account->id, 'Marie', 'Dupont');
+        AuthSession::login($account->id, $email, 'identified');
+
+        return $account->id;
+    }
+
+    /** What a reader of the PDF sees, on one line. */
+    private function renderedTextOf(\Modules\Rental\Document\RentalDocument $document): string
+    {
+        $path = $this->documentService->absolutePath($document);
+        $this->assertIsString($path);
+        $text = (new \Core\File\PdfTextExtractor())->extractText((string) file_get_contents($path));
+        $this->assertNotNull($text, 'the generated PDF carries no readable text layer');
+
+        return (string) preg_replace('/\s+/', ' ', $text);
+    }
+
+    /**
+     * The line that says who countersigned names the person as their
+     * account does — never the totem the roster knows them by, and never a
+     * member who merely shares the address (#825).
+     */
+    public function testTheCountersignatureNamesTheAccountNotTheTotem(): void
+    {
+        $accountId = $this->loginAsManagerKnownByATotem();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->signatureRepository->save(
+            $accountId,
+            base64_decode(substr(self::signatureDataUrl(), 22)),
+            new \DateTimeImmutable()
+        );
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+        ]);
+
+        $final = $this->signedContractService->finalContract($booking->id);
+        $this->assertNotNull($final);
+        $text = $this->renderedTextOf($final);
+        $this->assertStringContainsString(' par Marie Dupont, le ', $text);
+        $this->assertStringNotContainsString('Loutre', $text);
+        $this->assertStringNotContainsString('Léa', $text);
+    }
+
+    /** « Validé par » on the inventory says the same, for the same reader (#825). */
+    public function testTheInventoryValidationNamesTheAccountNotTheTotem(): void
+    {
+        $this->loginAsManagerKnownByATotem();
+        [$booking, $chairs, $kitchen] = $this->bookingWithAnInventory();
+        $this->saveLine($booking, $chairs, 'arrival', '38');
+        $this->saveLine($booking, $kitchen, 'arrival', 'yes');
+
+        $this->validateInventoryPhase($booking, 'arrival');
+
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'] ?? null;
+        $this->assertNotNull($validation);
+        $document = $this->documentService->find((int) $validation['document_id']);
+        $this->assertNotNull($document);
+        $text = $this->renderedTextOf($document);
+        $this->assertStringContainsString('Validé par Marie Dupont le ', $text);
+        $this->assertStringNotContainsString('Loutre', $text);
+        $this->assertStringNotContainsString('Léa', $text);
+    }
+
     public function testAManagerRefusesACopyWithAReasonAndTheRenterMaySendAnother(): void
     {
         $this->loginAsManager();
@@ -2466,11 +2960,11 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Once the contract has gone, Documents generates a new version of it:
-     * the dashboard step no longer does, and a price changed on a
-     * confirmed booking says the contract is to be generated again.
+     * Accepting a change the contract states voids the contract (#708,
+     * IT-20) — whichever gesture changed the booking — and the manager is
+     * told, in the same breath as their own gesture's answer.
      */
-    public function testTheDocumentsPageGeneratesANewVersionOnceTheContractWasSent(): void
+    public function testAcceptingAChangeVoidsTheContractAndSaysSo(): void
     {
         $this->loginAsManager();
         $this->setContractTemplate();
@@ -2480,25 +2974,164 @@ class RentalManagementControllerTest extends TestCase
             'booking_id' => (string) $booking->id,
             'document_type' => 'contract',
         ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
         $this->post('/mes-locations/document-envoyer', 'sendDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
-            'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $requestId = $this->operationsService->requestChange(
+            $this->bookingRepository->findById($booking->id) ?? $booking,
+            $this->asset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+        $this->post('/mes-locations/demande', 'decideChange', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
         ]);
 
-        $body = (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('un nouveau contrat doit partir', $flash['message'] ?? '');
+        $this->assertTrue($this->documentService->find($contract->id)?->isSuperseded());
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
 
-        $this->assertStringContainsString(
-            'Générer une nouvelle version du contrat',
-            (string) preg_replace('/\s+/', ' ', $body)
+        // Kept and marked on the Documents page; the steps start over.
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Remplacé — la réservation a changé le', $documents);
+        $dashboard = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span class="visually-hidden">À faire :</span>', self::step($dashboard, 'contract_generated'));
+        // The new version is generated from the dashboard again — where the
+        // step reopened, and the only place a contract is generated.
+        $this->assertStringContainsString('Générer le contrat', self::panel($dashboard, 'next-step'));
+
+        // A void contract is never sent again: no « Renvoyer » on it, and
+        // the server refuses — the renter would sign the wrong terms, and
+        // the booking would go back to « Contrat envoyé ».
+        $this->assertStringNotContainsString(
+            'Renvoyer « ' . $contract->label() . ' »',
+            html_entity_decode($documents)
         );
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        $refusal = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $refusal['type'] ?? null);
+        $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
+        $this->assertSame(BookingStatus::RECEIVED, $this->bookingRepository->findById($booking->id)?->status);
     }
 
     /**
-     * Documents still lists the contract and resends it, but no longer
-     * generates it, nor links to its text (#708, IT-16).
+     * A contract sent before contracts carried a fingerprint is never
+     * voided, so its steps never reopen: the Documents page keeps offering
+     * its new version — and only for that contract.
      */
-    public function testTheDocumentsPageNoLongerGeneratesTheContract(): void
+    public function testAContractSentBeforeFingerprintsCanStillBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents, 'a fingerprinted contract reopens by itself');
+
+        $this->pdo->prepare('UPDATE rental_documents SET fingerprint = NULL WHERE id = ?')->execute([$contract->id]);
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'documents',
+            'document_type' => 'contract',
+        ]);
+        $this->assertCount(2, $this->documentService->forBooking($booking->id), 'v2 beside v1');
+    }
+
+    /**
+     * A sent contract whose stored PDF is gone cannot be sent again — the
+     * error says « Régénérez-le » — so the Documents page offers its new
+     * version, as it does for a contract older than fingerprints.
+     */
+    public function testAContractWhoseFileIsGoneCanBeRegenerated(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $contract->id,
+        ]);
+        \Core\Http\FlashMessage::get();
+
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringNotContainsString('Générer une nouvelle version du', $documents);
+
+        unlink((string) $this->documentService->absolutePath($contract));
+        $documents = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Générer une nouvelle version du', $documents);
+    }
+
+    /** What the contract does not state — an internal comment — voids nothing. */
+    public function testAnInternalCommentVoidsNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+
+        $this->post('/mes-locations/commentaire', 'addComment', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'body' => 'Le trésorier passe les clés.',
+        ]);
+
+        $this->assertFalse($this->documentService->find($contract->id)?->isSuperseded());
+    }
+
+    /**
+     * Documents still lists the contract and the invoice and resends them,
+     * but generates neither (#708, IT-16, IT-18), nor holds the billing
+     * details any more.
+     */
+    public function testTheDocumentsPageNoLongerGeneratesTheContractNorTheInvoice(): void
     {
         $this->loginAsManager();
         $booking = $this->createBooking();
@@ -2506,9 +3139,9 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringNotContainsString('Générer le contrat', $body);
-        $this->assertStringNotContainsString('nouvelle version du', $body, 'nothing sent yet');
         $this->assertStringNotContainsString('/document/contract"', $body);
-        $this->assertStringContainsString('Générer la facture', $body);
+        $this->assertStringNotContainsString('Générer la facture', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/facturation"', $body);
     }
 
     /**
@@ -2549,7 +3182,8 @@ class RentalManagementControllerTest extends TestCase
         // « Aucun document » over a document somebody has just generated is
         // the lie the wrapper exists to stop.
         $expected = [
-            'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments', 'changes'],
+            'dashboard' => ['milestones', 'next-step', 'history', 'history-figure', 'comments'],
+            'changes' => ['changes'],
             'finances' => ['price', 'price-figure', 'payment', 'payment-figure'],
             'documents' => ['documents', 'documents-figure'],
         ];
@@ -2597,9 +3231,45 @@ class RentalManagementControllerTest extends TestCase
             '/\d+ modification/',
             self::panel($body, 'history-figure')
         );
-        // No change request has been made, and the figure says so rather
-        // than staying blank.
-        $this->assertStringContainsString('Aucune demande', self::panel($body, 'changes-figure'));
+    }
+
+    /**
+     * « Modifications » (#708, IT-20): its own page, right after the
+     * dashboard, the count of what waits beside its name — on every page
+     * of the file — and no box left on the dashboard.
+     */
+    public function testTheChangesHaveTheirOwnPageAndTheRailCountsWhatWaits(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $empty = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Aucune demande.', self::panel($empty, 'changes'));
+        $this->assertMatchesRegularExpression('#<span>Tableau de bord</span>.*?<span>Modifications</span>.*?<span>Finances</span>#s', $empty);
+
+        $this->operationsService->requestChange(
+            $booking,
+            $this->asset(),
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            30,
+            null,
+            'Nous serons plus nombreux.'
+        );
+
+        $dashboard = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('<span>Modifications (1)</span>', $dashboard);
+        $this->assertStringNotContainsString('/mes-locations/demande', $dashboard, 'the box left the dashboard');
+
+        $changes = (string) $this->filePage(BookingPage::CHANGES, 'local-saint-georges', $booking->id)->getBody();
+        $this->assertStringContainsString('Nous serons plus nombreux.', $changes);
+        // Answered from this page, and back to it without JavaScript.
+        $this->assertStringContainsString('name="booking_page" value="changes"', $changes);
+        // « Message au locataire » on three lines.
+        $this->assertMatchesRegularExpression('#<textarea[^>]*id="propose-message"[^>]*rows="3"#', $changes);
     }
 
     /**
@@ -2623,7 +3293,9 @@ class RentalManagementControllerTest extends TestCase
 
         $positions = [];
         foreach ([
-            'Où en est cette réservation',
+            // Two cards since #708 (IT-19), from the one derivation.
+            'Prochaine action',
+            'Cycle de vie',
             'Les détails de la réservation',
             'Le dossier',
         ] as $heading) {
@@ -2660,7 +3332,7 @@ class RentalManagementControllerTest extends TestCase
         $body = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $nextStep = self::panel($body, 'next-step');
 
-        $this->assertStringContainsString('Cette demande attend votre réponse : générez le contrat.', $nextStep);
+        $this->assertStringContainsString('Le contrat reste à générer.', $nextStep);
         // Generated right there, from the dashboard (#708, IT-16).
         $this->assertStringContainsString('data-contract-command="generate"', $nextStep);
         $this->assertStringContainsString('Générer le contrat', $nextStep);
@@ -2718,6 +3390,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->withCollectingMailbox();
+        // « État des lieux » is offered only where an inventory is kept.
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
         $bodies = [];
@@ -2883,7 +3557,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->setContractTemplate();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $response = $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
@@ -2901,8 +3575,8 @@ class RentalManagementControllerTest extends TestCase
         // guard that matters.
         $this->loginAsManager();
         $this->setContractTemplate();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignDocumentId = $this->documentService->attachUploaded(
             $foreign,
             $this->fileRepository->create('rental/documents/x.pdf', 'x.pdf', 'application/pdf', 1, 'identified', 'rental', null),
@@ -3137,7 +3811,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTheDocumentEditorIsRefusedForAnotherAssetsBooking(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $router = new Router();
         $router->addRoute(
@@ -3178,15 +3852,6 @@ class RentalManagementControllerTest extends TestCase
     }
 
     // ── The stay (§6.21–§6.23) ──────────────────────────────────────────
-
-    private function stayPage(string $slug, int $bookingId): \Core\Http\Response
-    {
-        return $this->get(
-            '/mes-locations/{slug}/reservations/{id}/sejour',
-            '/mes-locations/' . $slug . '/reservations/' . $bookingId . '/sejour',
-            'stay'
-        );
-    }
 
     // ── The journey (issue #462, IT-02) ─────────────────────────────────
 
@@ -3303,7 +3968,7 @@ class RentalManagementControllerTest extends TestCase
     public function testAStepOfAnotherAssetsBookingCannotBeTicked(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         $response = $this->post('/mes-locations/etape', 'markMilestone', [
             'asset_id' => (string) $this->assetId,
@@ -3381,10 +4046,10 @@ class RentalManagementControllerTest extends TestCase
     }
 
     /**
-     * Where the stay page keeps the inventory, the same walk-through is done
-     * THERE, and nothing here ticks it.
+     * Where « État des lieux » keeps the inventory (#708, IT-17), the
+     * walk-through is done THERE, and nothing here ticks it.
      */
-    public function testAnInventoryTheStayPageKeepsHasNoBox(): void
+    public function testAnInventoryKeptOnItsOwnPageIsNotTickedHere(): void
     {
         $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Clés');
@@ -3459,7 +4124,7 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $undecided = $this->createBooking();
-        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $confirmed = $this->createBooking(null, 'LOC-A2B3C5');
         $this->confirm($confirmed);
 
         foreach ([$undecided, $confirmed] as $booking) {
@@ -3492,7 +4157,7 @@ class RentalManagementControllerTest extends TestCase
         $undecided = $this->createBooking();
         $this->markStep($undecided, 'arrival_inventory');
 
-        $confirmed = $this->createBooking(null, 'LOC-2027-0002');
+        $confirmed = $this->createBooking(null, 'LOC-A2B3C5');
         $this->confirm($confirmed);
         $this->markStep($confirmed, 'deposit_received');
         $this->markStep($confirmed, 'confirmed');
@@ -3505,7 +4170,7 @@ class RentalManagementControllerTest extends TestCase
     public function testTickingAStepIsItsManagersAlone(): void
     {
         $booking = $this->createBooking();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         AuthSession::login(1, 'nobody@test.be', 'identified');
         $this->assertSame(404, $this->markStep($booking, 'arrival_inventory')->getStatusCode());
@@ -3545,8 +4210,10 @@ class RentalManagementControllerTest extends TestCase
     public function testEveryPageOfTheFileIsItsManagersAndNobodyElses(BookingPage $page): void
     {
         $this->withCollectingMailbox();
+        // « État des lieux » is offered only where an inventory is kept.
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
 
         AuthSession::login(1, 'nobody@test.be', 'identified');
         $this->assertSame(404, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
@@ -3578,6 +4245,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->withCollectingMailbox();
+        // « État des lieux » is offered only where an inventory is kept.
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
         $body = (string) $this->filePage($page, 'local-saint-georges', $booking->id)->getBody();
@@ -3606,6 +4275,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->loginAsManager();
         $this->withCollectingMailbox();
+        // « État des lieux » is offered only where an inventory is kept.
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
         $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
 
@@ -3638,8 +4309,7 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->never())->method('triageRows');
-        $inbound->expects($this->never())->method('findForTriage');
+        $inbound->expects($this->never())->method('findForReference');
         foreach ([BookingPage::DASHBOARD, BookingPage::FINANCES, BookingPage::DOCUMENTS] as $page) {
             $this->assertSame(200, $this->filePage($page, 'local-saint-georges', $booking->id)->getStatusCode());
         }
@@ -3651,76 +4321,8 @@ class RentalManagementControllerTest extends TestCase
         $inbound = $this->withCollectingMailbox();
         $booking = $this->createBooking();
 
-        $inbound->expects($this->exactly(2))->method('triageRows')->willReturn([]);
+        $inbound->expects($this->once())->method('findForReference')->willReturn([]);
         $this->assertSame(200, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * Without a mailbox, « Courrier » does not exist: no chip — a chip that
-     * does nothing is worse than none — and the page answers 404.
-     */
-    public function testCourrierIsAbsentWhereNoMailboxCollects(): void
-    {
-        $this->loginAsManager();
-        $booking = $this->createBooking();
-
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertStringNotContainsString('/courrier"', $body);
-        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
-        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * « Courrier » exists for rentals' own mailbox and for nothing else
-     * (issue #462, D8): a box that collects but is not dedicated to rentals
-     * gives no page, and neither do two dedicated ones — the page shows ONE
-     * box's whole mail, and picking between two would be arbitrary.
-     *
-     * @return array<string, array{list<\Modules\InboundMail\Api\DedicatedMailbox>}>
-     */
-    public static function mailboxesThatGiveNoPage(): array
-    {
-        return [
-            'a collecting box, dedicated to nobody' => [[]],
-            'two boxes dedicated to rentals' => [[
-                new \Modules\InboundMail\Api\DedicatedMailbox(3, 'Locations', 'locations@unite.be'),
-                new \Modules\InboundMail\Api\DedicatedMailbox(4, 'Chalet', 'chalet@unite.be'),
-            ]],
-        ];
-    }
-
-    /**
-     * @param list<\Modules\InboundMail\Api\DedicatedMailbox> $boxes
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('mailboxesThatGiveNoPage')]
-    public function testCourrierNeedsExactlyOneDedicatedMailbox(array $boxes): void
-    {
-        $this->loginAsManager();
-        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('isCollecting')->willReturn(true);
-        $inbound->method('dedicatedMailboxesFor')->willReturn($boxes);
-        $this->withMailbox($inbound);
-        $booking = $this->createBooking();
-
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $this->assertStringNotContainsString('<span>Courrier</span>', $body);
-        $this->assertSame(404, $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    /**
-     * With its one box, the page says which box it is and that renters
-     * answer to it.
-     */
-    public function testTheCourrierPageNamesItsMailbox(): void
-    {
-        $this->loginAsManager();
-        $this->withCollectingMailbox();
-        $booking = $this->createBooking();
-
-        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
-
-        $this->assertStringContainsString('<strong>locations@unite.be</strong>', $body);
-        $this->assertStringContainsString('arrive dans cette boîte', $body);
     }
 
     /**
@@ -3786,10 +4388,31 @@ class RentalManagementControllerTest extends TestCase
     public function testAJourneyLinkAimsAtThePageItsBoxIsOn(): void
     {
         $this->loginAsManager();
+        // Confirmed, with an inventory kept on the site: the walk-through
+        // is what comes next, and its way is « État des lieux ».
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+
+        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        $this->assertStringContainsString(
+            'href="' . $base . '/etat-des-lieux#dossier-inventory"',
+            self::panel($body, 'next-step')
+        );
+        $this->assertStringNotContainsString('href="#dossier-', $body);
+    }
+
+    /**
+     * While the renter is the one expected, nothing is put forward (#708,
+     * IT-19): the heading says what is awaited.
+     */
+    public function testNothingIsPutForwardWhileTheRenterSigns(): void
+    {
+        $this->loginAsManager();
         $this->setContractTemplate();
         $booking = $this->createBooking();
-        // The contract out, the renter's signed copy is what holds the
-        // booking up — and its way is the Documents page.
         $this->post('/mes-locations/document-generer', 'generateDocument', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
@@ -3801,44 +4424,53 @@ class RentalManagementControllerTest extends TestCase
             'document_id' => (string) $this->documentService->forBooking($booking->id)[0]->id,
         ]);
 
-        $body = (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody();
-        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+        $nextStep = self::panel((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'next-step');
 
-        $this->assertStringContainsString('href="' . $base . '/documents#dossier-documents"', $body);
-        $this->assertStringNotContainsString('href="#dossier-', $body);
+        $this->assertStringContainsString('Le contrat attend la signature du locataire', $nextStep);
+        $this->assertStringNotContainsString('btn btn-primary', $nextStep);
     }
 
-    public function testTheStayPageIsRefusedToANonManager(): void
-    {
-        $booking = $this->createBooking();
-        AuthSession::login(1, 'nobody@test.be', 'identified');
-
-        $this->assertSame(404, $this->stayPage('local-saint-georges', $booking->id)->getStatusCode());
-    }
-
-    public function testTheStayPageOfAnotherAssetsBookingIsA404(): void
+    /** A change the renter asked for comes first, with the way to answer it (IT-20). */
+    public function testARenterChangeRequestLeadsTheDashboard(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $booking = $this->createBooking();
+        $this->changeRequestRepository->create(
+            $booking->id,
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            25,
+            null,
+            'Nous serons moins.'
+        );
 
-        $this->assertSame(404, $this->stayPage('local-saint-georges', $foreign->id)->getStatusCode());
+        $nextStep = self::panel((string) $this->bookingPage('local-saint-georges', $booking->id)->getBody(), 'next-step');
+        $base = '/mes-locations/local-saint-georges/reservations/' . $booking->id;
+
+        $this->assertStringContainsString('Le locataire demande une modification : 25 participants.', $nextStep);
+        $this->assertStringContainsString('href="' . $base . '/modifications"', $nextStep);
+        $this->assertStringContainsString('Répondre à la demande', $nextStep);
     }
 
-    public function testTheStayPageSaysItDoesNotWorkOffline(): void
+    public function testTheInventoryPageSaysItDoesNotWorkOffline(): void
     {
         // §6.23: these are write pages, never cached. The page tells a
         // manager the workaround rather than letting them discover it by
         // losing an inventory on the way home.
         $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
         $booking = $this->createBooking();
 
-        $body = (string) $this->stayPage('local-saint-georges', $booking->id)->getBody();
+        $body = (string) $this->filePage(BookingPage::INVENTORY, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringContainsString('en ligne', $body);
         $this->assertStringContainsString('hotographiez sur place', $body);
     }
 
-    public function testAManagerRecordsAReadingFromTheStayPage(): void
+    public function testAManagerRecordsAReading(): void
     {
         $this->loginAsManager();
         $meterId = $this->stayService->addMeter(
@@ -3891,9 +4523,10 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame('success', $flash['type'] ?? null);
     }
 
-    public function testAReadingRedirectsBackToTheStayPageNotTheBookingFile(): void
+    public function testAReadingRedirectsBackToTheInventoryPageNotTheDashboard(): void
     {
-        // A manager recording eight readings should land where they were.
+        // A manager recording eight readings should land where they were
+        // (#708, IT-17: the meters are read on « État des lieux »).
         $this->loginAsManager();
         $meterId = $this->stayService->addMeter(
             $this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null
@@ -3903,12 +4536,13 @@ class RentalManagementControllerTest extends TestCase
         $response = $this->post('/mes-locations/releve', 'recordReading', [
             'asset_id' => (string) $this->assetId,
             'booking_id' => (string) $booking->id,
+            'booking_page' => 'inventory',
             'meter_id' => (string) $meterId,
             'phase' => 'arrival',
             'value' => '12',
         ]);
 
-        $this->assertStringEndsWith('/sejour', (string) $response->getHeaders()['Location']);
+        $this->assertStringEndsWith('/etat-des-lieux', (string) $response->getHeaders()['Location']);
     }
 
     public function testAnUnknownPhaseIsRefused(): void
@@ -3984,8 +4618,8 @@ class RentalManagementControllerTest extends TestCase
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
     {
         $this->loginAsManager();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignId = $this->stayService->reportIncident($foreign, 'Vitre cassée', 5000, null, 1);
 
         $this->post('/mes-locations/incident-decision', 'decideIncident', [
@@ -4232,19 +4866,542 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('list-editor-drag-handle', $this->between($body, 'id="meter-list"', 'id="inventory-list"'));
     }
 
-    /** The stay page shows what each frozen line expects. */
-    public function testTheStayPageShowsWhatEachItemExpects(): void
+    // ── « État des lieux » (#708, IT-17) ────────────────────────────────
+
+    /** @return array{0: RentalBooking, 1: int, 2: int} the booking, the chairs' line, the kitchen's */
+    private function bookingWithAnInventory(): array
     {
-        $this->loginAsManager();
         $this->stayService->addInventoryItem($this->assetId, 'Chaises', \Modules\Rental\Stay\InventoryKind::QUANTITY, 40);
         $this->stayService->addInventoryItem($this->assetId, 'Cuisine propre', \Modules\Rental\Stay\InventoryKind::YES_NO);
         $booking = $this->createBooking();
         $this->stayService->snapshotInventory($booking, $this->assetId);
+        [$chairs, $kitchen] = $this->stayService->inventoryFor($booking->id);
 
-        $body = (string) preg_replace('/\s+/', ' ', (string) $this->stayPage('local-saint-georges', $booking->id)->getBody());
+        return [$booking, $chairs['id'], $kitchen['id']];
+    }
 
-        $this->assertStringContainsString('Quantité — attendu : 40', $body);
-        $this->assertStringContainsString('Oui / Non — attendu : Oui', $body);
+    private function inventoryPage(RentalBooking $booking): string
+    {
+        $response = $this->filePage(BookingPage::INVENTORY, 'local-saint-georges', $booking->id);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    /** @return array{success: bool, type: string, message: ?string} */
+    private function saveLine(RentalBooking $booking, int $inventoryId, string $phase, string $value): array
+    {
+        $response = $this->postAsync('/mes-locations/etat-des-lieux/ligne', 'saveInventoryLine', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'inventory',
+            'inventory_id' => (string) $inventoryId,
+            'phase' => $phase,
+            'value' => $value,
+            'note' => '',
+        ]);
+
+        return json_decode((string) $response->getBody(), true);
+    }
+
+    private function validateInventoryPhase(RentalBooking $booking, string $phase): Response
+    {
+        return $this->post('/mes-locations/etat-des-lieux/valider', 'validateInventory', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'inventory',
+            'phase' => $phase,
+        ]);
+    }
+
+    /** An asset with nothing to walk has no such page, nor a chip for it. */
+    /**
+     * A photo stored for a reading or an incident whose own row is then
+     * refused — a frozen phase, a value that does not parse — is taken
+     * back: nothing would ever reference it.
+     */
+    public function testARefusedReadingOrIncidentLeavesNoPhotoBehind(): void
+    {
+        $this->loginAsManager();
+        $meterId = $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        $booking = $this->createBooking();
+        $files = fn(): int => (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+        $before = $files();
+
+        // A value that does not parse, on an open phase.
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => 'beaucoup',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        // A frozen phase: the arrival validated, then the departure.
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null);
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => '1234',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::DEPARTURE, new \DateTimeImmutable(), null);
+        $this->postWithPhoto('/mes-locations/incident', 'reportIncident', [
+            'description' => 'Vitre cassée', 'amount' => '',
+        ]);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before, $files());
+
+        // And an accepted one keeps its photo.
+        $other = $this->createBooking(null, 'LOC-2027-0077');
+        $this->postWithPhoto('/mes-locations/releve', 'recordReading', [
+            'meter_id' => (string) $meterId, 'phase' => 'arrival', 'value' => '1234',
+        ], $other);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame($before + 1, $files());
+    }
+
+    /** @param array<string, string> $body */
+    private function postWithPhoto(string $path, string $action, array $body, ?RentalBooking $booking = null): void
+    {
+        $booking ??= $this->bookingRepository->findByReference('LOC-A2B3C4');
+        $this->assertNotNull($booking);
+        $image = imagecreatetruecolor(32, 32);
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'photo-');
+        imagepng($image, $temporary);
+        $_FILES['photo'] = [
+            'name' => 'compteur.png',
+            'type' => 'image/png',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($temporary),
+        ];
+
+        $this->post($path, $action, $body + [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+        ]);
+        unset($_FILES['photo']);
+    }
+
+    /**
+     * An asset with nothing to walk keeps the page all the same, reduced to
+     * the incidents: they live there, and such an asset can be damaged too.
+     * No inventory to fill in, no validation to press.
+     */
+    public function testAnAssetWithNothingToWalkKeepsThePageForItsIncidents(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->assertStringContainsString(
+            '/etat-des-lieux"',
+            (string) $this->bookingPage('local-saint-georges', $booking->id)->getBody()
+        );
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
+        $this->assertStringContainsString('action="/mes-locations/incident"', $body);
+        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+    }
+
+    /**
+     * The booking is walked against the checklist copied at its
+     * confirmation: emptying the asset's template afterwards does not take
+     * its inventory away, nor does filling one later give an empty booking
+     * a validation it could never pass.
+     */
+    public function testTheBookingsOwnChecklistDecidesWhetherItHasAnInventory(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        foreach ($this->stayService->inventoryTemplateFor($this->assetId) as $item) {
+            $this->stayService->removeInventoryItem($this->assetId, $item['id']);
+        }
+
+        $this->assertStringContainsString('data-inventory-validate', $this->inventoryPage($booking));
+
+        $empty = $this->createBooking(null, 'LOC-K7Q2M4');
+        $this->stayService->snapshotInventory($empty, $this->assetId);
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+
+        $body = $this->inventoryPage($empty);
+        $this->assertStringNotContainsString('data-inventory-validate', $body);
+        $this->assertStringContainsString("ni éléments d'état des lieux ni compteurs", $body);
+    }
+
+    /**
+     * Nothing is pre-filled: an empty field is « pas encore regardé ». Each
+     * line says what it is checked against and offers « = » to take it; a
+     * yes/no item is a list, never a box.
+     */
+    public function testTheArrivalStartsEmptyWithEachLinesReference(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+
+        $body = $this->inventoryPage($booking);
+
+        $this->assertStringContainsString('État des lieux d&#039;entrée', $body);
+        $this->assertStringContainsString('Attendu : 40', $body);
+        $this->assertStringContainsString('Attendu : Oui', $body);
+        $this->assertMatchesRegularExpression('#<input type="number"[^>]*name="value" value="" data-inventory-value>#', $body);
+        $this->assertStringContainsString('<option value="" selected>—</option>', $body);
+        $this->assertStringNotContainsString('type="checkbox"', $body);
+        $this->assertStringContainsString('data-inventory-copy="40"', $body);
+        $this->assertStringContainsString('aria-label="Reprendre la référence pour Chaises"', $body);
+        $this->assertStringContainsString('2 éléments sans valeur', $body);
+    }
+
+    public function testALineIsSavedAsItIsTypedAndANonsenseValueIsRefused(): void
+    {
+        $this->loginAsManager();
+        [$booking, $chairs] = $this->bookingWithAnInventory();
+
+        $saved = $this->saveLine($booking, $chairs, 'arrival', '38');
+        $this->assertTrue($saved['success']);
+        $this->assertSame('38', $this->stayService->inventoryFor($booking->id)[0]['arrival_value']);
+
+        $refused = $this->saveLine($booking, $chairs, 'arrival', 'beaucoup');
+        $this->assertFalse($refused['success']);
+        $this->assertStringContainsString('Chaises', (string) $refused['message']);
+        $this->assertSame('38', $this->stayService->inventoryFor($booking->id)[0]['arrival_value']);
+    }
+
+    public function testTheDepartureCannotBeWrittenBeforeTheArrivalIsValidated(): void
+    {
+        $this->loginAsManager();
+        [$booking, $chairs] = $this->bookingWithAnInventory();
+
+        $refused = $this->saveLine($booking, $chairs, 'departure', '40');
+
+        $this->assertFalse($refused['success']);
+        $this->assertNull($this->stayService->inventoryFor($booking->id)[0]['departure_value']);
+    }
+
+    /** A meter with no reading blocks: a validated inventory is never completed. */
+    public function testAMissingReadingBlocksTheValidation(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->stayService->addMeter($this->assetId, 'Eau', \Modules\Rental\Stay\MeterKind::WATER, 'm³', null);
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('Il manque le relevé de : Eau', $body);
+        $this->assertMatchesRegularExpression("#<button type=\"submit\" class=\"btn btn-primary\" disabled> Valider l'état des lieux d&\#039;entrée#", $body);
+
+        $this->validateInventoryPhase($booking, 'arrival');
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->stayService->inventoryValidations($booking->id));
+        $this->assertSame([], $this->documentEmails);
+    }
+
+    /**
+     * Validating files the PDF with the documents, sends it to the renter,
+     * freezes the arrival — and the page moves on to the departure, read
+     * against what the arrival found.
+     */
+    public function testValidatingFilesThePdfSendsItAndFreezesThePhase(): void
+    {
+        $this->loginAsManager();
+        [$booking, $chairs, $kitchen] = $this->bookingWithAnInventory();
+        $this->saveLine($booking, $chairs, 'arrival', '38');
+        $this->saveLine($booking, $kitchen, 'arrival', 'yes');
+
+        $this->validateInventoryPhase($booking, 'arrival');
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, (string) ($flash['message'] ?? ''));
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'] ?? null;
+        $this->assertNotNull($validation);
+        $this->assertNotNull($validation['document_id']);
+        $document = $this->documentService->find((int) $validation['document_id']);
+        $this->assertSame(\Modules\Rental\Document\DocumentType::INVENTORY, $document?->type);
+        $this->assertNotNull($document->sentAt);
+        $this->assertSame([['booking_id' => $booking->id, 'label' => "État des lieux d'entrée"]], $this->documentEmails);
+
+        // Frozen: the renter holds this PDF.
+        $this->assertFalse($this->saveLine($booking, $chairs, 'arrival', '40')['success']);
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('État des lieux de sortie', $body);
+        $this->assertStringContainsString("À l'entrée : 38", $body);
+        $this->assertStringContainsString('data-inventory-copy="38"', $body);
+        $this->assertStringContainsString('ouvrir le PDF', $body);
+
+        // Twice is refused, and nothing is sent twice.
+        $this->validateInventoryPhase($booking, 'arrival');
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertCount(1, $this->documentEmails);
+    }
+
+    /** The departure's PDF lists the incidents: none is added after it. */
+    public function testIncidentsCloseOnceTheDepartureIsValidated(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->validateInventoryPhase($booking, 'arrival');
+        $this->assertStringContainsString('action="/mes-locations/incident"', $this->inventoryPage($booking));
+
+        $this->validateInventoryPhase($booking, 'departure');
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('Les deux états des lieux sont validés', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/incident"', $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+        $this->assertCount(2, $this->documentEmails);
+    }
+
+    /** An arrival ticked by hand opens the departure without a reference to take. */
+    public function testAnArrivalTickedByHandOpensTheDeparture(): void
+    {
+        $this->loginAsManager();
+        [$booking, $chairs] = $this->bookingWithAnInventory();
+        $this->confirm($booking);
+        $this->markStep($booking, 'arrival_inventory');
+
+        $body = $this->inventoryPage($booking);
+
+        $this->assertStringContainsString('État des lieux de sortie', $body);
+        $this->assertStringContainsString("coché à la main", $body);
+        $this->assertTrue($this->saveLine($booking, $chairs, 'departure', '40')['success']);
+
+        // Once the departure is validated, only ONE inventory was: the
+        // arrival was ticked, never validated, and the page says so.
+        $this->validateInventoryPhase($booking, 'departure');
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('État des lieux validé', $body);
+        $this->assertStringNotContainsString('Les deux états des lieux sont validés', $body);
+    }
+
+    /**
+     * A validated departure freezes the arrival with it: unticking the
+     * hand-ticked arrival afterwards does not reopen an arrival form whose
+     * every save would be refused.
+     */
+    public function testUntickingTheArrivalAfterTheDepartureReopensNothing(): void
+    {
+        $this->loginAsManager();
+        [$booking] = $this->bookingWithAnInventory();
+        $this->confirm($booking);
+        $this->markStep($booking, 'arrival_inventory');
+        $this->validateInventoryPhase($booking, 'departure');
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+
+        $this->markStep($booking, 'arrival_inventory', false);
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringNotContainsString("Valider l'état des lieux d'entrée", $body);
+        $this->assertStringNotContainsString('data-inventory-line', $body);
+        $this->assertStringContainsString('État des lieux validé', $body);
+    }
+
+    /**
+     * An arrival ticked by hand was never read through the page: its meter
+     * readings are offered beside the departure's until the departure is
+     * validated, or the consumption could never be billed. Only then.
+     */
+    public function testAnArrivalTickedByHandKeepsItsMeterReadingsReachable(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addMeter(
+            $this->assetId, 'Électricité', \Modules\Rental\Stay\MeterKind::ELECTRICITY, 'kWh', null
+        );
+        [$booking] = $this->bookingWithAnInventory();
+        $this->confirm($booking);
+
+        // Before the tick: the arrival's own page, its own readings only.
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
+        $this->assertStringNotContainsString('aria-label="Relevé sortie — Électricité"', $body);
+
+        $this->markStep($booking, 'arrival_inventory');
+
+        $body = $this->inventoryPage($booking);
+        $this->assertStringContainsString('aria-label="Relevé entrée — Électricité"', $body);
+        $this->assertStringContainsString('aria-label="Relevé sortie — Électricité"', $body);
+    }
+
+    // ── « Facture » (#708, IT-18) ───────────────────────────────────────
+
+    private function invoicePage(RentalBooking $booking): string
+    {
+        $response = $this->filePage(BookingPage::INVOICE, 'local-saint-georges', $booking->id);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) preg_replace('/\s+/', ' ', (string) $response->getBody());
+    }
+
+    private function generateInvoice(RentalBooking $booking): void
+    {
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'document_type' => 'invoice',
+        ]);
+    }
+
+    /** @return list<\Modules\Rental\Document\RentalDocument> */
+    private function invoices(RentalBooking $booking): array
+    {
+        return array_values(array_filter(
+            $this->documentService->forBooking($booking->id),
+            static fn($document): bool => $document->type === \Modules\Rental\Document\DocumentType::INVOICE
+        ));
+    }
+
+    /** The billing details, the settlement and the invoice, in that order. */
+    public function testTheInvoicePageHoldsTheBillingTheSettlementAndTheInvoice(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $body = $this->invoicePage($booking);
+
+        $billing = strpos($body, 'action="/mes-locations/facturation"');
+        $settlement = strpos($body, 'action="/mes-locations/decompte"');
+        $invoice = strpos($body, 'Générer la facture');
+        $this->assertNotFalse($billing);
+        $this->assertNotFalse($settlement);
+        $this->assertNotFalse($invoice);
+        $this->assertTrue($billing < $settlement && $settlement < $invoice);
+        $this->assertStringContainsString('ne modifie jamais le prix convenu', $body);
+    }
+
+    /** No « Séjour » shortcut on the dashboard, and no link to it anywhere. */
+    public function testNothingLeadsToTheStayPageAnyMore(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+
+        foreach (BookingPage::cases() as $page) {
+            $response = $this->filePage($page, 'local-saint-georges', $booking->id);
+            if ($response->getStatusCode() === 200) {
+                $this->assertStringNotContainsString('/sejour', (string) $response->getBody(), $page->value);
+            }
+        }
+        $manifest = (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json');
+        $this->assertStringNotContainsString('/sejour"', $manifest);
+    }
+
+    /**
+     * The invoice waits for the departure inventory — on screen, and at
+     * the server, whatever a crafted POST says.
+     */
+    public function testTheInvoiceWaitsForTheDepartureInventory(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->stayService->snapshotInventory($booking, $this->assetId);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString("La facture se génère une fois l'état des lieux de sortie complété.", $body);
+        $this->assertStringContainsString("/etat-des-lieux\">Faire l'état des lieux</a>", $body);
+        $this->assertStringNotContainsString('Générer la facture', $body);
+
+        $this->generateInvoice($booking);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->invoices($booking));
+
+        // Validated: the invoice can be made.
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::ARRIVAL, new \DateTimeImmutable(), null);
+        $this->stayService->recordInventoryValidation($booking, \Modules\Rental\Stay\ReadingPhase::DEPARTURE, new \DateTimeImmutable(), null);
+        $this->assertStringContainsString('Générer la facture', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    public function testADepartureTickedByHandLetsTheInvoiceBeMade(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->confirm($booking);
+        $this->markStep($booking, 'departure_inventory');
+
+        $this->assertStringContainsString('Générer la facture', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    /** An asset with no inventory page waits for nothing. */
+    public function testAnAssetWithoutInventoryWaitsForNothing(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $this->assertStringNotContainsString('data-invoice-waits', $this->invoicePage($booking));
+        $this->generateInvoice($booking);
+        $this->assertCount(1, $this->invoices($booking));
+    }
+
+    /** « Envoyer la facture » names the address before it goes, and sends it. */
+    public function testTheInvoiceIsSentFromItsPageAfterAQuestionNamingTheAddress(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->generateInvoice($booking);
+
+        $body = $this->invoicePage($booking);
+        $this->assertStringContainsString('Envoyer la facture à ' . $booking->renterEmail . ' ?', $body);
+        $this->assertStringContainsString('Envoyer la facture </button>', $body);
+
+        $this->post('/mes-locations/document-envoyer', 'sendDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'document_id' => (string) $this->invoices($booking)[0]->id,
+        ]);
+
+        $this->assertNotNull($this->documentService->find($this->invoices($booking)[0]->id)?->sentAt);
+        $this->assertStringContainsString('Renvoyer la facture </button>', $this->invoicePage($booking));
+        // Documents still lists it.
+        $this->assertStringContainsString(
+            'Facture',
+            (string) $this->filePage(BookingPage::DOCUMENTS, 'local-saint-georges', $booking->id)->getBody()
+        );
+    }
+
+    /**
+     * The incidents decided on « État des lieux » show on the settlement
+     * with their amount, read only, and a link to change the decision.
+     */
+    public function testDecidedIncidentsAreCarriedReadOnlyWithALinkBack(): void
+    {
+        $this->loginAsManager();
+        $this->stayService->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $incident = $this->stayService->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+        $this->stayService->decideIncident($booking, $incident, \Modules\Rental\Stay\IncidentDecision::CHARGE, 4500, 1);
+        $this->stayService->reportIncident($booking, 'Tache au mur', 1000, null, 1);
+
+        $body = $this->invoicePage($booking);
+
+        $this->assertStringContainsString('Vitre cassée', $body);
+        $this->assertStringNotContainsString('Tache au mur', $body);
+        $this->assertStringContainsString('45,00', $body);
+        $this->assertStringContainsString('/etat-des-lieux">Changer une décision', $body);
+        $this->assertStringNotContainsString('action="/mes-locations/incident-decision"', $body);
+    }
+
+    public function testASettlementLandsBackOnTheInvoicePage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->post('/mes-locations/decompte', 'recordSettlement', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'invoice',
+            'final_persons' => '28',
+        ]);
+
+        $this->assertStringEndsWith('/facture', (string) $response->getHeaders()['Location']);
+        $this->assertNotNull($this->stayService->latestSettlement($booking->id));
     }
 
     private function templatesPage(): string
@@ -4285,8 +5442,8 @@ class RentalManagementControllerTest extends TestCase
     public function testAChangeRequestOfAnotherBookingCannotBeDecidedHere(): void
     {
         $this->loginAsManager();
-        $mine = $this->createBooking(null, 'LOC-2027-0001');
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $mine = $this->createBooking(null, 'LOC-A2B3C4');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $foreignRequestId = $this->operationsService->requestChange(
             $foreign,
             $this->asset(),
@@ -4354,7 +5511,7 @@ class RentalManagementControllerTest extends TestCase
     public function testABookingOfAnotherAssetKeepsItsTrackingLink(): void
     {
         $this->loginAsManager();
-        $foreign = $this->createBooking($this->otherAssetId, 'LOC-2027-0099');
+        $foreign = $this->createBooking($this->otherAssetId, 'LOC-W9Y8X7');
         $before = $this->bookingRepository->trackingTokenOf($foreign->id);
 
         $response = $this->post('/mes-locations/lien-suivi', 'regenerateTrackingLink', [

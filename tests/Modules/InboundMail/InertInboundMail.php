@@ -35,6 +35,16 @@ trait InertInboundMail
         return null;
     }
 
+    public function latestLinkPosition(string $consumerId, string $businessReference): int
+    {
+        return 0;
+    }
+
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        return [];
+    }
+
     /**
      * @param int[] $preserveFileIds
      */
@@ -42,7 +52,9 @@ trait InertInboundMail
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool {
         return false;
     }
@@ -71,6 +83,16 @@ trait InertInboundMail
     {
     }
 
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool
+    {
+        return false;
+    }
+
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool
+    {
+        return false;
+    }
+
     public function purgeReference(string $consumerId, string $businessReference): int
     {
         return 0;
@@ -94,7 +116,7 @@ trait InertInboundMail
     /**
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array
     {
         return ['examined' => 0, 'linked' => 0, 'proposed' => 0];
     }
@@ -111,6 +133,14 @@ trait InertInboundMail
      * @return array<int, array{name: string, state: string, is_enabled: bool}>
      */
     public function listMailboxSummaries(): array
+    {
+        return [];
+    }
+
+    /**
+     * @return array<int, array{name: string, state: string, is_enabled: bool}>
+     */
+    public function listMailboxSummariesFor(string $consumerId): array
     {
         return [];
     }

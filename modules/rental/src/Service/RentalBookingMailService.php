@@ -16,13 +16,16 @@ use Core\Mail\Template\RenderedEmail;
 use Core\Service\DateInput;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
+use Modules\Rental\Booking\RenterNextStep;
+use Modules\Rental\Mail\SentEmail;
 use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Repository\RentalSentEmailRepository;
 
 /**
  * Every email a booking sends. All of it through `MailService` (AGENTS.md),
  * never PHPMailer directly.
  *
- * **Every subject carries the reference** — `[LOC-2027-0042] …` — and every
+ * **Every subject carries the reference** — `[LOC-K7Q2M4] …` — and every
  * outgoing message carries a stable `Message-ID` we generate ourselves and
  * record. That is what later lets a reply be threaded back onto the right
  * booking through `In-Reply-To`/`References` rather than by guessing from
@@ -55,14 +58,262 @@ class RentalBookingMailService
          * the service stays constructible where nothing is sent to a renter;
          * both composition roots wire it.
          */
-        private ?RentalConditionsService $conditions = null
+        private ?RentalConditionsService $conditions = null,
+        /**
+         * Where « Et maintenant ? » comes from (#708, IT-15): the booking's
+         * next step, as the manager's dashboard reads it. Nullable like the
+         * conditions; without it the e-mails go out without the block.
+         */
+        private ?RentalJourneyService $journey = null,
+        /**
+         * The booking's log of what was sent (#720, step 2): every e-mail
+         * below is recorded there, sent or failed, by `deliver()`. Null:
+         * nothing is recorded, and the e-mails go out all the same.
+         */
+        private ?RentalSentEmailRepository $sentEmails = null
     ) {
     }
 
     /**
-     * A fresh Message-ID for a message about this booking, remembered so
-     * the reply to it is recognised.
+     * The one write point of every e-mail to the renter (#720): send it,
+     * then record it in the booking's log — sent, or failed and re-thrown
+     * so each caller keeps the answer it always gave.
+     *
+     * **The tracking link is masked before it is stored**: it is a
+     * credential to the renter's page, and a copy of it sitting in the log
+     * would outlive a regeneration. `resend()` puts the booking's current
+     * link back in its place.
+     *
+     * Attachments are named by the booking's document they are
+     * (`document_id`), never copied.
+     *
+     * @param list<array{path: string, name: string, document_id?: int|null}> $attachments
+     * @throws \Throwable whatever MailService throws, once the failure is recorded
      */
+    private function deliver(
+        RentalBooking $booking,
+        string $kind,
+        RenderedEmail $email,
+        array $attachments,
+        string $messageId,
+        ?string $trackingToken,
+        ?int $retrying = null
+    ): void {
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText,
+                $this->replyAddressFor($booking),
+                array_map(static fn(array $a): array => ['path' => $a['path'], 'name' => $a['name']], $attachments),
+                null,
+                null,
+                ['Message-ID' => $messageId]
+            );
+        } catch (\Throwable $e) {
+            $this->record(
+                $booking,
+                $kind,
+                $email,
+                $attachments,
+                $messageId,
+                $trackingToken,
+                SentEmail::STATUS_FAILED,
+                $retrying
+            );
+
+            throw $e;
+        }
+
+        $this->record(
+            $booking,
+            $kind,
+            $email,
+            $attachments,
+            $messageId,
+            $trackingToken,
+            SentEmail::STATUS_SENT,
+            $retrying
+        );
+    }
+
+    /**
+     * Writes the log row. Never in the way of the e-mail itself: a log that
+     * cannot be written is journaled, and the renter still got their mail.
+     *
+     * @param list<array{path: string, name: string, document_id?: int|null}> $attachments
+     */
+    private function record(
+        RentalBooking $booking,
+        string $kind,
+        RenderedEmail $email,
+        array $attachments,
+        string $messageId,
+        ?string $trackingToken,
+        string $status,
+        ?int $retrying = null
+    ): void {
+        if ($this->sentEmails === null) {
+            return;
+        }
+
+        try {
+            if ($retrying !== null) {
+                $this->sentEmails->recordAttempt(
+                    $retrying,
+                    $booking->renterEmail,
+                    $messageId,
+                    $status,
+                    new \DateTimeImmutable()
+                );
+
+                return;
+            }
+
+            $this->sentEmails->record(
+                $booking->id,
+                $kind,
+                $booking->renterEmail,
+                $email->subject,
+                $this->masked($booking, $email->bodyText, $trackingToken, false),
+                $this->masked($booking, $email->bodyHtml, $trackingToken, true),
+                self::documentIdsOf($attachments),
+                $messageId,
+                $status,
+                new \DateTimeImmutable()
+            );
+        } catch (\Throwable) {
+            try {
+                $this->journal->log(
+                    'rental',
+                    'rental_sent_email_not_recorded',
+                    'warning',
+                    "Un e-mail envoyé pour " . $booking->reference . " n'a pas pu être inscrit dans son courrier.",
+                    ['booking_id' => $booking->id, 'kind' => $kind]
+                );
+            } catch (\Throwable) {
+                // Neither write may change what the caller hears of the
+                // e-mail itself: sent is sent, failed is the send's own
+                // exception.
+            }
+        }
+    }
+
+    /**
+     * The booking documents among these attachments, by id.
+     *
+     * @param list<array{path: string, name: string, document_id?: int|null}> $attachments
+     * @return list<int>
+     */
+    private static function documentIdsOf(array $attachments): array
+    {
+        $ids = [];
+        foreach ($attachments as $attachment) {
+            if (isset($attachment['document_id'])) {
+                $ids[] = $attachment['document_id'];
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The body with the tracking link — and the bare token, wherever else
+     * it could appear — replaced by `SentEmail::MASKED_LINK`.
+     */
+    private function masked(RentalBooking $booking, string $body, ?string $trackingToken, bool $isHtml): string
+    {
+        if ($trackingToken === null || $trackingToken === '') {
+            return $body;
+        }
+
+        $url = $this->trackingUrl($booking, $trackingToken);
+        $replacements = [$url => SentEmail::MASKED_LINK];
+        if ($isHtml) {
+            $replacements[htmlspecialchars($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')] = SentEmail::MASKED_LINK;
+        }
+
+        return str_replace($trackingToken, SentEmail::MASKED_LINK, strtr($body, $replacements));
+    }
+
+    /**
+     * « Renvoyer » (#720): the logged e-mail again, as it was written —
+     * with the booking's CURRENT tracking link where the old one was masked,
+     * and its attachments read from the documents they are. Only a failed
+     * e-mail, and recorded on its own entry of the log, sent or still
+     * failed: one e-mail on the page, however many clicks it took.
+     *
+     * @param \Closure(int): ?array{path: string, name: string} $attachmentOf the
+     *     booking's document as a file to attach, null when it is gone
+     * @throws RentalException in French, when it cannot be resent as it was
+     * @throws \Throwable whatever MailService throws, once recorded
+     */
+    public function resend(
+        SentEmail $sent,
+        RentalBooking $booking,
+        ?string $trackingToken,
+        \Closure $attachmentOf
+    ): void {
+        if ($sent->bookingId !== $booking->id) {
+            throw new RentalException("Cet e-mail n'appartient pas à cette réservation.");
+        }
+
+        // Only what did not go out: an e-mail the renter already received
+        // is not sent twice by a crafted request, whatever the page offers.
+        if (!$sent->failed()) {
+            throw new RentalException("Cet e-mail est déjà parti : il n'y a rien à renvoyer.");
+        }
+
+        $link = '';
+        if ($sent->carriesTheTrackingLink()) {
+            if ($trackingToken === null || $trackingToken === '') {
+                throw new RentalException(
+                    "Cet e-mail portait le lien de suivi, qui n'est plus disponible : régénérez-le d'abord."
+                );
+            }
+            $link = $this->trackingUrl($booking, $trackingToken);
+        }
+
+        $attachments = [];
+        foreach ($sent->documentIds as $documentId) {
+            $file = $attachmentOf($documentId);
+            if ($file === null) {
+                throw new RentalException(
+                    "Une pièce jointe de cet e-mail n'existe plus : il ne peut pas être renvoyé tel quel."
+                );
+            }
+            $attachments[] = $file + ['document_id' => $documentId];
+        }
+
+        $email = new RenderedEmail(
+            $sent->subject,
+            str_replace(
+                SentEmail::MASKED_LINK,
+                htmlspecialchars($link, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+                $sent->bodyHtml
+            ),
+            str_replace(SentEmail::MASKED_LINK, $link, $sent->bodyText)
+        );
+
+        // Claimed before it goes, by a conditional write: of two clicks —
+        // a double click, two managers at once — one sends and the other
+        // is told, rather than the renter receiving the e-mail twice.
+        if ($this->sentEmails !== null && !$this->sentEmails->claimForRetry($sent->id, new \DateTimeImmutable())) {
+            throw new RentalException("Cet e-mail est déjà en train d'être renvoyé.");
+        }
+
+        $this->deliver(
+            $booking,
+            $sent->kind,
+            $email,
+            $attachments,
+            $this->messageIdFor($booking),
+            $trackingToken,
+            $sent->id
+        );
+    }
+
     /**
      * The signed reply address of this booking (§8.58), so a bare
      * « Répondre » comes back naming it — null without `inbound_mail`,
@@ -71,27 +322,24 @@ class RentalBookingMailService
      */
     private function replyAddressFor(RentalBooking $booking): ?string
     {
-        $consumer = \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID;
-
-        // The signed address first: it lands on rentals' own box AND names
-        // the booking. Without it — the operator turned signed addresses
-        // off — the box itself, when rentals have exactly one: passed
-        // explicitly, because MailService otherwise falls back to the
-        // SITE's reply address, and renters' answers would go to the unit's
-        // general inbox instead of the box the Courrier page reads
-        // (issue #462, IT-04).
-        $signed = $this->inboundMail?->replyAddressFor($consumer, $booking->reference);
-        if ($signed !== null) {
-            return $signed;
-        }
-
-        $boxes = $this->inboundMail?->dedicatedMailboxesFor($consumer) ?? [];
-
-        // A box whose account is a login rather than an address has none
-        // to give: null, and the mail goes out as it did before.
-        return count($boxes) === 1 ? $boxes[0]->address : null;
+        // The signed address only (#720): it lands on a box the rentals
+        // read AND names the booking. Rentals no longer tell a box
+        // « dedicated » to them from a shared one, so there is no box of
+        // their own to fall back on; without a signed address the mail goes
+        // out with the site's ordinary sender, and a reply quoting the
+        // reference is still matched wherever it lands.
+        return $this->inboundMail?->replyAddressFor(
+            \Modules\Rental\Mail\RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference
+        );
     }
 
+    /**
+     * A fresh Message-ID for a message about this booking, remembered so
+     * the reply to it is recognised — and so its copy in the box's
+     * « Envoyés », if the provider files one there, is known for what it
+     * is (#720).
+     */
     private function messageIdFor(RentalBooking $booking): string
     {
         $messageId = $this->newMessageId();
@@ -134,16 +382,13 @@ class RentalBookingMailService
                 : '',
         ]);
 
-        $this->mailService->send(
-            $booking->renterEmail,
-            $email->subject,
-            $email->bodyHtml,
-            $email->bodyText,
-            $this->replyAddressFor($booking),
+        $this->deliver(
+            $booking,
+            'rental.acknowledgement',
+            $email,
             [],
-            null,
-            null,
-            ['Message-ID' => $messageId]
+            $messageId,
+            $trackingToken
         );
 
         // The URL contains the token, so it is NEVER journaled — a journal
@@ -212,16 +457,13 @@ class RentalBookingMailService
         ]);
 
         try {
-            $this->mailService->send(
-                $booking->renterEmail,
-                $email->subject,
-                $email->bodyHtml,
-                $email->bodyText,
-                $this->replyAddressFor($booking),
+            $this->deliver(
+                $booking,
+                'rental.decision',
+                $email,
                 [],
-                null,
-                null,
-                ['Message-ID' => $this->messageIdFor($booking)]
+                $this->messageIdFor($booking),
+                $trackingToken
             );
         } catch (\Throwable) {
             // Not journaled with the address, which would put personal data
@@ -271,7 +513,9 @@ class RentalBookingMailService
         string $documentLabel,
         string $absolutePath,
         string $fileName,
-        bool $isResend = false
+        bool $isResend = false,
+        ?\Modules\Rental\Document\DocumentType $type = null,
+        ?int $documentId = null
     ): string {
         $messageId = $this->messageIdFor($booking);
 
@@ -282,18 +526,15 @@ class RentalBookingMailService
         $email = $this->renderFor($booking, $asset, 'rental.document', [
             'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
             'document_label' => $documentLabel,
-        ]);
+        ], $type === \Modules\Rental\Document\DocumentType::INVOICE ? RenterNextStep::payInvoice() : null);
 
-        $this->mailService->send(
-            $booking->renterEmail,
-            $email->subject,
-            $email->bodyHtml,
-            $email->bodyText,
-            $this->replyAddressFor($booking),
-            [['path' => $absolutePath, 'name' => $fileName]],
-            null,
-            null,
-            ['Message-ID' => $messageId]
+        $this->deliver(
+            $booking,
+            'rental.document',
+            $email,
+            [['path' => $absolutePath, 'name' => $fileName, 'document_id' => $documentId]],
+            $messageId,
+            null
         );
 
         // The reference and the document's label, never the renter and
@@ -310,12 +551,98 @@ class RentalBookingMailService
     }
 
     /**
-     * `[LOC-2027-0042] Votre demande de location`.
+     * `[LOC-K7Q2M4] Votre demande de location`.
      *
      * The reference goes in **every** subject, and first: it is the most
      * reliable of the matching rules for an inbound reply (§7.6), far ahead
      * of guessing from the sender's address.
      */
+    /**
+     * The contract, attached, saying what to do with it (#708, IT-16): sign
+     * it and send a copy back from the renter's page before the dates stop
+     * being held — with the link, and the date. The generic document e-mail
+     * says the opposite (« ne peut pas être téléchargé »), and the contract
+     * is the one document that comes back.
+     *
+     * @return string The Message-ID, for threading later replies.
+     * @throws \Core\Mail\MailException
+     */
+    public function sendContract(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $documentLabel,
+        string $absolutePath,
+        string $fileName,
+        bool $isResend,
+        ?string $trackingToken,
+        ?\DateTimeImmutable $holdUntil,
+        ?int $documentId = null
+    ): string {
+        $messageId = $this->messageIdFor($booking);
+        $email = $this->renderFor($booking, $asset, 'rental.contract', [
+            'document_subject' => ($isResend ? 'À nouveau : ' : '') . $documentLabel,
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+            'hold_until' => $holdUntil !== null ? $holdUntil->format('d/m/Y') : '',
+        ], RenterNextStep::signContract($booking, new \DateTimeImmutable(), $holdUntil));
+
+        $this->deliver(
+            $booking,
+            'rental.contract',
+            $email,
+            [['path' => $absolutePath, 'name' => $fileName, 'document_id' => $documentId]],
+            $messageId,
+            $trackingToken
+        );
+
+        $this->journal->log(
+            'rental',
+            'rental_document_sent',
+            'info',
+            $documentLabel . ' envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id, 'is_resend' => $isResend]
+        );
+
+        return $messageId;
+    }
+
+    /**
+     * The hold that waits for the signed copy ends soon, and no copy came
+     * back (#708, IT-16): said once, so the renter's dates do not free
+     * themselves without them ever knowing.
+     *
+     * @return bool whether it went out
+     */
+    public function sendSignedCopyReminder(RentalBooking $booking, RentalAsset $asset, ?string $trackingToken): bool
+    {
+        $email = $this->renderFor($booking, $asset, 'rental.signed_copy_reminder', [
+            'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
+            'hold_until' => $booking->holdUntil !== null ? $booking->holdUntil->format('d/m/Y') : '',
+        ]);
+
+        try {
+            $this->deliver(
+                $booking,
+                'rental.signed_copy_reminder',
+                $email,
+                [],
+                $this->messageIdFor($booking),
+                $trackingToken
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $this->journal->log(
+            'rental',
+            'rental_signed_copy_reminder_sent',
+            'info',
+            'Rappel de la copie signée envoyé pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
     /**
      * The renter's signed copy was refused (#708, IT-16): the unit's reason,
      * and the way back to their page to send another.
@@ -334,16 +661,13 @@ class RentalBookingMailService
         ]);
 
         try {
-            $this->mailService->send(
-                $booking->renterEmail,
-                $email->subject,
-                $email->bodyHtml,
-                $email->bodyText,
-                $this->replyAddressFor($booking),
+            $this->deliver(
+                $booking,
+                'rental.copy_refused',
+                $email,
                 [],
-                null,
-                null,
-                ['Message-ID' => $this->messageIdFor($booking)]
+                $this->messageIdFor($booking),
+                $trackingToken
             );
         } catch (\Throwable) {
             return false;
@@ -374,23 +698,21 @@ class RentalBookingMailService
         RentalAsset $asset,
         string $absolutePath,
         string $fileName,
-        ?string $trackingToken
+        ?string $trackingToken,
+        ?int $documentId = null
     ): string {
         $messageId = $this->messageIdFor($booking);
         $email = $this->renderFor($booking, $asset, 'rental.signed_contract', [
             'tracking_url' => $trackingToken !== null ? $this->trackingUrl($booking, $trackingToken) : '',
         ]);
 
-        $this->mailService->send(
-            $booking->renterEmail,
-            $email->subject,
-            $email->bodyHtml,
-            $email->bodyText,
-            $this->replyAddressFor($booking),
-            [['path' => $absolutePath, 'name' => $fileName]],
-            null,
-            null,
-            ['Message-ID' => $messageId]
+        $this->deliver(
+            $booking,
+            'rental.signed_contract',
+            $email,
+            [['path' => $absolutePath, 'name' => $fileName, 'document_id' => $documentId]],
+            $messageId,
+            $trackingToken
         );
 
         $this->journal->log(
@@ -429,16 +751,13 @@ class RentalBookingMailService
         ]);
 
         try {
-            $this->mailService->send(
-                $booking->renterEmail,
-                $email->subject,
-                $email->bodyHtml,
-                $email->bodyText,
-                $this->replyAddressFor($booking),
+            $this->deliver(
+                $booking,
+                'rental.practical_info',
+                $email,
                 [],
-                null,
-                null,
-                ['Message-ID' => $this->messageIdFor($booking)]
+                $this->messageIdFor($booking),
+                null
             );
         } catch (\Throwable) {
             // A reminder that could not be sent must not take the whole
@@ -485,16 +804,13 @@ class RentalBookingMailService
         ]);
 
         try {
-            $this->mailService->send(
-                $booking->renterEmail,
-                $email->subject,
-                $email->bodyHtml,
-                $email->bodyText,
-                $this->replyAddressFor($booking),
+            $this->deliver(
+                $booking,
+                'rental.tracking_link',
+                $email,
                 [],
-                null,
-                null,
-                ['Message-ID' => $this->messageIdFor($booking)]
+                $this->messageIdFor($booking),
+                $trackingToken
             );
         } catch (\Throwable) {
             $this->journal->log(
@@ -590,7 +906,7 @@ class RentalBookingMailService
      *
      * **The reference prefix stays outside.** `subjectFor()` is applied to
      * whatever subject comes back, shipped or customised, because
-     * `[LOC-2027-0042]` is what ties a renter's reply back to their
+     * `[LOC-K7Q2M4]` is what ties a renter's reply back to their
      * booking (the module's inbound-mail matching reads it). An
      * administrator rewording the subject must not be able to break the
      * threading of every conversation without noticing.
@@ -601,12 +917,14 @@ class RentalBookingMailService
         RentalBooking $booking,
         RentalAsset $asset,
         string $templateId,
-        array $context
+        array $context,
+        ?RenterNextStep $nextStep = null
     ): RenderedEmail
     {
         $email = $this->emailTemplateRenderer->render(
             $templateId,
-            $context + $this->acceptedConditionsNote($booking, $asset, $templateId) + [
+            $context + $this->acceptedConditionsNote($booking, $asset, $templateId)
+            + $this->nextStepContext($booking, $asset, $templateId, $context, $nextStep) + [
                 'reference' => $booking->reference,
                 'asset_name' => $asset->name,
                 'renter_name' => $booking->renterName,
@@ -624,6 +942,62 @@ class RentalBookingMailService
     }
 
     /**
+     * The renter's « Et maintenant ? » as their e-mails say it (#708,
+     * IT-15) — for the tracking page, which says the very same sentence
+     * under the status: the page and the e-mails cannot contradict each
+     * other. Null when it cannot be worked out.
+     */
+    public function renterNextStep(RentalBooking $booking, RentalAsset $asset): ?RenterNextStep
+    {
+        try {
+            return $this->journey?->renterNextStep($booking, $asset, new \DateTimeImmutable());
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * « Et maintenant ? » (#708, IT-15): what the renter has to do next, in
+     * the frame of every e-mail they receive (email/base.html.twig), so a
+     * customised body cannot drop it. The booking's next step unless the
+     * e-mail says better — the contract calls for its signature before the
+     * booking has moved, an invoice for its payment. The tracking link
+     * goes with it whenever the thing to do is done there and the e-mail
+     * already carries the link.
+     *
+     * Never fails an e-mail: a block that cannot be worked out is left
+     * out, and the message still goes.
+     *
+     * @param array<string, mixed> $context
+     * @return array<string, string>
+     */
+    private function nextStepContext(
+        RentalBooking $booking,
+        RentalAsset $asset,
+        string $templateId,
+        array $context,
+        ?RenterNextStep $nextStep
+    ): array {
+        if (!in_array($templateId, self::RENTER_TEMPLATES, true) && $templateId !== 'rental.tracking_link') {
+            return [];
+        }
+
+        $nextStep ??= $this->renterNextStep($booking, $asset);
+        if ($nextStep === null) {
+            return [];
+        }
+
+        $trackingUrl = $context['tracking_url'] ?? null;
+        $link = $nextStep->onTrackingPage && is_string($trackingUrl) ? $trackingUrl : '';
+
+        return [
+            'next_step' => $nextStep->sentence,
+            'next_step_link' => $link,
+            'next_step_link_label' => $link !== '' ? 'Ouvrir ma page de suivi' : '',
+        ];
+    }
+
+    /**
      * The e-mails that go to the renter, and so carry the link to the
      * conditions they accepted (issue #494). Not the managers' notification:
      * they have the settings page, and the note would read as addressed to
@@ -637,6 +1011,8 @@ class RentalBookingMailService
         'rental.practical_info',
         'rental.copy_refused',
         'rental.signed_contract',
+        'rental.contract',
+        'rental.signed_copy_reminder',
     ];
 
     /**

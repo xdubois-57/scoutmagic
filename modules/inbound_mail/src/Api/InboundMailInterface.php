@@ -49,6 +49,29 @@ interface InboundMailInterface
     public function findOneForReference(string $consumerId, string $businessReference, int $messageId): ?InboundMessage;
 
     /**
+     * The newest association of a message with this object, as an opaque
+     * position: what a consumer stores to say « read up to here » (#720).
+     *
+     * A position rather than a date, so that « what came after » is
+     * decided by the order the associations were written in and never by
+     * comparing a server clock with an application one. 0 when nothing is
+     * filed under the object. Attachment-level associations do not count:
+     * they are part of a message already counted.
+     */
+    public function latestLinkPosition(string $consumerId, string $businessReference): int;
+
+    /**
+     * How many messages were filed under each object after the given
+     * position (`latestLinkPosition()`), keyed by reference — the « non
+     * lus » of a consumer's screens (#720). An object absent from the
+     * answer has none.
+     *
+     * @param array<string, int> $afterByReference reference => position
+     * @return array<string, int>
+     */
+    public function countLinksAfter(string $consumerId, array $afterByReference): array;
+
+    /**
      * Associate a message with one of this consumer's business objects,
      * because a person said so.
      *
@@ -273,6 +296,13 @@ interface InboundMailInterface
      * arrived in. A consumer that names a file here becomes responsible for
      * it, `files.owner_id` included; only it knows what it did with them.
      *
+     * `$excludeFromAnalysis` makes it final for THIS object (#720): no
+     * automatic path — arrival, deferred pass, re-analysis — files the
+     * message under it again, while another object of the same consumer
+     * stays open to it. Without it, a detached message is merely unlinked,
+     * and the next re-analysis may put it straight back. `$userAccountId`
+     * names who decided, for that record only.
+     *
      * @param int[] $preserveFileIds
      * @return bool false when the message does not belong to that reference
      */
@@ -280,8 +310,20 @@ interface InboundMailInterface
         string $consumerId,
         string $businessReference,
         int $messageId,
-        array $preserveFileIds = []
+        array $preserveFileIds = [],
+        bool $excludeFromAnalysis = false,
+        ?int $userAccountId = null
     ): bool;
+
+    /**
+     * Whether a person detached this message from this object for good
+     * (`detach()` with `$excludeFromAnalysis`, #720). The applier already
+     * refuses such a link whatever a consumer answers; this lets a consumer
+     * leave the object out of what it weighs in the first place — a model
+     * asked to choose between two bookings must not spend its one answer on
+     * the one the message was taken off.
+     */
+    public function isExcluded(string $consumerId, int $messageId, string $businessReference): bool;
 
     /**
      * Move a message from one business object to another **within the same
@@ -387,9 +429,16 @@ interface InboundMailInterface
      * parts: what this call settles immediately, and what the hourly task
      * settles afterwards.
      *
+     * `$requeueStoredPass` false keeps that second part out: a consumer
+     * re-reading its mail after one of its own decisions wants the rules
+     * re-run with what it just learned, not every unlinked message's
+     * deferred reading — a model call among them — started again from
+     * zero, attempts and a declined answer included (#720, step 6). A
+     * person's « Relancer l'analyse » keeps the default.
+     *
      * @return array{examined: int, linked: int, proposed: int}
      */
-    public function reanalyzeUnlinked(string $consumerId, int $limit = 100): array;
+    public function reanalyzeUnlinked(string $consumerId, int $limit = 100, bool $requeueStoredPass = true): array;
 
     /**
      * The business object a message belongs to, found from the Message-IDs
@@ -417,6 +466,15 @@ interface InboundMailInterface
     public function recordOutboundMessageId(string $consumerId, string $businessReference, string $messageId): void;
 
     /**
+     * Whether $messageId is one this consumer recorded as sent by the site
+     * (`recordOutboundMessageId()`) — the copy a provider files in the
+     * box's « Envoyés » when the site sends through it (#720). Certain,
+     * since the site minted the id; a consumer that keeps its own log of
+     * what it sent reads this to avoid showing one e-mail twice.
+     */
+    public function wasSentByThisSite(string $consumerId, string $messageId): bool;
+
+    /**
      * The address a consumer puts in the `Reply-To` of what it sends about
      * one of its objects, so that a bare « Répondre » comes back naming
      * that object (`CandidateMessage::$addressedTo`, §8.58). Signed by
@@ -440,6 +498,28 @@ interface InboundMailInterface
      * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
      */
     public function listMailboxSummaries(): array;
+
+    /**
+     * The same summaries, for the boxes ONE consumer is allowed to analyse
+     * and no others — what a module's own screen shows when it says where
+     * its mail comes from (issue #748).
+     *
+     * The effective scope decides, exactly as it decides what the
+     * consumer is offered: a box dedicated to it, and a shared box whose
+     * scope lets it analyse. A box dedicated to another module, or shared
+     * without a row for this one, is absent — a module's page that listed
+     * every box on the site would read as « these are mine ».
+     *
+     * A disabled box in scope stays in the list, flagged by `is_enabled`,
+     * as `listMailboxSummaries()` does: the box is still this module's,
+     * nothing arrives in it for now, and saying so is the point.
+     *
+     * Without a way to read scopes, nothing is in scope — never « all of
+     * them » — as `probeAddressesFor()` answers.
+     *
+     * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
+     */
+    public function listMailboxSummariesFor(string $consumerId): array;
 
     /**
      * The addresses of the enabled mailboxes this consumer is allowed to

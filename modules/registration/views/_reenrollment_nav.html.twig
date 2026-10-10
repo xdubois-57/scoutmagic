@@ -1,0 +1,16 @@
+{#
+  Sub-navigation for « Réinscriptions » — two screens, one menu entry
+  (issue #796, D9): the dashboard (where the campaign stands, and
+  « Relancer maintenant ») and the settings (dates, reminders, the two
+  switches). The shared `partials/page_picker.html.twig`, as in
+  support_dashboard's _nav.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'reenrollment-page-picker',
+    pages: [
+        {'url': '/config/reinscription', 'label': 'Tableau de bord'},
+        {'url': '/config/reinscription/reglages', 'label': 'Réglages'},
+    ],
+    current_path: current_path,
+    aria_label: 'Pages Réinscriptions',
+} only %}

@@ -1,0 +1,61 @@
+{#
+  The invoice's other half: the coordinates it is made out to (#708,
+  IT-18, moved as it was from « Documents »). On « Facture », beside the
+  invoice they go on — nothing is paid from here, and the page a manager
+  opens to make an invoice is the one that should hold what it says.
+
+  Requires `asset`, `booking`, `booking_page` and `billing`.
+#}
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-2">Coordonnées de facturation</h2>
+        <p class="text-body-secondary small">
+            Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
+            week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
+        </p>
+        <form method="post" action="/mes-locations/facturation" class="row g-2">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="billing-name">Raison sociale</label>
+                <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
+                       value="{{ billing.name }}">
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="billing-email">Email de facturation</label>
+                <input type="email" class="form-control form-control-sm" id="billing-email" name="billing_email"
+                       value="{{ billing.email }}">
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="billing-address">Adresse</label>
+                <input type="text" class="form-control form-control-sm" id="billing-address" name="billing_address"
+                       value="{{ billing.address }}">
+            </div>
+            <div class="col-4 col-md-2">
+                <label class="form-label" for="billing-country">Pays</label>
+                <input type="text" class="form-control form-control-sm" id="billing-country" name="billing_country"
+                       maxlength="2" placeholder="BE" value="{{ billing.country }}">
+            </div>
+            <div class="col-8 col-md-3">
+                <label class="form-label" for="billing-vat">N° de TVA</label>
+                <input type="text" class="form-control form-control-sm" id="billing-vat" name="billing_vat_number"
+                       value="{{ billing.vat_number }}">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="billing-enterprise">N° BCE</label>
+                <input type="text" class="form-control form-control-sm" id="billing-enterprise"
+                       name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label" for="billing-reference">Référence / bon de commande</label>
+                <input type="text" class="form-control form-control-sm" id="billing-reference"
+                       name="billing_reference" value="{{ billing.reference }}">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -8,7 +8,6 @@ use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\SettlementLine;
@@ -48,7 +47,7 @@ class RentalStayRepositoryTest extends TestCase
         $stmt->execute(['Local', 'Local Saint-Georges', 'local-saint-georges']);
         $this->assetId = (int) $this->pdo->lastInsertId();
 
-        $this->bookingId = $this->booking('LOC-2027-0001', '2027-07-17', '2027-07-20');
+        $this->bookingId = $this->booking('LOC-A2B3C4', '2027-07-17', '2027-07-20');
     }
 
     // ── Meters ──────────────────────────────────────────────────────────
@@ -297,35 +296,32 @@ class RentalStayRepositoryTest extends TestCase
         );
     }
 
-    public function testAnUncheckedItemReadsAsNotCheckedRatherThanAsBlank(): void
+    public function testAnUncheckedItemHasNoValueRatherThanAPrefilledOne(): void
     {
+        // The value is the check (#708, IT-17): a pre-filled value would read
+        // as checked without anybody having looked.
         $this->repository->createInventoryItem($this->assetId, 'Extincteur', InventoryKind::QUANTITY, 1);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
 
         $line = $this->repository->findBookingInventory($this->bookingId)[0];
-        $this->assertSame(InventoryState::NOT_CHECKED, $line['arrival_state']);
-        $this->assertSame(InventoryState::NOT_CHECKED, $line['departure_state']);
+        $this->assertNull($line['arrival_value']);
+        $this->assertNull($line['departure_value']);
     }
 
-    public function testEachPhaseKeepsItsOwnStateAndNote(): void
+    public function testEachPhaseKeepsItsOwnValueAndNote(): void
     {
-        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 1);
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
-        $this->repository->setInventoryState($inventoryId, ReadingPhase::ARRIVAL, InventoryState::OK, null);
-        $this->repository->setInventoryState(
-            $inventoryId,
-            ReadingPhase::DEPARTURE,
-            InventoryState::MISSING,
-            'Six assiettes manquantes'
-        );
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null);
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::DEPARTURE, '34', 'Six assiettes cassées');
 
         $line = $this->repository->findBookingInventory($this->bookingId)[0];
-        $this->assertSame(InventoryState::OK, $line['arrival_state']);
+        $this->assertSame('40', $line['arrival_value']);
         $this->assertNull($line['arrival_note']);
-        $this->assertSame(InventoryState::MISSING, $line['departure_state']);
-        $this->assertSame('Six assiettes manquantes', $line['departure_note']);
+        $this->assertSame('34', $line['departure_value']);
+        $this->assertSame('Six assiettes cassées', $line['departure_note']);
     }
 
     public function testABlankInventoryNoteIsStoredAsAbsent(): void
@@ -334,9 +330,113 @@ class RentalStayRepositoryTest extends TestCase
         $this->repository->snapshotInventory($this->bookingId, $this->assetId);
         $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
 
-        $this->repository->setInventoryState($inventoryId, ReadingPhase::ARRIVAL, InventoryState::OK, '  ');
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '1', '  ');
 
         $this->assertNull($this->repository->findBookingInventory($this->bookingId)[0]['arrival_note']);
+    }
+
+    /**
+     * The write itself refuses a validated phase, not only the check the
+     * service makes beforehand: a save that passed that check while another
+     * manager was validating would otherwise land after the PDF was made.
+     */
+    public function testAValueIsNeverWrittenOntoAValidatedPhase(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
+        $this->repository->snapshotInventory($this->bookingId, $this->assetId);
+        $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null));
+
+        $this->repository->recordInventoryValidation(
+            $this->bookingId, ReadingPhase::ARRIVAL, new \DateTimeImmutable('2027-07-17 18:00:00'), null
+        );
+
+        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '12', 'Trop tard'));
+        $this->assertTrue($this->repository->setInventoryValue($inventoryId, ReadingPhase::DEPARTURE, '38', null));
+        $line = $this->repository->findBookingInventory($this->bookingId)[0];
+        $this->assertSame('40', $line['arrival_value']);
+        $this->assertNull($line['arrival_note']);
+        $this->assertSame('38', $line['departure_value']);
+    }
+
+    public function testAReadingIsNeverWrittenOntoAValidatedPhase(): void
+    {
+        $meterId = $this->meter();
+        $now = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->assertTrue(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_000_000, $now, null, null, 7)
+        );
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $now, null);
+
+        // Neither a correction of the arrival reading nor a first one on
+        // another meter.
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_050_000, $now, null, null, 7)
+        );
+        $otherMeterId = $this->repository->createMeter($this->assetId, 'Eau', MeterKind::WATER, 'm³', null);
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL, 5_000, $now, null, null, 7)
+        );
+        $this->assertSame(
+            1_000_000,
+            $this->repository->findReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL)?->valueMilli
+        );
+        $this->assertNull($this->repository->findReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL));
+
+        // The departure is still open.
+        $this->assertTrue(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::DEPARTURE, 1_120_000, $now, null, null, 7)
+        );
+    }
+
+    /**
+     * A validated departure freezes the arrival too, even one never
+     * validated itself (ticked by hand): the departure's PDF is read
+     * against it. Refused by each write itself.
+     */
+    public function testAValidatedDepartureFreezesTheArrivalItWasReadAgainst(): void
+    {
+        $this->repository->createInventoryItem($this->assetId, 'Vaisselle', InventoryKind::QUANTITY, 40);
+        $this->repository->snapshotInventory($this->bookingId, $this->assetId);
+        $inventoryId = $this->repository->findBookingInventory($this->bookingId)[0]['id'];
+        $meterId = $this->meter();
+        $at = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '40', null);
+        $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 1_000_000, $at, null, null, 7);
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::DEPARTURE, $at, null);
+
+        $this->assertFalse($this->repository->setInventoryValue($inventoryId, ReadingPhase::ARRIVAL, '12', null));
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL, 900_000, $at, null, null, 7)
+        );
+        $otherMeterId = $this->repository->createMeter($this->assetId, 'Eau', MeterKind::WATER, 'm³', null);
+        $this->assertFalse(
+            $this->repository->saveReading($this->bookingId, $otherMeterId, ReadingPhase::ARRIVAL, 5_000, $at, null, null, 7)
+        );
+        $this->assertSame('40', $this->repository->findBookingInventory($this->bookingId)[0]['arrival_value']);
+        $this->assertSame(
+            1_000_000,
+            $this->repository->findReading($this->bookingId, $meterId, ReadingPhase::ARRIVAL)?->valueMilli
+        );
+    }
+
+    public function testAPhaseIsValidatedOnceAndCarriesItsDocument(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-01 10:00:00');
+
+        $this->assertTrue($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+        $this->assertFalse($this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null));
+        $this->repository->setInventoryValidationDocument($this->bookingId, ReadingPhase::ARRIVAL, 7);
+
+        $validations = $this->repository->findInventoryValidations($this->bookingId);
+        $this->assertSame(['arrival'], array_keys($validations));
+        $this->assertSame(7, $validations['arrival']['document_id']);
+        $this->assertSame('2027-07-01 10:00', $validations['arrival']['validated_at']->format('Y-m-d H:i'));
+
+        $this->repository->forgetInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL);
+        $this->assertSame([], $this->repository->findInventoryValidations($this->bookingId));
     }
 
     /**
@@ -385,7 +485,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testIncidentsComeBackOldestFirstAndOnlyThisBookings(): void
     {
-        $otherBookingId = $this->booking('LOC-2027-0002', '2027-08-01', '2027-08-04');
+        $otherBookingId = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-04');
 
         $this->repository->createIncident($this->bookingId, 'Premier', null, null, 7);
         $this->repository->createIncident($this->bookingId, 'Second', null, null, 7);
@@ -407,6 +507,26 @@ class RentalStayRepositoryTest extends TestCase
 
         $this->assertNull($this->repository->findIncident($gone));
         $this->assertNotNull($this->repository->findIncident($kept));
+    }
+
+    /**
+     * The departure PDF lists the incidents: one inserted after the
+     * departure was validated would be billable while missing from it.
+     * Refused by the INSERT itself; the arrival changes nothing.
+     */
+    public function testNoIncidentIsRecordedOnceTheDepartureIsValidated(): void
+    {
+        $at = new \DateTimeImmutable('2027-07-17 18:00:00');
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::ARRIVAL, $at, null);
+        $this->assertNotNull($this->repository->createIncident($this->bookingId, 'Avant', null, null, 7));
+
+        $this->repository->recordInventoryValidation($this->bookingId, ReadingPhase::DEPARTURE, $at, null);
+
+        $this->assertNull($this->repository->createIncident($this->bookingId, 'Trop tard', 2000, null, 7));
+        $this->assertSame(
+            ['Avant'],
+            array_map(static fn ($incident) => $incident->description, $this->repository->findIncidents($this->bookingId))
+        );
     }
 
     public function testFindIncidentIsNullForAnIdNobodyHas(): void
@@ -457,7 +577,7 @@ class RentalStayRepositoryTest extends TestCase
 
     public function testEachBookingHasItsOwnVersionCounter(): void
     {
-        $otherBookingId = $this->booking('LOC-2027-0002', '2027-08-01', '2027-08-04');
+        $otherBookingId = $this->booking('LOC-A2B3C5', '2027-08-01', '2027-08-04');
 
         $this->repository->claimNextSettlementVersion($this->bookingId);
         $this->repository->claimNextSettlementVersion($this->bookingId);

@@ -31,7 +31,6 @@ use Modules\Rental\Service\RentalPricingService;
 use Modules\Rental\Service\RentalStayService;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\ReadingPhase;
 use Modules\Rental\Stay\SettlementCalculator;
@@ -123,7 +122,7 @@ class RentalStayServiceTest extends TestCase
     }
 
     private function createBooking(
-        string $reference = 'LOC-2027-0001',
+        string $reference = 'LOC-A2B3C4',
         ?int $assetId = null,
         int $persons = 40
     ): RentalBooking {
@@ -289,6 +288,21 @@ class RentalStayServiceTest extends TestCase
         );
     }
 
+    public function testAReadingOfAValidatedInventoryIsRefused(): void
+    {
+        // The reading belongs to its inventory (#708, IT-17): the renter
+        // holds the PDF it was printed in.
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1);
+
+        $this->expectException(RentalException::class);
+
+        $this->service->recordReading(
+            $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1
+        );
+    }
+
     public function testANonNumericReadingIsRefused(): void
     {
         $meterId = $this->addMeter();
@@ -333,6 +347,7 @@ class RentalStayServiceTest extends TestCase
         $this->service->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1
         );
+        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1);
         $this->service->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1342,5', $this->now(), null, null, 1
         );
@@ -372,7 +387,8 @@ class RentalStayServiceTest extends TestCase
         $inventory = $this->service->inventoryFor($booking->id);
         $this->assertCount(2, $inventory);
         $this->assertSame('Clés', $inventory[0]['label']);
-        $this->assertSame(InventoryState::NOT_CHECKED, $inventory[0]['arrival_state']);
+        // Nothing is pre-filled: an empty value is « nobody has looked yet ».
+        $this->assertNull($inventory[0]['arrival_value']);
     }
 
     public function testEditingTheTemplateAfterwardsChangesNoExistingInventory(): void
@@ -469,31 +485,357 @@ class RentalStayServiceTest extends TestCase
         $this->service->snapshotInventory($booking, $this->assetId);
         $line = $this->service->inventoryFor($booking->id)[0];
 
-        $this->service->setInventoryState($booking, $line['id'], ReadingPhase::ARRIVAL, InventoryState::OK, null);
-        $this->service->setInventoryState(
-            $booking, $line['id'], ReadingPhase::DEPARTURE, InventoryState::MISSING, 'Un jeu manquant'
-        );
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null);
+        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), null);
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '1', 'Un jeu manquant');
 
         $updated = $this->service->inventoryFor($booking->id)[0];
-        $this->assertSame(InventoryState::OK, $updated['arrival_state']);
-        $this->assertSame(InventoryState::MISSING, $updated['departure_state']);
+        $this->assertSame('2', $updated['arrival_value']);
+        $this->assertSame('1', $updated['departure_value']);
         $this->assertSame('Un jeu manquant', $updated['departure_note']);
+    }
+
+    public function testAValueTheKindCannotHoldIsRefusedWithTheItemsName(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $line = $this->service->inventoryFor($booking->id)[0];
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('Clés : ');
+
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, 'beaucoup', null);
+    }
+
+    public function testTheDepartureWaitsForTheArrival(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $line = $this->service->inventoryFor($booking->id)[0];
+
+        try {
+            $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null);
+            $this->fail('A departure was written before its arrival.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("une fois celui d'entrée validé", $e->getMessage());
+        }
+
+        // An arrival ticked by hand opens the departure all the same.
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null, true);
+        $this->assertSame('2', $this->service->inventoryFor($booking->id)[0]['departure_value']);
+    }
+
+    /**
+     * An arrival ticked by hand is never validated itself, but the
+     * departure's PDF is read against it: once that PDF has gone out, the
+     * arrival is frozen with it — its values and its readings.
+     */
+    public function testAnArrivalTickedByHandIsFrozenOnceTheDepartureIsValidated(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $line = $this->service->inventoryFor($booking->id)[0];
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null, true);
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::DEPARTURE, '2', null, true);
+
+        $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::DEPARTURE, $this->now(), 1));
+
+        foreach ([
+            fn() => $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '1', null, true),
+            fn() => $this->service->recordReading(
+                $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1, true
+            ),
+        ] as $write) {
+            try {
+                $write();
+                $this->fail('An arrival was rewritten under a departure already sent.');
+            } catch (RentalException $e) {
+                $this->assertStringContainsString("celui d'entrée, sur lequel il se lit", $e->getMessage());
+            }
+        }
+        $this->assertSame('2', $this->service->inventoryFor($booking->id)[0]['arrival_value']);
+    }
+
+    public function testAValidatedPhaseIsFrozen(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $line = $this->service->inventoryFor($booking->id)[0];
+        $this->assertTrue($this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), null));
+
+        // Twice is refused at the key, not by a read-then-write race.
+        $this->assertFalse($this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), null));
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('ne se modifie plus');
+
+        $this->service->setInventoryValue($booking, $line['id'], ReadingPhase::ARRIVAL, '2', null);
+    }
+
+    public function testAForgottenValidationReopensThePhase(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), null);
+
+        $this->service->forgetInventoryValidation($booking, ReadingPhase::ARRIVAL);
+
+        $this->assertSame([], $this->service->inventoryValidations($booking->id));
+        $this->service->assertPhaseOpen($booking->id, ReadingPhase::ARRIVAL);
+    }
+
+    public function testAnAssetKeepsItsInventoryOnlyWithItemsOrMeters(): void
+    {
+        $this->assertFalse($this->service->keepsInventory($this->assetId));
+
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+
+        $this->assertTrue($this->service->keepsInventory($this->assetId));
+    }
+
+    /**
+     * A booking is walked against its own checklist once copied, the
+     * template before then, and the asset's meters either way.
+     */
+    public function testABookingKeepsItsInventoryFromItsOwnChecklistOnceCopied(): void
+    {
+        $booking = $this->createBooking();
+        $this->assertFalse($this->service->keepsInventoryFor($booking));
+
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $this->assertTrue($this->service->keepsInventoryFor($booking), 'not copied yet: the template decides');
+
+        $empty = $this->createBooking('LOC-A2B3C5');
+        $this->service->snapshotInventory($empty, $this->otherAssetId);
+        $this->assertFalse($this->service->keepsInventoryFor($empty));
+
+        $this->service->snapshotInventory($booking, $this->assetId);
+        foreach ($this->service->inventoryTemplateFor($this->assetId) as $item) {
+            $this->service->removeInventoryItem($this->assetId, $item['id']);
+        }
+        $this->assertTrue($this->service->keepsInventoryFor($booking), 'copied: the template no longer decides');
+
+        $this->addMeter();
+        $this->assertTrue($this->service->keepsInventoryFor($empty), 'meters are read live');
     }
 
     public function testAnInventoryLineOfAnotherBookingCannotBeWritten(): void
     {
         $this->service->addInventoryItem($this->assetId, 'Clés');
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $this->service->snapshotInventory($other, $this->assetId);
         $foreignLine = $this->service->inventoryFor($other->id)[0];
 
         $this->expectException(RentalException::class);
 
-        $this->service->setInventoryState($mine, $foreignLine['id'], ReadingPhase::ARRIVAL, InventoryState::OK, null);
+        $this->service->setInventoryValue($mine, $foreignLine['id'], ReadingPhase::ARRIVAL, '1', null);
+    }
+
+    // ── « Valider l'état des lieux » (#708, IT-17) ──────────────────────
+
+    private function validationService(
+        ?\Core\Pdf\DocumentPdfService $pdf = null,
+        ?\Modules\Rental\Service\RentalDocumentService $documents = null
+    ): \Modules\Rental\Service\RentalInventoryValidationService {
+        return new \Modules\Rental\Service\RentalInventoryValidationService(
+            $this->service,
+            $documents ?? $this->createStub(\Modules\Rental\Service\RentalDocumentService::class),
+            $this->createStub(\Modules\Rental\Service\RentalBookingMailService::class),
+            $pdf ?? $this->createStub(\Core\Pdf\DocumentPdfService::class),
+            $this->createStub(\Core\Config\SettingService::class),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+        );
+    }
+
+    private function asset(): \Modules\Rental\Repository\RentalAsset
+    {
+        $asset = $this->assetRepository->findById($this->assetId);
+        $this->assertNotNull($asset);
+
+        return $asset;
+    }
+
+    /**
+     * Frozen first, then produced: a PDF that cannot be made takes the
+     * validation back, so the inventory stays open rather than frozen
+     * with nothing to show for it.
+     */
+    public function testAValidationWhosePdfFailsIsTakenBack(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $pdf = $this->createStub(\Core\Pdf\DocumentPdfService::class);
+        $pdf->method('generate')->willThrowException(new \RuntimeException('dompdf'));
+
+        try {
+            $this->validationService($pdf)->validate(
+                $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
+            );
+            $this->fail('A validation without its PDF went through.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
+        }
+
+        $this->assertSame([], $this->service->inventoryValidations($booking->id));
+    }
+
+    /**
+     * A PDF already filed when the validation is taken back goes with it:
+     * left in Documents, it could still be sent to the renter as if the
+     * inventory had been validated.
+     */
+    public function testAValidationTakenBackAfterItsPdfWasFiledTakesThePdfAway(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        // The step after the filing fails: the validation row cannot take
+        // its document.
+        $this->pdo->exec(
+            "CREATE TRIGGER no_document BEFORE UPDATE OF document_id ON rental_inventory_validations
+             BEGIN SELECT RAISE(ABORT, 'disque plein'); END"
+        );
+        $filed = new \Modules\Rental\Document\RentalDocument(
+            id: 41,
+            bookingId: $booking->id,
+            fileId: 141,
+            type: \Modules\Rental\Document\DocumentType::INVENTORY,
+            version: 1,
+            isForRenter: true,
+            originalName: 'etat-des-lieux-entree.pdf',
+            sizeBytes: 1024,
+            sentAt: null,
+            createdByMemberId: 1,
+            createdAt: $this->now()
+        );
+        $documents = $this->createMock(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn($filed);
+        $documents->expects($this->once())->method('delete')->with($filed, 1);
+
+        try {
+            $this->validationService(null, $documents)->validate(
+                $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
+            );
+            $this->fail('A validation whose document could not be attached went through.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("Rien n'a été validé", $e->getMessage());
+        }
+
+        $this->assertSame([], $this->service->inventoryValidations($booking->id));
+    }
+
+    /**
+     * Once the e-mail has left, failing to record it must not tell the
+     * manager to send it again: the renter would get the PDF twice.
+     */
+    public function testASendThatWentOutIsSaidSentEvenIfRecordingItFails(): void
+    {
+        $this->service->addInventoryItem($this->assetId, 'Clés');
+        $booking = $this->createBooking();
+        $this->service->snapshotInventory($booking, $this->assetId);
+        $documents = $this->createStub(\Modules\Rental\Service\RentalDocumentService::class);
+        $documents->method('attachPdf')->willReturn(new \Modules\Rental\Document\RentalDocument(
+            id: 41,
+            bookingId: $booking->id,
+            fileId: 141,
+            type: \Modules\Rental\Document\DocumentType::INVENTORY,
+            version: 1,
+            isForRenter: true,
+            originalName: 'etat-des-lieux-entree.pdf',
+            sizeBytes: 1024,
+            sentAt: null,
+            createdByMemberId: 1,
+            createdAt: $this->now()
+        ));
+        $documents->method('absolutePath')->willReturn(__FILE__);
+        $documents->method('markSent')->willThrowException(new \RuntimeException('verrou'));
+
+        $result = $this->validationService(null, $documents)->validate(
+            $booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now()
+        );
+
+        $this->assertTrue($result['sent']);
+        $this->assertArrayHasKey('arrival', $this->service->inventoryValidations($booking->id));
+    }
+
+    /**
+     * An arrival ticked by hand is frozen by the departure's validation:
+     * its meter readings must be in by then, or the consumption could
+     * never be billed. A validated arrival is not asked again.
+     */
+    public function testTheDepartureAsksForTheArrivalReadingsOfAnArrivalTickedByHand(): void
+    {
+        $meterId = $this->addMeter();
+        $booking = $this->createBooking();
+        $this->service->recordReading(
+            $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1500', $this->now(), null, null, 1, true
+        );
+
+        $this->assertSame(
+            ['Électricité (entrée)'],
+            $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::DEPARTURE)
+        );
+        try {
+            $this->validationService()->validate(
+                $booking, $this->asset(), ReadingPhase::DEPARTURE, 1, 'Anne', $this->now(), true
+            );
+            $this->fail('A departure froze an arrival still missing its reading.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('Il manque le relevé de : Électricité (entrée)', $e->getMessage());
+        }
+
+        // Once the arrival is validated with its reading, nothing more is asked of it.
+        $other = $this->createBooking('LOC-A2B3C5');
+        $this->service->recordReading($other, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1);
+        $this->assertTrue($this->service->recordInventoryValidation($other, ReadingPhase::ARRIVAL, $this->now(), 1));
+        $this->assertSame(
+            ['Électricité'],
+            $this->validationService()->missingReadings($other, $this->assetId, ReadingPhase::DEPARTURE)
+        );
+    }
+
+    public function testAMeterWithoutItsReadingBlocksTheValidation(): void
+    {
+        $this->addMeter();
+        $booking = $this->createBooking();
+
+        $this->assertSame(['Électricité'], $this->validationService()->missingReadings($booking, $this->assetId, ReadingPhase::ARRIVAL));
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('Il manque le relevé de : Électricité');
+
+        $this->validationService()->validate($booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now());
+    }
+
+    public function testAnAssetWithNothingToWalkHasNothingToValidate(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('se coche à la main');
+
+        $this->validationService()->validate($booking, $this->asset(), ReadingPhase::ARRIVAL, 1, 'Anne', $this->now());
     }
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────
+
+    public function testNoIncidentIsReportedOnceTheDepartureIsValidated(): void
+    {
+        // The departure's PDF lists the incidents (#708, IT-17): one added
+        // afterwards would be missing from what the renter holds.
+        $booking = $this->createBooking();
+        $this->service->recordInventoryValidation($booking, ReadingPhase::DEPARTURE, $this->now(), 1);
+
+        $this->expectException(RentalException::class);
+
+        $this->service->reportIncident($booking, 'Vitre cassée', 5000, null, 1);
+    }
 
     public function testAnIncidentDescriptionIsStoredEncrypted(): void
     {
@@ -514,7 +856,7 @@ class RentalStayServiceTest extends TestCase
         $this->service->reportIncident($booking, 'Vitre cassée par le groupe de Mme Martin', 5000, null, 1);
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
-        $this->assertStringContainsString('LOC-2027-0001', $journal);
+        $this->assertStringContainsString('LOC-A2B3C4', $journal);
         $this->assertStringNotContainsString('Vitre cassée', $journal);
         $this->assertStringNotContainsString('Jeanne Martin', $journal);
     }
@@ -560,8 +902,8 @@ class RentalStayServiceTest extends TestCase
 
     public function testAnIncidentOfAnotherBookingCannotBeDecidedHere(): void
     {
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $foreignId = $this->service->reportIncident($other, 'Vitre cassée', 5000, null, 1);
 
         $this->expectException(RentalException::class);
@@ -671,8 +1013,8 @@ class RentalStayServiceTest extends TestCase
 
     public function testASettlementOfAnotherBookingCannotBeValidatedHere(): void
     {
-        $mine = $this->createBooking('LOC-2027-0001');
-        $other = $this->createBooking('LOC-2027-0002');
+        $mine = $this->createBooking('LOC-A2B3C4');
+        $other = $this->createBooking('LOC-A2B3C5');
         $foreign = $this->service->recordSettlement($other, $this->assetId, 28, [], 1);
 
         $this->expectException(RentalException::class);
@@ -707,6 +1049,7 @@ class RentalStayServiceTest extends TestCase
         $this->service->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::ARRIVAL, '1000', $this->now(), null, null, 1
         );
+        $this->service->recordInventoryValidation($booking, ReadingPhase::ARRIVAL, $this->now(), 1);
         $this->service->recordReading(
             $booking, $this->assetId, $meterId, ReadingPhase::DEPARTURE, '1342,5', $this->now(), null, null, 1
         );

@@ -353,7 +353,7 @@ class BookingAttentionTest extends TestCase
             BookingMilestones::SIGNED_COPY_RECEIVED, BookingMilestones::CONTRACT_COUNTERSIGNED,
             BookingMilestones::DEPOSIT_RECEIVED,
             BookingMilestones::BALANCE_RECEIVED, BookingMilestones::SECURITY_DEPOSIT_RECEIVED,
-            BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::METER_READINGS, BookingMilestones::DEPARTURE_INVENTORY,
+            BookingMilestones::ARRIVAL_INVENTORY, BookingMilestones::DEPARTURE_INVENTORY,
             BookingMilestones::FINAL_SETTLEMENT, BookingMilestones::SECURITY_DEPOSIT_RETURNED,
         ], false);
 

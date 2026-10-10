@@ -292,7 +292,7 @@ class InboundMailboxControllerTest extends TestCase
 
     public function testAReferenceItsConsumerCannotNameIsShownAsItStands(): void
     {
-        // « LOC-2027-0012 » is already the name a manager uses out loud;
+        // « LOC-D4E5F6 » is already the name a manager uses out loud;
         // null must not blank the badge.
         $id = $this->store('m@x');
         $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE, 0, null);

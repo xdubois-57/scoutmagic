@@ -24,6 +24,9 @@
   own — the fold's header is the heading, and it is where the figure that
   says whether this box wants opening lives.
 
+  The invoice is generated, and its billing details kept, on « Facture »
+  (#708, IT-18); it is still listed here with every other document.
+
   Requires `asset`, `booking`, `booking_url`, `documents` and
   `uploadable_types`; optional `landlord`, the resolved Document\Landlord.
 #}
@@ -65,41 +68,30 @@
         #}
         <p class="text-body-secondary small">
             Le contrat se génère et s'envoie depuis le <a href="{{ booking_url }}">tableau de bord</a>, à
-            son étape. Le texte se rédige dans
-            <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a> ; pour cette
-            réservation seulement, ajustez
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice">le
-            texte de la facture</a> avant de la générer.
+            son étape, et la facture depuis la page <a href="{{ booking_url }}/facture">Facture</a>. Le
+            texte se rédige dans <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a>.
         </p>
 
-        <div class="d-flex flex-wrap gap-2 mb-3">
-            {#
-              Once a contract has gone, its dashboard step no longer
-              generates one — yet a confirmed booking whose price changes is
-              told « le contrat sera à régénérer en nouvelle version ». Until
-              a void contract reopens its steps by itself (#708, IT-20), the
-              new version is generated here, and sent from the list below.
-            #}
-            {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent) is not empty %}
-                <form method="post" action="/mes-locations/document-generer" class="d-inline">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                    <input type="hidden" name="document_type" value="contract">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">Générer une nouvelle version du
-                        contrat</button>
-                </form>
-            {% endif %}
-            <form method="post" action="/mes-locations/document-generer" class="d-inline">
+        {#
+          A contract sent before contracts carried a fingerprint can never
+          be voided (#708, IT-20): nothing says what it stated, so its steps
+          never reopen and the dashboard never offers a new version. Nor
+          does it for a sent contract whose stored PDF is gone. For those
+          alone, the new version is still generated here, and sent from the
+          list below.
+        #}
+        {% if documents|filter(d => d.type.value == 'contract' and d.hasBeenSent and not d.isSuperseded
+            and (d.fingerprint is null or d.id in (contracts_without_file|default([])))) is not empty %}
+            <form method="post" action="/mes-locations/document-generer" class="mb-3">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                 <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-                <input type="hidden" name="document_type" value="invoice">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer la facture</button>
+                <input type="hidden" name="document_type" value="contract">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Générer une nouvelle version du
+                    contrat</button>
             </form>
-        </div>
+        {% endif %}
 
         {% if documents is empty %}
             {% include 'partials/empty_state.html.twig' with {
@@ -123,6 +115,12 @@
                             <tr>
                                 <td>
                                     {{ document.label }}
+                                    {% if document.isSuperseded %}
+                                        {# Kept on file, never valid again (#708, IT-20). #}
+                                        <span class="badge bg-warning-subtle text-warning-emphasis ms-1">
+                                            Remplacé — la réservation a changé le {{ document.supersededAt|date_fr }}
+                                        </span>
+                                    {% endif %}
                                     {% if document.isForRenter %}
                                         <span class="badge bg-body-tertiary border text-body-secondary ms-1"
                                               title="Sera joint à un email — jamais téléchargeable par le locataire">
@@ -159,7 +157,7 @@
                                            aria-label="Ouvrir « {{ document.label }} » dans un nouvel onglet">
                                             <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                                         </a>
-                                        {% if document.isForRenter %}
+                                        {% if document.isForRenter and not document.isSuperseded %}
                                             {#
                                               Asks on EVERY send, and the
                                               attribute is outside any {% if %}
@@ -324,64 +322,6 @@
             </div>
             <div class="col-12 col-md-2">
                 <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
-            </div>
-        </form>
-
-        {#
-          The invoice's other half, and therefore still a document: the
-          coordinates it is made out to. It stays in this box rather than
-          moving to Paiements, where a VAT number also sounds at home —
-          nothing is paid from here, and the box a manager opens to make an
-          invoice is the one that should hold what the invoice says.
-        #}
-        <hr>
-        <h4 class="h6">Coordonnées de facturation</h4>
-        <p class="text-body-secondary small">
-            Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
-            week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
-        </p>
-        <form method="post" action="/mes-locations/facturation" class="row g-2">
-            {{ csrf_field()|raw }}
-            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-            <input type="hidden" name="booking_page" value="{{ booking_page.value }}">
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="billing-name">Raison sociale</label>
-                <input type="text" class="form-control form-control-sm" id="billing-name" name="billing_name"
-                       value="{{ billing.name }}">
-            </div>
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="billing-email">Email de facturation</label>
-                <input type="email" class="form-control form-control-sm" id="billing-email" name="billing_email"
-                       value="{{ billing.email }}">
-            </div>
-            <div class="col-12">
-                <label class="form-label" for="billing-address">Adresse</label>
-                <input type="text" class="form-control form-control-sm" id="billing-address" name="billing_address"
-                       value="{{ billing.address }}">
-            </div>
-            <div class="col-4 col-md-2">
-                <label class="form-label" for="billing-country">Pays</label>
-                <input type="text" class="form-control form-control-sm" id="billing-country" name="billing_country"
-                       maxlength="2" placeholder="BE" value="{{ billing.country }}">
-            </div>
-            <div class="col-8 col-md-3">
-                <label class="form-label" for="billing-vat">N° de TVA</label>
-                <input type="text" class="form-control form-control-sm" id="billing-vat" name="billing_vat_number"
-                       value="{{ billing.vat_number }}">
-            </div>
-            <div class="col-6 col-md-3">
-                <label class="form-label" for="billing-enterprise">N° BCE</label>
-                <input type="text" class="form-control form-control-sm" id="billing-enterprise"
-                       name="billing_enterprise_number" value="{{ billing.enterprise_number }}">
-            </div>
-            <div class="col-6 col-md-4">
-                <label class="form-label" for="billing-reference">Référence / bon de commande</label>
-                <input type="text" class="form-control form-control-sm" id="billing-reference"
-                       name="billing_reference" value="{{ billing.reference }}">
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
             </div>
         </form>
     </div>

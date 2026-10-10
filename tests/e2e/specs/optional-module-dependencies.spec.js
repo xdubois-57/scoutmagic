@@ -221,9 +221,19 @@ test('a hard dependency is refused both ways, and an optional one degrades and c
     await page.goto('/admin/fees/tarifs', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // The block is collapsed by default; opening it is what makes the
-    // absence assertion mean something rather than pass on a hidden DOM.
-    await page.getByRole('button', { name: 'Barème des cotisations' }).click();
+    // Opening the block is what makes the absence assertion mean
+    // something rather than pass on a hidden DOM. It is folded by default
+    // but opens by itself when the site ships a scale for the year on
+    // screen (Modules\Fees\Service\ShippedScaleService), and a blind
+    // click would then FOLD it. That click used to pass anyway, the
+    // collapse still sliding shut when the next assertion looked;
+    // reducedMotion: 'reduce' (playwright.config.js) makes the fold
+    // instant, so the state is read before acting on it.
+    const scaleToggle = page.getByRole('button', { name: 'Barème des cotisations' });
+    if (await scaleToggle.getAttribute('aria-expanded') !== 'true') {
+        await scaleToggle.click();
+    }
+    await expect(scaleToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('button', { name: 'Enregistrer le barème' })).toBeVisible();
     await expect(
         page.getByRole('button', { name: 'Chercher les montants' }),

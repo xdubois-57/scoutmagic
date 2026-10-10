@@ -34,7 +34,7 @@
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), field names only where a control has no
 // accessible name of its own.
 import { test, expect } from '@playwright/test';
@@ -43,6 +43,7 @@ import { expectRendersAsACalendar } from '../support/calendar.js';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { openSectionEditor } from '../support/section-editor.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
+import { closeModal, openModal } from '../support/modal.js';
 
 /** A date far enough out to clear any notice period the asset declares. */
 function isoDaysFromNow(days) {
@@ -73,11 +74,58 @@ function nextDay(day) {
 const ARRIVAL = isoDaysFromNow(200);
 const DEPARTURE = isoDaysFromNow(203);
 
+test.describe('Rentals — the park', () => {
+    /**
+     * The park is a list, an asset a page of its own (issue #748): created
+     * from the header's one action, found again on the list, opened, and
+     * archived from its page — after which the list shows it apart.
+     */
+    test('a chief adds an asset, finds it on the list, opens it and archives it', async ({ page }) => {
+        const name = 'Remorque de camp';
+        await loginAsAdmin(page);
+
+        await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/nouveau$/);
+
+        const creation = page.locator('form[action="/admin/locations/create"]');
+        await creation.locator('input[name="name"]').fill(name);
+        await creation.locator('select[name="asset_type"]').selectOption('Matériel');
+        await creation.getByRole('button', { name: 'Créer le bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+
+        // Back to the list through the breadcrumb, and into the asset again
+        // from its own line.
+        await page.getByRole('navigation', { name: "Fil d'Ariane" }).getByRole('link', { name: 'Biens à louer' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations$/);
+        await page.locator('[data-active-assets]').getByRole('link', { name, exact: true }).click();
+        await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+
+        // Archiving asks first, and says nothing is deleted.
+        await waitForConfirmReady(page);
+        await page.locator('#cycle-de-vie').getByRole('button', { name: 'Archiver' }).click();
+        const question = await answerConfirmation(page);
+        expect(question).toContain("Rien n'est supprimé.");
+        await expect(page.getByText('Le bien a été archivé.')).toBeVisible();
+
+        await page.goto('/admin/locations');
+        const archived = page.locator('[data-archived-assets]');
+        await expect(archived.getByRole('link', { name, exact: true })).toBeVisible();
+        await expect(archived.getByText('Archivé')).toBeVisible();
+        await expect(archived.getByRole('button', { name: `Désarchiver « ${name} »` })).toBeVisible();
+    });
+});
+
 test.describe('Rentals — running an asset', () => {
     test('a chief configures a hall, blocks a week and answers a request', async ({ page }) => {
         // ── The hall, and a tariff ──────────────────────────────────────
         await loginAsAdmin(page);
+        // Creating an asset has its own page (issue #748), reached from the
+        // park's one primary action.
         await page.goto('/admin/locations');
+        await page.getByRole('link', { name: 'Ajouter un bien' }).click();
+        await expect(page).toHaveURL(/\/admin\/locations\/nouveau$/);
 
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
@@ -88,10 +136,10 @@ test.describe('Rentals — running an asset', () => {
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
 
-        // The controller redirects to the new asset already selected, so
-        // every form below is the new hall's own.
-        await expect(page).toHaveURL(/\/admin\/locations\?asset_id=\d+/);
-        await expect(page.locator('input[name="name"]').first()).toHaveValue(ASSET_NAME);
+        // The controller redirects to the new asset's own page, so every
+        // form below is the new hall's own.
+        await expect(page).toHaveURL(/\/admin\/locations\/\d+$/);
+        await expect(page.getByRole('heading', { level: 1, name: ASSET_NAME })).toBeVisible();
 
         // The manager grant, which creating the hall does NOT confer —
         // not even on the superadmin who created it (§6.3).
@@ -247,9 +295,9 @@ test.describe('Rentals — running an asset', () => {
         await waitOutHumanCheckDelay(page);
         await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
 
-        const heading = page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ });
+        const heading = page.getByRole('heading', { name: /Votre demande LOC-[2-9A-HJKMNP-Z]{6}/ });
         await expect(heading).toBeVisible();
-        const reference = (await heading.textContent()).match(/LOC-\d{4}-\d+/)[0];
+        const reference = (await heading.textContent()).match(/LOC-[2-9A-HJKMNP-Z]{6}/)[0];
 
         // ── And the unit answers it ─────────────────────────────────────
         await loginAsAdmin(page);
@@ -292,6 +340,39 @@ test.describe('Rentals — running an asset', () => {
         // would show the journey unchanged and no flash at all.
         await expect(page.getByText('Réservation confirmée.')).toBeVisible();
         await expect(page.getByText('Le locataire a été prévenu par email.')).toBeVisible();
+
+        // « Courrier » is on every booking (#720), whatever the mailboxes:
+        // the booking's own mail, nothing to sort — and what the site sent
+        // the renter is there, the acknowledgement and the confirmation
+        // among it, opened like any message.
+        await page.locator('a[href*="/reservations/"][href$="/courrier"]').first().click();
+        await expect(page).toHaveURL(/\/reservations\/\d+\/courrier$/);
+        const sent = page.locator('[data-sent-entry]');
+        // A retrying assertion: the page may still be arriving when the
+        // URL already matches.
+        await expect(sent.nth(1)).toBeVisible();
+        await expect(sent.filter({ hasText: 'Votre demande de location' }).first()).toBeVisible();
+        // The dialog's script is deferred: its listener may not be bound
+        // yet when Bootstrap already is.
+        await page.waitForFunction(() => document.documentElement.classList.contains('mail-message-js'));
+        const dialog = await openModal(page, 'mail-message-modal', () =>
+            sent.first().getByRole('button', { name: 'Lire le message' }).click()
+        );
+        await expect(dialog.locator('#mail-message-modal-body')).not.toContainText(/[0-9a-f]{64}/);
+        await closeModal(page, 'mail-message-modal', () =>
+            dialog.locator('.modal-footer').getByRole('button', { name: 'Fermer' }).click());
+
+        // « Autres adresses du locataire » (#720, step 5): added and
+        // removed in place, through the page's own asynchronous forms.
+        await page.getByLabel('Ajouter une adresse').fill('tresorier@groupe.example');
+        await page.getByRole('button', { name: 'Ajouter', exact: true }).click();
+        await expect(page.getByText('Adresse ajoutée.')).toBeVisible();
+        const other = page.locator('[data-other-renter-email]');
+        await expect(other).toHaveCount(1);
+        await expect(other).toContainText('tresorier@groupe.example');
+        await page.getByRole('button', { name: 'Retirer tresorier@groupe.example' }).click();
+        expect(await answerConfirmation(page)).toContain('Les messages déjà rattachés restent');
+        await expect(other).toHaveCount(0);
 
         // ── The confirmed stay now holds its dates against everybody
         //    else, with no more reason given than the block was. ──────────

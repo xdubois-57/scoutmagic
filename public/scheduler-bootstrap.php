@@ -555,21 +555,37 @@ function scoutmagicBootstrapScheduler(
                             $journalService,
                             $storagePath
                         ),
-                        // The model as a last resort between two bookings
-                        // of one renter (§8.59): orders the propositions,
-                        // never associates. Null without the connector.
+                        // THIS is the path that tells the managers of a new
+                        // message (#720): the relève runs from the
+                        // scheduler. Null without a notification service.
+                        newMessageNotifier: $notificationService === null
+                            ? null
+                            : new \Modules\Rental\Mail\NewMessageNotifier(
+                                $notificationService,
+                                new \Modules\Rental\Service\ManagerRecipientResolver(
+                                    new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+                                    new \Core\Import\MemberYearRepository($pdo),
+                                    $userAccountRepo,
+                                    $journalService,
+                                    \Modules\Rental\Service\ManagerRecipientResolver::unitStaffOfTheCurrentYear(
+                                        new \Core\Member\Repository\SectionRepository(
+                                            \Core\Database\Connection::withPdo($pdo)
+                                        ),
+                                        new \Core\Import\MemberYearRepository($pdo),
+                                        new \Core\Config\ScoutYearService($pdo)
+                                    )
+                                ),
+                                new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService),
+                                $journalService
+                            ),
+                        // Names each booking by its asset when the model
+                        // is asked to choose between them.
+                        assetRepository: new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService),
+                        // The deferred pass asks the model what the rules
+                        // could not settle (#720, step 6). Without the
+                        // connector, or a cheap model, nothing is asked.
                         modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
                             $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
-                        ),
-                        // THIS is the path that tells the managers: the
-                        // relève runs from the scheduler. Null without a
-                        // notification service (cron.php without one).
-                        notifier: $notificationService === null ? null : new \Modules\Rental\Mail\RentalMailNotifier(
-                            $notificationService,
-                            new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
-                            new \Core\Import\MemberYearRepository($pdo),
-                            $userAccountRepo,
-                            new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService)
                         )
                     ));
                 }

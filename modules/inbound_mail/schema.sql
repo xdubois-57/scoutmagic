@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- Newline-separated folder paths, in the server's own naming. Empty
     -- means INBOX.
     folders TEXT NULL,
+    -- The box's « Envoyés » folder, when the operator had to name it (#720):
+    -- read for the consumers that handle sent mail (Api\HandlesOutboundMail).
+    -- Empty means the folder the server marks \Sent (RFC 6154), found on
+    -- its own; this is only the correction for a server that marks none.
+    sent_folder VARCHAR(255) NULL,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,
     -- 'shared' | 'dedicated'. **The first question the configuration
     -- screen asks, and the one that determines every other answer.**
@@ -212,6 +217,10 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- message wrongly flagged becomes visible again the moment it carries
     -- an association or a proposition.
     is_bulk TINYINT(1) NOT NULL DEFAULT 0,
+    -- 'received' | 'sent' (#720): sent means read in the box's « Envoyés »
+    -- folder, and stored only because a consumer handling sent mail filed it
+    -- (Api\HandlesOutboundMail).
+    direction VARCHAR(10) NOT NULL DEFAULT 'received',
 
     -- When this message last stopped being associated with anything.
     --
@@ -371,6 +380,38 @@ CREATE TABLE IF NOT EXISTS inbound_message_dismissals (
         REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+-- inbound_message_exclusions: « ce message ne concerne pas cet objet ».
+--
+-- Written when a consumer detaches a message for good (`detach()` with
+-- `$excludeFromAnalysis`, #720): the association goes, and no automatic
+-- path may write it back — the arrival pass, the deferred content pass and
+-- a re-analysis all go through Service\AnalysisResultApplier, which reads
+-- this table before writing a link or a proposition. Without it a detached
+-- message is an unlinked message, and the next re-analysis files it under
+-- the very booking a manager just took it off.
+--
+-- **Per (message, consumer, object), never wider.** Unlike
+-- inbound_message_dismissals, which says the message is not the module's
+-- business at all, this says it is not THIS object's: the same message may
+-- still be filed under another booking, by the rules or by a person.
+--
+-- Only automatic paths read it. A person attaching the message by hand
+-- (the unit's general mail screen) decides past it, as a person may.
+CREATE TABLE IF NOT EXISTS inbound_message_exclusions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    message_id INT UNSIGNED NOT NULL,
+    consumer_id VARCHAR(50) NOT NULL,
+    business_reference VARCHAR(100) NOT NULL,
+    -- Who decided. Null when the row outlived the account, or when no
+    -- account was at hand.
+    excluded_by_user_account_id INT UNSIGNED NULL,
+    excluded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_exclusion_unique (message_id, consumer_id, business_reference),
+    CONSTRAINT fk_exclusion_message FOREIGN KEY (message_id) REFERENCES inbound_messages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_exclusion_author FOREIGN KEY (excluded_by_user_account_id)
+        REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_message_attachments: metadata only.
 --

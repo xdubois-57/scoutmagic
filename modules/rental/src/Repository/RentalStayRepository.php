@@ -13,7 +13,6 @@ use Core\Service\DateInput;
 use Modules\Rental\Stay\Incident;
 use Modules\Rental\Stay\IncidentDecision;
 use Modules\Rental\Stay\InventoryKind;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Stay\MeterKind;
 use Modules\Rental\Stay\MeterReading;
 use Modules\Rental\Stay\ReadingPhase;
@@ -146,6 +145,10 @@ class RentalStayRepository
      * Replacing rather than accumulating is the point: a second arrival
      * reading is a **correction**, and keeping both would make consumption
      * a guess about which pair to use.
+     *
+     * Never onto a validated phase, checked by the write itself — see
+     * setInventoryValue(). False when no row changed: the phase was
+     * validated in between, or the correction changed nothing.
      */
     public function saveReading(
         int $bookingId,
@@ -156,7 +159,7 @@ class RentalStayRepository
         ?int $fileId,
         ?string $comment,
         ?int $recordedByMemberId
-    ): void {
+    ): bool {
         $existing = $this->findReading($bookingId, $meterId, $phase);
         $timestamp = $readAt->format('Y-m-d H:i:s');
         $comment = $comment !== null && trim($comment) !== '' ? mb_substr(trim($comment), 0, 255) : null;
@@ -165,7 +168,9 @@ class RentalStayRepository
             $stmt = $this->pdo->prepare(
                 'UPDATE rental_meter_readings
                  SET value_milli = ?, read_at = ?, file_id = ?, comment = ?, recorded_by_member_id = ?
-                 WHERE id = ?'
+                 WHERE id = ?
+                   AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                    WHERE v.booking_id = ? AND v.phase IN (' . self::placeholders($phase) . '))'
             );
             $stmt->execute([
                 $valueMilli,
@@ -177,16 +182,22 @@ class RentalStayRepository
                 $comment,
                 $recordedByMemberId,
                 $existing->id,
+                $bookingId,
+                ...self::frozenByValues($phase),
             ]);
 
-            return;
+            return $stmt->rowCount() > 0;
         }
 
+        // `FROM (SELECT 1)` rather than MySQL's `FROM DUAL`, which SQLite
+        // does not know: the one-row source the NOT EXISTS filters.
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_meter_readings
                 (booking_id, meter_id, phase, value_milli, read_at, file_id, comment, recorded_by_member_id, '
                 . 'created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
+              WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = ? AND v.phase IN (' . self::placeholders($phase) . '))'
         );
         $stmt->execute([
             $bookingId,
@@ -198,7 +209,11 @@ class RentalStayRepository
             $comment,
             $recordedByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+            ...self::frozenByValues($phase),
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function findReading(int $bookingId, int $meterId, ReadingPhase $phase): ?MeterReading
@@ -388,6 +403,15 @@ class RentalStayRepository
         return true;
     }
 
+    /** Whether this booking's checklist was copied (at its confirmation). */
+    public function isInventorySnapshotted(int $bookingId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT inventory_snapshotted FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$bookingId]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
     /**
      * @return array<
      *     int,
@@ -397,8 +421,8 @@ class RentalStayRepository
      *         kind: InventoryKind,
      *         expected_count: ?int,
      *         sort_order: int,
-     *         arrival_state: InventoryState,
-     *         departure_state: InventoryState,
+     *         arrival_value: ?string,
+     *         departure_value: ?string,
      *         arrival_note: ?string,
      *         departure_note: ?string
      *     }
@@ -418,10 +442,8 @@ class RentalStayRepository
                 'kind' => InventoryKind::tryFrom((string) $row['kind']) ?? InventoryKind::QUANTITY,
                 'expected_count' => $row['expected_count'] !== null ? (int) $row['expected_count'] : null,
                 'sort_order' => (int) $row['sort_order'],
-                'arrival_state' => InventoryState::tryFrom((string) $row['arrival_state'])
-                    ?? InventoryState::NOT_CHECKED,
-                'departure_state' => InventoryState::tryFrom((string) $row['departure_state'])
-                    ?? InventoryState::NOT_CHECKED,
+                'arrival_value' => isset($row['arrival_value']) ? (string) $row['arrival_value'] : null,
+                'departure_value' => isset($row['departure_value']) ? (string) $row['departure_value'] : null,
                 'arrival_note' => $row['arrival_note'] !== null ? (string) $row['arrival_note'] : null,
                 'departure_note' => $row['departure_note'] !== null ? (string) $row['departure_note'] : null,
             ],
@@ -429,26 +451,120 @@ class RentalStayRepository
         );
     }
 
-    public function setInventoryState(
+    /**
+     * What was found on one line, for one phase (#708, IT-17): the value —
+     * already parsed by its sort — and the note beside it.
+     *
+     * Never onto a validated phase, checked by the write itself and not
+     * only beforehand: a save that passed the check while another manager
+     * was validating would otherwise land after the PDF was made, and the
+     * frozen value would differ from the one the renter holds. "Validated"
+     * includes a later phase (`ReadingPhase::frozenBy()`): the departure's
+     * PDF is read against the arrival, even one only ticked by hand.
+     *
+     * False when no row changed — the phase was validated in between, or
+     * (MySQL counts changed rows, not matched ones) nothing was different.
+     */
+    public function setInventoryValue(
         int $inventoryId,
         ReadingPhase $phase,
-        InventoryState $state,
+        ?string $value,
         ?string $note
-    ): void {
-        $stateColumn = $phase === ReadingPhase::ARRIVAL ? 'arrival_state' : 'departure_state';
+    ): bool {
+        $valueColumn = $phase === ReadingPhase::ARRIVAL ? 'arrival_value' : 'departure_value';
         $noteColumn = $phase === ReadingPhase::ARRIVAL ? 'arrival_note' : 'departure_note';
 
         // The column names come from the enum above, never from a request:
         // a phase that is not one of the two cases cannot reach this line.
         $stmt = $this->pdo->prepare(
-            "UPDATE rental_booking_inventory SET {$stateColumn} = ?, {$noteColumn} = ?, updated_at = ? WHERE id = ?"
+            "UPDATE rental_booking_inventory SET {$valueColumn} = ?, {$noteColumn} = ?, updated_at = ?
+              WHERE id = ?
+                AND NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = rental_booking_inventory.booking_id
+                                   AND v.phase IN (" . self::placeholders($phase) . '))'
         );
         $stmt->execute([
-            $state->value,
+            $value,
             $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 255) : null,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $inventoryId,
+            ...self::frozenByValues($phase),
         ]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * The phases validated on this booking (#708, IT-17), keyed by phase.
+     *
+     * @return array<string, array{validated_at: \DateTimeImmutable, validated_by_member_id: ?int, document_id: ?int}>
+     */
+    public function findInventoryValidations(int $bookingId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT phase, validated_at, validated_by_member_id, document_id
+               FROM rental_inventory_validations WHERE booking_id = ?'
+        );
+        $stmt->execute([$bookingId]);
+
+        $validations = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $validations[(string) $row['phase']] = [
+                'validated_at' => DateInput::requireFromStorage(
+                    (string) $row['validated_at'],
+                    'rental_inventory_validations.validated_at'
+                ),
+                'validated_by_member_id' => $row['validated_by_member_id'] !== null
+                    ? (int) $row['validated_by_member_id']
+                    : null,
+                'document_id' => $row['document_id'] !== null ? (int) $row['document_id'] : null,
+            ];
+        }
+
+        return $validations;
+    }
+
+    /**
+     * Freezes a phase. False when it already was: the unique key is the
+     * lock, so two managers validating at once produce one validation.
+     */
+    public function recordInventoryValidation(
+        int $bookingId,
+        ReadingPhase $phase,
+        \DateTimeImmutable $at,
+        ?int $memberId
+    ): bool {
+        try {
+            $this->pdo->prepare(
+                'INSERT INTO rental_inventory_validations (booking_id, phase, validated_at, validated_by_member_id)
+                 VALUES (?, ?, ?, ?)'
+            )->execute([$bookingId, $phase->value, $at->format('Y-m-d H:i:s'), $memberId]);
+        } catch (\PDOException $e) {
+            // The unique key only: an FK failure shares SQLSTATE 23000 and
+            // must not be read as « already validated ».
+            if (\Core\Database\ConstraintViolation::isDuplicateKey($e)) {
+                return false;
+            }
+            throw $e;
+        }
+
+        return true;
+    }
+
+    /** The PDF a validation produced. */
+    public function setInventoryValidationDocument(int $bookingId, ReadingPhase $phase, int $documentId): void
+    {
+        $this->pdo->prepare(
+            'UPDATE rental_inventory_validations SET document_id = ? WHERE booking_id = ? AND phase = ?'
+        )->execute([$documentId, $bookingId, $phase->value]);
+    }
+
+    /** Undoes a validation whose PDF could not be produced. */
+    public function forgetInventoryValidation(int $bookingId, ReadingPhase $phase): void
+    {
+        $this->pdo->prepare(
+            'DELETE FROM rental_inventory_validations WHERE booking_id = ? AND phase = ?'
+        )->execute([$bookingId, $phase->value]);
     }
 
     public function findInventoryBookingId(int $inventoryId): ?int
@@ -462,18 +578,28 @@ class RentalStayRepository
 
     // ── Incidents (§6.23) ───────────────────────────────────────────────
 
+    /**
+     * Never once the departure inventory is validated, checked by the
+     * write itself — see setInventoryValue(): the departure PDF lists the
+     * incidents, and one landing after it was made would be billable
+     * while missing from what the renter received.
+     *
+     * Null when the departure was validated in between: nothing inserted.
+     */
     public function createIncident(
         int $bookingId,
         string $description,
         ?int $proposedAmountCents,
         ?int $fileId,
         ?int $createdByMemberId
-    ): int {
+    ): ?int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_incidents
                 (booking_id, description_encrypted, proposed_amount_cents, decision, file_id, created_by_member_id, '
                 . 'created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+             SELECT ?, ?, ?, ?, ?, ?, ? FROM (SELECT 1 AS one) AS single_row
+              WHERE NOT EXISTS (SELECT 1 FROM rental_inventory_validations v
+                                 WHERE v.booking_id = ? AND v.phase = ?)'
         );
         $stmt->execute([
             $bookingId,
@@ -483,9 +609,12 @@ class RentalStayRepository
             $fileId,
             $createdByMemberId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $bookingId,
+            ReadingPhase::DEPARTURE->value,
         ]);
 
-        return (int) $this->pdo->lastInsertId();
+        // An INSERT reports the rows it inserted on every engine alike.
+        return $stmt->rowCount() > 0 ? (int) $this->pdo->lastInsertId() : null;
     }
 
     public function decideIncident(
@@ -737,5 +866,17 @@ class RentalStayRepository
             createdByMemberId: $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at')
         );
+    }
+
+    /** One `?` per phase whose validation freezes `$phase`. */
+    private static function placeholders(ReadingPhase $phase): string
+    {
+        return implode(', ', array_fill(0, count($phase->frozenBy()), '?'));
+    }
+
+    /** @return list<string> */
+    private static function frozenByValues(ReadingPhase $phase): array
+    {
+        return array_map(static fn(ReadingPhase $p): string => $p->value, $phase->frozenBy());
     }
 }

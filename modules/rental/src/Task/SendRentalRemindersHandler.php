@@ -126,6 +126,19 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             $context->storagePath
         );
 
+        $stayService = new \Modules\Rental\Service\RentalStayService(
+            new \Modules\Rental\Repository\RentalStayRepository($pdo, $context->encryption),
+            $bookingAudit,
+            new \Modules\Rental\Service\RentalPricingService(
+                new \Modules\Rental\Repository\RentalPricingRepository($pdo),
+                new \Modules\Rental\Pricing\RentalPricingEngine(),
+                $context->journal
+            ),
+            new \Modules\Rental\Stay\SettlementCalculator(),
+            $context->journal,
+            $paymentService
+        );
+
         return new RentalReminderService(
             $bookingRepository,
             new RentalAssetRepository($pdo, $context->encryption),
@@ -144,18 +157,7 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
             $context->notifications,
             $paymentService,
             $documentService,
-            new \Modules\Rental\Service\RentalStayService(
-                new \Modules\Rental\Repository\RentalStayRepository($pdo, $context->encryption),
-                $bookingAudit,
-                new \Modules\Rental\Service\RentalPricingService(
-                    new \Modules\Rental\Repository\RentalPricingRepository($pdo),
-                    new \Modules\Rental\Pricing\RentalPricingEngine(),
-                    $context->journal
-                ),
-                new \Modules\Rental\Stay\SettlementCalculator(),
-                $context->journal,
-                $paymentService
-            ),
+            $stayService,
             // The renter's practical-info email needs a renderer, and
             // TaskContext carries no Twig — the same construction every
             // other module's mailing task does (Calendar\Task\
@@ -170,7 +172,22 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                 conditions: new \Modules\Rental\Service\RentalConditionsService(
                     new \Modules\Rental\Repository\RentalConditionsVersionRepository($pdo),
                     new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($pdo))
-                )
+                ),
+                // … and ends with what the renter has to do next (#708,
+                // IT-15), from the same checklist as the dashboard.
+                journey: new \Modules\Rental\Service\RentalJourneyService(
+                    $bookingRepository,
+                    $stayService,
+                    new \Modules\Rental\Service\RentalMilestoneMarkService(
+                        new \Modules\Rental\Repository\RentalMilestoneMarkRepository($pdo),
+                        $bookingAudit
+                    ),
+                    $documentService,
+                    $paymentService
+                ),
+                // The booking's « Courrier » shows what this pass sent
+                // (#720, step 2).
+                sentEmails: new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $context->encryption)
             ),
             // The per-asset reminder overrides and the unit's defaults
             // (§6.29). Without them every asset runs on the shipped

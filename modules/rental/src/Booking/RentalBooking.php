@@ -24,7 +24,7 @@ final class RentalBooking
     public function __construct(
         public readonly int $id,
         public readonly int $assetId,
-        /** `LOC-YYYY-NNNN` — stable, quotable, never reused. */
+        /** `LOC-XXXXXX` ({@see BookingReference}) — stable, quotable, never reused. */
         public readonly string $reference,
         public readonly string $arrivalDate,
         public readonly string $departureDate,

@@ -133,12 +133,6 @@ class RentalTestHelper
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
         )');
 
-        $pdo->exec('CREATE TABLE rental_reference_sequences (
-            year INTEGER NOT NULL PRIMARY KEY,
-            last_sequence INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-
         $pdo->exec('CREATE TABLE rental_bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             asset_id INTEGER NOT NULL,
@@ -273,6 +267,8 @@ class RentalTestHelper
             source TEXT NOT NULL DEFAULT \'manual\',
             refused_at TEXT,
             refusal_reason TEXT,
+            fingerprint TEXT,
+            superseded_at TEXT,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
@@ -341,11 +337,22 @@ class RentalTestHelper
             kind TEXT NOT NULL DEFAULT "quantity",
             expected_count INTEGER,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            arrival_state TEXT NOT NULL DEFAULT "not_checked",
-            departure_state TEXT NOT NULL DEFAULT "not_checked",
+            arrival_value TEXT,
+            departure_value TEXT,
             arrival_note TEXT,
             departure_note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_inventory_validations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            phase TEXT NOT NULL,
+            validated_at TEXT NOT NULL,
+            validated_by_member_id INTEGER,
+            document_id INTEGER,
+            UNIQUE (booking_id, phase),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
 
@@ -404,11 +411,35 @@ class RentalTestHelper
 
         self::createComplianceTables($pdo);
 
+        $pdo->exec('CREATE TABLE rental_booking_sent_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            recipient_encrypted BLOB NOT NULL,
+            subject_encrypted BLOB NOT NULL,
+            body_text_encrypted BLOB NOT NULL,
+            body_html_encrypted BLOB NOT NULL,
+            document_ids TEXT NOT NULL DEFAULT \'\',
+            message_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_booking_mail_reads (
+            booking_id INTEGER NOT NULL,
+            user_account_id INTEGER NOT NULL,
+            read_up_to INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (booking_id, user_account_id)
+        )');
+
         $pdo->exec('CREATE TABLE rental_booking_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER NOT NULL,
             email_encrypted BLOB NOT NULL,
             email_blind_index TEXT NOT NULL,
+            learned_from_message_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (booking_id, email_blind_index),
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE

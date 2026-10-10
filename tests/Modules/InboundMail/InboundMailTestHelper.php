@@ -25,6 +25,7 @@ class InboundMailTestHelper
             username_encrypted BLOB NOT NULL,
             password_encrypted BLOB NOT NULL,
             folders TEXT,
+            sent_folder TEXT,
             is_enabled INTEGER NOT NULL DEFAULT 1,
             purpose TEXT NOT NULL DEFAULT "shared",
             dedicated_to TEXT,
@@ -83,6 +84,7 @@ class InboundMailTestHelper
             stored_analysis_at TEXT,
             stored_analysis_attempts INTEGER NOT NULL DEFAULT 0,
             is_bulk INTEGER NOT NULL DEFAULT 0,
+            direction TEXT NOT NULL DEFAULT \'received\',
             last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');
@@ -129,6 +131,16 @@ class InboundMailTestHelper
             dismissed_by_user_account_id INTEGER,
             dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (message_id, consumer_id)
+        )');
+
+        $pdo->exec('CREATE TABLE inbound_message_exclusions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            consumer_id TEXT NOT NULL,
+            business_reference TEXT NOT NULL,
+            excluded_by_user_account_id INTEGER,
+            excluded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (message_id, consumer_id, business_reference)
         )');
 
         $pdo->exec('CREATE TABLE inbound_message_attachments (

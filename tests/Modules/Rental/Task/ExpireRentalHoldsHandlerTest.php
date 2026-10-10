@@ -157,7 +157,7 @@ class ExpireRentalHoldsHandlerTest extends TestCase
 
     public function testALapsedAutomaticHoldIsClearedByTheRun(): void
     {
-        $bookingId = $this->createBooking('LOC-2027-0001', new \DateTimeImmutable('-1 hour'), HoldOrigin::AUTOMATIC);
+        $bookingId = $this->createBooking('LOC-A2B3C4', new \DateTimeImmutable('-1 hour'), HoldOrigin::AUTOMATIC);
         $this->schedulerService->schedule('rental', ExpireRentalHoldsHandler::TASK_KEY, new \DateTimeImmutable('-1 minute'), [], 'hourly');
 
         $this->runDueTasks();
@@ -172,7 +172,7 @@ class ExpireRentalHoldsHandlerTest extends TestCase
 
     public function testALapsedManagerOptionExpiresTheBooking(): void
     {
-        $bookingId = $this->createBooking('LOC-2027-0002', new \DateTimeImmutable('-1 hour'), HoldOrigin::MANAGER);
+        $bookingId = $this->createBooking('LOC-A2B3C5', new \DateTimeImmutable('-1 hour'), HoldOrigin::MANAGER);
         $this->schedulerService->schedule('rental', ExpireRentalHoldsHandler::TASK_KEY, new \DateTimeImmutable('-1 minute'), [], 'hourly');
 
         $this->runDueTasks();
@@ -185,7 +185,7 @@ class ExpireRentalHoldsHandlerTest extends TestCase
 
     public function testAHoldStillRunningIsLeftAloneByTheRun(): void
     {
-        $bookingId = $this->createBooking('LOC-2027-0003', new \DateTimeImmutable('+2 days'), HoldOrigin::AUTOMATIC);
+        $bookingId = $this->createBooking('LOC-A2B3C6', new \DateTimeImmutable('+2 days'), HoldOrigin::AUTOMATIC);
         $this->schedulerService->schedule('rental', ExpireRentalHoldsHandler::TASK_KEY, new \DateTimeImmutable('-1 minute'), [], 'hourly');
 
         $this->runDueTasks();
@@ -208,13 +208,13 @@ class ExpireRentalHoldsHandlerTest extends TestCase
 
     public function testNoRenterIdentityReachesTheJournalWhenAHoldExpires(): void
     {
-        $this->createBooking('LOC-2027-0004', new \DateTimeImmutable('-1 hour'), HoldOrigin::MANAGER);
+        $this->createBooking('LOC-A2B3C7', new \DateTimeImmutable('-1 hour'), HoldOrigin::MANAGER);
         $this->schedulerService->schedule('rental', ExpireRentalHoldsHandler::TASK_KEY, new \DateTimeImmutable('-1 minute'), [], 'hourly');
 
         $this->runDueTasks();
 
         $journal = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
-        $this->assertStringContainsString('LOC-2027-0004', $journal);
+        $this->assertStringContainsString('LOC-A2B3C7', $journal);
         $this->assertStringNotContainsString('jeanne@example.be', $journal);
         $this->assertStringNotContainsString('Jeanne', $journal);
     }

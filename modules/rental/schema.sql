@@ -375,11 +375,16 @@ CREATE TABLE IF NOT EXISTS rental_fees (
 CREATE TABLE IF NOT EXISTS rental_bookings (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,
-    -- Stable, human-quotable reference in the form LOC-YYYY-NNNN, allocated
-    -- once at submission and never reused. It is what a renter quotes on the
-    -- phone, what the contract carries, and what an inbound email's subject
-    -- is matched on (§7.6) — so it must survive everything, including the
-    -- booking being refused.
+    -- Stable, human-quotable reference in the form LOC-XXXXXX: six
+    -- characters drawn at random from an alphabet without 0/O or 1/I/L, so
+    -- it can be read out on the phone, a digit and a letter among them
+    -- (Modules\Rental\Booking\BookingReference). Random rather than counted
+    -- so that one reference does not point at its neighbours (#231) — it is
+    -- harder to guess, not a secret. Drawn once at submission and never
+    -- changed. It is what a renter quotes on the phone, what the contract
+    -- carries, and what an inbound email's subject is matched on (§7.6) — so
+    -- it must survive everything, including the booking being refused. A
+    -- booking made earlier keeps its LOC-YYYY-NNNN or LOC-YYYY-XXXXXX.
     reference VARCHAR(20) NOT NULL,
 
     arrival_date DATE NOT NULL,
@@ -510,7 +515,7 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- The version counter for this booking's settlements. Forward-only,
     -- never MAX(version) over the surviving rows: a deleted v2 must not
     -- make the next settlement v2 again, since v2 may already have been
-    -- sent. Same reasoning as document versions and booking references.
+    -- sent. Same reasoning as document versions.
     settlement_last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     -- Whether the inventory checklist has been copied in from the asset
     -- (§6.23). A flag rather than "are there rows?", because an asset with
@@ -585,23 +590,6 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Reference counter, one row per year.
---
--- The next LOC-YYYY-NNNN cannot be derived from the surviving bookings: a
--- booking deleted by mistake — or, from the retention policy onward, purged
--- on schedule — would free its number, and two different rentals would end
--- up quoting the same reference to two different renters. The counter only
--- ever moves forward, so a number is spent the moment it is handed out and
--- never comes back.
-CREATE TABLE IF NOT EXISTS rental_reference_sequences (
-    -- The year a request was MADE in, not the year of the stay: a reference
-    -- has to stay stable, and a 2027 request for a 2028 camp is a 2027
-    -- request.
-    year SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
-    last_sequence INT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- ─────────────────────────────────────────────────────────────────────
 -- Manual blocks (§6.18)
 -- ─────────────────────────────────────────────────────────────────────
@@ -669,9 +657,12 @@ CREATE TABLE IF NOT EXISTS rental_blocks (
 --
 -- A renter writes from work, their partner answers from home, the group's
 -- secretary takes over: the booking knows one address and the sender rule
--- (§7.6, level 3) only that one. Each time a manager files such a message
--- by hand, the sender's address is remembered here, so the next one from
--- it is recognised without anybody's help. Encrypted like the renter's own
+-- (§7.6, level 3) only that one. These are the « Autres adresses du
+-- locataire » (#720, step 5): a manager adds or removes one on the
+-- booking's Courrier page, and a filing a person or the AI decided teaches
+-- the sender's address (the recipient's, for a sent message), marked as
+-- learned from that message. Matched like the renter's own, for received
+-- and sent mail alike. Encrypted like the renter's own
 -- address, matched through the same blind index, and erased with the
 -- booking.
 CREATE TABLE IF NOT EXISTS rental_booking_emails (
@@ -679,10 +670,77 @@ CREATE TABLE IF NOT EXISTS rental_booking_emails (
     booking_id INT UNSIGNED NOT NULL,
     email_encrypted BLOB NOT NULL,
     email_blind_index VARCHAR(64) NOT NULL,
+    -- The message whose filing taught this address (#720, step 5); NULL
+    -- when a manager typed it in. « Détacher » that message forgets it.
+    learned_from_message_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_rental_booking_emails_unique (booking_id, email_blind_index),
+    INDEX idx_rental_booking_emails_learned (booking_id, learned_from_message_id),
     INDEX idx_rental_booking_emails_blind (email_blind_index),
     CONSTRAINT fk_rental_booking_emails_booking FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- How far each person has read a booking's mail (#720): the « non lus »
+-- badge on its « Courrier » tab and on the asset's overview.
+--
+-- Per person, not per booking: two managers of one hall each have their
+-- own badge, and the one who opened the page must not clear the other's.
+-- A position in inbound_mail's associations (`latestLinkPosition()`)
+-- rather than a date, so « what came after » is decided by the order the
+-- messages were filed in and never by comparing two clocks. Nothing
+-- personal is stored; the row goes with the booking or the account.
+CREATE TABLE IF NOT EXISTS rental_booking_mail_reads (
+    booking_id INT UNSIGNED NOT NULL,
+    user_account_id INT UNSIGNED NOT NULL,
+    read_up_to INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (booking_id, user_account_id),
+    CONSTRAINT fk_rental_booking_mail_reads_booking FOREIGN KEY (booking_id)
+        REFERENCES rental_bookings (id) ON DELETE CASCADE,
+    CONSTRAINT fk_rental_booking_mail_reads_account FOREIGN KEY (user_account_id)
+        REFERENCES user_accounts (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- What the site itself sent the renter about a booking (#720, step 2): the
+-- other half of the « Courrier » page, which before this kept only a blind
+-- fingerprint of each Message-ID (inbound_outbound_message_ids) — no
+-- subject, no text, no date, and a failed send left nothing but a flash.
+--
+-- **One write point**: RentalBookingMailService::deliver(), which every
+-- e-mail to the renter goes through, records it sent or failed.
+--
+-- The recipient, the subject and both bodies are **encrypted** like the
+-- renter's own fields. The **tracking link is masked** before encryption:
+-- it carries a credential to the renter's page, and a copy of it sitting
+-- in this table would outlive a regeneration. « Renvoyer » puts the
+-- booking's current link back in its place.
+--
+-- Attachments are **not copied**: they are documents of the booking
+-- already (contract, invoice, état des lieux…), named here by id. The
+-- Message-ID is kept in clear, the id the renter's reply will quote.
+-- « Renvoyer » updates the row it retries rather than adding one: one
+-- e-mail, that eventually went out or still did not.
+-- Erased with the booking; no retention of its own.
+CREATE TABLE IF NOT EXISTS rental_booking_sent_emails (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    -- The e-mail template it was rendered from (`rental.acknowledgement`,
+    -- `rental.decision`…): what « Renvoyer » sends again.
+    kind VARCHAR(60) NOT NULL,
+    recipient_encrypted BLOB NOT NULL,
+    subject_encrypted BLOB NOT NULL,
+    body_text_encrypted MEDIUMBLOB NOT NULL,
+    body_html_encrypted MEDIUMBLOB NOT NULL,
+    -- Comma-separated ids of rental_documents, empty when none.
+    document_ids VARCHAR(255) NOT NULL DEFAULT '',
+    message_id VARCHAR(255) NOT NULL,
+    -- 'sent', 'failed', or 'sending' while one « Renvoyer » retries it.
+    status VARCHAR(10) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    KEY idx_rental_booking_sent_emails_booking (booking_id, sent_at),
+    KEY idx_rental_booking_sent_emails_message (message_id),
+    CONSTRAINT fk_rental_booking_sent_emails_booking FOREIGN KEY (booking_id)
+        REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS rental_booking_comments (
@@ -830,6 +888,16 @@ CREATE TABLE IF NOT EXISTS rental_documents (
     refused_at DATETIME NULL,
     refusal_reason VARCHAR(300) NULL,
 
+    -- A contract stops being valid the moment the booking no longer says
+    -- what it says (#708, IT-20). `fingerprint` is the hash of the values a
+    -- contract took — dates, people, price and its lines, the renter, the
+    -- asset — taken at generation (Document\ContractFingerprint); when the
+    -- booking's own hash no longer matches, the contract and every copy
+    -- signed from it get `superseded_at`. They stay on file, marked, and
+    -- count for nothing: a new contract must go out.
+    fingerprint CHAR(64) NULL,
+    superseded_at DATETIME NULL,
+
     created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -867,8 +935,7 @@ CREATE TABLE IF NOT EXISTS rental_booking_document_texts (
     -- documents. Deleting v2 must not make the next generation v2 again:
     -- v2 may already have been emailed, and two different PDFs under one
     -- version number is exactly the confusion versioning exists to
-    -- prevent. Same reasoning, and the same shape, as
-    -- `rental_reference_sequences`.
+    -- prevent.
     last_version SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -994,18 +1061,39 @@ CREATE TABLE IF NOT EXISTS rental_booking_inventory (
     expected_count SMALLINT UNSIGNED NULL,
     sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
 
-    -- 'not_checked' | 'ok' | 'issue' | 'missing'. `not_checked` is the
-    -- honest default and is distinct from `ok`: "nobody looked" and
-    -- "somebody looked and it was fine" are different facts, and conflating
-    -- them is how a missing set of keys becomes nobody's fault.
-    arrival_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
-    departure_state VARCHAR(20) NOT NULL DEFAULT 'not_checked',
+    -- What was found, at arrival and at departure (#708, IT-17): a number
+    -- for a quantity, 'yes' or 'no' for a yes/no item. The value IS the
+    -- check: NULL is "nobody looked", never "fine" — which is why nothing
+    -- is ever pre-filled. A shortage reads in the number, a « non » in the
+    -- answer, a problem in the note beside it.
+    arrival_value VARCHAR(20) NULL,
+    departure_value VARCHAR(20) NULL,
     arrival_note VARCHAR(255) NULL,
     departure_note VARCHAR(255) NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     KEY idx_rental_booking_inventory (booking_id, sort_order),
     CONSTRAINT fk_rental_booking_inventory_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- rental_inventory_validations: an inventory validated, phase by phase
+-- (#708, IT-17). Validating produces the PDF the renter is sent, and from
+-- that moment the phase is frozen — it is what they hold. One row per
+-- phase, which the unique key enforces: two managers pressing « Valider »
+-- at once produce one PDF, not two.
+CREATE TABLE IF NOT EXISTS rental_inventory_validations (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    -- 'arrival' | 'departure'
+    phase VARCHAR(20) NOT NULL,
+    validated_at DATETIME NOT NULL,
+    validated_by_member_id INT UNSIGNED NULL,
+    -- The PDF filed in rental_documents (DocumentType::INVENTORY).
+    document_id INT UNSIGNED NULL,
+    UNIQUE KEY uq_rental_inventory_validations (booking_id, phase),
+    CONSTRAINT fk_rental_inventory_validations_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

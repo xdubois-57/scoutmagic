@@ -7,7 +7,7 @@ role_min: identified
 question: Comment traiter une demande de location reçue ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations, /mes-locations/*/reservations/*/sejour
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/reservations
 related: locations, locations-calendrier, locations-reservation, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite, locations-gabarits
 ---
 
@@ -61,11 +61,13 @@ Voir « Le courrier des locations ».
 
 ## Le séjour
 
-La page Séjour consigne les relevés de compteurs (photo à l'appui),
-l'état des lieux figé à la confirmation, et les incidents — rien ne se
-facture sans qu'un gestionnaire tranche : ajouter au décompte, retenir
-sur la caution, ou ne pas facturer. Cette page ne fonctionne qu'en
-ligne : sur place sans réseau, photographiez, saisissez au retour.
+La page « État des lieux » d'une réservation consigne ce qu'on constate
+à l'entrée et à la sortie, les relevés de compteurs et les incidents ;
+voir « L'état des lieux d'une réservation ». Un incident ne se facture
+jamais sans qu'un gestionnaire tranche : ajouter au décompte, retenir sur
+la caution, ou ne pas facturer. Le décompte final et la facture se
+font ensuite sur la page « Facture » ; voir « La facture d'une
+réservation ».
 
 Les réglages du bien vivent dans ses propres onglets, et ne changent
 jamais une réservation déjà existante. Le contrat, la facture, les

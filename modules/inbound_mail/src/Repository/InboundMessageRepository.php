@@ -16,6 +16,7 @@ use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
+use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\OmittedAttachment;
 
@@ -105,7 +106,8 @@ class InboundMessageRepository
         \DateTimeImmutable $sentAt,
         array $toEmails = [],
         bool $isBulk = false,
-        ?string $rawHeaders = null
+        ?string $rawHeaders = null,
+        MessageDirection $direction = MessageDirection::RECEIVED
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
@@ -113,8 +115,8 @@ class InboundMessageRepository
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
                  in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted,
-                 raw_headers_encrypted, sent_at, is_bulk)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 raw_headers_encrypted, sent_at, is_bulk, direction)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -139,6 +141,7 @@ class InboundMessageRepository
                 : $this->encryption->encrypt(RawHeaderBlock::bounded($rawHeaders), 'inbound_messages.raw_headers'),
             $sentAt->format('Y-m-d H:i:s'),
             $isBulk ? 1 : 0,
+            $direction->value,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -238,6 +241,104 @@ class InboundMessageRepository
         $stmt->execute($params);
 
         return $stmt->rowCount();
+    }
+
+    /**
+     * The id of the newest message-level association with this object —
+     * the position `InboundMailInterface::latestLinkPosition()` hands out.
+     */
+    public function latestLinkId(string $consumerId, string $businessReference): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT MAX(id) FROM inbound_message_links
+              WHERE consumer_id = ? AND business_reference = ? AND attachment_id = 0'
+        );
+        $stmt->execute([$consumerId, $businessReference]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Message-level associations written after each position, by
+     * reference. One query for a whole list of objects: the overview asks
+     * for every booking it shows. Only received messages count: what the
+     * unit itself sent is never news to anyone.
+     *
+     * @param array<string, int> $afterByReference
+     * @return array<string, int>
+     */
+    public function countLinksAfter(string $consumerId, array $afterByReference): array
+    {
+        if ($afterByReference === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($afterByReference), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT l.business_reference, l.id FROM inbound_message_links l
+               JOIN inbound_messages m ON m.id = l.message_id
+              WHERE l.consumer_id = ? AND l.attachment_id = 0 AND m.direction = ?
+                AND l.business_reference IN (' . $placeholders . ')'
+        );
+        $stmt->execute([
+            $consumerId,
+            MessageDirection::RECEIVED->value,
+            ...array_map('strval', array_keys($afterByReference)),
+        ]);
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $reference = (string) $row['business_reference'];
+            if ((int) $row['id'] > ($afterByReference[$reference] ?? PHP_INT_MAX)) {
+                $counts[$reference] = ($counts[$reference] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Record that no automatic path may file this message under this
+     * object again (`inbound_message_exclusions`, #720).
+     *
+     * Idempotent: a second detach of the same message from the same object
+     * is the state the caller asked for, not an error.
+     */
+    public function excludeReference(
+        int $messageId,
+        string $consumerId,
+        string $businessReference,
+        ?int $userAccountId = null
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO inbound_message_exclusions
+                (message_id, consumer_id, business_reference, excluded_by_user_account_id)
+             VALUES (?, ?, ?, ?)'
+        );
+
+        try {
+            $stmt->execute([$messageId, $consumerId, $businessReference, $userAccountId]);
+        } catch (\PDOException $e) {
+            // Narrowed to the unique index, as dismissMessageForConsumer()
+            // is: a dropped connection wrote nothing, and saying otherwise
+            // would let the next re-analysis file the message right back.
+            if (!self::isDuplicateKey($e)) {
+                throw $e;
+            }
+        }
+    }
+
+    /** Whether a consumer took this message off this object for good. */
+    public function isExcluded(int $messageId, string $consumerId, string $businessReference): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_message_exclusions
+              WHERE message_id = ? AND consumer_id = ? AND business_reference = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$messageId, $consumerId, $businessReference]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     public function hasLink(
@@ -894,6 +995,31 @@ class InboundMessageRepository
             // The unique index: the same id recorded twice is the state
             // the caller asked for.
         }
+    }
+
+    /**
+     * A message stored from the box's « Envoyés » that the box turns out to
+     * have received as well: kept once, as received (#720). No-op on a row
+     * that already is.
+     */
+    public function markReceived(int $messageId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET direction = ? WHERE id = ? AND direction = ?');
+        $stmt->execute([MessageDirection::RECEIVED->value, $messageId, MessageDirection::SENT->value]);
+    }
+
+    public function isOutboundMessageId(string $consumerId, string $messageId): bool
+    {
+        if (trim($messageId, "<> \t") === '') {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_outbound_message_ids WHERE consumer_id = ? AND message_id_blind_index = ? LIMIT 1'
+        );
+        $stmt->execute([$consumerId, $this->messageIdIndex($messageId)]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     // ── Deletion ────────────────────────────────────────────────────────
@@ -2063,7 +2189,8 @@ class InboundMessageRepository
             rawHeaders: ($row['raw_headers_encrypted'] ?? null) !== null
                 ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
                 : null,
-            isBulk: (bool) ($row['is_bulk'] ?? false)
+            isBulk: (bool) ($row['is_bulk'] ?? false),
+            direction: MessageDirection::tryFrom((string) ($row['direction'] ?? '')) ?? MessageDirection::RECEIVED
         );
     }
 

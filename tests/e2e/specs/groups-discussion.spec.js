@@ -54,7 +54,7 @@
 // "scout-year-", which is what keeps that true.
 // LOCATORS
 // ----------------------------------------------------------------------------
-// Roles and visible text wherever they identify the element (README.md
+// Roles and visible text wherever they identify the element (docs/developpement.md
 // § Tests de bout en bout), which is every control the member actually
 // operates. Three things on a card cannot be reached that way and use the
 // module's own JavaScript hooks instead — the same ids and classes
@@ -676,6 +676,12 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await loginAsAdmin(page);
     await page.getByRole('button', { name: 'Tout refuser' }).click();
     await page.setViewportSize(PHONE);
+    // This scenario is about the unfolding itself, which the stylesheet
+    // rightly removes for anybody who asked for less movement — and the
+    // suite asks for exactly that (reducedMotion: 'reduce' in
+    // playwright.config.js). The other half, the swap with no travel,
+    // is a plain `transition: none` and needs no browser to read.
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await openCreateGroupForm(page);

@@ -32,7 +32,10 @@ qui concerne une personne : le calendrier public dit *loué* ou
 
 ## 2. Créer un bien
 
-`Espace chefs d'U > Locations > Ajouter un bien`.
+`Espace chefs d'U > Biens à louer > Ajouter un bien` — le bouton en haut de
+la liste des biens, qui ouvre une page de création. Le bien créé, on arrive
+sur sa propre page (`/admin/locations/{id}`) : général, gestionnaires,
+compte des paiements, cycle de vie.
 
 Trois choses à décider tout de suite, parce qu'elles changent tout le
 reste :
@@ -144,9 +147,11 @@ gestionnaires dit qui ne peut pas être prévenu, et pourquoi.
 
 ## 6. Suivre une réservation
 
-Une réservation tient en quatre pages, reliées par les pastilles sous
-son titre : **Tableau de bord**, **Finances** (le prix et les paiements),
-**Documents** (contrat, facture, fichiers, coordonnées de facturation) et
+Une réservation tient en plusieurs pages, reliées par les pastilles sous
+son titre : **Tableau de bord**, **Modifications**, **Finances** (le prix
+et les paiements), **Documents** (contrat, facture, fichiers), **État des
+lieux** (les deux états des lieux, les compteurs, les incidents),
+**Facture** (coordonnées de facturation, décompte final, facture) et
 **Courrier** (§11). Le tableau de bord dit où en est la réservation et
 propose l'étape qui la fait avancer ; dessous, le parcours, étape par
 étape, dit pour chacune si le site la coche tout seul, si elle se fait
@@ -301,40 +306,84 @@ heures du matin.
 
 ## 11. Les emails du locataire
 
-Avec le module Courrier entrant, les réponses du locataire remontent
-automatiquement sur sa réservation. Quand une boîte e-mail — une seule —
-est dédiée aux locations, chaque réservation a une page « Courrier », et
-les e-mails envoyés au locataire portent cette boîte en adresse de
-réponse. Avec deux boîtes dédiées, la page n'existe pas : la liste des
-boîtes du courrier entrant le signale.
+Chaque réservation a une page « Courrier », quelle que soit la
+configuration des boîtes e-mail. Elle montre le courrier de **cette**
+réservation, et lui seul, du plus récent au plus ancien : ce que le
+locataire a écrit, marqué « Reçu », et ce que le site lui a envoyé —
+accusé de réception, décisions, contrat, facture, rappels —, marqué
+« Envoyé ». Chaque message s'ouvre en entier avec « Lire le message ».
+
+Un e-mail du site qui n'a pas pu partir apparaît en rouge, « Non
+envoyé », avec un bouton **Renvoyer** : il repart tel qu'il avait été
+écrit, avec ses pièces jointes, et le lien de suivi actuel de la
+réservation à la place de celui qu'il portait. Une fois parti, il perd
+sa marque rouge : la page garde un seul e-mail, quel que soit le nombre
+d'essais. Ce lien n'est jamais conservé : la page affiche « [lien de
+suivi masqué] » à sa place.
+
+Avec le module Courrier entrant, les réponses du locataire y remontent
+automatiquement, depuis toute boîte ouverte aux Locations — qu'elle leur
+soit dédiée ou partagée avec d'autres modules ne change rien ici. Sans
+boîte qui relève leur courrier, la page le dit, et explique comment en
+ouvrir une. Seuls les e-mails arrivés dans une boîte de l'unité y
+figurent : un e-mail écrit depuis une adresse personnelle n'y apparaît
+pas.
+
+Ce qu'un membre de l'unité écrit au locataire **depuis une boîte de
+l'unité** y figure aussi, marqué « Envoyé » et adressé « À : » le
+locataire : le site lit le dossier des envoyés de ces boîtes. Il ne
+garde que les e-mails qu'il rattache à une réservation ; le reste du
+courrier envoyé de l'unité n'entre pas sur le site. Un e-mail du site
+n'apparaît jamais deux fois, même quand la boîte en garde une copie.
 
 Le rattachement se fait d'abord par l'**adresse de réponse signée** que
-portait l'e-mail du site, puis par la **référence** dans le sujet, puis
-par la **conversation**, puis, à défaut, par l'**adresse de l'expéditeur**
-si le message tombe dans une fenêtre autour du séjour. **En cas
-d'ambiguïté, rien n'est rattaché** — mieux vaut un email qui reste dans la
-boîte qu'un email dans le mauvais dossier.
+portait l'e-mail du site, puis par la **référence** dans le sujet — quand
+c'est le locataire qui écrit —, puis par la **conversation**, puis, à
+défaut, par l'**adresse de l'expéditeur** si le message tombe dans une
+fenêtre autour du séjour. Un e-mail envoyé suit les mêmes règles, en
+lisant ses **destinataires** au lieu de l'expéditeur. **En cas
+d'ambiguïté, rien n'est rattaché à l'arrivée** : mieux vaut un e-mail qui
+reste dans la boîte qu'un e-mail dans le mauvais dossier. Si le connecteur
+IA est configuré, le modèle tranche dans l'heure, **uniquement parmi les
+réservations que les règles ont retenues** (plusieurs réservations du même
+locataire, ou une référence citée par une adresse inconnue), ou ne choisit
+rien. Son choix est marqué « Rattachement incertain · Suggestion automatique » sur la page
+Courrier ; **Détacher** le défait. Sans IA, le message n'apparaît sur
+aucune réservation, et personne n'a de tri à faire.
 
-Chaque message affiche **comment** il a été rattaché. Un rattachement sur
-la seule adresse est présenté comme incertain, parce qu'il l'est.
+Quand un e-mail est rattaché à une réservation, ses gestionnaires
+reçoivent une notification « Nouveau message du locataire », qui mène à
+la page « Courrier ». Chacun a sa **pastille de non-lus** : « Courrier (2) »
+dans les onglets de la réservation, et un encadré « Nouveaux messages »
+sur la vue d'ensemble du bien. Elle retombe quand **vous** ouvrez la page,
+pas quand un autre gestionnaire l'ouvre.
 
-Une pièce jointe devient un document de la réservation, en « Non classé »
-et en visibilité interne — jamais présumée être le contrat signé. Vous la
-reclassez en un clic.
+Une pièce jointe — d'un e-mail reçu comme d'un e-mail envoyé depuis la
+boîte de l'unité — devient un document de la réservation quand c'est un
+PDF, un fichier Word ou une photo, en « Non classé » et en visibilité
+interne — jamais présumée être le contrat signé. Vous la reclassez en un
+clic. Un fichier que la réservation a déjà, comme le contrat généré puis
+renvoyé à la main, n'est pas ajouté une seconde fois. Les autres fichiers
+(tableurs, par exemple) restent sur le message.
 
-La page « Courrier » est le même écran que le courrier des camps : les
-messages à trier, rattachés, tous, écartés ; les propositions à confirmer
-ou écarter ; le rattachement à la main, uniquement vers une réservation
-d'un bien que vous gérez. Vous y voyez le courrier des réservations de vos
-biens ; un message que rien ne rattache encore n'y apparaît que si vous
-gérez tous les biens de l'unité. **Détacher** un message le renvoie dans le
-courrier de l'unité, avec ses pièces jointes non reclassées ; pour
-changer de réservation, détachez puis rattachez. « Écarter ce courrier »
-retire de la liste un message qui ne concerne pas les locations sans le
-supprimer : il reste dans le courrier de l'unité jusqu'à la fin de sa
-durée de conservation habituelle. Un message qui concerne aussi le bien
-d'un autre gestionnaire ne s'écarte pas : l'écarter le retirerait aussi
-de sa liste à lui.
+La seule action sur un message est **Détacher**, après confirmation :
+« Ce message ne concerne pas cette réservation ? » Il quitte la page, ses
+pièces jointes encore « Non classé » aussi, et **il n'est plus jamais
+rattaché automatiquement à cette réservation** — il peut l'être à une
+autre. Un document déjà reclassé, un contrat signé par exemple, reste sur
+la réservation.
+
+En haut de la page, les **« Autres adresses du locataire »** : le
+trésorier du groupe, un conjoint, une adresse de travail. Un e-mail venant
+de l'une d'elles, ou envoyé à l'une d'elles, est reconnu comme s'il
+s'agissait du locataire. Vous en ajoutez ou en retirez une ; chaque
+changement figure dans l'historique de la réservation, et les messages
+déjà rattachés restent quand vous en retirez une. Quand quelqu'un
+rattache un message à la main depuis le courrier général de l'unité, ou
+que l'IA tranche,
+l'adresse de l'expéditeur (ou le destinataire unique d'un e-mail envoyé)
+s'ajoute d'elle-même, marquée « ajoutée automatiquement » ; détacher ce
+message la retire.
 
 ## 12. Le registre de conformité
 

@@ -15,7 +15,6 @@ use Core\Notification\NotificationService;
 use Core\Security\UserAccountRepository;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Reminder\DueReminder;
-use Modules\Rental\Stay\InventoryState;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Reminder\ReminderPlanner;
 use Modules\Rental\Reminder\ReminderSchedule;
@@ -202,20 +201,18 @@ class RentalReminderService
             $inventory['departure'] = $inventory['departure']
                 || in_array(BookingMilestones::DEPARTURE_INVENTORY, $ticked, true);
 
+            [$contractSent, $hasSignedCopy] = $this->contractState($booking->id, $ticked);
             $due = $this->planner->forBooking(
                 $booking,
                 $asset,
                 self::withHandTicks($this->paymentStatus($booking, $asset), $marks),
                 $inventory,
-                in_array(BookingMilestones::CONTRACT_SENT, $ticked, true)
-                    || $this->documentService?->latest(
-                        $booking->id,
-                        \Modules\Rental\Document\DocumentType::CONTRACT
-                    ) !== null,
+                $hasSignedCopy,
                 in_array(BookingMilestones::FINAL_SETTLEMENT, $ticked, true)
                     || ($this->stayService?->settlementsFor($booking->id) ?? []) !== [],
                 $today,
-                $schedule = $this->scheduleFor($asset->id)
+                $schedule = $this->scheduleFor($asset->id),
+                $contractSent && !$hasSignedCopy
             );
 
             foreach ($due as $reminder) {
@@ -226,6 +223,38 @@ class RentalReminderService
         }
 
         return $sent;
+    }
+
+    /**
+     * Whether the contract went out, and whether the renter's signed copy
+     * came back (#708, IT-16) — a copy refused does not count, nor does
+     * anything a newer contract replaced; a step ticked by hand counts like
+     * the site's own answer (IT-14).
+     *
+     * @param list<string> $ticked
+     * @return array{0: bool, 1: bool}
+     */
+    private function contractState(int $bookingId, array $ticked): array
+    {
+        $sent = in_array(BookingMilestones::CONTRACT_SENT, $ticked, true);
+        $copy = in_array(BookingMilestones::SIGNED_COPY_RECEIVED, $ticked, true)
+            || in_array(BookingMilestones::CONTRACT_COUNTERSIGNED, $ticked, true);
+
+        foreach ($this->documentService?->forBooking($bookingId) ?? [] as $document) {
+            if ($document->isSuperseded()) {
+                continue;
+            }
+            if ($document->type === \Modules\Rental\Document\DocumentType::CONTRACT && $document->sentAt !== null) {
+                $sent = true;
+            }
+            if ($document->type === \Modules\Rental\Document\DocumentType::SIGNED_CONTRACT
+                || ($document->type === \Modules\Rental\Document\DocumentType::SIGNED_COPY && !$document->isRefused())
+            ) {
+                $copy = true;
+            }
+        }
+
+        return [$sent, $copy];
     }
 
     private function runForCompliance(\DateTimeImmutable $today): int
@@ -352,7 +381,14 @@ class RentalReminderService
             return false;
         }
 
-        return $this->mailService->sendPracticalInfo($booking, $asset);
+        return match ($reminder->kind) {
+            ReminderKind::SIGNED_COPY_DUE => $this->mailService->sendSignedCopyReminder(
+                $booking,
+                $asset,
+                $this->bookingRepository->trackingTokenOf($booking->id)
+            ),
+            default => $this->mailService->sendPracticalInfo($booking, $asset),
+        };
     }
 
     private function recipients(): ManagerRecipientResolver
@@ -393,27 +429,17 @@ class RentalReminderService
             return ['arrival' => true, 'departure' => true];
         }
 
-        $entries = $this->stayService->inventoryFor($booking->id);
-        if ($entries === []) {
-            // No checklist was snapshotted for this booking — an asset with
-            // an empty inventory template snapshots legitimately into zero
-            // rows (§6.23). There is nothing to record, so nothing to chase.
+        // Nothing to walk on an asset with neither items nor meters, so
+        // nothing to chase — as before (#708, IT-17).
+        if (!$this->stayService->keepsInventoryFor($booking)) {
             return ['arrival' => true, 'departure' => true];
         }
 
-        // `NOT_CHECKED` is a real state, distinct from `OK`: "nobody looked"
-        // and "somebody looked and it was fine" are different facts (§6.23).
-        // An inventory counts as done once anything at all has been looked
-        // at — chasing a manager who filled in nine items out of ten would
-        // be pedantry, and the tenth is visible on the page.
-        $arrival = false;
-        $departure = false;
-        foreach ($entries as $entry) {
-            $arrival = $arrival || $entry['arrival_state'] !== InventoryState::NOT_CHECKED;
-            $departure = $departure || $entry['departure_state'] !== InventoryState::NOT_CHECKED;
-        }
+        // Done means VALIDATED (#708, IT-17): a line filled in is not an
+        // inventory the renter has been sent.
+        $validations = $this->stayService->inventoryValidations($booking->id);
 
-        return ['arrival' => $arrival, 'departure' => $departure];
+        return ['arrival' => isset($validations['arrival']), 'departure' => isset($validations['departure'])];
     }
 
     /**

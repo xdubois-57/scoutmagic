@@ -7,7 +7,7 @@ role_min: superadmin
 question: J'ai perdu le serveur, comment retrouver les photos ?
 question: Comment restaurer le site quand les fichiers sont sur un stockage externe ?
 paths: /config/stockage, /config/stockage/emplacements, /config/maintenance/sauvegarde-automatique
-related: stockage, maintenance
+related: stockage, maintenance, restaurer-ailleurs
 ---
 
 Cette page existe pour être lue **le jour où ça arrive**, pas avant.
@@ -33,13 +33,12 @@ Le travail consiste à rebrancher l'une sur les autres.
 
 ## La marche à suivre
 
-**1. Réinstallez le site**, à vide, sur le nouvel hébergement.
-
-**2. Restaurez la base de données** depuis votre sauvegarde, par
-Configuration › Maintenance. Si vous disposez de la sauvegarde
-portable — celle qui emporte les clés de chiffrement du site — c'est
-elle qu'il faut utiliser : sans les clés, les données chiffrées de
-l'ancienne base restent illisibles sur la nouvelle installation.
+**1. et 2. Réinstallez le site et restaurez la sauvegarde portable**
+— celle qui emporte les clés de chiffrement du site : sans elles, les
+données chiffrées de l'ancienne base restent illisibles. Tout se fait
+pendant l'installation, pas par Configuration › Maintenance : choisissez
+la sauvegarde dans `bootstrap.php`, puis terminez dans l'assistant (voir
+« Remonter le site après un sinistre »).
 
 **3. Rouvrez l'emplacement restauré** — ne le recréez pas. La base
 restaurée contient déjà vos emplacements, et chaque album désigne le

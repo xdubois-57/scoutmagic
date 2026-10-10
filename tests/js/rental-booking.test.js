@@ -144,6 +144,125 @@ describe('rental-booking.js: posting a form without leaving the page', () => {
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 
+    /**
+     * Busy until the panels are swapped, not until the answer arrives: the
+     * end-to-end run types the next inventory line on that signal, and a
+     * line typed before the swap is replaced by its older render (#809).
+     */
+    it('says the page is busy until the panels are swapped, and only until then', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        let release;
+        let call = 0;
+        global.fetch = vi.fn(() => {
+            call += 1;
+            if (call === 1) {
+                return jsonResponse({ success: true, message: 'Contrat envoyé.' });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 200,
+                text: () => new Promise((resolve) => { release = () => resolve(pageHtml('Fait')); }),
+            });
+        });
+        await boot();
+        const page = document.querySelector('[data-rental-booking]');
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        expect(page.getAttribute('aria-busy')).toBe('true');
+        expect(document.getElementById('milestone').textContent).toBe('À faire');
+
+        release();
+
+        await vi.waitFor(() => expect(page.hasAttribute('aria-busy')).toBe(false));
+        expect(document.getElementById('milestone').textContent).toBe('Fait');
+    });
+
+    /**
+     * The render fetched for the refresh may predate a save still in
+     * flight on one line (rental-inventory.js): that line is kept as it
+     * is, its value and status with it; the rest of the panel moves on.
+     */
+    it('keeps an element still saving on its own, and re-renders everything around it', async () => {
+        const panel = (value, milestone) => `
+            <div class="page-medium" data-rental-booking>
+                <div data-booking-panel="milestones"><span id="milestone">${milestone}</span></div>
+                <div data-booking-panel="documents">
+                    <form method="post" action="/mes-locations/document-envoyer" id="send-form">
+                        <button type="submit">Envoyer</button>
+                    </form>
+                    <form id="line-1" data-async="off"><input name="value" value="${value}"><output></output></form>
+                    <form id="line-2" data-async="off"><input name="value" value="${value}"></form>
+                </div>
+            </div>`;
+        document.body.innerHTML = panel('', 'À faire');
+        global.fetch = actionThenRefresh({ success: true, message: 'Relevé enregistré.' }, panel('', 'Fait'));
+        await boot();
+        const saving = document.getElementById('line-1');
+        saving.setAttribute('data-booking-keep', '');
+        saving.querySelector('input').value = '1';
+        saving.querySelector('output').textContent = 'Enregistrement…';
+        const idle = document.getElementById('line-2');
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(document.getElementById('milestone').textContent).toBe('Fait'));
+        expect(document.getElementById('line-1')).toBe(saving);
+        expect(saving.querySelector('input').value).toBe('1');
+        expect(saving.querySelector('output').textContent).toBe('Enregistrement…');
+        expect(document.getElementById('line-2')).not.toBe(idle);
+        expect(document.querySelectorAll('#line-1')).toHaveLength(1);
+    });
+
+    /**
+     * rental-inventory.js holds on to a line whose save ended during the
+     * refresh until it hears this — so it must come once the panels are
+     * in and the page no longer says busy, never before.
+     */
+    it('says the panels are in once they are swapped and the page is no longer busy', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        global.fetch = actionThenRefresh({ success: true, message: 'Contrat envoyé.' }, pageHtml('Fait'));
+        await boot();
+        const heard = [];
+        // Removed at the end: a listener left on `document` outlives this
+        // test and would hear the next test's refresh, on a page it does
+        // not know.
+        const listen = () => {
+            heard.push({
+                milestone: document.getElementById('milestone')?.textContent,
+                busy: document.querySelector('[data-rental-booking]')?.hasAttribute('aria-busy'),
+            });
+        };
+        document.addEventListener('rental-booking:refreshed', listen);
+
+        try {
+            submit('send-form');
+
+            await vi.waitFor(() => expect(heard).toHaveLength(1));
+            expect(heard[0]).toEqual({ milestone: 'Fait', busy: false });
+        } finally {
+            document.removeEventListener('rental-booking:refreshed', listen);
+        }
+    });
+
+    it('stops saying it is busy when the refresh itself fails', async () => {
+        document.body.innerHTML = pageHtml('À faire');
+        let call = 0;
+        global.fetch = vi.fn(() => {
+            call += 1;
+            return call === 1
+                ? jsonResponse({ success: true, message: 'Fait.' })
+                : Promise.reject(new Error('offline'));
+        });
+        await boot();
+
+        submit('send-form');
+
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(document.querySelector('[data-rental-booking]').hasAttribute('aria-busy')).toBe(false));
+    });
+
     it('reports a refused action as an error and still refreshes nothing away', async () => {
         document.body.innerHTML = pageHtml('À faire');
         global.fetch = actionThenRefresh(

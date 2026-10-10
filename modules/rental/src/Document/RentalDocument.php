@@ -40,8 +40,21 @@ final class RentalDocument
          * on file, and no longer counts as received.
          */
         public readonly ?\DateTimeImmutable $refusedAt = null,
-        public readonly ?string $refusalReason = null
+        public readonly ?string $refusalReason = null,
+        /**
+         * When the booking changed under this contract — or under the copy
+         * signed from it — and made it void (#708, IT-20). Kept on file,
+         * never sent to the renter again, never downloadable.
+         */
+        public readonly ?\DateTimeImmutable $supersededAt = null,
+        /** `Document\ContractFingerprint` of what a contract says, at generation. */
+        public readonly ?string $fingerprint = null
     ) {
+    }
+
+    public function isSuperseded(): bool
+    {
+        return $this->supersededAt !== null;
     }
 
     public function isRefused(): bool
@@ -61,7 +74,7 @@ final class RentalDocument
         return $this->source === self::SOURCE_MANUAL;
     }
 
-    /** `contrat-LOC-2027-0042-v2.pdf`. */
+    /** `contrat-LOC-K7Q2M4-v2.pdf`. */
     public static function fileNameFor(DocumentType $type, string $reference, int $version): string
     {
         return $type->fileStem() . '-' . $reference . '-v' . $version . '.pdf';
