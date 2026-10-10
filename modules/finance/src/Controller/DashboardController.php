@@ -118,11 +118,8 @@ class DashboardController extends AbstractController
         // Its build() runs the account's reconciliation pass first, so the
         // amount still expected, read right after, is read off allocations
         // that are up to date.
-        $reconciliationCounts = $this->reconciliationService->pendingCounts(
-            $account->id,
-            $this->effectiveScoutYearId($role),
-            $role
-        );
+        $scoutYearId = $this->effectiveScoutYearId($role);
+        $reconciliationCounts = $this->reconciliationService->pendingCounts($account->id, $scoutYearId, $role);
 
         return $this->render('@finance/dashboard.html.twig', [
             'accounts' => $accounts,
@@ -137,7 +134,10 @@ class DashboardController extends AbstractController
             'pending_receipts_count' => count($this->receiptService->listPending($account->id)),
             'reconciliation_counts' => $reconciliationCounts,
             'reconciliation_pending' => array_sum($reconciliationCounts),
-            'open_campaigns_count' => $this->campaignRepository->countOpenByAccountId($account->id),
+            // Counted for the scout year the campaigns list is opened on,
+            // so the tile and the list it links to agree.
+            'open_campaigns_count' => $this->campaignRepository->countOpen($account->id, $scoutYearId),
+            'scout_year_id' => $scoutYearId,
             'category_summary' => $categorySummary,
             'bilan' => $bilan,
             'net_category_breakdown' => $netCategoryBreakdown,

@@ -18,9 +18,16 @@
         <div class="d-flex flex-wrap gap-2 mb-3">
             {% for year in scout_years %}
                 <a class="btn btn-sm tap-target {{ year.id == selected_scout_year_id ? 'btn-primary' : 'btn-outline-secondary' }}"
-                   href="/finance/campaigns?scout_year_id={{ year.id }}">{{ year.label }}</a>
+                   href="/finance/campaigns?scout_year_id={{ year.id }}{{ account_filter ? '&account_id=' ~ account_filter.id : '' }}">{{ year.label }}</a>
             {% endfor %}
         </div>
+    {% endif %}
+
+    {% if account_filter %}
+        <p class="mb-3" data-testid="campaigns-account-filter">
+            Campagnes du compte <strong>{{ account_filter.name }}</strong>.
+            <a href="/finance/campaigns?scout_year_id={{ selected_scout_year_id }}">Voir tous les comptes</a>
+        </p>
     {% endif %}
 
     {% if summaries is empty %}

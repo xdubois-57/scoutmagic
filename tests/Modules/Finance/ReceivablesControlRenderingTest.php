@@ -18,7 +18,7 @@ class ReceivablesControlRenderingTest extends TestCase
     /**
      * @param array<int, array<string, mixed>> $overview
      */
-    private function render(array $overview): string
+    private function render(array $overview, ?string $accountFilterName = null): string
     {
         $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 3) . '/modules/finance/views';
@@ -39,7 +39,22 @@ class ReceivablesControlRenderingTest extends TestCase
             'overview' => $overview,
             'focus_source' => '',
             'focus_id' => 0,
+            'account_filter_name' => $accountFilterName,
         ]);
+    }
+
+    /**
+     * Opened from a dashboard tile, the page holds one account's
+     * receivables (issue #838) — and says which, with the way back to all.
+     */
+    public function testANarrowedPageNamesItsAccountAndLeadsBackToAll(): void
+    {
+        $narrowed = $this->render([], 'Compte Unité');
+        $everything = $this->render([]);
+
+        $this->assertStringContainsString('Créances du compte <strong>Compte Unité</strong>', $narrowed);
+        $this->assertStringContainsString('href="/finance/receivables">Voir tous les comptes', $narrowed);
+        $this->assertStringNotContainsString('Créances du compte', $everything);
     }
 
     /**

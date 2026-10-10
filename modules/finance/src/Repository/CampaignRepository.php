@@ -83,14 +83,16 @@ class CampaignRepository
     }
 
     /**
-     * Open campaigns of one account, whatever their scout year — a
-     * campaign belongs to a scout year, not to a fiscal year, so the
-     * dashboard's fiscal-year filter does not narrow it (issue #838).
+     * Open campaigns of one account in one scout year — a campaign belongs
+     * to a scout year, not to a fiscal year, and the list the dashboard
+     * tile links to shows one scout year at a time (issue #838).
      */
-    public function countOpenByAccountId(int $accountId): int
+    public function countOpen(int $accountId, int $scoutYearId): int
     {
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_campaigns WHERE account_id = ? AND status = ?');
-        $stmt->execute([$accountId, Campaign::STATUS_OPEN]);
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM finance_campaigns WHERE account_id = ? AND scout_year_id = ? AND status = ?'
+        );
+        $stmt->execute([$accountId, $scoutYearId, Campaign::STATUS_OPEN]);
 
         return (int) $stmt->fetchColumn();
     }

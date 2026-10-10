@@ -117,11 +117,19 @@ class ReceivablesOverviewService
      *         }
      *     >
      * }>
+     *
+     * $accountId narrows the page to one account — the dashboard's
+     * « Paiements encore attendus » tile links here with the account it
+     * counted (issue #838). It only ever narrows: an account the viewer
+     * may not see stays out, filter or not.
      */
-    public function buildOverview(Role $viewerRole, ?ReceivableViewer $viewer = null): array
+    public function buildOverview(Role $viewerRole, ?ReceivableViewer $viewer = null, ?int $accountId = null): array
     {
         $overview = [];
         $visibleAccountIds = $this->visibleAccountIds($viewerRole);
+        if ($accountId !== null) {
+            $visibleAccountIds = array_values(array_intersect($visibleAccountIds, [$accountId]));
+        }
 
         foreach ($this->repository->findDistinctSourceModules() as $sourceModule) {
             // Every other finance page resolves its accounts through
@@ -325,6 +333,21 @@ class ReceivablesOverviewService
         unset($row['member_id']);
 
         return $row;
+    }
+
+    /**
+     * The name of the account the page is narrowed to, for the « Créances
+     * du compte … » line — null when the viewer may not see it, so the
+     * filter never names an account the page would not show.
+     */
+    public function visibleAccountName(Role $viewerRole, int $accountId): ?string
+    {
+        $account = $this->accountRepository->findById($accountId);
+        if ($account === null || !$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
+            return null;
+        }
+
+        return $account->name;
     }
 
     /**

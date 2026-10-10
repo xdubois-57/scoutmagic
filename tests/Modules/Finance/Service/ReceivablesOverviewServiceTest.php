@@ -506,6 +506,38 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertStringNotContainsString('+++900/0000/00015+++', $serialized);
     }
 
+    /**
+     * The dashboard's « Paiements encore attendus » tile counts one account
+     * and links here with it (issue #838): the page then holds that
+     * account's receivables only.
+     */
+    public function testTheOverviewNarrowsToOneAccount(): void
+    {
+        $otherAccountId = $this->createAccount('Compte Section', 'intendant');
+        $this->receivableService->createReceivable('news', 1, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
+        $this->receivableService->createReceivable('news', 2, $otherAccountId, 4000, '+++900/0000/00015+++', 'Bob');
+
+        $narrowed = $this->service->buildOverview(Role::INTENDANT, null, $otherAccountId);
+
+        $this->assertCount(1, $narrowed);
+        $this->assertSame(4000, $narrowed[0]['amount_due']);
+        $this->assertSame('Compte Section', $this->service->visibleAccountName(Role::INTENDANT, $otherAccountId));
+    }
+
+    /**
+     * Narrowing never widens: an account above the viewer's role stays
+     * out, and its name is never handed back for the page to print.
+     */
+    public function testNarrowingToAnAccountTheViewerMayNotSeeShowsNothing(): void
+    {
+        $adminOnlyAccountId = $this->createAccount('Compte direction', 'admin');
+        $this->receivableService->createReceivable('news', 2, $adminOnlyAccountId, 9900, '+++900/0000/00015+++', 'Secret Donor');
+
+        $this->assertSame([], $this->service->buildOverview(Role::INTENDANT, null, $adminOnlyAccountId));
+        $this->assertNull($this->service->visibleAccountName(Role::INTENDANT, $adminOnlyAccountId));
+        $this->assertNull($this->service->visibleAccountName(Role::INTENDANT, 999999));
+    }
+
     public function testAViewerWhoClearsTheAccountsFloorSeesItsReceivables(): void
     {
         $adminOnlyAccountId = $this->createAccount('Compte direction', 'admin');
