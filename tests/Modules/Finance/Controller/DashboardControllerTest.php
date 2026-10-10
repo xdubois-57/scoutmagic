@@ -399,7 +399,8 @@ class DashboardControllerTest extends TestCase
         // 45 € untouched + 20 € left of 30 € — neither the paid 20 € nor
         // the waived 99 €, and never the 75 € first asked.
         $this->assertSame('65,00 €', $this->tileValue($body, 'Paiements encore attendus'));
-        $this->assertStringContainsString('href="/finance/receivables"', $body);
+        // The list it opens is narrowed to the same account.
+        $this->assertStringContainsString('href="/finance/receivables?account_id=' . $accountId . '"', $body);
         $this->assertNotNull($paid);
     }
 
@@ -440,21 +441,34 @@ class DashboardControllerTest extends TestCase
 
     /**
      * A campaign belongs to a scout year, not a fiscal year: the count is
-     * the account's open campaigns, whatever the year picked.
+     * the account's open campaigns of the scout year being looked at, and
+     * the tile opens the campaigns list on that same year and account, so
+     * the two agree.
      */
-    public function testTheCampaignsTileCountsOpenCampaignsOfTheSelectedAccountOnly(): void
+    public function testTheCampaignsTileCountsOpenCampaignsOfTheSelectedAccountAndScoutYear(): void
     {
         $accountId = $this->createAccount();
         $otherAccountId = $this->createAccount();
-        $scoutYearId = FinanceTestHelper::createScoutYear($this->pdo, '2024-2025', '2024-09-01', '2025-08-31', false);
-        foreach ([[$accountId, 'open'], [$accountId, 'open'], [$accountId, 'closed'], [$otherAccountId, 'open']] as [$account, $status]) {
+        $currentYearId = FinanceTestHelper::createScoutYear($this->pdo, \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable('today')), '2025-09-01', '2026-08-31', true);
+        $pastYearId = FinanceTestHelper::createScoutYear($this->pdo, '2019-2020', '2019-09-01', '2020-08-31', false);
+        foreach ([
+            [$accountId, $currentYearId, 'open'],
+            [$accountId, $currentYearId, 'open'],
+            [$accountId, $currentYearId, 'closed'],
+            [$accountId, $pastYearId, 'open'],
+            [$otherAccountId, $currentYearId, 'open'],
+        ] as [$account, $yearId, $status]) {
             $this->pdo->prepare('INSERT INTO finance_campaigns (label, scout_year_id, account_id, status) VALUES (?, ?, ?, ?)')
-                ->execute(['Cotisations', $scoutYearId, $account, $status]);
+                ->execute(['Cotisations', $yearId, $account, $status]);
         }
 
         $body = $this->dashboard($accountId);
 
         $this->assertSame('2', $this->tileValue($body, 'Campagnes ouvertes'));
+        $this->assertStringContainsString(
+            'href="/finance/campaigns?scout_year_id=' . $currentYearId . '&amp;account_id=' . $accountId . '"',
+            $body
+        );
     }
 
     /**

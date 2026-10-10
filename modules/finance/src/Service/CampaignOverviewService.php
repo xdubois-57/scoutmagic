@@ -54,7 +54,9 @@ class CampaignOverviewService
 
     /**
      * Campaigns of one scout year, narrowed to the accounts this session
-     * may see, each with what it asks for and what has come in.
+     * may see — and to $accountId when given, the dashboard's « Campagnes
+     * ouvertes » tile linking here with the account it counted (issue
+     * #838) — each with what it asks for and what has come in.
      *
      * @return array<
      *     int,
@@ -68,11 +70,14 @@ class CampaignOverviewService
      *     }
      * >
      */
-    public function listForYear(int $scoutYearId, Role $viewerRole): array
+    public function listForYear(int $scoutYearId, Role $viewerRole, ?int $accountId = null): array
     {
         $summaries = [];
 
         foreach ($this->campaigns->findByScoutYear($scoutYearId) as $campaign) {
+            if ($accountId !== null && $campaign->accountId !== $accountId) {
+                continue;
+            }
             if (!$this->accountVisibility->isVisibleTo(
                 $this->accountRepository->findById($campaign->accountId),
                 $viewerRole

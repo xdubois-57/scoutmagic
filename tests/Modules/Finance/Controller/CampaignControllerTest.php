@@ -258,6 +258,45 @@ class CampaignControllerTest extends TestCase
         $this->assertStringContainsString('Aucune campagne', $response->getBody());
     }
 
+    /**
+     * The dashboard's « Campagnes ouvertes » tile links here with the
+     * account it counted (issue #838): the list then shows that account's
+     * campaigns only, and says so.
+     */
+    public function testTheListNarrowsToTheAccountItIsOpenedWith(): void
+    {
+        $this->createCampaign();
+        [, $sectionAccountId] = $this->createCampaignOnItsOwnAccount();
+
+        $narrowed = $this->listBody(['scout_year_id' => (string) $this->scoutYearId, 'account_id' => (string) $sectionAccountId]);
+        $everything = $this->listBody(['scout_year_id' => (string) $this->scoutYearId]);
+
+        $this->assertStringContainsString('Camp 2025', $narrowed);
+        $this->assertStringNotContainsString('Cotisations 2025-2026', $narrowed);
+        $this->assertStringContainsString('Campagnes du compte <strong>Compte Section</strong>', $narrowed);
+        $this->assertStringContainsString('Camp 2025', $everything);
+        $this->assertStringContainsString('Cotisations 2025-2026', $everything);
+        $this->assertStringNotContainsString('Campagnes du compte', $everything);
+    }
+
+    /**
+     * Only an account the viewer may see narrows anything: any other id is
+     * ignored rather than naming an account the page would not show.
+     */
+    public function testAnAccountTheViewerMayNotSeeDoesNotNarrowTheList(): void
+    {
+        $this->createCampaign();
+        $accounts = $this->controllerParts['accounts'];
+        \assert($accounts instanceof AccountRepository);
+        $hiddenId = $accounts->create('Compte direction', Account::TYPE_BANK, null, 'BE00000000000003', 'Titulaire', 'admin');
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$hiddenId]);
+
+        $body = $this->listBody(['scout_year_id' => (string) $this->scoutYearId, 'account_id' => (string) $hiddenId]);
+
+        $this->assertStringContainsString('Cotisations 2025-2026', $body);
+        $this->assertStringNotContainsString('Compte direction', $body);
+    }
+
     public function testTheFormExplainsWhereTheFileHasToComeFrom(): void
     {
         $response = $this->controller->form(new Request('GET', '/finance/campaigns/new', [], [], [], []), []);
@@ -1157,6 +1196,17 @@ class CampaignControllerTest extends TestCase
             ),
             $accountId,
         ];
+    }
+
+    /**
+     * @param array<string, string> $query
+     */
+    private function listBody(array $query): string
+    {
+        $response = $this->controller->index(new Request('GET', '/finance/campaigns', $query, [], [], []), []);
+        self::assertSame(200, $response->getStatusCode());
+
+        return $response->getBody();
     }
 
     private function createCampaign(): int

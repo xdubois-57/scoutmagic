@@ -24,7 +24,8 @@ La seconde dit ce qui attend un geste, et chaque vignette mène à
 l'écran où il se fait : les mouvements non catégorisés de l'exercice,
 les reçus qui ne sont associés à aucun mouvement, les paiements à
 traiter (voir « Paiements à traiter ») et les campagnes encore ouvertes
-sur ce compte. Quand tout est fait, ces compteurs affichent 0.
+sur ce compte cette année scoute. Les listes ouvertes ainsi ne montrent
+que ce compte. Quand tout est fait, ces compteurs affichent 0.
 
 ## Qui voit quels comptes
 

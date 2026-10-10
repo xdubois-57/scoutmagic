@@ -16,6 +16,13 @@
         gérer une créance, ouvrez son module d'origine.
     </p>
 
+    {% if account_filter_name %}
+        <p class="mb-3" data-testid="receivables-account-filter">
+            Créances du compte <strong>{{ account_filter_name }}</strong>.
+            <a href="/finance/receivables">Voir tous les comptes</a>
+        </p>
+    {% endif %}
+
     {% if overview is empty %}
         {% include 'partials/empty_state.html.twig' with {
             message: 'Aucune créance pour le moment.',
