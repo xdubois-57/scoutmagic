@@ -164,6 +164,20 @@ describe('editable.js: editing a rich-text block', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('keeps an image the stored text already holds, on opening and on saving', async () => {
+        await boot();
+        // No button here adds an image, but one the server accepted earlier
+        // is content: opening and saving must not drop it silently.
+        block().insertAdjacentHTML('beforeend', '<p><img src="/files/3" alt="Camp"></p>');
+
+        document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
+        expect(document.getElementById('richTextEditorContent').innerHTML).toContain('<img src="/files/3" alt="Camp">');
+
+        document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
+        await settle();
+        expect(postedBody().value).toContain('<img src="/files/3" alt="Camp">');
+    });
+
     it('stands down entirely when the save button is clicked without a block open', async () => {
         await boot();
 

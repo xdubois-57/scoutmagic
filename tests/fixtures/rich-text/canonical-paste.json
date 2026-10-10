@@ -74,6 +74,11 @@
             "canonical": "<p>clic fin</p>"
         },
         {
+            "name": "a control character cannot hide a disallowed scheme",
+            "pasted": "<p><a href=\"&#1;javascript:alert(1)\">x</a> <a href=\"java&#1;script:alert(1)\">y</a></p>",
+            "canonical": "<p>x y</p>"
+        },
+        {
             "name": "a link keeps its href and nothing else",
             "pasted": "<a href=\"/contact\" target=\"_blank\" rel=\"noopener\" title=\"Nous écrire\">Contact</a> · <a href=\"mailto:unite@example.be\">courriel</a> · <a href=\"tel:+3221234567\">téléphone</a>",
             "canonical": "<p><a href=\"/contact\">Contact</a> · <a href=\"mailto:unite@example.be\">courriel</a> · <a href=\"tel:+3221234567\">téléphone</a></p>"

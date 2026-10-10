@@ -25,6 +25,19 @@
 // same paste path and canonical form run there, and stay a manual check on
 // a Mac.
 //
+// SELECTORS
+// ----------------------------------------------------------------------------
+// Buttons are found by their accessible names (« Gras », « Enregistrer »).
+// Three things are reached structurally, deliberately:
+//   - the editable block, `.editable-content[data-key="contact.text"]`, and
+//     its hover pencil `.editable-edit-btn` — the block is page content with
+//     no role of its own, and `data-key` is the one thing that says WHICH
+//     editable text it is; editable-rich-text.spec.js reaches it the same way;
+//   - `#richTextEditorContent`, the editing surface — what is asserted is its
+//     HTML, which only the element itself carries, and the h2 checked inside
+//     it is a structural fact about that HTML, not something on the page a
+//     reader would name.
+//
 // ORDERING
 // ----------------------------------------------------------------------------
 // The block's original HTML is put back, and configuration mode turned off

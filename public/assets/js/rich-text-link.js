@@ -282,7 +282,10 @@
      */
     function safeUrl(raw, imageSource) {
         var url = String(raw == null ? '' : raw).replace(/[\t\r\n]+/g, '').trim();
-        if (url === '') {
+        // Any other control character refuses the link: a browser strips a
+        // leading one before reading the scheme, so « \x01javascript: » would
+        // otherwise pass as a relative URL. HtmlSanitizer refuses it too.
+        if (url === '' || /[\x00-\x1f\x7f]/.test(url)) {
             return null;
         }
         var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);

@@ -213,9 +213,20 @@ class HtmlSanitizer
      * Whether a URL-bearing attribute value is safe: no scheme (relative), or
      * a scheme in the allowlist. Tab/CR/LF are stripped first (browsers ignore
      * them inside a scheme, so "java\tscript:" would otherwise slip past).
+     *
+     * Any other control character refuses the value outright. A browser's URL
+     * parser strips leading C0 controls before it reads a scheme, and the
+     * serialiser below drops them from the output altogether — so a control
+     * character in front of, or inside, a disallowed scheme hid it from the
+     * check while the attribute that reached the page no longer had it. No
+     * legitimate link contains one.
      */
     private function isSafeUrlValue(string $value): bool
     {
+        if (preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $value) === 1) {
+            return false;
+        }
+
         $normalized = strtolower(trim((string) preg_replace('/[\t\r\n]+/', '', $value)));
         if (preg_match('/^([a-z][a-z0-9+.-]*):/', $normalized, $m) !== 1) {
             return true;

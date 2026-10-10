@@ -70,8 +70,13 @@
             // Opened in the canonical form (issue #844): a text stored
             // before it, or pasted from a word processor back then, is
             // shown as the toolbar would have written it — and nothing is
-            // stored until the author saves.
-            editorContent.replaceChildren(window.ScoutMagicRichText.canonicalFragment(clone.innerHTML));
+            // stored until the author saves. An image it already holds is
+            // kept: this toolbar cannot ADD one, but one the server accepted
+            // earlier is content, and dropping it on save would be a silent
+            // loss. Only a paste is held to the toolbar's own gestures.
+            editorContent.replaceChildren(
+                window.ScoutMagicRichText.canonicalFragment(clone.innerHTML, { images: true })
+            );
             modal.show();
         });
     });
@@ -90,7 +95,7 @@
         // it: the Bold button's <b> and a pasted styled span both become
         // <strong>. The server still sanitises it — this is about one look
         // having one HTML, not about trust.
-        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML);
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML, { images: true });
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

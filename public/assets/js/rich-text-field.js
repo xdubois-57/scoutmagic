@@ -49,9 +49,9 @@
             currentKey = /** @type {HTMLElement} */ (btn).dataset.key;
             currentSaveUrl = /** @type {HTMLElement} */ (btn).dataset.saveUrl;
             currentPreview = document.querySelector('.rich-text-field-preview[data-key="' + escapeAttr(currentKey) + '"]');
-            // Canonical on opening, as in editable.js (issue #844).
+            // Canonical on opening, images kept, as in editable.js (issue #844).
             editorContent.replaceChildren(
-                window.ScoutMagicRichText.canonicalFragment(currentPreview ? currentPreview.innerHTML : '')
+                window.ScoutMagicRichText.canonicalFragment(currentPreview ? currentPreview.innerHTML : '', { images: true })
             );
             modal.show();
         });
@@ -61,7 +61,7 @@
         if (!currentKey) return;
 
         // Canonical on the way out, as in editable.js (issue #844).
-        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML);
+        var html = window.ScoutMagicRichText.canonicalHtml(editorContent.innerHTML, { images: true });
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
