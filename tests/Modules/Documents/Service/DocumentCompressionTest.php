@@ -119,20 +119,24 @@ final class DocumentCompressionTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{?bool, ?string}>
+     * @return iterable<string, array{?bool, ?string, bool}>
      */
     public static function cronsThatCannotCompress(): iterable
     {
-        yield 'never measured' => [null, null];
-        yield 'measured before PDFs' => [null, null];
-        yield 'proc_open off' => [false, 'none'];
-        yield 'no tool' => [true, 'none'];
+        yield 'never measured' => [null, null, false];
+        // Facts stored before the cron looked at PDFs: a row exists, without the PDF fields.
+        yield 'measured before PDFs' => [null, null, true];
+        yield 'proc_open off' => [false, 'none', true];
+        yield 'no tool' => [true, 'none', true];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('cronsThatCannotCompress')]
-    public function testWhenTheCronCannotCompressTheUploadCompressesItAsItAlwaysDid(?bool $procOpen, ?string $backend): void
-    {
-        if ($backend !== null) {
+    public function testWhenTheCronCannotCompressTheUploadCompressesItAsItAlwaysDid(
+        ?bool $procOpen,
+        ?string $backend,
+        bool $stored
+    ): void {
+        if ($stored) {
             $this->cronMeasured($procOpen, $backend);
         }
 

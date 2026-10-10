@@ -215,7 +215,20 @@ final class HostHealth
             );
         }
 
-        if ($facts->cronExecution?->shellWorks === true) {
+        // Never measured is unknown, not a verdict: no « neither runs commands », no request to the host.
+        if ($facts->cronExecution === null) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_DEGRADED,
+                $status,
+                'Ce PHP répond aux visiteurs. Ce qui compte est le PHP du cron, que la tâche planifiée n\'a '
+                    . 'pas encore mesuré (ligne suivante).',
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
+            );
+        }
+
+        if ($facts->cronExecution->shellWorks) {
             return new HostCheck(
                 'shell_web',
                 $title,

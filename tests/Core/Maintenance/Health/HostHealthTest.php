@@ -120,6 +120,11 @@ final class HostHealthTest extends TestCase
 
         $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
         $this->assertStringNotContainsString('sans conséquence', $web->status);
+        // Nothing was measured, so nothing is asserted about the cron nor asked of the host.
+        $this->assertStringNotContainsString('ni l\'un ni l\'autre', $web->consequence);
+        $this->assertStringContainsString('pas encore mesuré', $web->consequence);
+        $this->assertStringNotContainsString('hébergeur', $web->ask);
+        $this->assertStringContainsString('Attendre le prochain passage du cron', $web->ask);
     }
 
     /** The reverse: the web runs commands, the cron cannot — video is refused. */
