@@ -85,7 +85,7 @@ final class CarpoolAgendaTest extends TestCase
 
         $this->assertSame([701, 702], array_keys($lines));
         $this->assertSame([
-            "Covoiturage — vous conduisez à l'aller, 8 h 30, Parking des locaux. 2 places libres.",
+            "Covoiturage — vous conduisez à l'aller, 8 h 30, Parking des locaux. 2 passagers confirmés, 2 places libres.",
             'Covoiturage — vous conduisez au retour, 16 h 00, Gare de Wavre. 2 places libres.',
             'Voir : https://unite.example/covoiturage/1',
         ], $lines[701]);
@@ -101,6 +101,34 @@ final class CarpoolAgendaTest extends TestCase
             'Covoiturage — retour 16 h 00, Gare de Wavre : confirmé.',
             'Voir : https://unite.example/covoiturage/1',
         ], $this->linesFor('rider@test.be')[702]);
+    }
+
+    public function testAConfirmedPassengerIsCountedButNeverNamedOnTheDriversLine(): void
+    {
+        H::request($this->pdo, $this->offerOut, $this->rider, ['Tom'], SeatRequest::ACCEPTED);
+
+        $line = $this->linesFor('driver@test.be')[701][0];
+
+        $this->assertStringContainsString('1 passager confirmé, 3 places libres.', $line);
+        $this->assertStringNotContainsString('Tom', $line);
+    }
+
+    public function testSomeoneWhoOnlyRidesBackIsSentStraightToTheReturnView(): void
+    {
+        H::request($this->pdo, $this->offerBack, $this->rider, ['Tom'], SeatRequest::ACCEPTED);
+
+        $this->assertSame(
+            'Voir : https://unite.example/covoiturage/1?sens=return',
+            $this->linesFor('rider@test.be')[701][1]
+        );
+    }
+
+    public function testSomeoneInBothDirectionsGetsTheGeneralLink(): void
+    {
+        H::request($this->pdo, $this->offerOut, $this->rider, ['Tom'], SeatRequest::PENDING);
+        H::request($this->pdo, $this->offerBack, $this->rider, ['Tom'], SeatRequest::ACCEPTED);
+
+        $this->assertSame('Voir : https://unite.example/covoiturage/1', $this->linesFor('rider@test.be')[701][2]);
     }
 
     public function testARefusedRequestLeavesNoLine(): void
