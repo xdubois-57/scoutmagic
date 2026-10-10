@@ -21,6 +21,13 @@
 // Removed rather than left behind in a browser tab. On a desktop the
 // installed app and the browser share their cookies, and a stale
 // `standalone` would turn a tab's download into a viewer page.
+//
+// The same answer is exposed to the page's other scripts as
+// window.ScoutMagicDisplayMode.isStandalone() — offline-cache.js (the
+// service worker's write gate) and pull-to-refresh.js (issue #842) read it
+// from here rather than keeping copies of the media query and of the iOS
+// fallback. Loading in <head> is what makes it available to every deferred
+// script below it.
 (function () {
     'use strict';
 
@@ -30,6 +37,8 @@
         return (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches)
             || /** @type {any} */ (window.navigator).standalone === true;
     }
+
+    window.ScoutMagicDisplayMode = { isStandalone: isStandalone };
 
     const secure = window.location.protocol === 'https:' ? '; Secure' : '';
     if (isStandalone()) {

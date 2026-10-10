@@ -57,6 +57,21 @@ describe('display-mode', () => {
         expect(document.cookie).not.toContain('sm_display');
     });
 
+    // Issue #842: the one answer the page's other scripts read
+    // (offline-cache.js, pull-to-refresh.js), instead of copies of it.
+    it('exposes the same answer as window.ScoutMagicDisplayMode.isStandalone()', async () => {
+        pretendStandalone(false);
+        await load();
+        expect(window.ScoutMagicDisplayMode.isStandalone()).toBe(false);
+
+        pretendStandalone(true);
+        expect(window.ScoutMagicDisplayMode.isStandalone()).toBe(true);
+
+        pretendStandalone(false);
+        Object.defineProperty(window.navigator, 'standalone', { value: true, configurable: true });
+        expect(window.ScoutMagicDisplayMode.isStandalone()).toBe(true);
+    });
+
     it('writes nothing at all in a browser tab that never had it', async () => {
         pretendStandalone(false);
         await load();

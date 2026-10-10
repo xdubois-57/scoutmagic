@@ -153,6 +153,20 @@ interface Window {
             options?: { height?: string, width?: string, iconClass?: string }
         ) => void;
     };
+    // public/assets/js/display-mode.js — is this window the installed
+    // application? Loaded in <head> by base.html.twig, ahead of every
+    // deferred script that asks (offline-cache.js, pull-to-refresh.js).
+    ScoutMagicDisplayMode?: {
+        isStandalone: () => boolean;
+    };
+    // public/assets/js/offline-nav.js — the page's connectivity verdict
+    // (issue #353's probe, never navigator.onLine alone). recheck() probes
+    // now, repaints the page, and resolves true when it is online again.
+    // Absent on a page without #offline-config-data.
+    ScoutMagicConnectivity?: {
+        isOfflineConfirmed: () => boolean;
+        recheck: () => Promise<boolean>;
+    };
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
     ScoutMagicToast?: {

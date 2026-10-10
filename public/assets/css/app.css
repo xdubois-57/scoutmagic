@@ -977,6 +977,85 @@ body.cookie-banner-visible {
     }
 }
 
+/* Pull to refresh (assets/js/pull-to-refresh.js, issue #842): a small
+   round indicator centred at the top of the viewport, in the installed
+   application only. Parked above the screen; the script sets
+   --ptr-pull (how far it has come down, px) and --ptr-progress (0 to 1,
+   how close to the threshold) while the finger pulls. Its colours are
+   Bootstrap's own variables, so the dark theme needs nothing of its own.
+   Never seen in a browser tab: the script does not run there, and
+   nothing else adds these classes. */
+.pull-to-refresh {
+    position: fixed;
+    top: env(safe-area-inset-top, 0px);
+    left: 50%;
+    z-index: 1085;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-left: -1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bs-body-bg);
+    color: var(--bs-primary);
+    border: 1px solid var(--bs-border-color-translucent);
+    box-shadow: var(--bs-box-shadow);
+    font-size: 1.25rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(calc(-100% - 0.5rem + var(--ptr-pull, 0px)));
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.pull-to-refresh-icon {
+    line-height: 1;
+    transform: rotate(calc(var(--ptr-progress, 0) * 270deg));
+}
+.pull-to-refresh.is-pulling {
+    opacity: var(--ptr-progress, 0);
+    transition: none;
+}
+.pull-to-refresh.is-armed,
+.pull-to-refresh.is-refreshing {
+    opacity: 1;
+}
+.pull-to-refresh.is-armed {
+    background: var(--bs-primary);
+    color: var(--bs-white);
+    border-color: var(--bs-primary);
+}
+.pull-to-refresh.is-refreshing .pull-to-refresh-icon {
+    animation: pull-to-refresh-spin 0.8s linear infinite;
+}
+@keyframes pull-to-refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+/* Reduced motion: the indicator appears in place (the script stops
+   moving it with the finger), fades in rather than turns, and does not
+   spin — its filled, armed colours are what says « release now ». */
+@media (prefers-reduced-motion: reduce) {
+    .pull-to-refresh,
+    .pull-to-refresh.is-pulling {
+        transition: opacity 0.2s ease;
+    }
+    .pull-to-refresh-icon,
+    .pull-to-refresh.is-refreshing .pull-to-refresh-icon {
+        transform: none;
+        animation: none;
+    }
+}
+/* The installed app's own pull-to-refresh, where the browser has one
+   (Chrome on Android), would reload the page a second time for the same
+   pull. Standalone only: in a browser tab the browser's gesture is the
+   visitor's, and this site adds none. */
+@media (display-mode: standalone) {
+    html,
+    body {
+        overscroll-behavior-y: contain;
+    }
+}
+
 /* .min-w-0 — the one utility a flex row needs and Bootstrap 5.3 does not
    ship.
 

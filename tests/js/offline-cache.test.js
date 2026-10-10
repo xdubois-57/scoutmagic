@@ -48,8 +48,13 @@ function stubServiceWorker({ ready = true } = {}) {
     });
 }
 
+// display-mode.js first, as base.html.twig orders them: offline-cache.js
+// asks it whether this window is the installed app (issue #842) instead of
+// keeping a copy of the detection, so the standalone tests below exercise
+// the real answer rather than a stub of it.
 async function boot() {
     vi.resetModules();
+    await import('../../public/assets/js/display-mode.js');
     await import('../../public/assets/js/offline-cache.js');
 }
 
@@ -62,6 +67,7 @@ beforeEach(() => {
         value: vi.fn(() => ({ matches: false })),
     });
     delete window.navigator.standalone;
+    delete window.ScoutMagicDisplayMode;
 });
 
 describe('offline-cache.js: setup guards', () => {
@@ -148,6 +154,19 @@ describe('offline-cache.js: sendConfig() on page load', () => {
         window.navigator.standalone = true;
         await boot();
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(expect.objectContaining({ standalone: true })));
+    });
+
+    // The write gate's safe side: without display-mode.js nobody can say
+    // this is the installed app, so nothing is written to the cache.
+    it('reports standalone: false when display-mode.js is not on the page', async () => {
+        buildConfig(BASE_CONFIG);
+        Object.defineProperty(window, 'matchMedia', {
+            configurable: true,
+            value: vi.fn((query) => ({ matches: query === '(display-mode: standalone)' })),
+        });
+        vi.resetModules();
+        await import('../../public/assets/js/offline-cache.js');
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(expect.objectContaining({ standalone: false })));
     });
 });
 
