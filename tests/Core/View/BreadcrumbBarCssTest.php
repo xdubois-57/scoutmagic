@@ -35,7 +35,14 @@ class BreadcrumbBarCssTest extends TestCase
             '/\.breadcrumb-bar \{\s*display: flex;\s*\}/',
             $this->css
         );
-        $this->assertStringNotContainsString('display-mode: standalone', $this->css);
+        // No standalone-only block may touch the bar. Other rules may be
+        // standalone-only (pull to refresh, issue #842, switches off the
+        // installed app's native gesture there), so this reads each such
+        // block rather than refusing the media query outright.
+        preg_match_all('/@media \(display-mode: standalone\) \{.*?\n\}/s', $this->css, $standaloneBlocks);
+        foreach ($standaloneBlocks[0] as $block) {
+            $this->assertStringNotContainsString('breadcrumb', $block);
+        }
         $this->assertDoesNotMatchRegularExpression(
             '/@media \(max-width: 991\.98px\) \{\s*\.breadcrumb-bar \{/',
             $this->css

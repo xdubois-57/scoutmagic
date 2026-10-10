@@ -42,6 +42,13 @@ appareil par appareil — votre téléphone et votre ordinateur s'activent
 séparément. Ce que vous recevez, type par type, se règle ensuite dans
 vos préférences de notification.
 
+## Actualiser une page
+
+Dans l'application installée, tirez la page vers le bas depuis tout en
+haut de l'écran et relâchez quand l'indicateur apparaît : la page se
+recharge. Hors connexion, le même geste vérifie d'abord si le réseau est
+revenu, et ne recharge la page que s'il l'est.
+
 ## Consulter hors connexion
 
 Une fois l'application installée et si vous avez accepté les cookies
