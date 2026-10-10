@@ -82,7 +82,13 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null,
+                null,
+                null,
+                // The slider's position, as this row kept it (issue #706,
+                // IT-02). Null when nothing was ever chosen.
+                $communication->blurRatio,
+                $this->frozenCard($communication)
             );
     }
 
@@ -117,7 +123,11 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                self::vanishedSourceReason((string) $communication->sourceKind)
+                self::vanishedSourceReason((string) $communication->sourceKind),
+                null,
+                null,
+                $communication->blurRatio,
+                $this->frozenCard($communication)
             );
         }
 
@@ -137,7 +147,14 @@ final class ShareSourceResolver
             // publications are recorded under — so a message about a
             // missing image can name the album instead of telling the
             // chief to choose one here, where there is no button to.
-            $source->kind
+            $source->kind,
+            // The slider's position belongs to THIS share, not to the
+            // album: two shares of one album may be blurred differently,
+            // and the album has no slider of its own (issue #706, IT-02).
+            $communication->blurRatio,
+            // And so does the card: it was drawn for this share, from the
+            // album's cover as it stood then.
+            $this->frozenCard($communication)
         );
     }
 
@@ -203,6 +220,23 @@ final class ShareSourceResolver
         return Role::fromString($role)->hasAccess(Role::ADMIN) || $communication->createdBy === $accountId
             ? $communication
             : null;
+    }
+
+    /**
+     * The card the browser drew for this share, as stored, or null
+     * (issue #706, IT-02).
+     *
+     * Read through the same reader as an uploaded image, so a card whose
+     * file has gone answers null and the publication composes one rather
+     * than failing — the stored card is what « what you saw is what left »
+     * rests on, and losing the file is a reason to fall back, not to
+     * refuse a retry forever.
+     */
+    private function frozenCard(Communication $communication): ?string
+    {
+        return $communication->cardFileId === null
+            ? null
+            : $this->files->read($communication->cardFileId);
     }
 
     private function communicationImage(Communication $communication, string $role): ?string

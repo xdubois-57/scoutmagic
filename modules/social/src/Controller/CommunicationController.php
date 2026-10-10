@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Social\Controller;
 
 use Core\File\UploadException;
+use Core\File\EncryptedFileStorageService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -20,6 +21,8 @@ use Modules\Gallery\Api\PhotoPickerInterface;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
+use Modules\Social\Card\ReceivedCard;
+use Modules\Social\File\PostedCardOwnershipChecker;
 use Modules\Social\Repository\Communication;
 use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
@@ -91,6 +94,9 @@ final class CommunicationController extends AbstractController
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
+    /** Where the cards the browser posts are kept, under the site's storage. */
+    private const CARD_DIRECTORY = 'social/published-cards';
+
     private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
     private const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -106,6 +112,19 @@ final class CommunicationController extends AbstractController
         private readonly ConnectionRepository $connections,
         private readonly CardService $cards,
         private readonly UploadHandler $uploads,
+        /**
+         * Where the card the browser posted is kept, byte for byte
+         * (issue #706, IT-02).
+         *
+         * Not through {@see UploadHandler}, deliberately: it strips EXIF
+         * by decoding and re-encoding the image, which would re-compress
+         * a card that is already a clean canvas export with no metadata
+         * at all — and « what you saw is what left » cannot survive a
+         * second pass through an encoder. {@see ReceivedCard} does the
+         * checking that `UploadHandler` would have done, and more
+         * strictly.
+         */
+        private readonly EncryptedFileStorageService $cardFiles,
         private readonly UserAccountRepository $accounts,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
@@ -309,6 +328,102 @@ final class CommunicationController extends AbstractController
     }
 
     /**
+     * The BACKGROUND of the card, as the source's own bytes — what the
+     * browser draws the card from (issue #706, IT-02).
+     *
+     * **Why a second pair of image routes.** `preview()` serves the card
+     * already composed, which was all the page needed while the server
+     * composed it. From IT-02 the browser composes it, so it needs the
+     * photo itself: the title moves as the chief types and the blur moves
+     * with a slider, and a round trip per frame is exactly the waiting
+     * the chantier rules out.
+     *
+     * **It is the same access, not a new one.** The source's own rule is
+     * asked again here, through the owning module's `Api`, exactly as
+     * every other read does — an album this caller may not share has no
+     * background to fetch either. A chief who may see that album can
+     * already open the photo in the gallery; what is new is that the
+     * social module serves it too, and it serves it UNBLURRED, because
+     * the blur is now the browser's to apply and the chief's to choose.
+     * That is written down in SECURITY.md rather than left to be noticed.
+     *
+     * @param array<string, string> $params
+     */
+    public function background(Request $request, array $params): Response
+    {
+        return $this->backgroundOf($this->source($params));
+    }
+
+    /**
+     * The same, for a composer « Partager » has not saved yet — keyed on
+     * the source, like `previewSource()` and for the same reason.
+     *
+     * @param array<string, string> $params
+     */
+    public function backgroundSource(Request $request, array $params): Response
+    {
+        return $this->backgroundOf($this->describedSource(
+            (string) ($params['kind'] ?? ''),
+            (int) ($params['id'] ?? 0)
+        ));
+    }
+
+    /**
+     * The source's image bytes, or 404 — for something with no image,
+     * something this caller may not see, and bytes that are not one of
+     * the three formats the card accepts alike. The type is sniffed from
+     * the bytes rather than taken from anything the request said: the only
+     * thing that decides what is served is what the owning module handed
+     * over.
+     */
+    private function backgroundOf(?ShareSource $source): Response
+    {
+        if ($source === null || $source->image === null || $source->image === '') {
+            return new Response('Not Found', 404);
+        }
+
+        $type = self::imageType($source->image);
+        if ($type === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response($source->image))
+            ->setHeader('Content-Type', $type)
+            // Never a shared cache, and never a disk: the same address
+            // answers a different album to a different chief, and an
+            // unblurred gallery photo is not something to leave behind
+            // in a proxy (as `cardOf()` already decided for the card).
+            ->setHeader('Cache-Control', 'private, no-store')
+            // The bytes are an image and nothing else, whatever they
+            // happen to contain: a module that handed over an HTML file
+            // must not get it rendered as one.
+            ->setHeader('X-Content-Type-Options', 'nosniff');
+    }
+
+    /**
+     * The media type of these bytes, among the three the card accepts, or
+     * null.
+     *
+     * Read from the magic bytes, not from a file name or a declared type:
+     * what reaches here came from another module's `Api`, and the card is
+     * drawn by `<canvas>`, which decodes by content too.
+     */
+    private static function imageType(string $bytes): ?string
+    {
+        if (str_starts_with($bytes, "\xFF\xD8\xFF")) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($bytes, "\x89PNG\r\n\x1A\n")) {
+            return 'image/png';
+        }
+        if (str_starts_with($bytes, 'RIFF') && substr($bytes, 8, 4) === 'WEBP') {
+            return 'image/webp';
+        }
+
+        return null;
+    }
+
+    /**
      * The composed card as a JPEG, or 404 — for something with no image,
      * something this caller may not see, and a composition that failed
      * alike: a chief who may not look at it learns nothing from which.
@@ -320,7 +435,15 @@ final class CommunicationController extends AbstractController
         }
 
         try {
-            $jpeg = $this->cards->preview($source->image, $source->title, $source->address, $source->imageFromGallery);
+            $jpeg = $this->cards->compose(
+                $source->image,
+                $source->title,
+                $source->address,
+                $source->imageFromGallery,
+                // So the fallback preview and the card the browser draws
+                // agree about the slider's position (issue #706, IT-02).
+                $source->blurRatio
+            );
         } catch (CardException) {
             return new Response('Not Found', 404);
         }
@@ -435,6 +558,25 @@ final class CommunicationController extends AbstractController
         $action = (string) $request->getBody('action', '');
         $self = self::path($communication);
 
+        // **The slider's position is part of the draft**, so it survives a
+        // trip to the gallery or an upload exactly as the text does, and
+        // it is saved by « Publier » like everything else — there is no
+        // « Enregistrer » on this page (issue #706, IT-02).
+        //
+        // Only when the form actually carried the field: the retry page
+        // posts to this controller too, and it has no slider, so reading
+        // an absent field as zero would silently turn a blurred share
+        // sharp on its second attempt. And never once something has left,
+        // where the card is frozen with the rest.
+        if (!$this->isFrozen($communication) && $request->getBody('blur_ratio') !== null) {
+            $this->communications->updateBlurRatio(
+                $communication->id,
+                $this->blurRatio($request),
+                new \DateTimeImmutable()
+            );
+            $communication = $this->communications->find($communication->id) ?? $communication;
+        }
+
         if ($action === 'gallery' && $this->photos !== null && $this->mayChangeImage($communication)) {
             return $this->redirect($self . '/photo');
         }
@@ -510,6 +652,31 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
 
+        // **The card the browser drew arrives with « Publier »** (issue
+        // #706, IT-02), and is kept here — AFTER the refusal above, and
+        // nowhere earlier. What goes to Instagram, to a group, to a
+        // retry and — from IT-04 — to the public page is this one file,
+        // so « what you saw is what left » holds across destinations
+        // published minutes apart; keeping it on a POST that publishes
+        // nothing would freeze the card of an attempt that never
+        // happened, and the chief, still free to change the photo or the
+        // blur because nothing is frozen yet, would have the first
+        // attempt's card published instead of the one they are looking
+        // at. Found in the review of #850.
+        //
+        // A refusal stops the publication rather than falling back to
+        // composing one: the chief looked at a card and pressed
+        // « Publier », and quietly publishing a different image would be
+        // worse than asking them to try again.
+        try {
+            $communication = $this->keepPostedCard($request, $communication);
+        } catch (CardException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect($self);
+        }
+
+        // Read after the card is kept, so the source carries it.
         $source = $this->communicationSource($communication->id);
         if ($source === null) {
             return new Response('Not Found', 404);
@@ -597,6 +764,34 @@ final class CommunicationController extends AbstractController
                 AuthSession::getUserAccountId(),
                 $communication !== null
             ),
+            // What the BROWSER needs to draw the card itself (issue #706,
+            // IT-02): the source's own photo, beside the composed card
+            // above. Both are kept — the <img> is what a page with no
+            // JavaScript, or a browser with no 2D context, still shows,
+            // and the canvas replaces it only once it has drawn.
+            'background_path' => match (true) {
+                $communication !== null => self::path($communication) . '/image',
+                $prefill !== null => self::HISTORY_PATH . '/nouvelle/' . $prefill->kind . '/'
+                    . $prefill->id . '/image',
+                default => null,
+            },
+            // The address written at the foot of the card, and whether
+            // this photo is blurred — the two things the drawing needs
+            // that are not on the form. Taken from the SOURCE, like the
+            // card the server composes from the same pair.
+            'card_address' => $source->address ?? '',
+            // The strength the card is drawn with: the one this share
+            // kept, or this site's starting position when the slider was
+            // never moved. Zero for an image that is not the gallery's —
+            // an upload leaves as it is, so there is nothing to blur and
+            // no slider offered for it.
+            'blur_ratio' => ($source->imageFromGallery ?? false)
+                ? ($source->blurRatio ?? $this->cards->blurRatio())
+                : 0.0,
+            // The slider exists only where a blur does.
+            'blur_adjustable' => ($source->imageFromGallery ?? false)
+                && !($communication !== null && $this->isFrozen($communication)),
+            'blur_max' => CardService::MAX_BLUR_RATIO,
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -855,6 +1050,75 @@ final class CommunicationController extends AbstractController
     private static function path(?Communication $communication): string
     {
         return $communication === null ? self::HISTORY_PATH : ShareSourceResolver::path($communication->id);
+    }
+
+    /**
+     * Keeps the card the browser posted, once per share (issue #706,
+     * IT-02).
+     *
+     * **Once**, and the guard is the same as the text's: a destination
+     * published later must receive the image the first one did, so a
+     * communication that has already been tried keeps the card it had.
+     * A POST that carries no card at all — JavaScript off, a canvas the
+     * browser refused — leaves the row as it is, and the publication then
+     * composes one as it always did, rather than refusing to publish at
+     * all.
+     *
+     * @throws CardException when a card arrived and is not usable
+     */
+    private function keepPostedCard(Request $request, Communication $communication): Communication
+    {
+        $file = $request->getFile('card');
+        $tmp = is_array($file) ? ($file['tmp_name'] ?? null) : null;
+        if (!is_string($tmp) || $tmp === '' || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return $communication;
+        }
+        if ($this->isFrozen($communication) || $communication->cardFileId !== null) {
+            return $communication;
+        }
+
+        $bytes = (string) @file_get_contents($tmp);
+        ReceivedCard::assertUsable($bytes);
+
+        $fileId = $this->cardFiles->store(
+            $bytes,
+            ReceivedCard::MIME,
+            'carte.jpg',
+            self::CARD_DIRECTORY,
+            'chief',
+            'social',
+            AuthSession::getUserAccountId(),
+            null,
+            // **The owner type is what keeps this row off `/files/{id}`.**
+            // Without it the row fell through to the `chief` floor alone,
+            // and any chief could read any card — a gallery photo at
+            // « Net » among them — by asking for a sequential id. The
+            // only reader is ShareSourceResolver::frozenCard(), which
+            // reads the bytes directly.
+            // {@see \Modules\Social\File\PostedCardOwnershipChecker}
+            PostedCardOwnershipChecker::OWNER_TYPE,
+            $communication->id
+        );
+        $this->communications->updateCardFile($communication->id, $fileId, new \DateTimeImmutable());
+
+        return $this->communications->find($communication->id) ?? $communication;
+    }
+
+    /**
+     * The blur the composer's slider was left on, brought into the range
+     * the slider can express.
+     *
+     * Anything unreadable answers the site's own starting position rather
+     * than zero: a posted value nobody could parse is not a chief asking
+     * for « Net ».
+     */
+    private function blurRatio(Request $request): float
+    {
+        $posted = $request->getBody('blur_ratio');
+
+        return is_numeric($posted)
+            ? CardService::clampBlurRatio((float) $posted)
+            : $this->cards->blurRatio();
     }
 
     private static function title(Request $request): string

@@ -83,7 +83,7 @@ final class ModuleManifestTest extends TestCase
      */
     public function testTheVersionRisesWithTheSchema(): void
     {
-        $this->assertSame('1.1.0', $this->manifest['version']);
+        $this->assertSame('1.2.0', $this->manifest['version']);
     }
 
     /**
@@ -103,12 +103,69 @@ final class ModuleManifestTest extends TestCase
         }
     }
 
+    /**
+     * The blur setting is still not editable, and its shipped default is
+     * now half what it was (issue #706, IT-02).
+     *
+     * **What it MEANS changed**, which is why the label moved too: it was
+     * « the blur applied to every gallery photo », a rule with a floor
+     * under it; it is now « where the composer's slider starts », and the
+     * chief decides each publication from there, « Net » included. Not
+     * editable because no screen offers it — the slider is the interface.
+     *
+     * An existing site keeps its own stored 0.05 as its starting
+     * position: `SettingRepository::updateDefaultValue()` moves a stored
+     * value only for a `url`-typed setting, and the pruning that a
+     * version bump drives deletes only `editable` rows. That is the
+     * conservative migration, and `CardService`'s docblock says how an
+     * administrator aligns it if they want to.
+     */
     public function testTheBlurSettingIsNotEditable(): void
     {
         $byKey = array_column($this->manifest['settings'], null, 'key');
 
         $this->assertFalse($byKey['social_card_blur_ratio']['editable']);
-        $this->assertSame('0.05', $byKey['social_card_blur_ratio']['default_value']);
+        $this->assertSame('0.025', $byKey['social_card_blur_ratio']['default_value']);
+        // The floor is gone, so no text here may promise one.
+        $this->assertStringNotContainsString(
+            'jamais en dessous',
+            $byKey['social_card_blur_ratio']['description'],
+            'the setting still promises a floor that no longer exists (issue #706, IT-02).'
+        );
+    }
+
+    /**
+     * The module ships the help its screens promise, and the corpus
+     * actually loads it (issue #706, IT-02).
+     *
+     * **`HelpRegistry` swallows a malformed topic in silence** — an
+     * `error_log('ScoutMagic help topic ignored: …')` and nothing else —
+     * and `HelpInvariantsTest` checks whatever IS in the corpus, so a
+     * topic that stopped loading would be invisible to every other test.
+     * This pins the two by id, which is what a screen links to.
+     *
+     * `l-image-publiee` exists because `medias-sociaux` was at 494 words
+     * of the charter's 500 AND had already spent its one warning
+     * callout, so IT-02's blur had nowhere to go in it. Splitting was the
+     * decision, not squeezing.
+     */
+    public function testTheModulesHelpTopicsAreAllThere(): void
+    {
+        $directory = \dirname(__DIR__, 3) . '/modules/social/help';
+        $parser = new \Core\Help\HelpFrontMatterParser();
+        $ids = [];
+        foreach ((array) glob($directory . '/*.md') as $file) {
+            // Parsed, not grepped: an id this throws on is exactly the
+            // topic the registry would drop in silence.
+            $ids[] = $parser->parse((string) $file, 'social')->id;
+        }
+        sort($ids);
+
+        self::assertSame(
+            ['ce-qui-est-parti', 'l-image-publiee', 'medias-sociaux', 'reseaux-sociaux'],
+            $ids,
+            'A social help topic stopped parsing, or one arrived without this test being told.'
+        );
     }
 
     public function testEveryStateChangeIsAPost(): void
@@ -117,6 +174,10 @@ final class ModuleManifestTest extends TestCase
             $reads = in_array($route['action'], [
                 'index', 'connect', 'callback', 'show',
                 'history', 'create', 'createFromSource', 'edit', 'preview', 'previewSource', 'picker', 'confirmRetry',
+                // The card's background, for the browser that now draws
+                // the card (issue #706, IT-02): a read, like the composed
+                // preview beside it.
+                'background', 'backgroundSource',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

@@ -102,7 +102,22 @@ class CardRenderer
     {
         $width = imagesx($image);
         $height = imagesy($image);
-        $radius = max(1.0, min($width, $height) * max(0.0, $ratio));
+        $radius = min($width, $height) * max(0.0, $ratio);
+
+        // **A radius under one pixel is no blur, and must do nothing.**
+        // It used to do something: the radius was clamped up with
+        // `max(1.0, …)`, so a ratio of 0 still fell through to the three
+        // Gaussian passes below and cost a 1.4× loss of detail. That was
+        // invisible while the ratio had a floor of 0.05 and could never
+        // be 0 — the floor is gone in issue #706, IT-02, and the slider
+        // reaches « Net ». Measured before this guard: a card asked for
+        // sharp came back softened, while the browser's own engine drew
+        // it sharp, so the fallback preview and the published card
+        // disagreed about the one thing the slider promises.
+        if ($radius < 1.0) {
+            return $image;
+        }
+
         $factor = max(1.0, $radius / 2);
 
         $smallWidth = max(2, (int) round($width / $factor));

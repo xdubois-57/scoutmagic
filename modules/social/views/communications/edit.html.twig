@@ -7,13 +7,22 @@
 {% include 'partials/page_header.html.twig' with { title: page_title } only %}
 
 <div class="row"><div class="col-12 col-lg-8">
-{# `data-submit-lock` (issue #756): publishing waits on Meta, several
-   seconds of a page that would otherwise look untouched, and the second
-   tap would be a second public post. The server refuses a replay too
-   (CommunicationController::REPLAY_WINDOW_SECONDS) — this stops the tap,
-   that stops the request. #}
-<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-submit-lock
-      data-submit-lock-label="Publication en cours…">
+{# **No `data-submit-lock` here, and that is not an omission** (issue
+   #706, IT-02). Publishing still waits on Meta for several seconds, and
+   the second tap would still be a second public post — but from IT-02
+   « Publier » is intercepted: the canvas is exported to a JPEG and
+   attached to this form before it is posted. The shared lock cannot live
+   with that. Its own deferred unlock reads `event.defaultPrevented` and
+   GIVES THE BUTTON BACK when something prevented the default (see
+   `form-submit-lock.js`, written that way in #756 for a different form),
+   so opting in here would re-open the very double submit it exists to
+   close, on the one page where a double submit is a second public post.
+
+   `social-composer.js` holds the button itself instead, from the click
+   that starts the export to the navigation that ends it, and
+   `UxConventionsTest::testNoAsyncFormOptsIntoTheSubmitLock` now covers
+   this template so the attribute cannot come back by accident. #}
+<form method="post" action="{{ form_action }}" enctype="multipart/form-data" data-card-form>
     {{ csrf_field()|raw }}
 
     {# What is being shared, when this was opened from « Partager ». The
@@ -30,13 +39,31 @@
     {% endif %}
 
     {# 1. The image, as it will be published — it is what is judged. #}
-    <div class="mb-3" data-communication-image>
+    <div class="mb-3" data-communication-image data-card-composer>
         {% if has_image and preview_path %}
+            {# BOTH, on purpose (issue #706, IT-02). The image element
+               below carries the card the server composes, and it is what a
+               page whose JavaScript did not load — or a browser that gives
+               no 2D context — still shows. `social-composer.js` draws the
+               same card into the canvas and takes that element's place
+               only once a draw has SUCCEEDED, so the page never ends up
+               with a blank square where the card was. That matters here
+               more than elsewhere:
+               on a source-backed composer « Publier » is the only button,
+               so a page showing no image would make the first POST an
+               irreversible public post of something nobody saw. #}
             <img src="{{ preview_path }}" alt="Carte qui sera publiée : {{ source.title }}"
                  class="img-fluid rounded border" width="1080" height="1080" loading="lazy" data-card-preview>
+            <canvas class="img-fluid rounded border" width="1080" height="1080" hidden
+                    data-card-canvas
+                    data-card-background="{{ background_path }}"
+                    data-card-address="{{ card_address }}"
+                    data-card-blur="{{ blur_ratio }}"
+                    data-card-title="{{ source.title|default('') }}"
+                    aria-label="Carte qui sera publiée : {{ source.title }}"></canvas>
             <p class="small text-body-secondary mt-2 mb-0">
                 Voici exactement ce qui sera publié.
-                {% if from_gallery %}Cette photo vient de la galerie : elle est floutée, sans exception, sur Facebook et Instagram{% if offers_groups|default(false) %} ; dans un groupe de discussion, elle part nette{% endif %}.{% endif %}
+                {% if from_gallery %}Cette photo vient de la galerie : le curseur ci-dessous décide de son flou, partout où elle part.{% endif %}
             </p>
         {% elseif from_source and source and source.blockedReason %}
             {# `from_source` AND the reason, not the reason alone:
@@ -66,6 +93,49 @@
         {% endif %}
     </div>
 
+    {# 1b. The blur, as a slider (issue #706, IT-02).
+
+       **Plain words, not a ratio**: « Net » to « Très flou ». The number
+       behind it is a proportion of the image's short side, which is the
+       right unit for the renderer and no unit at all for a chief.
+
+       Offered only for a gallery photo, because an upload leaves exactly
+       as it is and there is nothing to blur. Absent once something has
+       left, like everything else about the card.
+
+       There is NO floor any more. « Net » is net — measured, not assumed:
+       `CardRenderer` used to clamp the radius up to one pixel, so a ratio
+       of zero still cost a 1.4× loss of detail, and that is fixed in the
+       same change. A slider whose left end does nothing is a lie told in
+       an interface. #}
+    {% if blur_adjustable|default(false) %}
+        <div class="mb-3" data-card-blur-control>
+            <label for="communication-blur" class="form-label small d-block">
+                Flou de la photo
+            </label>
+            <input type="range" class="form-range" id="communication-blur" name="blur_ratio"
+                   min="0" max="{{ blur_max }}" step="0.005" value="{{ blur_ratio }}"
+                   data-card-blur-input
+                   aria-describedby="communication-blur-help">
+            <div class="d-flex justify-content-between small text-body-secondary">
+                <span>Net</span>
+                <span>Très flou</span>
+            </div>
+            {# The one sentence that matters, and it only appears when it
+               is true: a gallery photo at « Net » leaves recognisable.
+               Said before publishing rather than regretted after. #}
+            <p class="small mt-2 mb-0" id="communication-blur-help">
+                <span class="text-warning-emphasis" data-card-blur-sharp hidden>
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    Cette photo de la galerie part sans flou.
+                </span>
+                <span class="text-body-secondary" data-card-blur-blurred hidden>
+                    On devine l'ambiance, pas les visages. Pour voir les photos, il faut venir sur le site.
+                </span>
+            </p>
+        </div>
+    {% endif %}
+
     {# 2. The two buttons that change it — absent when the image is the
        source's, which is the album's own to change, not this page's. #}
     {% if not frozen and uploadable %}
@@ -78,40 +148,42 @@
                 </div>
             {% endif %}
             <div class="{{ gallery_available ? 'col-6' : 'col-12' }}">
-                <button type="submit" name="action" value="upload" class="btn btn-outline-secondary w-100">
+                {# **One click** (issue #706, IT-02). Without JavaScript this
+                   stays what it was: choose a file in the field below, then
+                   press this button — two steps, and the field has to be
+                   visible for the first. With JavaScript,
+                   `social-composer.js` hides the field, makes this button
+                   open the picker, and submits as soon as a file is chosen.
+                   The button keeps `type="submit"` and its `name`/`value`
+                   so the no-JS path is the one the markup describes. #}
+                <button type="submit" name="action" value="upload" class="btn btn-outline-secondary w-100"
+                        data-card-upload-button>
                     <i class="bi bi-upload" aria-hidden="true"></i> Téléverser
                 </button>
             </div>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" data-card-upload-field>
             <label for="communication-image" class="form-label small">Image à téléverser</label>
             <input type="file" class="form-control form-control-sm" id="communication-image" name="image"
-                   accept="image/jpeg,image/png,image/webp">
+                   accept="image/jpeg,image/png,image/webp" data-card-upload-input>
         </div>
         <p class="small text-body-secondary mb-4">
-            Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.
+            Une image téléversée part telle quelle. Une image de la galerie part au flou que vous choisissez,
+            le même vers toutes les destinations.
         </p>
-    {% elseif frozen and from_source %}
-        {# What is true for a source-backed share, which is less than the
-           message below promises: the TEXT is frozen — every later
-           destination receives the caption the first one got — but the
-           title and the image are read from the album or the article at
-           each publication, including a retry. Rename the album between a
-           successful Facebook post and an Instagram retry and the two
-           destinations get different cards. Promising otherwise here also
-           contradicted the title field's own help a few lines below,
-           which says the title is changed at the source. Raised in review
-           on the pull request for IT-01. The image half is what IT-02
-           settles, by storing the image the browser composed and serving
-           that one to every later attempt; the title stays the source's
-           by design — nothing of the source is copied into the
-           communication (specifications.md §4). #}
-        <div class="alert alert-info small mb-4">
-            Cette communication est déjà partie vers une destination : le texte ne change plus, pour que
-            chaque destination reçoive le même message. Le titre et l'image restent ceux de
-            {{ source_label }} : s'ils y changent, une nouvelle tentative partira avec les nouveaux.
-        </div>
     {% elseif frozen %}
+        {# One message for both cases now (issue #706, IT-02). It used to
+           say less for a source-backed share, and truthfully so: only the
+           TEXT was frozen, while the title and the image were read from
+           the album or the article at each publication — rename the album
+           between a Facebook post and an Instagram retry and the two
+           destinations got different cards. IT-02 settles it by keeping
+           the image the browser drew and sending that one to every later
+           attempt, title drawn on it included. What is still read at the
+           source is the right to share it at all, and the title the
+           history records; neither changes what has already left. The
+           review of #850 found this notice still promising the old
+           behaviour. #}
         <div class="alert alert-info small mb-4">
             Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
             pour que chaque destination reçoive la même chose.
@@ -152,6 +224,22 @@
         help: 'Sur Instagram, une adresse en légende n\'est pas cliquable : c\'est pour ça qu\'elle figure sur l\'image.',
     } only %}
 
+    {# Where the card the browser drew travels (issue #706, IT-02).
+
+       A file input rather than a base64 string in a hidden field: a
+       1080² JPEG is a few hundred kilobytes, and base64 would add a third
+       to that and arrive as a POST value the server would have to decode
+       before it could check anything. `social-composer.js` fills this
+       through `DataTransfer`, as `finance-receipt-form.js` already does
+       for a downscaled photo.
+
+       Hidden rather than absent on a frozen share: the controller
+       ignores a card once something has left, and a field that vanished
+       would make the page's shape depend on state for no reason. #}
+    <label for="communication-card" class="d-none">Carte composée</label>
+    <input type="file" name="card" id="communication-card" accept="image/jpeg"
+           class="d-none" tabindex="-1" aria-hidden="true" data-card-file>
+
     {# 5. The destinations, then publishing. #}
     {% if source and source.blockedReason %}
         <div class="alert alert-warning">{{ source.blockedReason }}</div>
@@ -162,6 +250,27 @@
         Sur Facebook et Instagram, une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
         {% if offers_groups|default(false) %}Dans un groupe de discussion, la publication reste dans le site et suit les règles du groupe.{% endif %}
     </div>
+
+    {# « Donnez d'abord un titre » — computed on the TYPING (issue #706,
+       IT-02).
+
+       The server computes the same refusal from the SAVED title
+       (`ShareSourceResolver::communication()`), which is right and is
+       still the real guard — but on its own it meant the block stayed up
+       while the chief was typing the very title that lifts it, and only
+       cleared after a publication attempt that was refused. Rendered
+       hidden and shown by `social-composer.js`, so a page with no
+       JavaScript simply keeps the server's behaviour.
+
+       `aria-live` because it appears while the field is being typed in,
+       with the focus elsewhere than here. #}
+    {% if not frozen and not from_source %}
+        <p class="small text-warning-emphasis mb-2 text-end" data-card-title-missing hidden
+           aria-live="polite">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            Donnez d'abord un titre à l'image.
+        </p>
+    {% endif %}
 
     {# No « Enregistrer »: « Publier » is what saves (IT-01). #}
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
@@ -177,9 +286,10 @@
 {% endblock %}
 
 {% block scripts %}
-    {# The lock the form above asks for. `base.html.twig` loads nothing
-       globally, so the attribute without this script would be inert —
-       exactly the dead pairing that cost `booking_documents.html.twig` a
-       review remark on the pull request for issue #756. #}
-    <script src="{{ asset('/assets/js/form-submit-lock.js') }}" defer></script>
+    {# The card drawn in the browser (issue #706, IT-02). The engine first:
+       `social-composer.js` reads `window.ScoutMagicCard` at load and does
+       nothing at all without it, so the order is what makes the canvas
+       appear rather than an error in the console. #}
+    <script src="{{ asset('/assets/js/social-card.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/social-composer.js') }}" defer></script>
 {% endblock %}

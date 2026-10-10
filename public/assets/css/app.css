@@ -3,6 +3,86 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
+/* The face the published card's title and address are drawn in (issue
+   #706, IT-02). The card used to be composed by GD, which read the .ttf
+   from disk; the browser draws it now, so the same face has to reach the
+   browser — and the content security policy is `font-src 'self'`
+   (Core\Http\Response), so it is served from here and never from a font
+   CDN.
+
+   A Latin subset, 19.7 KB against the .ttf's 709 KB: a card's text is a
+   French title somebody typed and the site's own address. See
+   public/assets/fonts/README.md for the subset's ranges and the command
+   that rebuilds it.
+
+   `font-display: block` on purpose, against the usual advice. A swap
+   would draw the card once in the fallback face and again in this one,
+   and the card is the thing being judged before it is published — a
+   title that jumps and re-wraps between two frames reads as a bug. The
+   file is small enough that the block is brief, and the composer waits
+   for the face before its first draw rather than drawing twice. */
+@font-face {
+    font-family: 'ScoutMagic Card';
+    src: url('/assets/fonts/dejavu-sans-bold-latin.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: block;
+}
+
+/* A checkbox and the FIRST LINE of its label on the same line (issue
+   #706, IT-02: « Aujourd'hui le texte est plus bas que la case »).
+
+   The cause is structural, not a stray margin. Bootstrap FLOATS
+   `.form-check-input` to the top of the block, so it sits at the very top
+   whatever the label does — while the label's own line box is made taller
+   than its text by the Bootstrap Icons glyph inside it, which carries its
+   own metrics. The text then sits lower inside that taller line box, and
+   the two drift apart. Adding a margin would paper over it and drift
+   again the day a label has no icon.
+
+   A flex row aligns the box with the label's first line instead, and the
+   sub-lines a `<br>` adds keep indenting under the text, because the
+   label stays one flex item. `padding-left` goes because the gap now
+   does that job; the input's own `margin-top` is Bootstrap's 0.25em,
+   which is the right nudge once it is measured against the text's line
+   box rather than the top of the block.
+
+   Applied to the destination rows, the « Groupe de discussion » row and
+   the group dialog alike: the chantier names the last two, and the first
+   has exactly the same icon-beside-text shape. */
+.form-check--line-aligned {
+    display: flex;
+    /* Wrapping, or the nested row below never reaches its own line: in a
+       single-line flex container a `flex-basis: 100%` child only STARTS
+       that wide and then shrinks, so « Je confirme : réessayer » was
+       squeezed into a third column beside the label — on exactly the
+       rows that have one, the failed ones. Found in the review of #850. */
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5em;
+    padding-left: 0;
+}
+
+/* And the label starts from zero rather than from its own text, so a
+   long one — a failure reason from Meta — grows into the space left
+   instead of wrapping below its own checkbox. */
+.form-check--line-aligned > .form-check-label {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.form-check--line-aligned > .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    margin-left: 0;
+}
+
+/* The nested « Je confirme : réessayer » row keeps its own indent, under
+   the text rather than under the box it belongs to. */
+.form-check--line-aligned > .form-check {
+    flex-basis: 100%;
+}
+
 :root {
     --page-max-width: 1200px;
     --page-medium-width: 720px;

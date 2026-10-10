@@ -28,9 +28,44 @@ final class CardRendererTest extends TestCase
     {
         $renderer = new CardRenderer();
         $sharp = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', false, 0.05));
-        $blurred = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', true, CardService::MIN_BLUR_RATIO));
+        $blurred = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', true, CardService::DEFAULT_BLUR_RATIO));
 
         $this->assertLessThan($sharp / 4, $blurred, "sharp {$sharp}, blurred {$blurred}");
+    }
+
+    /**
+     * **« Net » means net** (issue #706, IT-02).
+     *
+     * The floor is gone and the slider reaches zero, so a ratio of zero
+     * has to leave the photo alone. It did not: the radius was clamped up
+     * with `max(1.0, …)`, so zero fell through to the three Gaussian
+     * passes and cost a 1.4× loss of detail — measured, not supposed. It
+     * was invisible while the ratio could never go below 0.05, and it
+     * would have put the fallback preview at odds with the card the
+     * browser draws, over the one thing the slider promises.
+     */
+    public function testARatioOfZeroLeavesThePhotoExactlyAsItWas(): void
+    {
+        $renderer = new CardRenderer();
+        $sharp = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', false, 0.0));
+        $asked = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', true, 0.0));
+
+        $this->assertSame($sharp, $asked, "sharp {$sharp}, asked-for-sharp {$asked}");
+    }
+
+    /**
+     * And a radius that rounds to less than one pixel is the same thing:
+     * there is no blur to apply, so none is applied. The slider's own
+     * step never lands here, but a value typed into the database can.
+     */
+    public function testASubPixelRadiusIsNoBlurAtAll(): void
+    {
+        $renderer = new CardRenderer();
+        $sharp = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', false, 0.0));
+        // 0.0005 of 1080 is 0.54 px.
+        $asked = H::sharpness($renderer->render(H::groupPhoto(), 'T', 'a.be', true, 0.0005));
+
+        $this->assertSame($sharp, $asked);
     }
 
     public function testTheBlurIsAShareOfTheSideNotAPixelCount(): void

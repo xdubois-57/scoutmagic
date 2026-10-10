@@ -64,7 +64,7 @@ final class CardControllerTest extends TestCase
 
     public function testAnAnonymousFetchGetsTheImageWithHeadersThatKeepItShortLived(): void
     {
-        $card = $this->cards->issue(H::groupPhoto(), 'Camp', 'a.be', true, new \DateTimeImmutable());
+        $card = $this->cards->issue($this->cards->compose(H::groupPhoto(), 'Camp', 'a.be', true), true, new \DateTimeImmutable());
 
         $response = $this->get($card->path);
 
@@ -78,7 +78,7 @@ final class CardControllerTest extends TestCase
 
     public function testAnExpiredOrUnknownCardIsAPlain404(): void
     {
-        $card = $this->cards->issue(H::groupPhoto(), 'Camp', 'a.be', true, new \DateTimeImmutable('-2 hours'));
+        $card = $this->cards->issue($this->cards->compose(H::groupPhoto(), 'Camp', 'a.be', true), true, new \DateTimeImmutable('-2 hours'));
 
         $this->assertSame(404, $this->get($card->path)->getStatusCode());
         $this->assertSame(404, $this->get(CardService::ROUTE_PREFIX . str_repeat('0', 64))->getStatusCode());

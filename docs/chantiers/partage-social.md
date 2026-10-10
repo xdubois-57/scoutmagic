@@ -112,8 +112,11 @@ portrait rapproché) à 1, 2, 3, 3,5, 4, 5, 6 et 7 % du côté.
 - À 4 %, les traits ont disparu des photos de groupe, mais le portrait
   laisse deviner un visage souriant.
 - **À 5 %, le portrait ne laisse plus rien deviner**, et la scène — une
-  tente, un uniforme, une clairière — reste lisible. C'est la valeur
-  retenue, et le plancher : `CardService::MIN_BLUR_RATIO`.
+  tente, un uniforme, une clairière — reste lisible. C'était la valeur
+  retenue à l'époque, et le plancher `MIN_BLUR_RATIO`. Ce plancher a
+  disparu en #706, IT-02, quand le flou est devenu le choix du chef : le
+  curseur démarre désormais à `CardService::DEFAULT_BLUR_RATIO`, soit
+  2,5 %, et va jusqu'à 20 %.
 - Au-delà, l'image n'est plus qu'une tache de couleur.
 
 Le premier essai (un seul agrandissement de l'image réduite) laissait

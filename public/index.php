@@ -10763,6 +10763,16 @@ if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
 
+    // The card the browser posts at « Publier » is kept as a plain
+    // `files` row (issue #706, IT-02), and this is what keeps it out of
+    // `/files/{id}`: it refuses every reader, because the only reader is
+    // ShareSourceResolver::frozenCard(), which reads the bytes directly.
+    // Registered here, in $fileOwnershipCheckers above, before the guard
+    // is built — and registered in the same change that first stores
+    // such a row, so a card can never exist ahead of the rule that
+    // guards it.
+    $fileOwnershipCheckers[] = new \Modules\Social\File\PostedCardOwnershipChecker();
+
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
         new \Modules\Social\Controller\ConfigController(
@@ -10805,7 +10815,11 @@ if ($isEnabled('social')) {
         : new \Modules\Social\Service\GroupPublishingService(
             $groupsPublisherForOthers,
             $socialPublicationRepo,
-            $journalService
+            $journalService,
+            // The card a group receives, from issue #706, IT-02: the same
+            // composition every other destination gets, at the strength
+            // the chief chose. Before it, a group got the photo raw.
+            $socialCardService
         );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,
@@ -10848,6 +10862,10 @@ if ($isEnabled('social')) {
             $socialConnectionRepo,
             $socialCardService,
             $uploadHandler,
+            // Where the card the browser posts at « Publier » is kept,
+            // byte for byte (issue #706, IT-02) — not through
+            // $uploadHandler, which would re-encode it.
+            $encryptedFileStorageService,
             $userAccountRepo,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds

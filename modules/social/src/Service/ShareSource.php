@@ -59,6 +59,34 @@ final class ShareSource
          * IT-01).
          */
         public readonly ?string $originKind = null,
+        /**
+         * How blurred this card's photo leaves — the composer's slider
+         * (issue #706, IT-02). Carried here rather than passed through
+         * every method because everything that draws this card already
+         * has the source: the publication, the fallback preview, and the
+         * discussion groups that receive the card too from IT-02.
+         *
+         * **Null is « never chosen »**, and the site's own starting
+         * position applies. Zero is a chief who moved the slider to
+         * « Net » on purpose, and the two must not be confused — which is
+         * why the floor that made zero impossible had to go first.
+         */
+        public readonly ?float $blurRatio = null,
+        /**
+         * The card the browser drew and posted at « Publier », as stored
+         * (issue #706, IT-02) — the bytes, like `image` above.
+         *
+         * **When this is set, nothing composes anything.** It is what
+         * Instagram receives, what a discussion group receives, what a
+         * retry resends and, from IT-04, what the public page shows. That
+         * is how « what you saw is what left » holds across destinations
+         * published minutes apart.
+         *
+         * Null for every share made before the browser drew one, and for
+         * those the server composes a card as it always did: a retry of
+         * an old failed share has to remain possible.
+         */
+        public readonly ?string $card = null,
     ) {
     }
 

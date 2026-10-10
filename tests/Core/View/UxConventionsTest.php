@@ -625,6 +625,12 @@ final class UxConventionsTest extends TestCase
         // before that, since « Partager » writes no row on opening.
         '/medias-sociaux/{id}/apercu',
         '/medias-sociaux/nouvelle/{kind}/{id}/apercu',
+        // The card's BACKGROUND — the source's own photo, which the
+        // browser draws the card from since issue #706, IT-02. The same
+        // pairing as the two above, and bytes rather than a page for the
+        // same reason.
+        '/medias-sociaux/{id}/image',
+        '/medias-sociaux/nouvelle/{kind}/{id}/image',
         // XLSX download of one Encadrement page's lists (#727), never a page.
         '/admin/leadership/{page}/export',
         // XLSX download of the fee-accuracy screen, never a page.
@@ -1594,9 +1600,22 @@ final class UxConventionsTest extends TestCase
      */
     public function testNoAsyncFormOptsIntoTheSubmitLock(): void
     {
+        // Every template whose forms a script sends or rewrites before
+        // the browser posts them. Widened past `rental/` in issue #706,
+        // IT-02, when the social composer joined them: the rule was never
+        // about the rental module, only discovered there.
+        $intercepted = [
+            'modules/rental/views/',
+            'modules/social/views/communications/edit.html.twig',
+        ];
+
         $offenders = [];
         foreach (self::templates() as $rel) {
-            if (!str_starts_with($rel, 'modules/rental/views/')) {
+            $covered = false;
+            foreach ($intercepted as $prefix) {
+                $covered = $covered || str_starts_with($rel, $prefix);
+            }
+            if (!$covered) {
                 continue;
             }
             $source = self::templateSource($rel);
@@ -1615,9 +1634,53 @@ final class UxConventionsTest extends TestCase
         self::assertSame(
             [],
             $offenders,
-            'A form sent with fetch must not carry data-submit-lock: the lock cannot tell a'
-            . ' refusal from a request in flight, and releases the button mid-upload.'
-            . ' api.withDisabled already guards these forms.'
+            'A form a script sends or rewrites must not carry data-submit-lock: the lock cannot'
+            . ' tell a refusal from a request in flight, and its deferred unlock reads'
+            . ' `defaultPrevented` — so it GIVES THE BUTTON BACK to a script that prevented the'
+            . ' default on purpose. The rental forms are guarded by api.withDisabled; the social'
+            . ' composer holds its publish button itself (social-composer.js), because there a'
+            . ' second tap is a second public post.'
+        );
+    }
+
+    /**
+     * A checkbox and the first line of its label line up, centrally
+     * (issue #706, IT-02).
+     *
+     * The chantier's words: « Aujourd'hui le texte est plus bas que la
+     * case ». The cause is structural — Bootstrap FLOATS
+     * `.form-check-input` to the top of the block, while the label's line
+     * box is made taller than its text by the Bootstrap Icons glyph
+     * inside it, so the text sits lower and the two drift apart.
+     *
+     * Pinned here for the same reason as the rule below: the fix belongs
+     * in `app.css`, where `pointer: coarse` and the rest of the shared
+     * behaviour lives, and a margin sprinkled on a template would drift
+     * again the day a label has no icon.
+     */
+    public function testTheCheckboxAlignmentLivesInTheStylesheet(): void
+    {
+        $css = (string) file_get_contents(self::repoRoot() . '/public/assets/css/app.css');
+
+        self::assertStringContainsString(
+            '.form-check--line-aligned {',
+            $css,
+            'the shared alignment is gone from app.css — a template patching it inline will drift.'
+        );
+        // A float is exactly what misaligned it; the rule has to undo it,
+        // not add a margin on top of it.
+        self::assertMatchesRegularExpression(
+            '/\.form-check--line-aligned > \.form-check-input \{[^}]*float: none;/s',
+            $css,
+            'the rule no longer cancels the float, which is what pushed the text below the box.'
+        );
+
+        $destinations = self::templateSource('modules/social/views/share/_destinations.html.twig');
+        self::assertSame(
+            3,
+            substr_count($destinations, 'form-check--line-aligned'),
+            'the destination rows, the « Groupe de discussion » row and the group dialog all take it'
+            . ' — the chantier names the last two, and the first has the same icon-beside-text shape.'
         );
     }
 

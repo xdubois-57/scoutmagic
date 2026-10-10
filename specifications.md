@@ -3368,11 +3368,17 @@ entier —, l'image de fond, un titre incrusté (trois lignes au plus,
 raccourci au-delà) et l'adresse du site en pied. L'adresse est sur l'image
 parce qu'Instagram ne publie pas de lien.
 
-- **Une photo de la galerie est toujours floutée**, sur toute l'image, sans
-  case pour l'éviter. L'intensité est une proportion du côté de l'image,
-  calibrée sur de vraies photos à 5 % : le visage d'un portrait rapproché
-  n'est plus reconnaissable, la scène reste lisible. C'est un réglage non
-  modifiable ; une valeur plus faible écrite en base est ignorée.
+- **Une photo de la galerie part au flou que le chef a choisi**, « Net »
+  compris. Un curseur va de « Net » à « Très flou », l'aperçu le suit, et
+  l'intensité est une proportion du côté de l'image — sur toute l'image,
+  jamais sur des visages détectés. À 5 % du côté, le visage d'un portrait
+  rapproché n'est plus reconnaissable et la scène reste lisible ; à
+  « Net », la photo part telle qu'elle est, et la page le dit avant que ce
+  soit fait : « Cette photo de la galerie part sans flou. » Le flou choisi
+  est enregistré avec la communication et figé avec elle, si bien qu'une
+  destination publiée plus tard reçoit la même carte. Le réglage non
+  modifiable qui imposait autrefois un minimum dit désormais **où le
+  curseur commence**, et plus quel flou s'applique.
 - **Meta vient chercher l'image** à une adresse publique aléatoire, valable
   une heure. Passé ce délai, l'adresse répond « introuvable » comme une
   adresse qui n'a jamais existé, et l'image est effacée dans la journée.
@@ -3482,17 +3488,22 @@ dans cet ordre :
 1. **l'image en grand**, telle qu'elle sera publiée, titre et adresse
    compris ; sans image, la page dit qu'aucune publication ne part sans
    image ;
-2. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
+2. **le curseur de flou**, de « Net » à « Très flou », quand l'image vient
+   de la galerie (§ 47.5) — y compris pour un album partagé, dont la photo
+   est de la galerie elle aussi ;
+3. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
    sous eux : « Une image téléversée part telle quelle. Une image de la
-   galerie est toujours floutée. » Pour téléverser, on choisit le fichier
-   puis on clique (JPEG, PNG ou WebP, 10 Mo au plus) ;
-3. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
-4. **le texte de la publication** (2 200 caractères) ;
-5. **les destinations**, avec leur état comme au § 47.6, l'avertissement
+   galerie part au flou que vous choisissez, le même vers toutes les
+   destinations. » Téléverser prend un clic : le bouton ouvre le sélecteur
+   de fichiers et l'envoi part dès qu'un fichier est choisi (JPEG, PNG ou
+   WebP, 10 Mo au plus) ;
+4. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
+5. **le texte de la publication** (2 200 caractères) ;
+6. **les destinations**, avec leur état comme au § 47.6, l'avertissement
    que c'est public et hors du site, puis « Publier ».
 
-Les points 2 et 3 n'apparaissent pas quand l'image vient d'une source
-(§ 47.6). **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
+Les points 3 et 4 n'apparaissent pas quand l'image vient d'une source
+(§ 47.6) : l'image et le titre sont ceux de l'album ou de l'actualité. **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
 tout, un aller-retour vers la galerie ou un téléversement garde le
 brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
 « Publier ». Après « Publier », retour à l'historique.
@@ -3539,10 +3550,16 @@ actualité et la communication libre proposent une destination de plus,
   publier y apparaissent — c'est le module Groupes qui le décide. La
   fenêtre dit que chaque groupe reçoit sa propre publication, avec ses
   propres règles de modération.
-- **Chaque groupe reçoit sa propre publication** : le texte, **la photo
-  telle quelle — jamais floutée**, le groupe étant privé et ses membres
-  voyant déjà la galerie — et **un vrai lien** vers l'album ou
-  l'actualité. Pas de carte composée.
+- **Chaque groupe reçoit sa propre publication** : le texte, **la même
+  carte que toutes les autres destinations**, au flou que le curseur du
+  composeur indiquait, et **un vrai lien** vers l'album ou l'actualité.
+  Le groupe recevait autrefois la photo telle quelle, au motif qu'il est
+  privé et que ses membres voient déjà la galerie ; ce motif tenait tant
+  que le flou était une règle fixe, et il a cessé de tenir quand le flou
+  est devenu le choix du chef — « la même carte partout » est ce que le
+  composeur montre et promet désormais. Le chef qui veut qu'un groupe ait
+  la photo nette met le curseur sur « Net », et la page le dit en toutes
+  lettres avant.
 - **Chaque groupe est une destination à part entière** : sa propre ligne
   dans « Ce qui est parti », son propre état, et la règle « une seule
   fois » appliquée groupe par groupe. Un même album peut partir dans deux

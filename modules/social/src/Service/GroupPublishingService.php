@@ -12,6 +12,8 @@ use Core\Journal\JournalService;
 use Modules\Groups\Api\GroupPublishException;
 use Modules\Groups\Api\GroupPublisherInterface;
 use Modules\Groups\Api\PostableGroup;
+use Modules\Social\Card\CardException;
+use Modules\Social\Card\CardService;
 use Modules\Social\Repository\PublicationRepository;
 
 /**
@@ -40,7 +42,17 @@ final class GroupPublishingService
     public function __construct(
         private readonly GroupPublisherInterface $groups,
         private readonly PublicationRepository $publications,
-        private readonly JournalService $journal
+        private readonly JournalService $journal,
+        /**
+         * Composes the card a group receives (issue #706, IT-02).
+         *
+         * Nullable, and a null means « send the photo as it is », which
+         * is what every group received before IT-02. It is a constructor
+         * default rather than a required dependency so that nothing which
+         * builds this service without a card service starts failing —
+         * but every caller in the module passes one.
+         */
+        private readonly ?CardService $cards = null
     ) {
     }
 
@@ -77,6 +89,10 @@ final class GroupPublishingService
         }
 
         $outcomes = [];
+        // Composed at most once for the whole request, and only if a
+        // group is actually reached: the same bytes to every group, as
+        // `PublishingService` already does for the platforms.
+        $card = null;
         foreach (array_values(array_unique($groupIds)) as $groupId) {
             $group = $postable[$groupId] ?? null;
             $label = $group->name ?? 'Groupe n° ' . $groupId;
@@ -116,9 +132,31 @@ final class GroupPublishingService
                     $role,
                     $userId,
                     $caption,
-                    $source->image,
+                    // **The same card as every other destination** (issue
+                    // #706, IT-02). A group used to receive the photo
+                    // exactly as it was, unblurred, on the reasoning that
+                    // the group is private and its members already see
+                    // the gallery. That reasoning held while the blur was
+                    // a fixed rule; it stopped holding when the blur
+                    // became the chief's choice, because « the same card
+                    // everywhere » is what the composer now shows and
+                    // promises. The chief who wants a group to have the
+                    // sharp photo moves the slider to « Net », and the
+                    // page says so in words before it happens.
+                    $card ??= $this->card($source),
+                    // The real link survives: a group is inside the site,
+                    // so it gets a clickable address, which is a separate
+                    // argument from the image.
                     $source->pageUrl
                 );
+            } catch (CardException $e) {
+                // Its own sentence, not « the site itself failed »: the
+                // chief is told that the image could not be prepared and
+                // that a gallery photo does not leave without its blur.
+                $this->publications->markFailed($source->kind, $source->id, $key, $e->getMessage(), $now);
+                $this->log($source, $groupId, 'publish_failed', 'warning', 'carte indisponible', $userId);
+                $outcomes[] = new PublishOutcome(null, false, $e->getMessage(), $label);
+                continue;
             } catch (GroupPublishException $e) {
                 $this->publications->markFailed($source->kind, $source->id, $key, $e->getMessage(), $now);
                 $this->log($source, $groupId, 'publish_failed', 'warning', 'refusée par le groupe', $userId);
@@ -159,6 +197,71 @@ final class GroupPublishingService
         $id = substr($key, strlen(self::KEY_PREFIX));
 
         return ctype_digit($id) && (int) $id > 0 ? (int) $id : null;
+    }
+
+    /**
+     * The card this source's groups receive, composed once for the whole
+     * request — the same bytes to every group, as to every platform.
+     *
+     * **A gallery photo is never the fallback.** For anything else — an
+     * uploaded image, an article's cover — a composition that fails
+     * falls back to the image as it is rather than refusing to post: a
+     * group is inside the site, and a message that arrives without its
+     * card is worth more than one that does not arrive. That reasoning
+     * does not reach a gallery photo, because from IT-02 the blur is the
+     * chief's choice and falling back would send the photo SHARP and
+     * whole, which is the one thing the slider must never do by
+     * accident. There the publication is refused, with the reason, and
+     * the chief can try again. Found in the review of #850.
+     *
+     * `PublishingService` already refuses a publication with no image at
+     * all, before this is ever reached.
+     *
+     * @throws CardException when a gallery photo has no card to travel as
+     */
+    private function card(ShareSource $source): ?string
+    {
+        // The card the browser drew, when there is one: a group receives
+        // exactly what every other destination did, down to the bytes
+        // (issue #706, IT-02).
+        if ($source->card !== null && $source->card !== '') {
+            return $source->card;
+        }
+
+        if ($this->cards === null || $source->image === null || $source->image === '') {
+            return $this->refuseOrSendAsIs($source);
+        }
+
+        try {
+            return $this->cards->compose(
+                $source->image,
+                $source->title,
+                $source->address,
+                $source->imageFromGallery,
+                $source->blurRatio
+            );
+        } catch (CardException) {
+            return $this->refuseOrSendAsIs($source);
+        }
+    }
+
+    /**
+     * What to do when no card can be made: send the image as it is, or
+     * refuse because sending it as it is would publish a gallery photo
+     * with no blur on it.
+     *
+     * @throws CardException
+     */
+    private function refuseOrSendAsIs(ShareSource $source): ?string
+    {
+        if ($source->imageFromGallery) {
+            throw new CardException(
+                'L\'image à publier n\'a pas pu être préparée, et une photo de la galerie ne part '
+                . 'pas sans son flou. Réessayez depuis le composeur.'
+            );
+        }
+
+        return $source->image;
     }
 
     private function whyNotClaimed(ShareSource $source, string $key, \DateTimeImmutable $now): string

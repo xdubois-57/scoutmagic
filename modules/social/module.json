@@ -2,7 +2,7 @@
   "id": "social",
   "name": "Réseaux sociaux",
   "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -156,6 +156,15 @@
       "label": ""
     },
     {
+      "path": "/medias-sociaux/nouvelle/{kind}/{id}/image",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "backgroundSource",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/medias-sociaux",
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
@@ -199,6 +208,15 @@
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "preview",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/medias-sociaux/{id}/image",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "background",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -267,10 +285,10 @@
   "settings": [
     {
       "key": "social_card_blur_ratio",
-      "default_value": "0.05",
+      "default_value": "0.025",
       "type": "text",
-      "label": "Intensité du flou des images publiées",
-      "description": "Rayon du flou appliqué à toute photo de la galerie avant publication, en proportion du petit côté de l'image. Calibré sur de vraies photos ; jamais en dessous de 0,05. Non modifiable.",
+      "label": "Position de départ du curseur de flou",
+      "description": "Où démarre le curseur de flou du composeur, en proportion du petit côté de l'image. Ce n'est plus une règle : le chef déplace le curseur de « Net » à « Très flou » pour chaque publication, et une photo de la galerie peut partir nette, la page le disant en toutes lettres avant. Un site qui publiait déjà conserve sa propre valeur ; la tâche de maintenance « Paramètres par défaut » l'aligne sur celle livrée. Non modifiable ici.",
       "editable": false
     }
   ],

@@ -38,7 +38,8 @@ reste donc lisible même si l'album ou l'actualité a été supprimé depuis.
 
 Réessayer demande **une confirmation**, qui dit ce qui repart : le même
 texte, vers cette destination seulement — et, pour un album ou une
-actualité partagés, le titre et l'image relus à la source, donc à jour.
+actualité partagés, le titre et l'image tels qu'ils ont été publiés : c'est
+l'image dessinée au premier « Publier » qui est renvoyée.
 Une destination déjà publiée n'est pas touchée, et la raison de l'échec
 précédent est rappelée.
 

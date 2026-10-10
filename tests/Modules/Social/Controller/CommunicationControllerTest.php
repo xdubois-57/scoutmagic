@@ -7,6 +7,7 @@ namespace Tests\Modules\Social\Controller;
 use Core\Config\AppConfig;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Modules\Social\File\PostedCardOwnershipChecker;
 use Core\File\StoredFileReader;
 use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
@@ -147,7 +148,11 @@ final class CommunicationControllerTest extends TestCase
             self::assertSame('chief', $route['role_min'], $route['path']);
             $cases[$route['method'] . ' ' . $route['path']] = [$route['method'], $route['path'], $route['action']];
         }
-        self::assertCount(12, $cases);
+        // Deliberately a count and not a comment: a route added to the
+        // manifest without a thought for who may reach it fails HERE,
+        // before the two tests below have anything to say. 14 since
+        // IT-02 added the card's two background routes.
+        self::assertCount(14, $cases);
 
         return $cases;
     }
@@ -177,6 +182,428 @@ final class CommunicationControllerTest extends TestCase
         $response = $this->route($method, $path, $action, $body, null, $id);
 
         $this->assertLessThan(400, $response->getStatusCode(), substr($response->getBody(), 0, 400));
+    }
+
+    /**
+     * **What the browser posted is what is published**, byte for byte
+     * (issue #706, IT-02).
+     *
+     * This is the promise the whole iteration rests on: the chief looked
+     * at a card and pressed « Publier », so that card is what leaves —
+     * not a second composition that could differ from it. Asserted by
+     * comparing the bytes the fake Meta transport was handed against the
+     * bytes posted, which is the only comparison that proves it.
+     */
+    public function testTheCardThePageSendsIsTheCardThatIsPublished(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $drawn = $this->postedCard('Dessinée par le navigateur');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertTrue(
+            $this->publications->forSource('communication', $id)['instagram']->isPublished()
+        );
+
+        // **What Meta was actually given**, not merely what was stored.
+        // Instagram is handed an address, so the bytes are followed
+        // through it: the card's token, opened, read. An earlier version
+        // of this test compared the STORED file instead and passed even
+        // with the whole frozen-card branch deleted from
+        // `PublishingService` — the publication simply composed one and
+        // still succeeded. A mutation that leaves a test green is a test
+        // that proves nothing.
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $this->assertMatchesRegularExpression('#/partage/carte/[a-f0-9]{64}$#', $url);
+
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $this->assertSame(
+            $drawn,
+            (string) file_get_contents($served),
+            'Instagram was handed a card the browser never drew'
+        );
+    }
+
+    /**
+     * **A « Publier » that publishes nothing freezes nothing.** Found in
+     * the review of #850: the card used to be kept before the
+     * destination check, so a POST refused for « Cochez au moins une
+     * destination » still stored it — and since no publication row was
+     * written, the communication was not frozen and the chief could
+     * still change the photo or the slider. Their next « Publier » then
+     * published the FIRST attempt's card, which is the exact inversion
+     * of « what you saw is what left ».
+     */
+    public function testAPublishWithNoDestinationKeepsNoCard(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('Dessinée pendant la tentative refusée');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish']),
+            ['id' => (string) $id]
+        );
+
+        // Read ONCE: FlashMessage::get() consumes.
+        $this->assertStringContainsString('au moins une destination', FlashMessage::get()['message'] ?? '');
+        $this->assertNull(
+            $this->communications->find($id)?->cardFileId,
+            'a refused « Publier » froze a card anyway'
+        );
+    }
+
+    /**
+     * And the card that travels is the one drawn for the attempt that
+     * actually published, not the one from a refused attempt before it.
+     */
+    public function testAfterARefusedAttemptTheNextCardIsTheOneThatTravels(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('La refusée');
+
+        // Forgot the destinations.
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish']),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        // Ticks a destination and publishes. The page drew its card
+        // again, and this is the one the chief is looking at.
+        $second = $this->postedCard('La publiée');
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $this->assertSame(
+            $second,
+            (string) file_get_contents($served),
+            'Instagram was handed the card of an attempt that published nothing'
+        );
+    }
+
+    /**
+     * **The kept card is not readable through `/files/{id}`.** Found in
+     * the review of #850: stored with no owner, the row fell through to
+     * its `role_min = 'chief'` floor alone, so any chief could read any
+     * card by asking for a sequential id — and a card is the source
+     * photo under a veil, unblurred when the slider is on « Net », from
+     * an album that chief may never have been granted.
+     *
+     * The row names its owner so that the registry refuses it; what the
+     * owner type then answers is
+     * {@see \Tests\Modules\Social\File\PostedCardOwnershipCheckerTest}.
+     */
+    public function testTheKeptCardNamesAnOwnerSoTheGenericRouteRefusesIt(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('Dessinée par le navigateur');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $fileId = $this->communications->find($id)?->cardFileId;
+        $this->assertNotNull($fileId, 'no card was kept at all');
+        $row = (new FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($row);
+        $this->assertSame(
+            PostedCardOwnershipChecker::OWNER_TYPE,
+            $row->ownerType,
+            'the card row has no owner type, so /files/{id} falls back to the role floor'
+        );
+        $this->assertSame($id, $row->ownerId, 'the card row does not name the communication it belongs to');
+    }
+
+    /**
+     * And it is frozen: a destination published later receives the card
+     * the first one did, never a fresh one.
+     */
+    public function testASecondDestinationReceivesTheSameCardAsTheFirst(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $first = $this->postedCard('La première');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['facebook']]),
+            ['id' => (string) $id]
+        );
+        $kept = $this->communications->find($id)?->cardFileId;
+
+        // A second « Publier », posting a DIFFERENT card — a chief who
+        // moved the slider between the two attempts, or simply a reloaded
+        // page. The first card is what the second destination gets.
+        $this->postedCard('La seconde, différente');
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            $kept,
+            $this->communications->find($id)?->cardFileId,
+            'the card was replaced after something had already left'
+        );
+        $this->assertNotSame('', $first);
+    }
+
+    /**
+     * A POST with no card at all still publishes: the server composes one,
+     * as it always did.
+     *
+     * That branch is not a leftover — it is how a share made before the
+     * browser drew anything can still be retried, and how a page whose
+     * JavaScript did not load still works. `CardRenderer` left the path a
+     * NEW share takes; it did not leave the repository.
+     */
+    public function testAShareWithNoPostedCardStillPublishes(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertNull($this->communications->find($id)?->cardFileId);
+        $this->assertTrue(
+            $this->publications->forSource('communication', $id)['instagram']->isPublished(),
+            'a share with no posted card could not be published at all'
+        );
+    }
+
+    /**
+     * Something that is not a card refuses the publication rather than
+     * quietly publishing a composition instead.
+     *
+     * The chief looked at an image and pressed « Publier ». Sending a
+     * different one would be worse than asking them to try again, and the
+     * sentence says what to do.
+     */
+    public function testAPostedCardThatIsNotOneStopsThePublication(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedBytes('<!DOCTYPE html><p>pas une carte</p>');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        // Read ONCE: FlashMessage::get() consumes, so a second call
+        // answers nothing and the assertion would pass on an empty string.
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('JPEG', $flash['message'] ?? '');
+        $this->assertSame([], $this->publications->forSource('communication', $id));
+        $this->assertSame([], $this->meta->requests, 'Meta was called with something that is not a card');
+        $this->assertNull($this->communications->find($id)?->cardFileId);
+    }
+
+    /** A card of the wrong size is refused the same way, naming the size. */
+    public function testAPostedCardOfTheWrongSizeStopsThePublication(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $square = imagecreatetruecolor(600, 600);
+        ob_start();
+        imagejpeg($square, null, 88);
+        $this->postedBytes((string) ob_get_clean());
+        imagedestroy($square);
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertStringContainsString('1080 pixels', FlashMessage::get()['message'] ?? '');
+        $this->assertSame([], $this->publications->forSource('communication', $id));
+    }
+
+    /**
+     * The composer ASKS for the browser-drawn card, and keeps the
+     * server's one beside it (issue #706, IT-02).
+     *
+     * Every piece of this is an opt-in the server has to write down, and
+     * an opt-in nobody wrote down is a feature that silently does not
+     * exist — which is exactly what cost issue #756 a review remark.
+     * Asserted on the rendered page rather than on the template file: a
+     * variable that stopped reaching the view would still look right in
+     * the source.
+     *
+     * The two images together are the point, not an oversight: the
+     * <canvas> takes the <img>'s place only once a draw has succeeded, so
+     * a browser with no 2D context still shows the card. On a
+     * source-backed composer « Publier » is the only button.
+     */
+    public function testTheComposerAsksForTheBrowserDrawnCardAndKeepsTheServersBeside(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString(
+            'data-card-canvas',
+            $html,
+            'the page no longer asks for the canvas, so the card never follows the typing (issue #706, IT-02).'
+        );
+        $this->assertStringContainsString(
+            'data-card-background="/medias-sociaux/' . $id . '/image"',
+            $html,
+            'the canvas has no background to draw, so it would paint the veil over a grey square.'
+        );
+        $this->assertStringContainsString(
+            'data-card-blur="0.025"',
+            $html,
+            'a gallery photo must carry its blur to the browser, or the card drawn there is sharper'
+            . ' than the one that leaves.'
+        );
+        // The address written at the card's foot, as the card shows it:
+        // `ShareSourceResolver::address()` strips the scheme, because what
+        // survives Instagram's refusal of links is a domain somebody can
+        // type, not a URL.
+        $this->assertStringContainsString('data-card-address="unite.example', $html);
+        $this->assertStringNotContainsString('data-card-address="https://', $html);
+        // Both scripts, in this order: the composer reads
+        // window.ScoutMagicCard at load and does nothing without it.
+        $this->assertMatchesRegularExpression(
+            '#social-card\.js.*social-composer\.js#s',
+            $html,
+            'the engine must be loaded before the wiring, or the canvas never appears.'
+        );
+        // The server's card stays on the page — the fallback the canvas
+        // replaces only once it has drawn.
+        $this->assertStringContainsString('data-card-preview', $html);
+        $this->assertStringContainsString('/medias-sociaux/' . $id . '/apercu', $html);
+    }
+
+    /**
+     * The card's background is the source's own bytes, unblurred (issue
+     * #706, IT-02).
+     *
+     * The browser draws the card now, so it needs the photo rather than
+     * the composed card: the title follows the typing and the blur
+     * follows a slider, and a round trip per frame is the waiting the
+     * chantier rules out.
+     *
+     * Asserted against the COMPOSED card's own sharpness rather than on a
+     * header alone — the point of this route is that it is not blurred,
+     * and `SocialTestHelper::sharpness()` is what the card tests already
+     * measure that with.
+     */
+    public function testTheBackgroundIsTheSourcesPhotoUnblurred(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $background = $this->controller()->background($this->get(), ['id' => (string) $id]);
+        $card = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+
+        $this->assertSame(200, $background->getStatusCode());
+        $this->assertSame('image/jpeg', $background->getHeaders()['Content-Type'] ?? null);
+        $this->assertSame(
+            H::groupPhoto(),
+            $background->getBody(),
+            'the background must be the source\'s own bytes, not a composition of them'
+        );
+        $this->assertGreaterThan(
+            H::sharpness($card->getBody()) * 2,
+            H::sharpness($background->getBody()),
+            'the background came out blurred: the browser would then blur an already blurred photo,'
+            . ' and « Net » could never mean net (issue #706, IT-02).'
+        );
+    }
+
+    /**
+     * It is served to the chief and to no cache: the same address answers
+     * a different album to a different chief, and an unblurred gallery
+     * photo is not something to leave in a proxy.
+     */
+    public function testTheBackgroundIsNeverCachedAndNeverSniffed(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $headers = $this->controller()->background($this->get(), ['id' => (string) $id])->getHeaders();
+
+        $this->assertSame('private, no-store', $headers['Cache-Control'] ?? null);
+        $this->assertSame('nosniff', $headers['X-Content-Type-Options'] ?? null);
+    }
+
+    /**
+     * Nothing to draw answers 404, exactly as the composed preview does —
+     * and for the same reason: a chief who may not look at it learns
+     * nothing from which of the refusals it was.
+     */
+    public function testABackgroundThatIsNotThereAnswersNotFound(): void
+    {
+        $this->loginAuthor();
+
+        // A communication with no image at all.
+        $bare = $this->communications->create('Sans image', 'Texte', $this->author, new \DateTimeImmutable());
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $bare])->getStatusCode()
+        );
+
+        // An album nobody described.
+        $this->assertSame(
+            404,
+            $this->controller()
+                ->backgroundSource($this->get(), ['kind' => 'album', 'id' => '999999'])
+                ->getStatusCode()
+        );
+    }
+
+    /**
+     * The prefilled composer has no row yet, so its background is keyed
+     * on the SOURCE — the same pairing as `previewSource()`.
+     */
+    public function testThePrefilledComposerHasABackgroundOfItsOwn(): void
+    {
+        $this->loginAuthor();
+
+        $response = $this->controller()
+            ->backgroundSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(H::groupPhoto(), $response->getBody());
+    }
+
+    /**
+     * Another chief's communication has no background either — the row's
+     * own rule decides, not the fact that an image exists somewhere.
+     */
+    public function testAnotherChiefsBackgroundIsNotThere(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        AuthSession::login($this->other, 'autre@unite.be', 'chief');
+
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $id])->getStatusCode()
+        );
     }
 
     public function testAnotherChiefsCommunicationIsNotThere(): void
@@ -294,7 +721,13 @@ final class CommunicationControllerTest extends TestCase
             ->getBody();
 
         $this->assertStringContainsString('Cette photo vient de la galerie', $html);
-        $this->assertStringContainsString('floutée, sans exception', $html);
+        // The promise is no longer « sans exception » — the floor is gone
+        // and the slider decides, « Net » included (issue #706, IT-02).
+        // What has to be there is the slider itself, for exactly the
+        // shares that get blurred.
+        $this->assertStringNotContainsString('sans exception', $html);
+        $this->assertStringContainsString('data-card-blur-input', $html);
+        $this->assertStringContainsString('Très flou', $html);
     }
 
     /**
@@ -503,7 +936,19 @@ final class CommunicationControllerTest extends TestCase
      * title, this test fails and says which documents to change with it,
      * rather than letting them drift apart again.
      */
-    public function testARenamedAlbumReachesALaterDestinationWithItsNewTitle(): void
+    /**
+     * **The HISTORY's title, not the published one.** This test asserts
+     * `social_publications.source_title`, the label the history shows,
+     * and its POSTs carry no card — so the publication composes one each
+     * time, with the album's title of the day. Once a card IS kept
+     * (issue #706, IT-02, the normal path) the published image and the
+     * title drawn on it are frozen, and a renamed album changes neither:
+     * {@see testASecondDestinationReceivesTheSameCardAsTheFirst}. The
+     * message below used to claim this test was what the documents had
+     * to say, which stopped being true in IT-02 — found in the review of
+     * #850.
+     */
+    public function testARenamedAlbumIsRecordedUnderItsNewTitleInTheHistory(): void
     {
         $this->loginAuthor();
         $body = [
@@ -534,7 +979,7 @@ final class CommunicationControllerTest extends TestCase
             'Week-end de rentrée, deuxième édition',
             $titles['instagram'] ?? null,
             'a source-backed share reads its title at the source on every publication, so the'
-            . ' second destination sends the new one — this is what the documents must say.'
+            . ' history records the new one against the later destination'
         );
         self::assertSame(
             self::ALBUM_TITLE,
@@ -637,7 +1082,15 @@ final class CommunicationControllerTest extends TestCase
      * what makes the image genuinely fixed, by storing the one the
      * browser composed.
      */
-    public function testAFrozenSourceBackedShareSaysOnlyTheTextIsFixed(): void
+    /**
+     * **The two cases converged in IT-02.** A source-backed share used
+     * to get a weaker notice, truthfully: only its text was frozen,
+     * while the title and image were read at the album on every
+     * publication. Now the card the browser sent is kept and resent, so
+     * both cases get the same sentence. This test pinned the old wording
+     * faithfully and is what caught the correction.
+     */
+    public function testAFrozenSourceBackedShareSaysTheImageIsFixedToo(): void
     {
         $id = $this->sourceBackedCommunication();
         $at = new \DateTimeImmutable('-1 day');
@@ -657,10 +1110,11 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
 
-        $this->assertStringContainsString('le texte ne change plus', $html);
-        $this->assertStringNotContainsString('l\'image et le texte ne changent plus', $html);
-        // And it says where the title and image really come from.
-        $this->assertStringContainsString('restent ceux de', $html);
+        $this->assertStringContainsString('l\'image et le texte ne changent plus', $html);
+        // And no longer promises that a renamed album would reach a
+        // later destination with its new title: the card carries the old
+        // one.
+        $this->assertStringNotContainsString('restent ceux de', $html);
     }
 
     /**
@@ -975,10 +1429,13 @@ final class CommunicationControllerTest extends TestCase
         $sorted = $positions;
         sort($sorted);
         $this->assertSame($sorted, $positions, 'In the mockup\'s order.');
-        $this->assertStringContainsString(
-            'Une image téléversée part telle quelle. Une image de la galerie est toujours floutée sur Facebook et Instagram.',
-            $html
-        );
+        // The floor is gone, so the sentence can no longer say « toujours »
+        // (issue #706, IT-02): a gallery photo leaves at the strength the
+        // slider was left on, « Net » included, and the same strength to
+        // every destination now that groups receive the card too.
+        $this->assertStringContainsString('Une image téléversée part telle quelle.', $html);
+        $this->assertStringContainsString('au flou que vous choisissez', $html);
+        $this->assertStringNotContainsString('toujours floutée', $html);
     }
 
     public function testGalleryButtonSavesTheTextAndOpensThePicker(): void
@@ -1031,6 +1488,13 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('src="/medias-sociaux/' . $id . '/apercu"', $html);
         $this->assertStringNotContainsString('elle est floutée', $html);
         $this->assertSame(200, $this->controller()->preview($this->get(), ['id' => (string) $id])->getStatusCode());
+        // The same promise, on the browser's side of it (issue #706,
+        // IT-02): the canvas is told ZERO rather than the site's setting,
+        // or the card drawn in the browser comes out blurred where the
+        // published one is not. Asserted here rather than in a test of
+        // its own, so both halves of « an uploaded image is not blurred »
+        // move together.
+        $this->assertStringContainsString('data-card-blur="0"', $html);
     }
 
     public function testUploadingWithoutAFileSaysSo(): void
@@ -1131,7 +1595,7 @@ final class CommunicationControllerTest extends TestCase
      * that very retry. It now says so. Raised in review on the pull
      * request for IT-01, alongside the frozen notice in the composer.
      */
-    public function testTheRetryPageSaysASourcesImageIsReadAgain(): void
+    public function testTheRetryPagePromisesTheSameImageForASourceBackedShareToo(): void
     {
         $id = $this->sourceBackedCommunication();
         $this->failedInstagram($id);
@@ -1140,12 +1604,12 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('relus à la source', $html);
-        $this->assertStringNotContainsString('La même image et le même texte', $html);
+        $this->assertStringContainsString('La même image et le même texte', $html);
+        $this->assertStringNotContainsString('relus à la source', $html);
     }
 
     /**
-     * A retry on a LEGACY album publication is source-backed too.
+     * A retry on a LEGACY album publication still renders.
      *
      * `/medias-sociaux/reessayer/album/{albumId}/{platform}` is still
      * reachable — the retired route's rows survive under
@@ -1153,10 +1617,14 @@ final class CommunicationControllerTest extends TestCase
      * path `$params['id']` is an ALBUM key, not a communication one.
      * Deriving the flag from `communications->find($id)` therefore read
      * an unrelated or missing row and promised « la même image » for a
-     * retry that re-reads the album. Caught in review on the pull
-     * request for IT-01, in the very code the previous commit added.
+     * retry that re-read the album. Caught in review on the pull request
+     * for IT-01, in the very code the previous commit added.
+     *
+     * From IT-02 « la même image » is what every retry promises, this
+     * route included, because the kept card is what travels. The route
+     * still has to resolve and render, which is what this keeps.
      */
-    public function testALegacyAlbumRetrySaysTheImageIsReadAgain(): void
+    public function testALegacyAlbumRetryStillRendersAndPromisesTheSameImage(): void
     {
         $at = new \DateTimeImmutable('-1 hour');
         $this->publications->claim(
@@ -1176,12 +1644,13 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('relus à la source', $html);
-        $this->assertStringNotContainsString('La même image et le même texte', $html);
+        $this->assertStringContainsString('La même image et le même texte', $html);
+        $this->assertStringNotContainsString('relus à la source', $html);
     }
 
     /**
-     * And a communication that owns its image keeps the plain promise.
+     * And a communication that owns its image says the same — the two
+     * cases having converged in IT-02.
      */
     public function testTheRetryPageStillPromisesTheSameImageForAnOwnShare(): void
     {
@@ -1230,7 +1699,31 @@ final class CommunicationControllerTest extends TestCase
         );
 
         $this->assertSame('warning', FlashMessage::get()['type'] ?? null);
-        $this->assertSame(H::groupPhoto(), $this->groups->posts[0]['image'], 'Never blurred for a group.');
+        // **The card, not the raw photo** (issue #706, IT-02). A group used
+        // to receive the photo exactly as it was, on the reasoning that
+        // the group is private and its members already see the gallery.
+        // That reasoning held while the blur was a fixed rule; it stopped
+        // holding when the blur became the chief's choice, because « the
+        // same card everywhere » is what the composer now shows.
+        //
+        // Compared by SHARPNESS and size rather than by bytes: a byte
+        // comparison of two JPEGs dumps one of them into the failure
+        // message, which is how this assertion came to print a kilobyte
+        // of binary when it first went red.
+        $sent = (string) $this->groups->posts[0]['image'];
+        $this->assertNotSame(H::groupPhoto(), $sent, 'the group still receives the untouched photo');
+        $size = getimagesizefromstring($sent);
+        $this->assertIsArray($size);
+        $this->assertSame(
+            [\Modules\Social\Card\CardRenderer::SIZE, \Modules\Social\Card\CardRenderer::SIZE],
+            [$size[0], $size[1]],
+            'what reached the group is not a card: it has the wrong dimensions'
+        );
+        $this->assertLessThan(
+            H::sharpness(H::groupPhoto()),
+            H::sharpness($sent),
+            'the card reached the group unblurred, while the composer promised the slider decides'
+        );
         $this->assertNull($this->groups->posts[0]['link'], 'A free communication has no page of its own.');
         $html = $this->controller()->history($this->get(), [])->getBody();
         $this->assertStringContainsString('data-platform="group:3" data-state="published"', $html);
@@ -1259,12 +1752,15 @@ final class CommunicationControllerTest extends TestCase
         $this->loginAuthor();
 
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
-        $this->assertStringContainsString('floutée, sans exception, sur Facebook et Instagram.', $html);
         $this->assertStringNotContainsString('groupe de discussion', $html, 'No group offered, none mentioned.');
 
         $this->groups = new FakeGroupPublisher();
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
-        $this->assertStringContainsString('dans un groupe de discussion, elle part nette', $html);
+        // **What differs for a group is no longer the IMAGE** (issue #706,
+        // IT-02): it receives the same card as every other destination, at
+        // the strength the slider was left on. What still differs is where
+        // the publication lives, and the page keeps saying that.
+        $this->assertStringNotContainsString('elle part nette', $html);
         $this->assertStringContainsString('Dans un groupe de discussion, la publication reste dans le site', $html);
     }
 
@@ -1300,6 +1796,52 @@ final class CommunicationControllerTest extends TestCase
             'album',
             self::ALBUM_ID
         );
+    }
+
+    /**
+     * A `CardService` over the same database and directory as the
+     * controller's, so a test can open the card whose address was handed
+     * to Meta and read the bytes that were really served.
+     */
+    private function cardsService(): CardService
+    {
+        $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
+
+        return new CardService(
+            new CardRepository($this->pdo),
+            new CardRenderer(),
+            $settings,
+            new JournalService($this->journal),
+            $this->storage . '/cards'
+        );
+    }
+
+    /**
+     * Puts a real card in `$_FILES` as the browser's canvas would, and
+     * answers its bytes so a test can compare what was published against
+     * what was sent.
+     */
+    private function postedCard(string $title): string
+    {
+        $jpeg = (new \Modules\Social\Card\CardRenderer())
+            ->render(H::groupPhoto(), $title, 'unite.example', true, 0.025);
+        $this->postedBytes($jpeg);
+
+        return $jpeg;
+    }
+
+    /** The same, for bytes that are deliberately not a card. */
+    private function postedBytes(string $bytes): void
+    {
+        $tmp = (string) tempnam(sys_get_temp_dir(), 'card');
+        file_put_contents($tmp, $bytes);
+        $_FILES['card'] = [
+            'name' => 'carte.jpg',
+            'tmp_name' => $tmp,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($bytes),
+            'type' => 'image/jpeg',
+        ];
     }
 
     private function failedInstagram(int $id): void
@@ -1429,12 +1971,16 @@ final class CommunicationControllerTest extends TestCase
                 $this->publications,
                 $this->connections,
                 $settings,
-                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal)
+                $this->groups === null ? null : new GroupPublishingService($this->groups, $this->publications, $journal, $cards)
             ),
             $this->publications,
             $this->connections,
             $cards,
             new UploadHandler($files, $this->storage),
+            // The card the browser posts is kept here, byte for byte —
+            // the same storage the reader above reads back, so a test can
+            // publish a card and then check what reached a destination.
+            new EncryptedFileStorageService($files, H::encryption(), $this->storage),
             new UserAccountRepository($this->pdo, H::encryption()),
             $this->picker,
             []
