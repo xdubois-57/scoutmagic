@@ -33,7 +33,10 @@ Seuls les animés comptent : les animateurs, intendants et membres du
 Staff d'Unité n'apparaissent pas, même s'ils ont l'âge d'une branche.
 L'âge est calculé au début de l'année scoute — les chiffres ne bougent
 donc pas en cours d'année — et tient compte du décalage d'année
-éventuellement réglé pour un enfant maintenu ou avancé d'un an.
+éventuellement réglé pour un enfant maintenu ou avancé d'un an. Un animé
+est compté une seule fois, même s'il appartient à plusieurs sections ou
+s'il a une fonction sans branche (une fonction d'unité, par exemple) : ce
+sont les mêmes animés que ceux listés dans « Animés de la section ».
 
 Un animé sans date de naissance connue, ou dont l'âge tombe hors des
 quatre branches, n'est compté nulle part : le total peut donc être
