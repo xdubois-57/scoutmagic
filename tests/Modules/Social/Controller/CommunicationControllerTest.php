@@ -242,13 +242,75 @@ final class CommunicationControllerTest extends TestCase
      * affected: `PublishingService::cardBytes()` reads the kept card
      * first. The page did not.
      */
+    public function testARaisedBlurIsNotPublishedWithTheCardDrawnBeforeIt(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        // A first attempt at « Net », refused before any publication row
+        // is claimed — so a card is stored and nothing is frozen.
+        $past = new \DateTimeImmutable('-1 day');
+        $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $past, $past);
+        $sharp = $this->postedCard('Week-end');
+        $body = ['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']];
+        $this->controller()->update($this->post($body + ['blur_ratio' => '0']), ['id' => (string) $id]);
+        FlashMessage::get();
+        $this->assertSame(
+            [],
+            $this->publications->forSource('communication', $id),
+            'the refusal claimed a row after all, so this test proves nothing'
+        );
+        $this->assertNotNull(
+            $this->communications->find($id)?->cardFileId,
+            'the refused attempt stored no card, so this test proves nothing'
+        );
+
+        // The chief raises the blur and publishes again — but the canvas
+        // has not drawn yet (a photo still loading, a context that cannot
+        // draw), so this POST carries NO card.
+        $now = new \DateTimeImmutable();
+        $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $now->modify('+60 days'), $now);
+        $this->noCardPosted();
+        $this->controller()->update($this->post($body + ['blur_ratio' => '0.18']), ['id' => (string) $id]);
+
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $sent = (string) file_get_contents($served);
+
+        // The card drawn at « Net » must not be what left, the site
+        // having recorded 0.18 as the blur of this very share.
+        $this->assertNotSame(
+            $sharp,
+            $sent,
+            'the photo was published at the blur the chief had abandoned, with the new one recorded beside it'
+        );
+        $this->assertSame(
+            0.18,
+            $this->communications->find($id)?->blurRatio,
+            'the slider value was not even stored, so this test proves nothing'
+        );
+        // Composed afresh instead, at the blur that is now the share's.
+        $this->assertSame(
+            (new \Modules\Social\Card\CardRenderer())->render(H::groupPhoto(), 'Week-end', 'unite.example', true, 0.18),
+            $sent
+        );
+        // And the stale file is gone rather than left behind.
+        $this->assertNull(
+            $this->communications->find($id)?->cardFileId,
+            'the row still names the card of the abandoned blur'
+        );
+    }
+
     public function testTheComposerOfARefusedAttemptIsStillTheChiefsToEdit(): void
     {
         $id = $this->communication('Week-end', 'Texte', self::PHOTO);
         $this->loginAuthor();
 
         // Instagram's authorisation has expired, so `publish()` refuses
-        // WITHOUT claiming a publication row — but `keepPostedCard()`
+        // WITHOUT claiming a publication row — but `refreshPostedCard()`
         // has already stored the card the composer drew.
         $past = new \DateTimeImmutable('-1 day');
         $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $past, $past);
@@ -2098,6 +2160,19 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /** The same, for bytes that are deliberately not a card. */
+    /**
+     * What a POST from a browser that drew nothing looks like: the card
+     * field simply absent.
+     *
+     * `$_FILES` survives between two `update()` calls in this file, so a
+     * second attempt would otherwise carry the first one's card and the
+     * test would prove the opposite of what it says.
+     */
+    private function noCardPosted(): void
+    {
+        unset($_FILES['card']);
+    }
+
     private function postedBytes(string $bytes): void
     {
         $tmp = (string) tempnam(sys_get_temp_dir(), 'card');

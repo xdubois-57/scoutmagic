@@ -79,6 +79,24 @@ final class CommunicationRepositoryTest extends TestCase
     }
 
     /**
+     * Null is a write like any other, and the way a card that no longer
+     * shows what the share would publish stops being named — the chief
+     * raised the blur and posted no new card, so the publication must
+     * compose a current one rather than reuse that file
+     * (`CommunicationController::dropStoredCard()`). Covered here
+     * because the column is `NOT NULL`-looking in every other test.
+     */
+    public function testACardCanBeForgottenAgain(): void
+    {
+        $id = $this->create();
+        $this->repository->updateCardFile($id, 4242, $this->now);
+
+        $this->repository->updateCardFile($id, null, $this->now);
+
+        $this->assertNull($this->repository->find($id)?->cardFileId);
+    }
+
+    /**
      * Each writes its own column and leaves the other alone: they are
      * set at different moments — the blur as the slider moves, the card
      * at « Publier » — and a write that cleared its neighbour would lose

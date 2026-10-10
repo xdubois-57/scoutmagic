@@ -160,13 +160,17 @@ class CommunicationRepository
     }
 
     /**
-     * The card the browser posted, now stored (issue #706, IT-02).
+     * The card the browser posted, now stored — or null to forget the one
+     * stored before (issue #706, IT-02).
      *
-     * Written once per share and then frozen with the rest: the caller
-     * checks that nothing has left yet, because a destination published
-     * later must receive the same image the first one did.
+     * Written while nothing has left yet, and frozen with the rest once
+     * something has: a destination published later must receive the same
+     * image the first one did. Null is how a card that no longer shows
+     * what this share would publish is dropped, so the publication
+     * composes a current one instead; see
+     * `CommunicationController::dropStoredCard()`.
      */
-    public function updateCardFile(int $id, int $fileId, \DateTimeImmutable $now): void
+    public function updateCardFile(int $id, ?int $fileId, \DateTimeImmutable $now): void
     {
         $this->pdo->prepare('UPDATE social_communications SET card_file_id = ?, updated_at = ? WHERE id = ?')
             ->execute([$fileId, $now->format('Y-m-d H:i:s'), $id]);

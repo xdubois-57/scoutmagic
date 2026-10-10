@@ -400,15 +400,17 @@ final class CommunicationController extends AbstractController
         // **On the freeze, not on « a card is stored ».** Keying this on
         // `$source->card` was the next defect in the same review, and it
         // closed the composer of a share that is still the chief's to
-        // edit: `keepPostedCard()` stores the card BEFORE publishing, so
+        // edit: `refreshPostedCard()` stores the card BEFORE publishing, so
         // an attempt refused without claiming a row — an expired Meta
         // token, a caption past Instagram's limit — leaves a card stored
         // with `isFrozen()` still false. This route then answered 404,
         // the canvas had no photo, `canDraw()` stayed false forever, and
-        // the next « Publier » posted no card at all — so the card of
-        // the REFUSED attempt was published, discarding the blur the
-        // chief had changed in between. Which is the very defect
-        // `keepPostedCard()` was moved to fix.
+        // the next « Publier » posted no card at all. That last step no
+        // longer publishes the refused card — `dropStoredCard()` forgets
+        // it, the third and last fix of this one rule in the same review
+        // — but the composer was closed all the same, and a chief who
+        // cannot see the card they are about to publish is the thing
+        // this route exists to prevent.
         if ($frozen) {
             return new Response('Not Found', 404);
         }
@@ -711,23 +713,23 @@ final class CommunicationController extends AbstractController
         }
 
         // **The card the browser drew arrives with « Publier »** (issue
-        // #706, IT-02), and is kept here — AFTER the refusal above, and
-        // nowhere earlier. What goes to Instagram, to a group, to a
-        // retry and — from IT-04 — to the public page is this one file,
-        // so « what you saw is what left » holds across destinations
-        // published minutes apart; keeping it on a POST that publishes
-        // nothing would freeze the card of an attempt that never
-        // happened, and the chief, still free to change the photo or the
-        // blur because nothing is frozen yet, would have the first
-        // attempt's card published instead of the one they are looking
-        // at. Found in the review of #850.
+        // #706, IT-02), and the stored one is brought into line with it
+        // here — AFTER the refusal above, and nowhere earlier. What goes
+        // to Instagram, to a group, to a retry and — from IT-04 — to the
+        // public page is this one file, so « what you saw is what left »
+        // holds across destinations published minutes apart; storing it
+        // on a POST that publishes nothing would keep the card of an
+        // attempt that never happened, and the chief, still free to
+        // change the photo or the blur because nothing is frozen yet,
+        // would have the first attempt's card published instead of the
+        // one they are looking at. Found in the review of #850.
         //
         // A refusal stops the publication rather than falling back to
         // composing one: the chief looked at a card and pressed
         // « Publier », and quietly publishing a different image would be
         // worse than asking them to try again.
         try {
-            $communication = $this->keepPostedCard($request, $communication);
+            $communication = $this->refreshPostedCard($request, $communication);
         } catch (CardException $e) {
             FlashMessage::set('error', $e->getMessage());
 
@@ -1129,42 +1131,52 @@ final class CommunicationController extends AbstractController
     }
 
     /**
-     * Keeps the card the browser posted, once per share (issue #706,
-     * IT-02).
+     * Brings the stored card into line with this publishing POST (issue
+     * #706, IT-02): the one it carries, or none at all.
      *
-     * **Once the communication is FROZEN**, and that is the whole guard —
-     * the same one the text has. While nothing has been published, a new
-     * « Publier » replaces the card, because the chief may still change
-     * the photo and the slider and must get what they are looking at.
+     * **Once the communication is FROZEN** nothing here applies — the
+     * kept card is what every later destination and every retry
+     * receives, which is the same guard the text has. While nothing has
+     * been published the chief may still change the photo, the title and
+     * the slider, so the stored card is only ever a record of what their
+     * browser last drew, and this runs on every « Publier » to keep it
+     * one.
      *
-     * Guarding on `cardFileId !== null` instead was a defect found in
-     * the review of #850, and a subtle one: several refusals inside
+     * **A card arrives**: it replaces the stored one, because it was
+     * drawn from what the chief is looking at. Guarding that on
+     * `cardFileId !== null` instead was a defect found in the review of
+     * #850, and a subtle one: several refusals inside
      * `PublishingService::publish()` — a blocked source, a caption past
      * Instagram's limit, a Meta token that has expired — record a failed
      * outcome and return WITHOUT claiming a publication row, so
      * `isFrozen()` stays false. The card of that refused attempt was
-     * stored all the same, and the next attempt could not replace it:
-     * the chief changed the photo, raised the blur, published
-     * successfully, and the site sent the first attempt's card. Moving
-     * this call after the « no destination » refusal fixed one path of
-     * three; the rule fixes all of them.
+     * stored all the same, and the next attempt could not replace it.
+     * Moving this call after the « no destination » refusal fixed one
+     * path of three; the rule fixes all of them.
      *
-     * A POST that carries no card at all — JavaScript off, a canvas the
-     * browser refused — leaves the row as it is, and the publication then
-     * composes one as it always did, rather than refusing to publish at
-     * all.
+     * **No card arrives** — JavaScript off, a photo still loading, a
+     * canvas that paints nothing — and the stored one is dropped rather
+     * than reused (`dropStoredCard()`). Leaving the row as it was is
+     * what the same review found next: the chief raised the blur after a
+     * refused attempt, published from a canvas that had not drawn, and
+     * the sharp card of that first attempt left while the site recorded
+     * the new blur beside it. The publication then composes a current
+     * card, so nobody is refused for a browser that could not draw.
      *
      * @throws CardException when a card arrived and is not usable
      */
-    private function keepPostedCard(Request $request, Communication $communication): Communication
+    private function refreshPostedCard(Request $request, Communication $communication): Communication
     {
+        // Frozen: the kept card is what every later destination receives,
+        // and this POST has no say in it either way.
+        if ($this->isFrozen($communication)) {
+            return $communication;
+        }
+
         $file = $request->getFile('card');
         $tmp = is_array($file) ? ($file['tmp_name'] ?? null) : null;
         if (!is_string($tmp) || $tmp === '' || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return $communication;
-        }
-        if ($this->isFrozen($communication)) {
-            return $communication;
+            return $this->dropStoredCard($communication);
         }
 
         $bytes = (string) @file_get_contents($tmp);
@@ -1196,6 +1208,44 @@ final class CommunicationController extends AbstractController
         if ($communication->cardFileId !== null) {
             $this->cardFiles->delete($communication->cardFileId);
         }
+
+        return $this->communications->find($communication->id) ?? $communication;
+    }
+
+    /**
+     * Forgets a stored card that no longer shows what this share would
+     * publish.
+     *
+     * **A stored card is only ever a record of what the browser last
+     * drew.** It becomes the thing published only once something has
+     * left, and until then anything the chief changes — the slider, the
+     * photo, the title — leaves it stale. `cardBytes()` and
+     * `GroupPublishingService::card()` both prefer it over composing,
+     * and they must: the FIRST publication is the one that posts a card
+     * and has no publication row yet. So the row has to stop naming it
+     * the moment it stops being true.
+     *
+     * Dropped here, at the one moment that matters, rather than at each
+     * of the four places that can make it stale (the slider, an upload,
+     * a gallery photo, a retyped title): a publishing POST that carries
+     * no fresh card is exactly the case where the stored one would be
+     * used, so this is where the rule holds for all four at once. Fixing
+     * the slider alone would have been the third partial fix of the same
+     * rule in this pull request.
+     *
+     * The publication then composes a current card, which is the
+     * documented fallback — the chief is never refused for a browser
+     * that could not draw. Found in the review of #850.
+     */
+    private function dropStoredCard(Communication $communication): Communication
+    {
+        if ($communication->cardFileId === null) {
+            return $communication;
+        }
+
+        $this->communications->updateCardFile($communication->id, null, new \DateTimeImmutable());
+        // The row first, the file second, as above.
+        $this->cardFiles->delete($communication->cardFileId);
 
         return $this->communications->find($communication->id) ?? $communication;
     }
