@@ -323,10 +323,13 @@ final class CommunicationController extends AbstractController
     {
         // Never frozen: there is no communication here to have published
         // anything, and so no kept card to prefer over a fresh one.
-        return $this->cardOf($this->describedSource(
-            (string) ($params['kind'] ?? ''),
-            (int) ($params['id'] ?? 0)
-        ), false);
+        return $this->cardOf(
+            $this->describedSource(
+                (string) ($params['kind'] ?? ''),
+                (int) ($params['id'] ?? 0)
+            ),
+            false
+        );
     }
 
     /**
@@ -365,10 +368,13 @@ final class CommunicationController extends AbstractController
     public function backgroundSource(Request $request, array $params): Response
     {
         // Never frozen, as in `previewSource()` above.
-        return $this->backgroundOf($this->describedSource(
-            (string) ($params['kind'] ?? ''),
-            (int) ($params['id'] ?? 0)
-        ), false);
+        return $this->backgroundOf(
+            $this->describedSource(
+                (string) ($params['kind'] ?? ''),
+                (int) ($params['id'] ?? 0)
+            ),
+            false
+        );
     }
 
     /**

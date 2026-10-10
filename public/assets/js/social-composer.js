@@ -59,10 +59,10 @@
     );
     const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
     const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
-    const address = (canvas && canvas.dataset.cardAddress) || '';
-    const backgroundUrl = (canvas && canvas.dataset.cardBackground) || '';
+    const address = canvas?.dataset.cardAddress || '';
+    const backgroundUrl = canvas?.dataset.cardBackground || '';
     /** The canvas carries the strength the server computed; the slider then owns it. */
-    const startingBlur = Number.parseFloat((canvas && canvas.dataset.cardBlur) || '0') || 0;
+    const startingBlur = Number.parseFloat(canvas?.dataset.cardBlur || '0') || 0;
 
     /**
      * Whether this card has a photo to wait for. An empty address means
@@ -133,7 +133,7 @@
     }
 
     function title() {
-        return titleField ? titleField.value : ((canvas && canvas.dataset.cardTitle) || '');
+        return titleField ? titleField.value : (canvas?.dataset.cardTitle || '');
     }
 
     /**
