@@ -13,6 +13,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Modules\Finance\Api\ReceivableViewer;
 use Modules\Finance\Service\ReceivablesOverviewService;
 use Twig\Environment;
 
@@ -25,7 +26,7 @@ class ReceivablesController extends AbstractController
     }
 
     /**
-     * GET /finance/receivables — "Paiements attendus" reconciliation page.
+     * GET /finance/receivables — « Contrôle des créances » (issue #836).
      * ?source=news&id={form_id} pre-expands the matching level-1/level-2
      * accordion sections (handled client-side — the ids are simply passed
      * through to the template).
@@ -38,7 +39,13 @@ class ReceivablesController extends AbstractController
             // role_min: intendant only proves the caller may open the page —
             // which accounts' receivables they may actually see is a
             // per-account decision (role_min_view), made in the service.
-            'overview' => $this->overviewService->buildOverview(Role::fromString(AuthSession::getRole())),
+            'overview' => $this->overviewService->buildOverview(
+                Role::fromString(AuthSession::getRole()),
+                // Who is looking, for the « Ouvrir … » links: each source
+                // module offers one only when its own screen would open for
+                // this person (issue #836).
+                new ReceivableViewer(AuthSession::getEmail(), Role::fromString(AuthSession::getRole()))
+            ),
             'focus_source' => (string) $request->getQuery('source', ''),
             'focus_id' => (int) $request->getQuery('id', 0),
         ]);

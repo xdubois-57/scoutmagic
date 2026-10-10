@@ -177,7 +177,7 @@ class ExpectedReceivableRepository
 
     /**
      * All receivables for a source module, grouped by source_reference_id
-     * — used by the "Paiements attendus" reconciliation page (level 2:
+     * — used by the « Contrôle des créances » reconciliation page (level 2:
      * one group per source instance).
      *
      * @return ExpectedReceivable[]

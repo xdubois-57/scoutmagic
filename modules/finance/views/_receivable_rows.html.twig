@@ -7,12 +7,15 @@
     `groups_instances`): two copies of this markup would be two places for
     the columns to drift apart.
 
-    Requires `rows`. `focus_reference_id` is optional — the
+    Requires `rows`. `with_destinations` — set where the rows are not under
+    a group header that already carries the link — puts each row's « Ouvrir
+    … » beside its name (issue #836). `focus_reference_id` is optional — the
     source_reference_id the page was opened FOR, marked with
     `data-scroll-focus` so public/assets/js/scroll-into-focus.js brings it
     into view; 0 means the page was not opened for any particular one.
 #}
 {% set focus = focus_reference_id|default(0) %}
+{% set links = with_destinations|default(false) %}
 
 <div class="table-responsive d-none d-md-block">
     <table class="table table-sm align-middle">
@@ -28,7 +31,12 @@
         <tbody>
             {% for row in rows %}
                 <tr {{ focus and row.source_reference_id == focus ? 'data-scroll-focus' : '' }}>
-                    <td>{{ row.label ?? '—' }}</td>
+                    <td>
+                        {{ row.label ?? '—' }}
+                        {% if links and row.destination %}
+                            <a href="{{ row.destination.url }}" class="small ms-2">{{ row.destination.label }}</a>
+                        {% endif %}
+                    </td>
                     <td class="text-end">{{ row.amount_due|money_cents }}</td>
                     <td class="text-end">{{ row.amount_received|money_cents }}</td>
                     <td class="font-monospace small">{{ row.communication }}</td>
@@ -58,6 +66,9 @@
                 {{ row.amount_received|money_cents }} reçu / {{ row.amount_due|money_cents }} attendu
             </div>
             <div class="font-monospace small text-body-secondary">{{ row.communication }}</div>
+            {% if links and row.destination %}
+                <a href="{{ row.destination.url }}" class="small">{{ row.destination.label }}</a>
+            {% endif %}
         </div>
     {% endfor %}
 </div>
