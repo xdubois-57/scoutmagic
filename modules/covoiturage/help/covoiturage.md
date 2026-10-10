@@ -8,7 +8,7 @@ question: Comment trouver une place en voiture pour la sortie de mon enfant ?
 question: Qui voit mon numéro de téléphone quand je demande une place ?
 question: Pourquoi ma demande est-elle toujours en attente ?
 paths: /covoiturage, /covoiturage/*
-related: covoiturage-proposer
+related: covoiturage-proposer, covoiturage-participation
 ---
 
 Pour une sortie ou un camp, les animateurs ouvrent **un covoiturage** : il
@@ -27,28 +27,11 @@ Sous la voiture qui vous convient, cliquez sur « Demander une place »,
 cochez les enfants concernés, vérifiez votre numéro de téléphone, puis
 « Envoyer la demande ».
 
-## Ma participation, d'un coup d'œil
+## Ma participation
 
-Dans la liste, un badge à côté du nom du covoiturage dit ce que vous y
-avez : **Conducteur**, **Place confirmée** ou **À confirmer** (demande
-en attente). Quand il y a un aller et un retour et que votre rôle n'est
-pas le même dans les deux sens, le badge le précise : « Aller · Conducteur »,
-« Retour · Place confirmée ». Une demande refusée ou retirée ne laisse pas
-de badge.
-
-Le jour du trajet, une bannière en haut de la page du covoiturage résume ce
-qu'il vous faut : l'heure, le rendez-vous, la destination, le lien
-d'itinéraire et, selon votre rôle, vos passagers et leurs numéros ou le
-conducteur et son numéro. Si votre demande est encore en attente, la
-bannière vous prévient de ne pas compter sur cette voiture et n'affiche pas
-le numéro du conducteur. Les numéros restent soumis aux mêmes règles que
-plus bas.
-
-Dans votre agenda personnel (le flux ICS), l'activité liée à un covoiturage
-porte une ligne de statut et un lien vers la page. Si vous ne participez
-qu'au retour, le lien ouvre directement le retour. Aucun numéro de
-téléphone, ni aucun nom de passager, ne figure dans l'agenda : ce fichier
-est conservé en clair par votre application de calendrier.
+Dans la liste, un badge à côté du nom du covoiturage dit ce que vous y avez,
+et le jour du trajet une bannière résume ce qu'il vous faut : voir
+« Ma participation et le jour du trajet ».
 
 ## Proposer des places
 

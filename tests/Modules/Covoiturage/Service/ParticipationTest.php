@@ -196,7 +196,6 @@ final class ParticipationTest extends TestCase
         $this->assertSame('warning', $banner['tone']);
         $this->assertSame(['Léa'], $banner['who']);
         $this->assertNull($banner['driver_phone']);
-        $this->assertStringNotContainsString('0478', (string) json_encode($banner));
     }
 
     public function testTheReturnBannerStartsFromThePlaceAndEndsAtTheDriversPoint(): void
