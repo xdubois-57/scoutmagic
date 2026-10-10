@@ -379,6 +379,27 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('data-confirm-note-maxlength="200"', $form[0]);
     }
 
+    /** #790: the word typed in the dialog reaches the service, which refuses an overlong one. */
+    public function testTheDriverRevokesASeatWithTheWordTypedInTheDialog(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $requests = new SeatRequestRepository($this->pdo, H::encryption());
+        $requests->transition($this->requestId, SeatRequest::PENDING, SeatRequest::ACCEPTED);
+        $path = '/covoiturage/demandes/' . $this->requestId . '/retirer-la-place';
+        $post = fn(string $message): int => $this->frontController('POST', '/covoiturage/demandes/{id}/retirer-la-place', 'revoke', 'identified')
+            ->handle(new Request('POST', $path, [], [
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+                'message' => $message,
+            ], [], []))->getStatusCode();
+
+        // Past 200 characters: refused, and the seat is still granted.
+        $this->assertSame(302, $post(str_repeat('x', 201)));
+        $this->assertSame(SeatRequest::ACCEPTED, $requests->findById($this->requestId)?->status);
+
+        $this->assertSame(302, $post('Ma voiture est en panne.'));
+        $this->assertSame(SeatRequest::REVOKED, $requests->findById($this->requestId)?->status);
+    }
+
     public function testAChiefOfAnotherSectionCannotEditACarpoolTheyDoNotOrganize(): void
     {
         // Past the route's floor, the controller narrows to whoever may
