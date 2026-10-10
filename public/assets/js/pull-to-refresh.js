@@ -56,6 +56,9 @@
 
     var REFRESHING_TEXT = 'Actualisation…';
 
+    /** How long a reload may take to unload the page before the gesture re-arms. */
+    var RELOAD_WATCHDOG_MS = 8000;
+
     // Surfaces that scroll on their own or sit over the page: a pull
     // started inside one belongs to it.
     // Bootstrap's responsive offcanvas (.offcanvas-lg…) carries no plain
@@ -151,6 +154,17 @@
         // The indicator keeps spinning until the page goes: a second pull
         // in the meantime is ignored (state stays 'refreshing').
         window.location.reload();
+        // A standalone iOS window can silently drop a navigation issued
+        // from a promise rather than inside the user's own touch — which
+        // is how the offline branch below reloads (see offline-nav.js on
+        // #353). Without this the state would stay 'refreshing' and every
+        // later pull would be ignored for the rest of the page's life.
+        // When the reload does happen, the page is gone before this fires.
+        setTimeout(function () {
+            if (state === 'refreshing') {
+                rest();
+            }
+        }, RELOAD_WATCHDOG_MS);
     }
 
     /**

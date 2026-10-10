@@ -1048,10 +1048,15 @@ body.cookie-banner-visible {
 /* The installed app's own pull-to-refresh, where the browser has one
    (Chrome on Android), would reload the page a second time for the same
    pull. Standalone only: in a browser tab the browser's gesture is the
-   visitor's, and this site adds none. */
+   visitor's, and this site adds none. And only on pages that carry the
+   replacement (`has-pull-to-refresh`, set by base.html.twig): the offline
+   fallback page (pwa/offline.html.twig) loads this stylesheet without the
+   script, and must keep the native gesture rather than lose it. An
+   explicit class rather than :has(#pull-to-refresh), for the reason the
+   cookie-banner block above gives. */
 @media (display-mode: standalone) {
-    html,
-    body {
+    html.has-pull-to-refresh,
+    html.has-pull-to-refresh body {
         overscroll-behavior-y: contain;
     }
 }

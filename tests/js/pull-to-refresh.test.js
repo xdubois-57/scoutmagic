@@ -296,6 +296,27 @@ describe('pull-to-refresh.js: the gesture', () => {
         expect(indicator().classList.contains('is-armed')).toBe(false);
     });
 
+    it('re-arms if the reload never takes the page away, so a dropped navigation cannot kill the gesture', async () => {
+        vi.useFakeTimers();
+        try {
+            await boot();
+
+            pullPastThreshold();
+            expect(reload).toHaveBeenCalledTimes(1);
+            expect(indicator().classList.contains('is-refreshing')).toBe(true);
+
+            vi.advanceTimersByTime(7999);
+            expect(indicator().classList.contains('is-refreshing')).toBe(true);
+            vi.advanceTimersByTime(1);
+            expect(indicator().classList.contains('is-refreshing')).toBe(false);
+
+            pullPastThreshold();
+            expect(reload).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('ignores a second pull while the first one is refreshing', async () => {
         await boot();
 
