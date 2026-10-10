@@ -33,7 +33,7 @@ use Core\System\ShellExecutor;
  *   gallery's video switch reads the same stored facts. The web PHP's own
  *   ability to run a program is a separate line, since the two differ on
  *   shared hosting;
- * - PDF compression through Core\Pdf\PdfCompressor's own detection.
+ * - PDF compression as the cron's PHP measured it (CronExecutionFacts, #804);
  * - archive encryption through BackupService::supportsZipEncryption(),
  *   the check that hides the full backup form;
  * - sodium through PortableKeys::hasSodium(), the check that picks the key
@@ -183,28 +183,58 @@ final class HostHealth
     }
 
     /**
-     * The web PHP's ability to run a program (#700) — shown on its own line,
-     * because the cron's can differ, and what to ask depends on which one a
-     * feature needs. Video needs the cron's: when the cron runs commands,
-     * there is nothing to ask for this one.
+     * The web PHP's ability to run a program (#700, #804) — shown on its own
+     * line, because the cron's can differ.
+     *
+     * **Nothing on this page depends on it any more**: video, PDF compression
+     * and every other background job run in the CRON's PHP, which is measured
+     * on the next line. A web PHP that launches nothing is therefore only a
+     * problem when the cron does not either — and then there is something to
+     * ask the host. When the cron works the line is neutral: « Dégradé » with
+     * « Rien à demander » contradicted itself.
      */
     private static function webExecution(HostFacts $facts): HostCheck
     {
-        $cronWorks = $facts->cronExecution?->shellWorks === true;
+        $status = self::shellStatus(
+            $facts->shellDeclared,
+            $facts->shellWorks,
+            $facts->shellFunction,
+            $facts->shellDetail
+        );
+        $title = 'Exécution de commandes (PHP web)';
+
+        if ($facts->shellWorks) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_OK,
+                $status,
+                'Ce PHP répond aux visiteurs. La vidéo, la compression des PDF et les tâches de fond '
+                    . 'dépendent du PHP du cron, sur la ligne suivante.',
+                ''
+            );
+        }
+
+        if ($facts->cronExecution?->shellWorks === true) {
+            return new HostCheck(
+                'shell_web',
+                $title,
+                HostCheck::STATE_OK,
+                $status . ' — sans conséquence : le PHP du cron exécute les commandes',
+                'Ce PHP répond aux visiteurs et ne lance pas de commandes, sans conséquence : la vidéo, la '
+                    . 'compression des PDF et les tâches de fond tournent dans le PHP du cron.',
+                ''
+            );
+        }
 
         return new HostCheck(
             'shell_web',
-            'Exécution de commandes (PHP web)',
-            $facts->shellWorks ? HostCheck::STATE_OK : HostCheck::STATE_DEGRADED,
-            self::shellStatus($facts->shellDeclared, $facts->shellWorks, $facts->shellFunction, $facts->shellDetail),
-            'Ce PHP répond aux visiteurs. Les vérifications de cette page en dépendent ; la vidéo et les '
-                . 'tâches de fond dépendent du PHP du cron, sur la ligne suivante.'
-                . (!$facts->shellWorks && $cronWorks
-                    ? ' Rien à demander pour la vidéo : le PHP du cron exécute les commandes.'
-                    : ''),
-            // Empty when the cron covers it, so the page never prints « À demander
-            // à l'hébergeur » above a sentence saying there is nothing to ask.
-            $cronWorks ? '' : self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
+            $title,
+            HostCheck::STATE_DEGRADED,
+            $status,
+            'Ce PHP répond aux visiteurs. La vidéo, la compression des PDF et les tâches de fond '
+                . 'dépendent du PHP du cron, sur la ligne suivante : ni l\'un ni l\'autre ne lance de commande.',
+            self::shellAsk('le PHP web', $facts->shellDeclared, $facts->shellDetail)
         );
     }
 

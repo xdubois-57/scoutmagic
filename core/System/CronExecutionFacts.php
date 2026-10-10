@@ -103,6 +103,30 @@ final class CronExecutionFacts
             && $this->pdfBackend !== PdfCompressor::BACKEND_NONE;
     }
 
+    /**
+     * The measurement in words, for a support archive: which PHP measured
+     * it, when, and what it found. A report that mixes the web PHP's
+     * answers with the cron's without naming which is which makes a tool
+     * look missing where it is there (#804).
+     *
+     * @return list<string>
+     */
+    public function report(): array
+    {
+        $yesNo = static fn(?bool $value): string => $value === null ? 'pas encore mesuré' : ($value ? 'oui' : 'NON');
+
+        return [
+            'Mesuré par : le PHP du cron (SAPI ' . $this->sapi . '), le ' . gmdate('Y-m-d H:i:s', $this->probedAt) . ' UTC',
+            'Exécution de commandes vérifiée (PHP du cron) : ' . ($this->shellWorks ? 'oui' : 'NON')
+                . ' (' . ($this->shellFunction ?? 'aucune fonction') . ' — ' . $this->shellDetail . ')',
+            'ffmpeg (PHP du cron) : ' . ($this->ffmpegPath ?? 'introuvable'),
+            'ffprobe (PHP du cron) : ' . ($this->ffprobePath ?? 'introuvable'),
+            'proc_open disponible (PHP du cron) : ' . $yesNo($this->pdfProcOpen),
+            'Outil de compression PDF (PHP du cron) : '
+                . (!$this->pdfMeasured() ? 'pas encore mesuré' : ($this->pdfReady() ? (string) $this->pdfBackend : 'aucun')),
+        ];
+    }
+
     public static function register(SettingService $settings): void
     {
         $settings->register(

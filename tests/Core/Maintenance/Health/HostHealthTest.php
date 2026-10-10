@@ -93,14 +93,33 @@ final class HostHealthTest extends TestCase
         $this->assertTrue($this->line('ffmpeg', $facts)->isOk());
         $this->assertStringContainsString('/usr/bin/ffmpeg', $this->line('ffmpeg', $facts)->status);
         $web = $this->line('shell_web', $facts);
-        $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
+        // #804: nothing depends on this PHP any more, and the cron works — a
+        // neutral line, not « Dégradé » beside « Rien à demander ».
+        $this->assertSame(HostCheck::STATE_OK, $web->state);
         $this->assertStringContainsString('aucune sortie, code 127', $web->status);
-        // Said as a consequence, never under « À demander à l'hébergeur ».
+        $this->assertStringContainsString('sans conséquence', $web->status);
         $this->assertSame('', $web->ask);
-        $this->assertStringContainsString(
-            'Rien à demander pour la vidéo : le PHP du cron exécute les commandes.',
-            $web->consequence
-        );
+        $this->assertStringContainsString('compression des PDF', $web->consequence);
+        $this->assertStringNotContainsString('Rien à demander', $web->consequence);
+    }
+
+    /** Neither PHP launches anything: there IS something to ask, and the line says so. */
+    public function testWhenNeitherPhpRunsCommandsTheWebLineIsDegradedAndAsks(): void
+    {
+        $web = $this->line('shell_web', $this->facts(shellWorks: false, cronExecution: self::cron(works: false)));
+
+        $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
+        $this->assertNotSame('', $web->ask);
+        $this->assertStringContainsString('ni l\'un ni l\'autre', $web->consequence);
+    }
+
+    /** Not yet measured by the cron: unknown is not « sans conséquence ». */
+    public function testBeforeTheCronHasMeasuredTheWebLineDoesNotClaimItIsHarmless(): void
+    {
+        $web = $this->line('shell_web', $this->facts(shellWorks: false, defaultCron: false));
+
+        $this->assertSame(HostCheck::STATE_DEGRADED, $web->state);
+        $this->assertStringNotContainsString('sans conséquence', $web->status);
     }
 
     /** The reverse: the web runs commands, the cron cannot — video is refused. */

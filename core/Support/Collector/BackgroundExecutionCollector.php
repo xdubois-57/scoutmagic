@@ -10,6 +10,7 @@ namespace Core\Support\Collector;
 
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
+use Core\System\CronExecutionFacts;
 use Core\System\ShellExecutor;
 
 /**
@@ -60,7 +61,7 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
         $lines[] = '# réellement passé. Ce fichier-ci dit ce qui est POSSIBLE sur cet hébergement.';
         $lines[] = '';
 
-        $this->mechanisms($lines);
+        $this->mechanisms($lines, $context);
         $this->limits($lines);
         $this->loopback($lines, $context);
         $this->settings($lines, $context);
@@ -71,7 +72,7 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
     /**
      * @param array<int, string> $lines
      */
-    private function mechanisms(array &$lines): void
+    private function mechanisms(array &$lines, SupportCollectorContext $context): void
     {
         $shell = ShellExecutor::probe();
 
@@ -81,7 +82,16 @@ class BackgroundExecutionCollector implements SupportCollectorInterface
         $lines[] = 'stream_socket_client : ' . (function_exists('stream_socket_client') ? 'oui' : 'non')
             . ' — sans elle, le site ne peut ouvrir aucune connexion sortante lui-même';
         $lines[] = 'Exécution shell vérifiée : ' . ($shell['works'] ? 'oui' : 'NON')
-            . ' (' . ($shell['function'] ?? 'aucune fonction') . ' — ' . $shell['detail'] . ')';
+            . ' (' . ($shell['function'] ?? 'aucune fonction') . ' — ' . $shell['detail'] . ')'
+            . ' — mesure du PHP qui a généré cette archive';
+        // The cron's PHP is the one that runs the background work, and it can
+        // differ from the web's on a shared host (#804): its own answer,
+        // read from what public/cron.php stored.
+        $cron = CronExecutionFacts::read($context->settings());
+        $lines[] = 'Exécution shell vérifiée (PHP du cron) : ' . ($cron === null
+            ? 'pas encore mesurée (la tâche planifiée n\'a jamais passé)'
+            : ($cron->shellWorks ? 'oui' : 'NON') . ' (' . ($cron->shellFunction ?? 'aucune fonction')
+                . ' — ' . $cron->shellDetail . ')');
         $lines[] = 'SAPI : ' . PHP_SAPI;
         $lines[] = '';
         $lines[] = 'Note : le spawn d\'un processus CLI détaché n\'est délibérément pas tenté, ici comme';
