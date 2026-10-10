@@ -156,13 +156,35 @@ function engine({ drawSucceeds = true } = {}) {
         wrapTitle: () => [],
         fitLine: (line) => line,
         toJpeg: () => Promise.resolve(null),
-        cardConstants: () => ({}),
+        // The title's size, because that is what the font shorthand the
+        // composer hands `document.fonts.load()` is built from.
+        cardConstants: () => ({ titleSize: 66 }),
         drawCard: (canvas, card) => {
             draws.push({ canvas, ...card });
 
             return drawSucceeds;
         },
     };
+}
+
+/**
+ * Gives the page a font set, and hands back control of when the face
+ * lands.
+ *
+ * `document.fonts.load()` is the only thing that fetches a face used
+ * solely by a canvas — jsdom has no `document.fonts` whatsoever (so
+ * every other test in this file takes the composer's « no font set »
+ * branch, where the face is counted as settled at once).
+ */
+function fontSet() {
+    let land = null;
+    const pending = new Promise((resolve) => {
+        land = resolve;
+    });
+    const load = vi.fn(() => pending);
+    Object.defineProperty(document, 'fonts', { value: { load }, configurable: true });
+
+    return { load, arrive: land };
 }
 
 /** Runs the production file against the page as it stands. */
@@ -202,9 +224,42 @@ afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
     delete window.ScoutMagicCard;
+    // Only ever an own property this file defined: jsdom has none.
+    delete document.fonts;
 });
 
 /** Runs every frame queued so far. */
+/**
+ * Lets the « Publier » chain run to its end.
+ *
+ * It goes through the font request, one redraw with the face, and the
+ * export before it posts — each its own microtask. A fixed run of
+ * `await Promise.resolve()` counted the hops of the day and broke when
+ * the font request was added (the review of #850 found the face was
+ * never fetched at all). Ten turns is far more than the chain needs.
+ */
+async function settle() {
+    for (let i = 0; i < 10; i += 1) {
+        await Promise.resolve();
+    }
+}
+
+/**
+ * What `confirm.js` does once « Publier » is confirmed: it delegates on
+ * `document` and so runs AFTER the composer's own listener, which is why
+ * the composer stands aside until this has happened — otherwise
+ * `form.submit()` would post the page before the question « c'est public
+ * et hors du site » was ever asked.
+ */
+function confirmed(dom) {
+    dom.form.dataset.confirmed = '1';
+    const event = new Event('submit', { cancelable: true, bubbles: true });
+    Object.defineProperty(event, 'submitter', { value: dom.publish });
+    dom.form.dispatchEvent(event);
+
+    return event;
+}
+
 function flush() {
     const queued = frames.slice();
     frames = [];
@@ -459,13 +514,6 @@ describe('« Publier » sends the card the page drew', () => {
      * `form.submit()` would post the page before the question « c'est
      * public et hors du site » was ever asked.
      */
-    function confirmed(dom) {
-        dom.form.dataset.confirmed = '1';
-        const event = new Event('submit', { cancelable: true, bubbles: true });
-        Object.defineProperty(event, 'submitter', { value: dom.publish });
-        dom.form.dispatchEvent(event);
-    }
-
     /** The page, drawn, with a card engine whose export resolves to `blob`. */
     async function ready(blob) {
         const dom = page({ slider: true });
@@ -491,8 +539,7 @@ describe('« Publier » sends the card the page drew', () => {
 
         // What confirm.js does once « Publier » is confirmed.
         confirmed(dom);
-        await Promise.resolve();
-        await Promise.resolve();
+        await settle();
 
         expect(dom.cardField.files).toHaveLength(1);
         expect(dom.cardField.files[0].name).toBe('carte.jpg');
@@ -511,8 +558,7 @@ describe('« Publier » sends the card the page drew', () => {
 
         dom.publish.click();
         confirmed(dom);
-        await Promise.resolve();
-        await Promise.resolve();
+        await settle();
 
         const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
         expect(hidden).toHaveLength(1);
@@ -537,8 +583,7 @@ describe('« Publier » sends the card the page drew', () => {
 
         dom.publish.click();
         confirmed(dom);
-        await Promise.resolve();
-        await Promise.resolve();
+        await settle();
         expect(submits).toBe(1);
 
         // The button is disabled, so a real second click cannot happen —
@@ -574,9 +619,7 @@ describe('« Publier » sends the card the page drew', () => {
 
         dom.publish.click();
         confirmed(dom);
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
+        await settle();
 
         // No card travelled, and that is the same path a share made
         // before IT-02 takes: the publication composes one rather than
@@ -592,8 +635,7 @@ describe('« Publier » sends the card the page drew', () => {
 
         dom.publish.click();
         confirmed(dom);
-        await Promise.resolve();
-        await Promise.resolve();
+        await settle();
 
         expect(submits).toBe(1);
         expect(dom.cardField.files).toHaveLength(0);
@@ -712,5 +754,151 @@ describe('a canvas with an empty background attribute', () => {
         expect(card.draws).toHaveLength(0);
         // And the server's card is still there, which is the whole point.
         expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+    });
+});
+
+describe('the card\'s own face', () => {
+    // The review of #850 found the @font-face declared in app.css and
+    // never fetched: `fillText` and `measureText` request no font, so
+    // every card was drawn, MEASURED and exported in the fallback face.
+    // The title's line breaking is measured with those metrics, and
+    // agreeing with CardRenderer's is the whole point of
+    // CardGeometryAgreementTest.
+    it('is requested, with the shorthand the card is drawn in', async () => {
+        const fonts = fontSet();
+        page();
+        window.ScoutMagicCard = engine();
+        await run();
+
+        expect(fonts.load).toHaveBeenCalledWith('700 66px "ScoutMagic Card"');
+    });
+
+    it('gates the first draw, so the title is never re-wrapped between two frames', async () => {
+        const fonts = fontSet();
+        const dom = page();
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        // The photo is there and the face is not: drawing now would
+        // measure the title with the fallback's metrics and draw it
+        // again with the real ones, which is the jump `font-display:
+        // block` was chosen to avoid.
+        images[0].fire('load');
+        flush();
+        expect(card.draws).toHaveLength(0);
+        expect(dom.canvas.hidden).toBe(true);
+        expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+
+        fonts.arrive();
+        await settle();
+        flush();
+
+        expect(card.draws).toHaveLength(1);
+        expect(dom.canvas.hidden).toBe(false);
+        expect(document.querySelector('[data-card-preview]')).toBeNull();
+    });
+
+    it('does not hold the card hostage when the face never arrives', async () => {
+        // A face that fails to load leaves the fallback one, which is a
+        // card whose title wraps slightly differently — not no card.
+        const rejected = Promise.reject(new Error('404'));
+        Object.defineProperty(document, 'fonts', {
+            value: { load: () => rejected },
+            configurable: true,
+        });
+        const dom = page();
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        images[0].fire('load');
+        await settle();
+        flush();
+
+        expect(card.draws).toHaveLength(1);
+        expect(dom.canvas.hidden).toBe(false);
+    });
+});
+
+describe('a photo that has not arrived', () => {
+    // `drawCard` answers true for a grey square too — it fills the
+    // backdrop when handed no image — so before this was gated, a
+    // keystroke before the photo's `load` event took the server's <img>
+    // away and left that square. « Publier » exports whatever was last
+    // drawn, so the grey square was then published.
+    it('is not replaced by a grey square when the title is typed', async () => {
+        const dom = page();
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        dom.titleField.value = 'Week-end';
+        dom.titleField.dispatchEvent(new Event('input'));
+        flush();
+
+        expect(card.draws).toHaveLength(0);
+        expect(dom.canvas.hidden).toBe(true);
+        expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+    });
+
+    it('is not replaced by a grey square when the slider is moved', async () => {
+        const dom = page({ slider: true, blur: '0.05' });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        dom.blurField.value = '0.1';
+        dom.blurField.dispatchEvent(new Event('input'));
+        flush();
+
+        expect(card.draws).toHaveLength(0);
+        expect(dom.canvas.hidden).toBe(true);
+    });
+
+    it('keeps the server\'s image after it failed to load, typing included', async () => {
+        // The error handler leaves `background` null for good, and the
+        // comment beside it promises the <img> stays. Only the first
+        // draw used to honour that.
+        const dom = page();
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        images[0].fire('error');
+        dom.titleField.value = 'Week-end';
+        dom.titleField.dispatchEvent(new Event('input'));
+        flush();
+
+        expect(card.draws).toHaveLength(0);
+        expect(document.querySelector('[data-card-preview]')).not.toBeNull();
+    });
+
+    it('lets « Publier » post without a card, so the server composes one', async () => {
+        const dom = page({ slider: true });
+        const card = engine();
+        window.ScoutMagicCard = card;
+        await run();
+
+        images[0].fire('error');
+        dom.titleField.value = 'Week-end';
+        dom.titleField.dispatchEvent(new Event('input'));
+        flush();
+
+        dom.publish.click();
+        const event = confirmed(dom);
+        await settle();
+
+        // Nothing was drawn, so nothing is attached and nothing is
+        // prevented: the browser posts the form itself, and the
+        // publication composes the card as it did before IT-02 — rather
+        // than publishing a grey square nobody chose.
+        expect(event.defaultPrevented).toBe(false);
+        expect(dom.cardField.files).toHaveLength(0);
+        expect(dom.form.querySelectorAll('input[type="hidden"][name="action"]')).toHaveLength(0);
+        expect(submits).toBe(0);
+        // And the button is still closed, so « Publier » cannot be
+        // pressed twice while that post is on its way.
+        expect(dom.publish.disabled).toBe(true);
     });
 });

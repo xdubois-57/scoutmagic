@@ -10763,6 +10763,16 @@ if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
 
+    // The card the browser posts at « Publier » is kept as a plain
+    // `files` row (issue #706, IT-02), and this is what keeps it out of
+    // `/files/{id}`: it refuses every reader, because the only reader is
+    // ShareSourceResolver::frozenCard(), which reads the bytes directly.
+    // Registered here, in $fileOwnershipCheckers above, before the guard
+    // is built — and registered in the same change that first stores
+    // such a row, so a card can never exist ahead of the rule that
+    // guards it.
+    $fileOwnershipCheckers[] = new \Modules\Social\File\PostedCardOwnershipChecker();
+
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
         new \Modules\Social\Controller\ConfigController(

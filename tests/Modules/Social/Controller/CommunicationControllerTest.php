@@ -7,6 +7,7 @@ namespace Tests\Modules\Social\Controller;
 use Core\Config\AppConfig;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Modules\Social\File\PostedCardOwnershipChecker;
 use Core\File\StoredFileReader;
 use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
@@ -228,6 +229,107 @@ final class CommunicationControllerTest extends TestCase
             (string) file_get_contents($served),
             'Instagram was handed a card the browser never drew'
         );
+    }
+
+    /**
+     * **A « Publier » that publishes nothing freezes nothing.** Found in
+     * the review of #850: the card used to be kept before the
+     * destination check, so a POST refused for « Cochez au moins une
+     * destination » still stored it — and since no publication row was
+     * written, the communication was not frozen and the chief could
+     * still change the photo or the slider. Their next « Publier » then
+     * published the FIRST attempt's card, which is the exact inversion
+     * of « what you saw is what left ».
+     */
+    public function testAPublishWithNoDestinationKeepsNoCard(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('Dessinée pendant la tentative refusée');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish']),
+            ['id' => (string) $id]
+        );
+
+        // Read ONCE: FlashMessage::get() consumes.
+        $this->assertStringContainsString('au moins une destination', FlashMessage::get()['message'] ?? '');
+        $this->assertNull(
+            $this->communications->find($id)?->cardFileId,
+            'a refused « Publier » froze a card anyway'
+        );
+    }
+
+    /**
+     * And the card that travels is the one drawn for the attempt that
+     * actually published, not the one from a refused attempt before it.
+     */
+    public function testAfterARefusedAttemptTheNextCardIsTheOneThatTravels(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('La refusée');
+
+        // Forgot the destinations.
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish']),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        // Ticks a destination and publishes. The page drew its card
+        // again, and this is the one the chief is looking at.
+        $second = $this->postedCard('La publiée');
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $this->assertSame(
+            $second,
+            (string) file_get_contents($served),
+            'Instagram was handed the card of an attempt that published nothing'
+        );
+    }
+
+    /**
+     * **The kept card is not readable through `/files/{id}`.** Found in
+     * the review of #850: stored with no owner, the row fell through to
+     * its `role_min = 'chief'` floor alone, so any chief could read any
+     * card by asking for a sequential id — and a card is the source
+     * photo under a veil, unblurred when the slider is on « Net », from
+     * an album that chief may never have been granted.
+     *
+     * The row names its owner so that the registry refuses it; what the
+     * owner type then answers is
+     * {@see \Tests\Modules\Social\File\PostedCardOwnershipCheckerTest}.
+     */
+    public function testTheKeptCardNamesAnOwnerSoTheGenericRouteRefusesIt(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->postedCard('Dessinée par le navigateur');
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $id]
+        );
+
+        $fileId = $this->communications->find($id)?->cardFileId;
+        $this->assertNotNull($fileId, 'no card was kept at all');
+        $row = (new FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($row);
+        $this->assertSame(
+            PostedCardOwnershipChecker::OWNER_TYPE,
+            $row->ownerType,
+            'the card row has no owner type, so /files/{id} falls back to the role floor'
+        );
+        $this->assertSame($id, $row->ownerId, 'the card row does not name the communication it belongs to');
     }
 
     /**

@@ -22,6 +22,7 @@ use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
 use Modules\Social\Card\ReceivedCard;
+use Modules\Social\File\PostedCardOwnershipChecker;
 use Modules\Social\Repository\Communication;
 use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
@@ -585,25 +586,6 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
         if ($action === 'publish') {
-            // **The card the browser drew arrives with « Publier »**
-            // (issue #706, IT-02), and is kept before anything is
-            // published: what goes to Instagram, to a group, to a retry
-            // and — from IT-04 — to the public page is this one file, so
-            // « what you saw is what left » holds across destinations
-            // published minutes apart.
-            //
-            // A refusal stops the publication rather than falling back to
-            // composing one: the chief looked at a card and pressed
-            // « Publier », and quietly publishing a different image would
-            // be worse than asking them to try again.
-            try {
-                $communication = $this->keepPostedCard($request, $communication);
-            } catch (CardException $e) {
-                FlashMessage::set('error', $e->getMessage());
-
-                return $this->redirect($self);
-            }
-
             return $this->publishNow($request, $communication);
         }
 
@@ -670,6 +652,31 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
 
+        // **The card the browser drew arrives with « Publier »** (issue
+        // #706, IT-02), and is kept here — AFTER the refusal above, and
+        // nowhere earlier. What goes to Instagram, to a group, to a
+        // retry and — from IT-04 — to the public page is this one file,
+        // so « what you saw is what left » holds across destinations
+        // published minutes apart; keeping it on a POST that publishes
+        // nothing would freeze the card of an attempt that never
+        // happened, and the chief, still free to change the photo or the
+        // blur because nothing is frozen yet, would have the first
+        // attempt's card published instead of the one they are looking
+        // at. Found in the review of #850.
+        //
+        // A refusal stops the publication rather than falling back to
+        // composing one: the chief looked at a card and pressed
+        // « Publier », and quietly publishing a different image would be
+        // worse than asking them to try again.
+        try {
+            $communication = $this->keepPostedCard($request, $communication);
+        } catch (CardException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect($self);
+        }
+
+        // Read after the card is kept, so the source carries it.
         $source = $this->communicationSource($communication->id);
         if ($source === null) {
             return new Response('Not Found', 404);
@@ -1080,7 +1087,17 @@ final class CommunicationController extends AbstractController
             self::CARD_DIRECTORY,
             'chief',
             'social',
-            AuthSession::getUserAccountId()
+            AuthSession::getUserAccountId(),
+            null,
+            // **The owner type is what keeps this row off `/files/{id}`.**
+            // Without it the row fell through to the `chief` floor alone,
+            // and any chief could read any card — a gallery photo at
+            // « Net » among them — by asking for a sequential id. The
+            // only reader is ShareSourceResolver::frozenCard(), which
+            // reads the bytes directly.
+            // {@see \Modules\Social\File\PostedCardOwnershipChecker}
+            PostedCardOwnershipChecker::OWNER_TYPE,
+            $communication->id
         );
         $this->communications->updateCardFile($communication->id, $fileId, new \DateTimeImmutable());
 

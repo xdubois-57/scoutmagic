@@ -55,10 +55,63 @@
     /** The canvas carries the strength the server computed; the slider then owns it. */
     const startingBlur = parseFloat(canvas.getAttribute('data-card-blur') || '0') || 0;
 
+    /**
+     * Whether this card has a photo to wait for. An empty address means
+     * there is none, and then there is nothing to wait for.
+     */
+    const needsBackground = backgroundUrl !== '';
+
     /** @type {HTMLImageElement|null} */
     let background = null;
     let frame = 0;
     let shown = false;
+    /** @type {Promise<void>|null} */
+    let fontRequest = null;
+    /** Whether the face has settled, one way or the other. */
+    let fontLanded = false;
+
+    /**
+     * Fetches the card's own face, once, and answers when it is there.
+     *
+     * **A `@font-face` that only ever serves a canvas is never fetched.**
+     * `fillText` and `measureText` request nothing; laying out a DOM text
+     * node does, or asking for the face here does. So the face was
+     * declared in `app.css` — with a comment promising this very wait —
+     * and nothing ever claimed it: every card was drawn, measured AND
+     * EXPORTED in whatever the fallback happened to be. The title's line
+     * breaking is measured with those metrics, and matching
+     * `CardRenderer`'s is the whole point of
+     * `CardGeometryAgreementTest`.
+     *
+     * It never rejects. A face that will not load leaves the fallback in
+     * place, which is a card whose title wraps slightly differently —
+     * not the absence of a card.
+     */
+    function cardFont() {
+        if (fontRequest !== null) {
+            return fontRequest;
+        }
+        const settled = function () {
+            fontLanded = true;
+        };
+        const fonts = document.fonts;
+        if (!fonts || typeof fonts.load !== 'function') {
+            settled();
+            fontRequest = Promise.resolve();
+
+            return fontRequest;
+        }
+        try {
+            fontRequest = fonts
+                .load('700 ' + engine.cardConstants().titleSize + 'px "ScoutMagic Card"')
+                .then(settled, settled);
+        } catch (error) {
+            settled();
+            fontRequest = Promise.resolve();
+        }
+
+        return fontRequest;
+    }
 
     function title() {
         return titleField ? titleField.value : (canvas.getAttribute('data-card-title') || '');
@@ -108,8 +161,34 @@
      * privacy modes return a context that paints nothing — never leaves
      * the page with a blank square where the card was.
      */
+    /**
+     * Whether a draw would show the card the server would have composed:
+     * the face has settled, and the photo is there — or this card never
+     * had one to wait for.
+     *
+     * **The face gates the FIRST draw**, which is what `app.css` says it
+     * does: drawing without it and again with it would re-measure and
+     * re-wrap the title between two frames, and a title that jumps is
+     * exactly what `font-display: block` was chosen to avoid. « Settled »
+     * includes a face that failed, where the fallback is the card.
+     */
+    function canDraw() {
+        return fontLanded && (!needsBackground || background !== null);
+    }
+
     function draw() {
         frame = 0;
+        // **No photo, no canvas.** `drawCard` answers true for a grey
+        // square too — it fills the backdrop when it is handed no image
+        // — so a keystroke or a slider nudge before the photo's `load`
+        // event used to take the server's <img> away and leave that
+        // square in its place. And since « Publier » exports whatever
+        // was last drawn, the grey square was then published. The same
+        // went for a photo that failed to load, where the comment below
+        // says the <img> stays and only the first draw honoured it.
+        if (!canDraw()) {
+            return;
+        }
         const drawn = engine.drawCard(canvas, {
             image: background,
             title: title(),
@@ -326,13 +405,31 @@
             // Taken before the first await, so the click that starts the
             // export is also the click that closes the button.
             hold(submitter);
-            engine.toJpeg(canvas).then(postWith, function () {
-                postWith(null);
-            });
+            // The face first, then one fresh draw with it: an export of a
+            // canvas drawn before the face arrived is a card published in
+            // the wrong font, and nothing downstream could tell.
+            cardFont()
+                .then(function () {
+                    draw();
+
+                    return engine.toJpeg(canvas);
+                })
+                .then(postWith, function () {
+                    postWith(null);
+                });
         });
     }
 
-    if (backgroundUrl !== '') {
+    // Claimed before the photo arrives, so the two waits overlap and the
+    // first draw is the only draw. Whichever lands second asks for the
+    // frame: the photo's own `load` handler below, or this.
+    cardFont().then(function () {
+        if (canDraw()) {
+            schedule();
+        }
+    });
+
+    if (needsBackground) {
         const image = new Image();
         // The background comes from this site, so the canvas is never
         // tainted and `toBlob()` keeps working — which is what « Publier »
