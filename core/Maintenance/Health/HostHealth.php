@@ -81,7 +81,6 @@ final class HostHealth
         // and then « ffmpeg absent » would send the operator to install a
         // package that may well be there.
         $shell = ShellExecutor::probe();
-        $pdf = new PdfCompressor($this->storagePath . '/temp');
 
         return new HostFacts(
             cron: (new CronHealth($this->storagePath, $this->settingService))->status(),
@@ -102,9 +101,6 @@ final class HostHealth
             shellDetail: $shell['detail'],
             // Measured by the cron, read here (#700): video runs there.
             cronExecution: CronExecutionFacts::read($this->settingService),
-            procOpen: $pdf->canUseProcOpen(),
-            // The web PHP's tool: it compresses an upload as it arrives.
-            pdfBackend: $pdf->detectBackend(),
             lastInsecureAccessAt: (new InsecureBrowserAccess($this->settingService))->lastObservedAt(),
             measuredAt: time(),
         );
@@ -300,10 +296,13 @@ final class HostHealth
     }
 
     /**
-     * PDF compression (#700), read from the facts — never a second
-     * detection here. **Not blocking**: a degraded line at worst, since
-     * nothing is refused without it. The installation advice lives here
-     * and only here; the staff page sends its reader to this page.
+     * PDF compression (#700, #804), read from what the CRON's PHP measured —
+     * never a detection here: the web PHP may be forbidden to launch any
+     * program while the cron compresses very well, and a line measured in
+     * the wrong PHP says « Impossible » about a machine that works.
+     * **Not blocking**: a degraded line at worst, since nothing is refused
+     * without it. The installation advice lives here and only here; the staff
+     * page sends its reader to this page.
      */
     public static function pdfCompression(HostFacts $facts): HostCheck
     {
@@ -313,39 +312,41 @@ final class HostHealth
             PdfCompressor::BACKEND_QPDF => 'qpdf',
             PdfCompressor::BACKEND_PDFTOCAIRO => 'pdftocairo',
         ];
+        $cron = $facts->cronExecution;
 
-        if (!$facts->procOpen) {
+        // Includes a measurement stored before the cron looked at PDFs: it
+        // will repeat within ten minutes, so this is not a verdict.
+        if ($cron === null || !$cron->pdfMeasured()) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Impossible : la fonction proc_open est désactivée',
+                'Pas encore vérifiée : la tâche planifiée ne l\'a jamais mesurée',
                 $consequence,
-                'Retirer proc_open de la liste disable_functions de PHP, puis installer Ghostscript si ce n\'est '
-                    . 'pas fait.'
+                'Attendre le prochain passage du cron (ligne « Tâche cron » ci-dessus).'
             );
         }
-        if (!isset($tools[$facts->pdfBackend]) && $facts->shellDeclared && !$facts->shellWorks) {
-            // proc_open is allowed but this PHP launches nothing at all: the
-            // tools may well be installed, so asking for them would be wrong.
+
+        $when = ' — vérifiée ' . self::ago($cron->probedAt, $facts->measuredAt);
+        if (!$cron->pdfProcOpen) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Impossible : ce PHP ne lance aucun programme',
+                'Impossible : la fonction proc_open est désactivée pour le PHP du cron' . $when,
                 $consequence,
-                'Voir la ligne « Exécution de commandes (PHP web) » : tant que PHP ne peut lancer aucun '
-                    . 'programme, la compression ne peut pas tourner, que Ghostscript soit installé ou non.'
+                'Retirer proc_open de la liste disable_functions du PHP du cron (PHP en ligne de commande), '
+                    . 'puis installer Ghostscript si ce n\'est pas fait.'
             );
         }
-        if (!isset($tools[$facts->pdfBackend])) {
+        if (!isset($tools[(string) $cron->pdfBackend])) {
             return new HostCheck(
                 'pdf_compression',
                 'Compression des PDF',
                 HostCheck::STATE_DEGRADED,
-                'Aucun outil trouvé (Ghostscript, qpdf ou pdftocairo)',
+                'Aucun outil trouvé pour le PHP du cron (Ghostscript, qpdf ou pdftocairo)' . $when,
                 $consequence,
-                'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+                'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par le PHP du cron.'
             );
         }
 
@@ -353,9 +354,9 @@ final class HostHealth
             'pdf_compression',
             'Compression des PDF',
             HostCheck::STATE_OK,
-            'Disponible : ' . $tools[$facts->pdfBackend],
+            'Disponible pour le cron : ' . $tools[(string) $cron->pdfBackend] . $when,
             $consequence,
-            'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par PHP.'
+            'Installer Ghostscript (paquet « ghostscript », commande gs), exécutable par le PHP du cron.'
         );
     }
 

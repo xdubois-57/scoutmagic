@@ -20,6 +20,8 @@ use PHPUnit\Framework\TestCase;
 final class HostHealthTest extends TestCase
 {
     private const NOW = 1_800_000_000;
+    /** The cron's facts are 30 s old in these tests. */
+    private const WHEN = ' — vérifiée il y a moins d\'une minute';
 
     public function testAHealthyHostIsAllGreenLinesInTheOrderThePageShows(): void
     {
@@ -46,8 +48,7 @@ final class HostHealthTest extends TestCase
         $checks = HostHealth::checks($this->facts(
             cron: new CronStatus(CronStatus::STATE_NEVER, null, null, null, self::NOW),
             shellWorks: false,
-            cronExecution: self::cron(works: false),
-            procOpen: false,
+            cronExecution: self::cron(works: false, pdfProcOpen: false),
             zipEncryption: false,
             sodium: false,
             gd: false,
@@ -149,32 +150,35 @@ final class HostHealthTest extends TestCase
         $this->assertSame('Possible (exec) — vérifiée il y a 7 min', $line->status);
     }
 
-    /**
-     * PDF compression, one state per test, from the facts alone (#700):
-     * never blocking, and worded so.
-     *
-     * @return iterable<string, array{bool, string, string, string}>
-     */
     public static function pdfStates(): iterable
     {
-        yield 'proc_open off' => [
-            false, 'none', HostCheck::STATE_DEGRADED, 'Impossible : la fonction proc_open est désactivée',
+        yield 'proc_open off for the cron' => [
+            false, 'none', HostCheck::STATE_DEGRADED,
+            'Impossible : la fonction proc_open est désactivée pour le PHP du cron' . self::WHEN,
         ];
         yield 'no tool' => [
-            true, 'none', HostCheck::STATE_DEGRADED, 'Aucun outil trouvé (Ghostscript, qpdf ou pdftocairo)',
+            true, 'none', HostCheck::STATE_DEGRADED,
+            'Aucun outil trouvé pour le PHP du cron (Ghostscript, qpdf ou pdftocairo)' . self::WHEN,
         ];
-        yield 'ghostscript' => [true, 'ghostscript', HostCheck::STATE_OK, 'Disponible : Ghostscript'];
-        yield 'qpdf' => [true, 'qpdf', HostCheck::STATE_OK, 'Disponible : qpdf'];
+        yield 'ghostscript' => [
+            true, 'ghostscript', HostCheck::STATE_OK, 'Disponible pour le cron : Ghostscript' . self::WHEN,
+        ];
+        yield 'qpdf' => [true, 'qpdf', HostCheck::STATE_OK, 'Disponible pour le cron : qpdf' . self::WHEN];
+        yield 'pdftocairo' => [
+            true, 'pdftocairo', HostCheck::STATE_OK, 'Disponible pour le cron : pdftocairo' . self::WHEN,
+        ];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('pdfStates')]
-    public function testThePdfCompressionLineHasOneStateForEachFact(
+    public function testThePdfCompressionLineHasOneStateForEachFactTheCronMeasured(
         bool $procOpen,
         string $backend,
         string $state,
         string $status
     ): void {
-        $line = $this->line('pdf_compression', $this->facts(procOpen: $procOpen, pdfBackend: $backend));
+        $line = $this->line('pdf_compression', $this->facts(
+            cronExecution: self::cron(pdfProcOpen: $procOpen, pdfBackend: $backend)
+        ));
 
         $this->assertSame($state, $line->state);
         $this->assertSame($status, $line->status);
@@ -186,18 +190,34 @@ final class HostHealthTest extends TestCase
     }
 
     /**
-     * proc_open allowed, yet this PHP launches nothing: the tools may be
-     * installed, so the line points at the execution line instead of
-     * asking for Ghostscript.
+     * #804: the line is the CRON's answer, whatever the web PHP can do. The
+     * host of the report: the web PHP launches nothing (proc_open off), the
+     * cron compresses — and the page must not say « Impossible ».
      */
-    public function testWithNoProgramLaunchableThePdfLineDoesNotAskToInstallATool(): void
+    public function testAWebPhpThatLaunchesNothingDoesNotMakeThePdfLineFail(): void
     {
-        $line = $this->line('pdf_compression', $this->facts(shellWorks: false, pdfBackend: 'none'));
+        $line = $this->line('pdf_compression', $this->facts(
+            shellWorks: false,
+            cronExecution: self::cron(pdfProcOpen: true, pdfBackend: 'ghostscript')
+        ));
 
-        $this->assertSame(HostCheck::STATE_DEGRADED, $line->state);
-        $this->assertSame('Impossible : ce PHP ne lance aucun programme', $line->status);
-        $this->assertStringContainsString('Exécution de commandes (PHP web)', $line->ask);
-        $this->assertStringNotContainsString('Installer Ghostscript', $line->ask);
+        $this->assertSame(HostCheck::STATE_OK, $line->state);
+        $this->assertStringContainsString('Ghostscript', $line->status);
+    }
+
+    /** Never measured, or measured before the cron looked at PDFs: unknown, not a verdict. */
+    public function testThePdfLineIsNotAVerdictBeforeTheCronHasMeasuredIt(): void
+    {
+        $never = $this->line('pdf_compression', $this->facts(defaultCron: false));
+        $legacy = $this->line('pdf_compression', $this->facts(
+            cronExecution: self::cron(pdfProcOpen: null, pdfBackend: null)
+        ));
+
+        foreach ([$never, $legacy] as $line) {
+            $this->assertSame(HostCheck::STATE_DEGRADED, $line->state);
+            $this->assertSame('Pas encore vérifiée : la tâche planifiée ne l\'a jamais mesurée', $line->status);
+            $this->assertStringContainsString('Attendre le prochain passage du cron', $line->ask);
+        }
     }
 
     public function testTheInstallationAdviceForPdfIsWrittenOnceAndOnlyHere(): void
@@ -205,7 +225,7 @@ final class HostHealthTest extends TestCase
         $root = dirname(__DIR__, 4);
         $staffs = (string) file_get_contents($root . '/core/View/templates/chefs/staffs.html.twig');
 
-        $line = $this->line('pdf_compression', $this->facts(pdfBackend: 'none'));
+        $line = $this->line('pdf_compression', $this->facts(cronExecution: self::cron(pdfBackend: 'none')));
         $this->assertStringContainsString('Ghostscript', $line->ask);
         $this->assertStringNotContainsString('apt install ghostscript', $staffs);
         $this->assertStringContainsString('href="/config/maintenance">Santé de l\'hébergement</a>', $staffs);
@@ -315,7 +335,9 @@ final class HostHealthTest extends TestCase
         bool $works = true,
         ?string $ffmpeg = '/usr/bin/ffmpeg',
         ?string $ffprobe = '/usr/bin/ffprobe',
-        int $probedAt = self::NOW - 30
+        int $probedAt = self::NOW - 30,
+        ?bool $pdfProcOpen = true,
+        ?string $pdfBackend = 'ghostscript'
     ): CronExecutionFacts {
         return new CronExecutionFacts(
             $probedAt,
@@ -325,7 +347,9 @@ final class HostHealthTest extends TestCase
             'exec',
             $works ? 'code 0' : 'aucune sortie, code 127',
             $works ? $ffmpeg : null,
-            $works ? $ffprobe : null
+            $works ? $ffprobe : null,
+            $pdfProcOpen,
+            $pdfBackend
         );
     }
 
@@ -342,8 +366,6 @@ final class HostHealthTest extends TestCase
         string $databaseVersion = '8.0.39',
         bool $storageWritable = true,
         ?CronExecutionFacts $cronExecution = null,
-        bool $procOpen = true,
-        string $pdfBackend = 'ghostscript',
         bool $defaultCron = true,
         ?int $lastInsecureAccessAt = null,
     ): HostFacts {
@@ -362,8 +384,6 @@ final class HostHealthTest extends TestCase
             'exec',
             $shellWorks ? 'code 0' : 'aucune sortie, code 127',
             $cronExecution ?? ($defaultCron ? self::cron() : null),
-            $procOpen,
-            $pdfBackend,
             $lastInsecureAccessAt,
             self::NOW,
         );

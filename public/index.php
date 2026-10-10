@@ -2949,8 +2949,7 @@ $sectionDocumentService = new \Core\Member\SectionDocumentService(
     $scoutYearService,
     $journalService,
     $schedulerService,
-    $settingService,
-    new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+    $settingService
 );
 
 // Unit logo (favicon, PWA icons, footer logo — originally Lot 1's PWA-only

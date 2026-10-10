@@ -80,8 +80,7 @@ class SectionDocumentControllerTest extends TestCase
         $service = new SectionDocumentService(
             $this->documentRepository, $membershipRepository, $fileStorage, $fileRepository,
             $sectionService, new ScoutYearService($this->pdo), new JournalService(new JournalRepository($this->pdo)),
-            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService,
-            new PdfCompressor($this->storagePath . '/temp')
+            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService
         );
 
         $this->encryption = $encryption;

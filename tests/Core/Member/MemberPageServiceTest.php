@@ -121,8 +121,7 @@ class MemberPageServiceTest extends TestCase
             new \Core\Config\ScoutYearService($this->pdo),
             $this->createStub(\Core\Journal\JournalService::class),
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
-            $settingService,
-            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+            $settingService
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

@@ -45,6 +45,8 @@ class StaffsControllerTest extends TestCase
     private \Core\View\EditableContentService $editableContent;
     private int $scoutYearId;
 
+    private SettingService $settingService;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -62,7 +64,7 @@ class StaffsControllerTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption)
 );
         $scoutYearService = new ScoutYearService($this->pdo);
-        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $settingService = $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
@@ -81,8 +83,7 @@ class StaffsControllerTest extends TestCase
             $scoutYearService,
             $journalService,
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
-            $settingService,
-            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+            $settingService
         );
 
         // Create scout year
@@ -250,6 +251,56 @@ class StaffsControllerTest extends TestCase
         $this->assertStringContainsString('Carnet de camp', $body);
         $this->assertStringContainsString($this->scoutYear2025Label(), $body);
         $this->assertStringContainsString('Mo', $body);
+    }
+
+    /**
+     * #804: the warning « aucun outil de compression » is the CRON's answer,
+     * because it is the cron that compresses these documents. Measured by the
+     * web PHP it announced « nothing will be compressed » on hosts where the
+     * web is sandboxed and the cron compresses very well.
+     *
+     * @return iterable<string, array{?bool, ?string, bool}>
+     */
+    public static function cronMeasurements(): iterable
+    {
+        yield 'the cron found no tool' => [true, 'none', true];
+        yield 'the cron cannot call proc_open' => [false, 'none', true];
+        yield 'the cron found ghostscript' => [true, 'ghostscript', false];
+        yield 'the cron has not measured PDFs yet' => [null, null, false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('cronMeasurements')]
+    public function testTheNoCompressionToolWarningFollowsWhatTheCronMeasured(
+        ?bool $procOpen,
+        ?string $backend,
+        bool $warns
+    ): void {
+        $this->settingService->register(
+            \Core\System\CronExecutionFacts::SETTING,
+            '',
+            'text',
+            'x',
+            'x',
+            null,
+            null,
+            null,
+            false
+        );
+        $this->settingService->setInternal(\Core\System\CronExecutionFacts::SETTING, (string) json_encode(
+            (new \Core\System\CronExecutionFacts(
+                1_800_000_000, 'cli', true, true, 'exec', 'code 0', null, null, $procOpen, $backend
+            ))->toArray()
+        ));
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $body = $this->controller->index(
+            new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertSame($warns, str_contains($body, 'aucun outil de compression n\'est disponible'));
     }
 
     private function scoutYear2025Label(): string
