@@ -55,6 +55,7 @@
     var REST_OFFSET = THRESHOLD;
 
     var REFRESHING_TEXT = 'Actualisation…';
+    var STILL_OFFLINE_TEXT = 'Actualisation impossible : toujours hors ligne.';
 
     /** How long a reload may take to unload the page before the gesture re-arms. */
     var RELOAD_WATCHDOG_MS = 8000;
@@ -126,13 +127,31 @@
             return false;
         }
         // An inner list scrolled down is pulled back up first, like the
-        // page itself.
+        // page itself. A widget that draws or drags under the finger
+        // (rental-signature.js's canvas) says so with touch-action: a
+        // vertical stroke there is the widget's, never a pull.
         for (var node = element; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
-            if (node.scrollTop > 0) {
+            if (node.scrollTop > 0 || !allowsVerticalPan(node)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Does this element leave a vertical pan to the browser? « none »,
+     * « pan-x » or « pinch-zoom » alone mean the element handles a
+     * vertical finger itself.
+     *
+     * @param {Element} node
+     * @returns {boolean}
+     */
+    function allowsVerticalPan(node) {
+        var touchAction = window.getComputedStyle(node).touchAction || 'auto';
+        return touchAction === 'auto'
+            || touchAction === 'manipulation'
+            || touchAction.indexOf('pan-y') !== -1
+            || touchAction.indexOf('pan-down') !== -1;
     }
 
     function paint() {
@@ -195,9 +214,22 @@
             if (online) {
                 reload();
             } else {
-                rest();
+                stillOffline();
             }
-        }, rest);
+        }, stillOffline);
+    }
+
+    /**
+     * The network is still out of reach: no reload. The indicator is
+     * aria-hidden and the offline banner does not change, so the live
+     * region is the only thing that tells a screen reader the refresh it
+     * heard start was given up.
+     */
+    function stillOffline() {
+        rest();
+        if (status) {
+            status.textContent = STILL_OFFLINE_TEXT;
+        }
     }
 
     /**
@@ -229,6 +261,13 @@
     // of its own on the same finger.
     document.addEventListener('touchmove', function (event) {
         if (state !== 'pending' && state !== 'pulling') {
+            return;
+        }
+        // An element under the finger has already claimed this move for
+        // itself (rental-block-days.js's drag selection): its handler ran
+        // first, the listener here being on the document.
+        if (event.defaultPrevented) {
+            rest();
             return;
         }
         var touch = singleTouch(event);

@@ -291,6 +291,53 @@ describe('pull-to-refresh.js: the gesture', () => {
         expect(reload).not.toHaveBeenCalled();
     });
 
+    it('ignores a stroke on a widget that handles the vertical finger itself (touch-action)', async () => {
+        // rental-signature.js's canvas: touch-action none, drawn with pointer events.
+        document.body.insertAdjacentHTML('beforeend', '<div id="pad" style="touch-action: none"><canvas id="ink"></canvas></div>');
+        document.body.insertAdjacentHTML('beforeend', '<div id="slider" style="touch-action: pan-x"></div>');
+        await boot();
+
+        const moves = pullPastThreshold(document.getElementById('ink'));
+        pullPastThreshold(document.getElementById('slider'));
+
+        expect(moves.some((move) => move.defaultPrevented)).toBe(false);
+        expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('still pulls from an element that leaves the vertical pan to the browser', async () => {
+        document.body.insertAdjacentHTML('beforeend', '<p id="text" style="touch-action: pan-y pinch-zoom">x</p>');
+        await boot();
+
+        pullPastThreshold(document.getElementById('text'));
+
+        expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets go of a touch a widget has already claimed with preventDefault()', async () => {
+        // rental-block-days.js: once a drag selection has started, its own
+        // touchmove handler prevents the default before the document sees it.
+        document.body.insertAdjacentHTML('beforeend', '<div id="grid"><span id="day">1</span></div>');
+        const grid = document.getElementById('grid');
+        let selecting = false;
+        grid.addEventListener('touchmove', (event) => {
+            if (selecting) {
+                event.preventDefault();
+            }
+        }, { passive: false });
+        await boot();
+
+        const day = document.getElementById('day');
+        touch('touchstart', day, [[100, 10]]);
+        touch('touchmove', day, [[100, 30]]);
+        selecting = true;
+        touch('touchmove', day, [[100, 90]]);
+        touch('touchmove', day, [[100, 170]]);
+        touch('touchend', day, []);
+
+        expect(indicator().classList.contains('is-pulling')).toBe(false);
+        expect(reload).not.toHaveBeenCalled();
+    });
+
     it('ignores two fingers', async () => {
         await boot();
 
@@ -415,7 +462,10 @@ describe('pull-to-refresh.js: the decision « reload now » or « ask the networ
 
         expect(reload).not.toHaveBeenCalled();
         expect(indicator().classList.contains('is-refreshing')).toBe(false);
-        expect(document.getElementById('pull-to-refresh-status').textContent).toBe('');
+        // The indicator is aria-hidden: the live region says the refresh
+        // was given up, rather than falling silent after « Actualisation… ».
+        expect(document.getElementById('pull-to-refresh-status').textContent)
+            .toBe('Actualisation impossible : toujours hors ligne.');
     });
 
     it('accepts a new pull once a failed re-check has retracted the indicator', async () => {
@@ -450,6 +500,8 @@ describe('pull-to-refresh.js: the decision « reload now » or « ask the networ
 
         expect(reload).not.toHaveBeenCalled();
         expect(indicator().classList.contains('is-refreshing')).toBe(false);
+        expect(document.getElementById('pull-to-refresh-status').textContent)
+            .toBe('Actualisation impossible : toujours hors ligne.');
     });
 
     it('ignores a pull while the re-check is still in flight', async () => {
