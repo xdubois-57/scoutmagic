@@ -229,6 +229,13 @@ describe('ScoutMagicRichText.canonicalHtml() — a stored text keeps what the se
         );
     });
 
+    it('keeps an empty alt, which marks a decorative image, apart from a missing one', async () => {
+        const rt = await loadHelper();
+        const stored = '<p><img src="/files/2" alt=""><img src="/files/3"></p>';
+
+        expect(rt.canonicalHtml(stored, { stored: true })).toBe(stored);
+    });
+
     it('keeps two neighbouring links to one address apart when they open differently', async () => {
         const rt = await loadHelper();
         const stored = '<p><a href="/x" target="_blank">a</a><a href="/x">b</a></p>';

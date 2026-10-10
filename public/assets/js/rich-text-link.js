@@ -607,7 +607,8 @@
                 } else if (segment.img) {
                     var image = doc.createElement('img');
                     image.setAttribute('src', segment.img.src);
-                    if (segment.img.alt) image.setAttribute('alt', segment.img.alt);
+                    // alt="" marks a decorative image; only a missing alt is no alt.
+                    if (segment.img.alt !== null) image.setAttribute('alt', segment.img.alt);
                     if (segment.img.width) image.setAttribute('width', segment.img.width);
                     if (segment.img.height) image.setAttribute('height', segment.img.height);
                     parent.appendChild(image);
