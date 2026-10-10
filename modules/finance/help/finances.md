@@ -16,10 +16,10 @@ actuel, solde le plus bas des derniers mois, dernier extrait importé,
 graphiques d'évolution et bilan par catégorie pour l'exercice choisi.
 
 Une seule de ces vignettes appelle un geste plutôt qu'une lecture :
-« À rapprocher » compte les paiements que le site n'a pas su rattacher
-tout seul. Elle indique aussi de quoi ce nombre est fait, parce qu'un
-reste non imputé n'est pas forcément une erreur à corriger — voir
-« Rapprocher un paiement qui tombe de travers ».
+« Paiements à traiter » compte les paiements que le site n'a pas su
+rattacher tout seul et qui attendent une décision de votre part. Elle
+indique aussi de quoi ce nombre est fait, rubrique par rubrique ; quand
+tout est traité, elle affiche 0 — voir « Paiements à traiter ».
 
 ## Qui voit quels comptes
 

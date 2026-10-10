@@ -5,7 +5,7 @@
  * The « quelle créance ? » picker (views/partials/receivable_picker.html.twig).
  *
  * Wires every `.receivable-picker` on the page, however many there are —
- * the Rapprochement page renders one per unattributed credit. Each one
+ * the « Paiements à traiter » page renders one per unattributed credit. Each one
  * owns its own hidden input, so nothing here is global but the listener.
  *
  * The same shape as the receipts page's movement picker: type, wait a

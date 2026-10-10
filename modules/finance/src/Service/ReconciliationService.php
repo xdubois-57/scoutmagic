@@ -30,10 +30,11 @@ use Modules\Finance\Repository\TransactionRepository;
  * The site knows the household, its receivables and their total, so it
  * proposes the split and a human confirms.
  *
- * **Non imputés** — a credit carrying no communication anybody
- * recognises. Attach it to a receivable, or leave it: an unallocated
- * remainder is not an error in itself, it may be a payment for something
- * not invoiced yet.
+ * **Non imputés** — a credit carrying a valid structured communication
+ * that names no receivable anywhere. Attach it to a receivable, or declare
+ * it no payment for a receivable at all — persisted, so it does not come
+ * back. A credit with no valid structured communication is an ordinary
+ * movement and is not listed here at all (issue #837).
  *
  * **Trop-perçus** — centred on the RECEIVABLE, never on the transaction:
  * "60,00 € reçus pour 45,00 € dus", with the instalments underneath.
@@ -47,6 +48,10 @@ use Modules\Finance\Repository\TransactionRepository;
  * something untrue. So there is no gesture here at all — only the two
  * signals, which disappear when the transfer is made and both accounts
  * re-imported.
+ *
+ * The four are mutually exclusive: one situation, one tab, decided in a
+ * fixed order (build()), and every row has a way out, so the screen's
+ * resting state is empty.
  *
  * **A deliberate exception to the account partition** (§8.69) lives in
  * that last tab, and it is minimal: each side learns that a movement
@@ -142,8 +147,32 @@ class ReconciliationService
         }
         $householdByMemberId = $this->householdIndex($scoutYearId);
 
+        // Every receivable of every OTHER account, by communication: what
+        // turns an unallocated credit here into « Mauvais compte ».
+        $accountNames = [];
+        $elsewhereByCommunication = [];
+        foreach ($this->accountRepository->findAllOrdered() as $other) {
+            $accountNames[$other->id] = $other->name;
+            if ($other->id === $account->id) {
+                continue;
+            }
+            foreach ($this->receivables->findByAccountId($other->id) as $receivable) {
+                $elsewhereByCommunication[self::digitsOnly($receivable->communication)] = $other->id;
+            }
+        }
+
+        // One credit, one tab at most, decided in a fixed order (issue
+        // #837): a credit that already reached a receivable here is a
+        // split or nothing; one naming another account's receivable is
+        // « Mauvais compte »; one naming a receivable of this account
+        // the automatic pass could not fill is that receivable's
+        // trop-perçu; only a valid communication naming nothing at all is
+        // « Non imputé ». A credit carrying no valid communication is an
+        // ordinary movement and stays on « Mouvements ».
         $split = [];
+        $splitReceivableIds = [];
         $orphans = [];
+        $receivedHere = [];
 
         foreach ($credits as $credit) {
             $allocated = 0;
@@ -160,29 +189,63 @@ class ReconciliationService
                 continue;
             }
 
-            if ($allocatedReceivableIds === []) {
-                $orphans[] = $this->orphanRow($credit, $remainder, $byCommunication);
+            if ($allocatedReceivableIds !== []) {
+                $proposal = $this->splitProposal(
+                    $credit,
+                    $remainder,
+                    $allocatedReceivableIds,
+                    $receivables,
+                    $settlements,
+                    $householdByMemberId,
+                    $identities
+                );
+                if ($proposal !== null) {
+                    $split[] = $proposal;
+                    $splitReceivableIds[$proposal['named_receivable_id']] = true;
+                }
                 continue;
             }
 
-            $proposal = $this->splitProposal(
-                $credit,
-                $remainder,
-                $allocatedReceivableIds,
-                $receivables,
-                $settlements,
-                $householdByMemberId,
-                $identities
-            );
-            if ($proposal !== null) {
-                $split[] = $proposal;
+            // A communication naming a known receivable counts whatever
+            // its check digits (a receivable from before the invariant may
+            // carry an invalid one); a communication naming nothing counts
+            // only when it is a valid one — anything else is free text.
+            $elsewhere = null;
+            $namesOneHere = false;
+            $carriesAValidOne = false;
+            foreach ($this->communicationsOf($credit) as $communication) {
+                $namesOneHere = $namesOneHere || isset($byCommunication[$communication]);
+                $elsewhere ??= isset($elsewhereByCommunication[$communication]) ? $communication : null;
+                $carriesAValidOne = $carriesAValidOne || StructuredCommunicationService::isValid($communication);
             }
+
+            if ($elsewhere !== null && !$namesOneHere) {
+                $receivedHere[] = [
+                    'transaction_id' => $credit->id,
+                    'date' => $credit->transactionDate,
+                    'amount_cents' => $remainder,
+                    'target_account' => $accountNames[$elsewhereByCommunication[$elsewhere]] ?? '',
+                    'communication' => self::format($elsewhere),
+                ];
+                continue;
+            }
+
+            if (!$carriesAValidOne || $namesOneHere || $credit->notAReceivableAt !== null) {
+                continue;
+            }
+
+            $orphans[] = $this->orphanRow($credit, $remainder);
         }
 
         $overpaid = [];
         foreach ($receivables as $receivable) {
             $settlement = $settlements[$receivable->id] ?? null;
             if ($settlement === null || $settlement->amountOverpaidCents <= 0) {
+                continue;
+            }
+            // The surplus a split proposal is about to place elsewhere is
+            // not a trop-perçu yet: confirming the split is the answer.
+            if (isset($splitReceivableIds[$receivable->id])) {
                 continue;
             }
             $overpaid[] = $this->overpaidRow(
@@ -195,14 +258,10 @@ class ReconciliationService
             );
         }
 
-        $crossAccount = $this->crossAccount(
-            $account,
-            $receivables,
-            $settlements,
-            $credits,
-            $allocationsByTransaction,
-            $identities
-        );
+        $crossAccount = [
+            'received_here' => $receivedHere,
+            'paid_elsewhere' => $this->paidElsewhere($account, $receivables, $settlements, $identities),
+        ];
 
         return [
             'account' => $account,
@@ -217,6 +276,28 @@ class ReconciliationService
                 'cross_account' => count($crossAccount['received_here']) + count($crossAccount['paid_elsewhere']),
             ],
         ];
+    }
+
+    /**
+     * « Ce paiement ne correspond pas à une créance ScoutMagic » — the
+     * second way out of « Non imputés », and a lasting one: the credit
+     * stays a credit in « Mouvements », it just stops asking.
+     *
+     * @throws FinanceException when the movement is unknown, out of reach,
+     *         or not a credit
+     */
+    public function declareNotAReceivable(int $transactionId, Role $viewerRole, ?int $actorUserAccountId): void
+    {
+        $transaction = $this->transactions->findById($transactionId);
+        $account = $transaction !== null ? $this->accountRepository->findById($transaction->accountId) : null;
+        if ($transaction === null || !$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
+            throw new FinanceException("Ce mouvement n'existe pas ou ne vous est pas accessible.");
+        }
+        if ($transaction->amount <= 0) {
+            throw new FinanceException("Ce mouvement est un débit : il n'attend aucune créance.");
+        }
+
+        $this->transactions->markNotAReceivable($transaction->id, $actorUserAccountId);
     }
 
     // ── à répartir ──────────────────────────────────────────────────────
@@ -319,38 +400,22 @@ class ReconciliationService
     // ── non imputés ─────────────────────────────────────────────────────
 
     /**
-     * A credit nothing recognised. The screen says WHY, because "aucune
-     * communication" and "une communication de onze chiffres" send a
-     * treasurer to two different places.
+     * A credit carrying a valid structured communication that names no
+     * receivable on any account. Two ways out, both a treasurer's: attach
+     * it by hand, or declare it no payment for a receivable at all
+     * (declareNotAReceivable()).
      *
-     * @param array<string, ExpectedReceivable> $byCommunication
      * @return array<string, mixed>
      */
-    private function orphanRow(Transaction $credit, int $remainder, array $byCommunication): array
+    private function orphanRow(Transaction $credit, int $remainder): array
     {
-        $found = [];
-        $fields = [$credit->structuredCommunication, $credit->label, $credit->comment, $credit->extraDetails];
-        foreach ($fields as $field) {
-            if ($field === null) {
-                continue;
-            }
-            foreach (StructuredCommunicationService::extract($field) as $communication) {
-                $found[] = $communication;
-            }
-        }
-
-        $reason = match (true) {
-            $found === [] => 'Aucune communication structurée reconnue.',
-            default => "La communication portée par ce virement ne correspond à aucune créance de ce compte.",
-        };
-
         return [
             'transaction_id' => $credit->id,
             'date' => $credit->transactionDate,
             'amount_cents' => $remainder,
             'counterparty' => $credit->counterpartyName,
             'label' => $credit->label,
-            'reason' => $reason,
+            'reason' => 'La communication structurée de ce virement ne correspond à aucune créance.',
         ];
     }
 
@@ -432,8 +497,11 @@ class ReconciliationService
     // ── mauvais compte ──────────────────────────────────────────────────
 
     /**
-     * The two symmetric signals, and the exception to the partition they
-     * rest on.
+     * « Mauvais compte », the half this account cannot see from its own
+     * credits: a receivable of THIS account that nobody paid here, whose
+     * communication turns up on a credit of another account. The other
+     * half, a credit here naming another account's receivable, is decided
+     * with the rest of the credits in build().
      *
      * What crosses the boundary is deliberately the smallest thing that
      * makes each side act: a date, an amount, an account name. Never a
@@ -442,61 +510,11 @@ class ReconciliationService
      *
      * @param ExpectedReceivable[] $receivables
      * @param array<int, ReceivableSettlement> $settlements
-     * @param Transaction[] $credits
-     * @param array<int, \Modules\Finance\Repository\ReceivableAllocation[]> $allocationsByTransaction
      * @param array<int, \Core\Member\MemberDirectoryEntry> $identities
-     * @return array{received_here: array<int, array<string, mixed>>, paid_elsewhere: array<int, array<string, mixed>>}
+     * @return list<array<string, mixed>>
      */
-    private function crossAccount(
-        Account $account,
-        array $receivables,
-        array $settlements,
-        array $credits,
-        array $allocationsByTransaction,
-        array $identities
-    ): array {
-        $accountNames = [];
-        $elsewhereByCommunication = [];
-        foreach ($this->accountRepository->findAllOrdered() as $other) {
-            $accountNames[$other->id] = $other->name;
-            if ($other->id === $account->id) {
-                continue;
-            }
-            foreach ($this->receivables->findByAccountId($other->id) as $receivable) {
-                $elsewhereByCommunication[self::digitsOnly($receivable->communication)] = $other->id;
-            }
-        }
-
-        $receivedHere = [];
-        foreach ($credits as $credit) {
-            $allocated = 0;
-            foreach ($allocationsByTransaction[$credit->id] ?? [] as $allocation) {
-                if ($allocation->amountCents > 0) {
-                    $allocated += $allocation->amountCents;
-                }
-            }
-            if (self::toCents($credit->amount) - $allocated <= 0) {
-                continue;
-            }
-
-            foreach ($this->communicationsOf($credit) as $communication) {
-                if (!isset($elsewhereByCommunication[$communication])) {
-                    continue;
-                }
-                $receivedHere[] = [
-                    'transaction_id' => $credit->id,
-                    'date' => $credit->transactionDate,
-                    'amount_cents' => self::toCents($credit->amount) - $allocated,
-                    'target_account' => $accountNames[$elsewhereByCommunication[$communication]] ?? '',
-                    'communication' => self::format($communication),
-                ];
-                break;
-            }
-        }
-
-        // The other direction: a receivable of THIS account that nobody
-        // paid here, whose communication turns up on a credit of another
-        // account. Only what is needed not to chase a family that paid.
+    private function paidElsewhere(Account $account, array $receivables, array $settlements, array $identities): array
+    {
         $paidElsewhere = [];
         $unpaidByCommunication = [];
         foreach ($receivables as $receivable) {
@@ -534,7 +552,7 @@ class ReconciliationService
             }
         }
 
-        return ['received_here' => $receivedHere, 'paid_elsewhere' => $paidElsewhere];
+        return $paidElsewhere;
     }
 
     // ── internals ───────────────────────────────────────────────────────

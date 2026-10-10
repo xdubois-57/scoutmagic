@@ -2,7 +2,10 @@
 {% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 
 {#
-  « Rapprochement » — four situations, four tabs, four different gestures.
+  « Paiements à traiter » (issue #837) — the treasurer's inbox: four
+  situations, four tabs, four different gestures. The four are mutually
+  exclusive (Service\ReconciliationService::build()) and every row has a
+  way out, so the page's resting state is empty.
 
   The tab rail is the shared nav rail (design.md §7.6): a fixed set of
   views of one page is sub-navigation, never a row of filter chips.
@@ -20,19 +23,16 @@
   a rendered amount.
 #}
 
-{% block title %}Rapprochement — Finances — {{ site_name }}{% endblock %}
+{% block title %}Paiements à traiter — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {# The subtitle used to read « Ce que le rapprochement automatique n'a
-       pas su traiter seul », which explains the page with the word the
-       reader came here not knowing. « Rapprochement » is accounting
-       vocabulary; the chef d'unité reading it is a volunteer, and the menu
-       entry is the first place they meet the term. So the subtitle says
-       what the word MEANS, and the paragraph below says who does it and
-       what is left. #}
+    {# « Rapprochement » was accounting vocabulary, and the chef d'unité
+       reading it is a volunteer: the page is named after what it holds
+       (issue #837), and the paragraph below says who does it and what is
+       left. #}
     {% include 'partials/page_header.html.twig' with {
-        title: 'Rapprochement',
-        subtitle: 'Dire à quoi correspond chaque somme arrivée sur le compte.',
+        title: 'Paiements à traiter',
+        subtitle: 'Les paiements qui attendent une décision de votre part.',
     } only %}
 
     {% include '@finance/_nav.html.twig' with {
@@ -45,7 +45,8 @@
         Quand un virement arrive sur le compte, le site cherche la créance qu'il règle — une cotisation, une
         location, une facture — en lisant sa communication structurée. La plupart se rattachent tout seuls.
         Cette page ne montre que le reste : les quatre situations où le site n'a pas voulu trancher à votre
-        place, chacune avec le geste qui convient.
+        place, chacune avec le geste qui convient. Une situation n'apparaît que dans une seule rubrique, et
+        chacune a une issue : quand tout est traité, la page est vide.
     </p>
 
     {% if view is null %}
@@ -162,9 +163,10 @@
         {# --------------------------------------------------- non imputés #}
         {% if tab == 'orphans' %}
             <div class="alert alert-warning mt-3" role="alert">
-                Ces crédits ne portent aucune communication reconnue. Rattachez-les à une créance, ou
-                laissez-les — un reste non imputé n'est pas une erreur en soi : ce peut être un paiement pour
-                quelque chose qui n'a pas encore été facturé.
+                Ces crédits portent une communication structurée valide qui ne correspond à aucune créance.
+                Rattachez-les à une créance, ou indiquez qu'ils ne correspondent à aucune créance ScoutMagic :
+                ils ne seront plus proposés ici. Un crédit sans communication structurée n'apparaît pas sur
+                cette page ; il reste dans les mouvements.
             </div>
 
             {% if view.orphans is empty %}
@@ -215,6 +217,15 @@
                                 Tapez un nom : la liste ne propose que les créances de ce compte qui
                                 attendent encore un paiement.
                             </p>
+                        </form>
+
+                        <form method="post" action="/finance/reconciliation/not-a-receivable/{{ item.transaction_id }}"
+                              class="mt-3 pt-3 border-top">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary tap-target">
+                                Ce paiement ne correspond pas à une créance ScoutMagic
+                            </button>
                         </form>
                     </div>
                 {% endfor %}
@@ -305,10 +316,6 @@
                                 </form>
                             {% endif %}
 
-                            <p class="small text-body-secondary mt-2 mb-0">
-                                Ou laissez en l'état : un reste non imputé est neutre tant que personne n'a décidé
-                                qu'il est dû.
-                            </p>
                         {% endif %}
                     </div>
                 {% endfor %}
