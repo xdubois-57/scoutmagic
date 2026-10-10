@@ -127,7 +127,14 @@ final class CardGeometryAgreementTest extends TestCase
      *
      * The two blurs will not match pixel for pixel — GD shrinks, smooths
      * with a 3×3 kernel and grows back, the browser has a real Gaussian —
-     * and nothing compares pixels. What has to agree is the scale.
+     * and nothing compares pixels. What has to agree is the scale, and
+     * one more thing the review of #850 found missing: GD's filter
+     * CLAMPS at the bitmap's edges, while `ctx.filter` ramps a draw's
+     * alpha down at its own border and let the backdrop show through as
+     * a vignette. The browser now pads its blurred draw and carries the
+     * crop's edges outwards, which `tests/js/social-card.test.js`
+     * asserts on the draw calls themselves — jsdom having no pixels to
+     * look at.
      */
     public function testTheBlurScalesToTheSquareInBothLanguages(): void
     {

@@ -86,6 +86,25 @@
 
     /** Behind a photo that does not cover the square — GD fills the same grey. */
     const BACKDROP = 'rgb(73, 80, 87)';
+
+    /**
+     * How far past the square a blurred draw has to reach, in multiples
+     * of the radius.
+     *
+     * **`ctx.filter` filters onto an infinite TRANSPARENT surface and
+     * composites the result afterwards.** So a photo drawn exactly edge
+     * to edge has its own alpha ramped down at the square's border, and
+     * the opaque backdrop beneath shows through as a grey vignette —
+     * widening with the slider until it dominates the card, and baked
+     * into the JPEG that is published. GD does nothing of the kind:
+     * `imagefilter()` works on the bitmap itself and clamps at its
+     * edges. Found in the review of #850.
+     *
+     * Three radii, because `blur(Npx)` is a Gaussian of sigma N and
+     * three sigmas is both its practical support and the reach of the
+     * box-blur passes browsers approximate it with.
+     */
+    const BLUR_REACH = 3;
     const TITLE_COLOUR = 'rgb(255, 255, 255)';
     const ADDRESS_COLOUR = 'rgb(230, 233, 236)';
 
@@ -202,10 +221,93 @@
             // what « Net » means — and there is no floor above that any
             // more (issue #706, IT-02).
             const radius = Math.max(0, Number(blurRatio) || 0) * SIZE;
-            ctx.filter = radius >= 1 ? 'blur(' + radius + 'px)' : 'none';
-            ctx.drawImage(image, sx, sy, side, side, 0, 0, SIZE, SIZE);
+            if (radius < 1) {
+                // « Net ». Nothing is filtered, so nothing needs the
+                // padding below either.
+                ctx.filter = 'none';
+                ctx.drawImage(image, sx, sy, side, side, 0, 0, SIZE, SIZE);
+            } else {
+                drawBlurred(ctx, image, sx, sy, side, radius);
+            }
         }
         ctx.restore();
+    }
+
+    /**
+     * The crop, blurred, with its own edges carried out past the square
+     * so that the filter's alpha ramp falls OUTSIDE what is published
+     * ({@see BLUR_REACH}).
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {HTMLImageElement|ImageBitmap|HTMLCanvasElement} image
+     * @param {number} sx
+     * @param {number} sy
+     * @param {number} side
+     * @param {number} radius
+     */
+    function drawBlurred(ctx, image, sx, sy, side, radius) {
+        const pad = Math.ceil(radius * BLUR_REACH);
+        const padded = paddedCrop(image, sx, sy, side, pad);
+        ctx.filter = 'blur(' + radius + 'px)';
+        if (padded === null) {
+            // No second context to build the padding in. The vignette
+            // comes back, and that is still the better of the two: a
+            // card drawn without the blur would send a gallery photo out
+            // sharp, which is the one thing the slider must never do by
+            // accident.
+            ctx.drawImage(image, sx, sy, side, side, 0, 0, SIZE, SIZE);
+
+            return;
+        }
+
+        const full = SIZE + 2 * pad;
+        ctx.drawImage(padded, 0, 0, full, full, -pad, -pad, full, full);
+    }
+
+    /**
+     * The crop on a square canvas `pad` larger on every side, the margin
+     * filled by stretching the crop's outermost row and column outwards
+     * — the same edge clamping GD's filter does, so the blur smears real
+     * colour into the margin rather than transparency.
+     *
+     * The crop is scaled down into the buffer first, so « reduce before
+     * blurring » still holds: a multi-megapixel photo never reaches the
+     * filter at full size. The buffer itself grows with the radius, to
+     * 2376 px square at the slider's far end — well under the photo it
+     * replaces.
+     *
+     * @param {HTMLImageElement|ImageBitmap|HTMLCanvasElement} image
+     * @param {number} sx
+     * @param {number} sy
+     * @param {number} side
+     * @param {number} pad
+     * @returns {HTMLCanvasElement|null}
+     */
+    function paddedCrop(image, sx, sy, side, pad) {
+        const buffer = document.createElement('canvas');
+        const full = SIZE + 2 * pad;
+        buffer.width = full;
+        buffer.height = full;
+        const edge = buffer.getContext('2d');
+        if (!edge) {
+            return null;
+        }
+
+        edge.drawImage(image, sx, sy, side, side, pad, pad, SIZE, SIZE);
+
+        const last = side - 1;
+        // The four sides, from one row or column each.
+        edge.drawImage(image, sx, sy, 1, side, 0, pad, pad, SIZE);
+        edge.drawImage(image, sx + last, sy, 1, side, pad + SIZE, pad, pad, SIZE);
+        edge.drawImage(image, sx, sy, side, 1, pad, 0, SIZE, pad);
+        edge.drawImage(image, sx, sy + last, side, 1, pad, pad + SIZE, SIZE, pad);
+        // The four corners, from one pixel each.
+        edge.drawImage(image, sx, sy, 1, 1, 0, 0, pad, pad);
+        edge.drawImage(image, sx + last, sy, 1, 1, pad + SIZE, 0, pad, pad);
+        edge.drawImage(image, sx, sy + last, 1, 1, 0, pad + SIZE, pad, pad);
+        edge.drawImage(image, sx + last, sy + last, 1, 1, pad + SIZE, pad + SIZE, pad, pad);
+
+        return buffer;
     }
 
     /**

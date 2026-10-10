@@ -85,6 +85,31 @@ function recordingContext(perCharPerPx = 0.5) {
     };
 }
 
+/**
+ * Gives the engine a second 2D context — the one it builds the blur's
+ * padding in — and hands back what is drawn there.
+ *
+ * jsdom has no 2D context at all, so the engine's own « no second
+ * context » fallback is what every other test in this file takes. The
+ * padded path needs one, and `document.createElement` is where the
+ * engine asks for it. Called AFTER `canvasWith()`, whose canvas is a
+ * real element with its own instance spy.
+ */
+function offscreenRecorder() {
+    const ctx = recordingContext();
+    const buffer = {
+        width: 0,
+        height: 0,
+        getContext: () => ctx,
+    };
+    const real = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(
+        (tag) => (tag === 'canvas' ? buffer : real(tag))
+    );
+
+    return { ctx, buffer };
+}
+
 function canvasWith(ctx) {
     const canvas = document.createElement('canvas');
     vi.spyOn(canvas, 'getContext').mockImplementation(() => ctx);
@@ -329,6 +354,80 @@ describe('drawCard', () => {
         card().drawCard(canvas, { image: { width: 10, height: 10 }, title: 'T', address: '', blurRatio: 0 });
 
         expect(ctx.calls.some((call) => call.op === 'fillRect' && call.fillStyle === 'rgb(73, 80, 87)')).toBe(true);
+    });
+
+    // `ctx.filter` filters onto an infinite TRANSPARENT surface, so a
+    // photo blurred edge to edge has its own alpha ramped down at the
+    // square's border and the opaque backdrop shows through as a grey
+    // vignette — in the published JPEG. GD clamps at its edges instead.
+    // Found in the review of #850.
+    it('blurs with its edges carried past the square, so no vignette appears', () => {
+        const buffer = offscreenRecorder();
+        const image = { width: 2000, height: 1500 };
+
+        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.025 });
+
+        // 0.025 of 1080 is a 27 px radius, and three radii of reach.
+        const pad = 81;
+        const full = 1080 + 2 * pad;
+        expect(buffer.buffer.width).toBe(full);
+        expect(buffer.buffer.height).toBe(full);
+
+        // The crop lands INSIDE the padding, at its own size.
+        const centre = buffer.ctx.calls.find((call) => call.op === 'drawImage');
+        expect(centre).toMatchObject({ dx: pad, dy: pad, dw: 1080, dh: 1080 });
+
+        // And the margin is the crop's own outermost row and column
+        // stretched outwards — four sides, four corners, nothing left
+        // transparent for the blur to smear.
+        const draws = buffer.ctx.calls.filter((call) => call.op === 'drawImage');
+        expect(draws).toHaveLength(9);
+        const sides = draws.slice(1, 5);
+        sides.forEach((draw) => {
+            expect(draw.sw === 1 || draw.sh === 1).toBe(true);
+        });
+        draws.slice(5).forEach((draw) => {
+            expect(draw).toMatchObject({ sw: 1, sh: 1, dw: pad, dh: pad });
+        });
+
+        // The padded buffer is then drawn blurred, offset so its own
+        // ramp falls outside the 1080 square.
+        const blurred = ctx.calls.filter((call) => call.op === 'drawImage');
+        expect(blurred).toHaveLength(1);
+        expect(blurred[0]).toMatchObject({
+            dx: -pad,
+            dy: -pad,
+            dw: full,
+            dh: full,
+            filter: 'blur(27px)',
+        });
+    });
+
+    it('pads nothing at « Net », where there is no filter to ramp', () => {
+        const buffer = offscreenRecorder();
+        const image = { width: 2000, height: 1500 };
+
+        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0 });
+
+        expect(buffer.ctx.calls).toHaveLength(0);
+        const drawn = ctx.calls.filter((call) => call.op === 'drawImage');
+        expect(drawn).toHaveLength(1);
+        expect(drawn[0]).toMatchObject({ dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'none' });
+    });
+
+    it('still blurs when there is no second context to pad in', () => {
+        // The vignette comes back, and that is the better of the two: a
+        // card drawn without the blur would send a gallery photo out
+        // sharp, which is the one thing the slider must never do by
+        // accident. jsdom is this case, which is why every other test
+        // here sees a single draw.
+        const image = { width: 2000, height: 1500 };
+
+        card().drawCard(canvas, { image, title: 'T', address: '', blurRatio: 0.05 });
+
+        const drawn = ctx.calls.filter((call) => call.op === 'drawImage');
+        expect(drawn).toHaveLength(1);
+        expect(drawn[0]).toMatchObject({ dx: 0, dy: 0, dw: 1080, dh: 1080, filter: 'blur(54px)' });
     });
 
     it('lays the address at the foot and the title above it, bottom-up', () => {
