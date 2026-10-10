@@ -150,8 +150,8 @@
         var touchAction = window.getComputedStyle(node).touchAction || 'auto';
         return touchAction === 'auto'
             || touchAction === 'manipulation'
-            || touchAction.indexOf('pan-y') !== -1
-            || touchAction.indexOf('pan-down') !== -1;
+            || touchAction.includes('pan-y')
+            || touchAction.includes('pan-down');
     }
 
     function paint() {
