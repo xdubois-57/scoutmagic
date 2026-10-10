@@ -205,6 +205,15 @@ describe('ScoutMagicRichText.insertLink()', () => {
         );
     });
 
+    it('finds the editor from the selection when none is given, for a new text too', async () => {
+        window.ScoutMagicConfirm.form = answering('Le site', 'lesscouts.be');
+        const rt = await loadHelper();
+        editorWithSelection('ici').setAttribute('contenteditable', 'true');
+
+        await expect(rt.insertLink(null)).resolves.toBe(true);
+        expect(execCommand).toHaveBeenCalledWith('insertHTML', false, '<a href="https://lesscouts.be">Le site</a>');
+    });
+
     it('restores the selection the dialog took, before creating the link', async () => {
         window.ScoutMagicConfirm.form = vi.fn(() => {
             // What a real modal does: focus moves, the contenteditable's

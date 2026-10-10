@@ -501,6 +501,20 @@ describe('ScoutMagicConfirm.form()', () => {
         await expect(dismissed).resolves.toBeNull();
     });
 
+    it('gives the button back when its action fails', async () => {
+        const smConfirm = await loadConfirm();
+        smConfirm.form({
+            title: 'Insérer un lien',
+            fields: [{ name: 'text', label: 'Texte du lien', action: { label: 'Proposer', icon: 'bi-magic', run: () => Promise.reject(new Error('réseau')) } }],
+        });
+        const button = /** @type {HTMLButtonElement} */ (document.querySelector('#sm-confirm-modal .input-group button'));
+
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(button.disabled).toBe(false);
+    });
+
     it('gives a field\'s action a named icon button, and lets it fill fields and say what it found', async () => {
         const smConfirm = await loadConfirm();
         let release;

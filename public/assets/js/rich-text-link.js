@@ -246,11 +246,14 @@
             link.textContent = text === '' ? href : text;
             var fragment = document.createDocumentFragment();
             fragment.appendChild(link);
-            if (surface) {
-                insertFragment(surface, fragment);
-            } else {
-                document.execCommand('insertHTML', false, link.outerHTML);
+            // Without the editor element, the one the selection was in.
+            var node = range?.commonAncestorContainer ?? null;
+            var element = node?.nodeType === 1 ? /** @type {Element} */ (node) : node?.parentElement ?? null;
+            var target = surface || /** @type {HTMLElement|null} */ (element?.closest('[contenteditable]:not([contenteditable="false"])') ?? null);
+            if (target === null) {
+                return false;
             }
+            insertFragment(target, fragment);
             return true;
         });
     }

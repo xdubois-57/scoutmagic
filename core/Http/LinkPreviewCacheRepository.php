@@ -82,7 +82,8 @@ class LinkPreviewCacheRepository
             $stmt->execute([$title, $htmlTitle, $description, $imageUrl, $now, $urlHash]);
         } else {
             $stmt = $this->pdo->prepare(
-                'INSERT INTO gallery_link_preview_cache (url_hash, title, html_title, description, image_url, fetched_at)
+                'INSERT INTO gallery_link_preview_cache
+                 (url_hash, title, html_title, description, image_url, fetched_at)
                  VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([$urlHash, $title, $htmlTitle, $description, $imageUrl, $now]);

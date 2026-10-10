@@ -323,9 +323,14 @@
                 var action = spec.action;
                 button.addEventListener('click', function () {
                     button.disabled = true;
-                    Promise.resolve(action.run(control)).finally(function () {
-                        button.disabled = false;
-                    });
+                    Promise.resolve(action.run(control))
+                        .catch(function () {
+                            // An action that failed leaves its field as it
+                            // was; the button just comes back.
+                        })
+                        .finally(function () {
+                            button.disabled = false;
+                        });
                 });
                 group.appendChild(input);
                 group.appendChild(button);
