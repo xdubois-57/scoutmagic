@@ -419,6 +419,7 @@
                 section_editor: true,
                 asset: asset,
                 finance_accounts: finance_accounts,
+                finance_categories: finance_categories|default([]),
                 payment_settings: payment_settings,
             } only %}
                 {% block body %}
@@ -437,6 +438,21 @@
                         </select>
                         <div class="form-text">
                             Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
+                        </div>
+                        <label class="form-label mt-3" for="finance-category">Catégorie</label>
+                        <select class="form-select" id="finance-category" name="finance_category_id"
+                                aria-describedby="finance-category-help">
+                            <option value="">—</option>
+                            {% for category in finance_categories %}
+                                <option value="{{ category.id }}"
+                                        {{ payment_settings.financeCategoryId == category.id ? 'selected' : '' }}>
+                                    {{ category.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text" id="finance-category-help">
+                            Les paiements des locations de ce bien, caution comprise, seront classés dans cette
+                            catégorie des Finances. Obligatoire dès qu'un compte est choisi.
                         </div>
                     </form>
                 {% endblock %}

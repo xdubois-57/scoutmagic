@@ -108,6 +108,7 @@ class CampaignController extends AbstractController
                 (string) $request->getBody('label', ''),
                 (int) $request->getBody('scout_year_id', 0),
                 (int) $request->getBody('account_id', 0),
+                (int) $request->getBody('category_id', 0),
                 (string) $file['tmp_name'],
                 (string) $file['name'],
                 Role::fromString(AuthSession::getRole()),
@@ -494,6 +495,7 @@ class CampaignController extends AbstractController
             '@finance/campaigns/new.html.twig',
             $context + [
                 'accounts' => $this->financeService->getAccountsForUser($role),
+                'categories' => $this->financeService->getCategoriesForReceivables(),
                 'scout_years' => array_reverse($years),
                 'current_scout_year_id' => $current['id'],
             ]

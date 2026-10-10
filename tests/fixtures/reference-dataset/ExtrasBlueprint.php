@@ -104,6 +104,9 @@ final class ExtrasBlueprint
      */
     public const RECEIVABLE_SOURCE_MODULE = 'cotisations';
 
+    /** The category those receivables are booked under (issue #838). */
+    public const RECEIVABLE_CATEGORY = 'Cotisations';
+
     /**
      * The email address of every section, and of the synthesised Staff d'U.
      *

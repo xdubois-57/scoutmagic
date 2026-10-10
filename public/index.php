@@ -8725,10 +8725,15 @@ if ($isEnabled('finance')) {
     );
     $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService(
         $financeExpectedReceivableRepo,
-        $financeAllocationService
+        $financeAllocationService,
+        $financeCategoryRepo
     );
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
-    $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
+    $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService(
+        $financeAccountRepo,
+        $financeCategoryRepo,
+        static fn() => $financeService->ensureDefaultCategories()
+    );
 
     // Who names the groups on « Contrôle des créances »
     // (Api\ReceivableSourceDescriberInterface). Finance knows a source

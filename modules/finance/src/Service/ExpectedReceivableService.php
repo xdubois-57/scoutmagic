@@ -36,7 +36,8 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
 {
     public function __construct(
         private ExpectedReceivableRepository $repository,
-        private ReceivableAllocationService $allocations
+        private ReceivableAllocationService $allocations,
+        private \Modules\Finance\Repository\CategoryRepository $categories
     ) {
     }
 
@@ -57,8 +58,20 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         int $amountCents,
         string $communication,
         ?string $label,
+        int $categoryId,
         ?int $memberId = null
     ): int {
+        // Every receivable says where its payments are booked (issue #838):
+        // a movement allocated to it takes this category, before any rule
+        // or the AI is asked. An active category only — an archived one
+        // would put new money where the treasurer chose to stop putting it.
+        $category = $this->categories->findById($categoryId);
+        if ($category === null || !$category->isActive) {
+            throw new FinanceException(
+                'Choisissez une catégorie Finances active pour cette créance.'
+            );
+        }
+
         // Every receivable carries a valid Belgian structured
         // communication (issue #837). Automatic matching only ever reads
         // those twelve digits, and « Paiements à traiter » counts a credit
@@ -79,7 +92,8 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             $amountCents,
             StructuredCommunicationService::format(substr($this->digitsOnly($communication), 0, 10)),
             $label,
-            $memberId
+            $memberId,
+            $category->id
         );
 
         // The payment can predate the receivable — a rental's security

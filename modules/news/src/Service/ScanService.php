@@ -405,7 +405,7 @@ class ScanService
      */
     public function expectsPayment(NewsForm $form): bool
     {
-        if ($this->expectedReceivable === null || $form->financeAccountId === null) {
+        if ($this->expectedReceivable === null || !$form->hasPaymentDestination()) {
             return false;
         }
 

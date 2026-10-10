@@ -255,6 +255,30 @@ class BulkCategorizationServiceTest extends TestCase
         $this->assertSame($categoryId, $this->transactionRepository->findById($id)->categoryId);
     }
 
+    /**
+     * The receivable a payment settles explains it: the movement takes its
+     * category, so no rule and no AI call ever sees it (issue #838).
+     */
+    public function testTheAiIsNeverAskedAboutAPaymentWhoseReceivableIsKnown(): void
+    {
+        $this->categoryRepository->create('Fournitures');
+        $camps = $this->categoryRepository->create('Camps');
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        FinanceTestHelper::receivableService($this->pdo, $encryption)
+            ->createReceivable('news', 1, $this->accountId, 4500, '+++123/4567/89002+++', null, $camps);
+        $credit = $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, 'ref-camp', '2026-10-01', 'Camp +++123/4567/89002+++', 45.0,
+            null, null, Transaction::SOURCE_IMPORT, null
+        );
+        FinanceTestHelper::allocationService($this->pdo, $encryption)->reconcileAccount($this->accountId);
+        $calls = 0;
+
+        $this->service($this->countingLlm($calls))->runOnUncategorized();
+
+        $this->assertSame(0, $calls);
+        $this->assertSame($camps, $this->transactionRepository->findById($credit)?->categoryId);
+    }
+
     public function testIsRunningFalseByDefault(): void
     {
         $this->assertFalse($this->service()->isRunning());

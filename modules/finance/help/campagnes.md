@@ -35,7 +35,8 @@ Trois étapes, dans cet ordre :
 2. Ajoutez une colonne **Montant** au fichier, et complétez-la ligne par
    ligne — les montants peuvent différer d'une personne à l'autre.
 3. Rechargez le fichier sur la page « Campagnes », sans supprimer les
-   autres colonnes.
+   autres colonnes, avec le compte et la **catégorie** où classer les
+   paiements.
 
 > Ne reconstruisez jamais la liste à la main dans Excel. La colonne
 > « ID interne » produite par l'export est ce qui rattache chaque montant

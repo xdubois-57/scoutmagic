@@ -238,7 +238,8 @@ function scoutmagicBootstrapScheduler(
                 new \Modules\Finance\Service\AccountVisibility(
                     \Modules\Finance\Service\TreasurerScope::systemCaller()
                 )
-            )
+            ),
+            new \Modules\Finance\Repository\CategoryRepository($pdo)
         );
     };
     $capabilities->register(\Modules\Finance\Api\ExpectedReceivableInterface::class, 'finance', $financeReceivables);
@@ -258,7 +259,8 @@ function scoutmagicBootstrapScheduler(
         \Modules\Finance\Api\FinanceAccountInterface::class,
         'finance',
         static fn (): object => new \Modules\Finance\Service\FinanceAccountService(
-            new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService)
+            new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService),
+            new \Modules\Finance\Repository\CategoryRepository($pdo)
         )
     );
 

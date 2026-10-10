@@ -153,6 +153,7 @@ class FinanceTestHelper
             communication TEXT NOT NULL,
             label_encrypted BLOB NULL,
             member_id INTEGER NULL,
+            category_id INTEGER NULL,
             waived_at TEXT NULL,
             waived_by INTEGER NULL,
             refund_requested_at TEXT NULL,
@@ -246,8 +247,19 @@ class FinanceTestHelper
 
         return new \Modules\Finance\Service\ExpectedReceivableService(
             $receivableRepository,
-            self::allocationService($pdo, $encryption, $receivableRepository)
+            self::allocationService($pdo, $encryption, $receivableRepository),
+            new \Modules\Finance\Repository\CategoryRepository($pdo)
         );
+    }
+
+    /**
+     * An active Finance category — every receivable names one (issue #838).
+     */
+    public static function createCategory(\PDO $pdo, string $name = 'Divers'): int
+    {
+        $pdo->prepare('INSERT INTO finance_categories (name) VALUES (?)')->execute([$name]);
+
+        return (int) $pdo->lastInsertId();
     }
 
     /**

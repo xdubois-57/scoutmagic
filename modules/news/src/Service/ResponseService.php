@@ -373,7 +373,8 @@ class ResponseService
             $structuredCommunication = null;
             $receivableId = null;
 
-            if ($total > 0.0 && $form->financeAccountId !== null && $this->isPaymentAvailable()) {
+            if ($total > 0.0 && $form->hasPaymentDestination() && $this->isPaymentAvailable()) {
+                \assert($form->financeAccountId !== null && $form->financeCategoryId !== null);
                 $structuredCommunication = $this->structuredCommunication->generate();
                 $receivableId = $this->expectedReceivable->createReceivable(
                     'news',
@@ -381,7 +382,8 @@ class ResponseService
                     $form->financeAccountId,
                     (int) round($total * 100),
                     $structuredCommunication,
-                    $contactEmail
+                    $contactEmail,
+                    $form->financeCategoryId
                 );
             }
 

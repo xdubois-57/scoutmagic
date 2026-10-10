@@ -96,7 +96,7 @@ class RentalPaymentService
      */
     public function saveSettings(int $assetId, PaymentSettings $settings): void
     {
-        if ($settings->enabled && $settings->financeAccountId === null) {
+        if ($settings->enabled && ($settings->financeAccountId === null || $settings->financeCategoryId === null)) {
             // Half-configured is worse than off: an asset that says
             // "payments on" but can raise nothing looks like it is working.
             //
@@ -105,8 +105,8 @@ class RentalPaymentService
             // pinned by unit staff, while this switch belongs to the asset's
             // managers (Controller\RentalConfigController::saveFinanceAccount()).
             throw new RentalException(
-                'Aucun compte n\'est encore associé à ce bien : demandez à un chef d\'unité '
-                . 'de l\'associer depuis « Espace chefs d\'U > Locations ».'
+                'Aucun compte ou aucune catégorie Finances n\'est encore associé à ce bien : demandez à un '
+                . 'chef d\'unité de les choisir depuis « Espace chefs d\'U > Locations ».'
             );
         }
 
@@ -146,11 +146,30 @@ class RentalPaymentService
      *
      * @throws RentalException
      */
-    public function saveFinanceAccount(int $assetId, ?int $financeAccountId): void
+    public function saveFinanceAccount(int $assetId, ?int $financeAccountId, ?int $financeCategoryId = null): void
     {
+        // Every receivable names its category (issue #838), so an account
+        // without one could raise nothing — refused here, where unit staff
+        // can still fix it, rather than when a renter is confirmed.
+        if ($financeAccountId !== null && $financeCategoryId === null) {
+            throw new RentalException(
+                'Choisissez aussi la catégorie Finances dans laquelle classer les paiements de ce bien.'
+            );
+        }
+
         $current = $this->paymentRepository->loadSettings($assetId);
 
-        $this->saveSettings($assetId, $current->withFinanceAccount($financeAccountId));
+        $this->saveSettings($assetId, $current->withFinanceAccount($financeAccountId, $financeCategoryId));
+    }
+
+    /**
+     * Finance's active categories, for the picker beside the account one.
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function availableCategories(): array
+    {
+        return $this->accounts?->getCategories() ?? [];
     }
 
     /**
@@ -165,7 +184,10 @@ class RentalPaymentService
     {
         $current = $this->paymentRepository->loadSettings($assetId);
 
-        $this->saveSettings($assetId, $settings->withFinanceAccount($current->financeAccountId));
+        $this->saveSettings(
+            $assetId,
+            $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
+        );
     }
 
     // ── Raising the receivables ─────────────────────────────────────────
@@ -587,7 +609,8 @@ class RentalPaymentService
                 // The label may identify the payer, and Finance encrypts it
                 // for exactly that reason — so the reference alone would be
                 // needlessly opaque to whoever reconciles the account.
-                $booking->reference . ' — ' . $booking->renterName
+                $booking->reference . ' — ' . $booking->renterName,
+                (int) $settings->financeCategoryId
             );
         } catch (\Throwable $e) {
             // Same rule as updateReceivable() above: Finance's own refusal
@@ -662,7 +685,8 @@ class RentalPaymentService
                 (int) $settings->financeAccountId,
                 $amount,
                 $communication,
-                'Caution ' . $booking->reference . ' — ' . $booking->renterName
+                'Caution ' . $booking->reference . ' — ' . $booking->renterName,
+                (int) $settings->financeCategoryId
             );
         } catch (\Throwable $e) {
             // Same rule again.

@@ -72,6 +72,7 @@ class CampaignControllerTest extends TestCase
     private CampaignRowRepository $rows;
     private ExpectedReceivableRepository $receivables;
     private int $accountId;
+    private int $categoryId;
     private int $scoutYearId;
     /** @var array<string, int> */
     private array $memberIds = [];
@@ -220,6 +221,7 @@ class CampaignControllerTest extends TestCase
         );
 
         $this->accountId = $accountRepository->create('Compte Unité', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo, 'Cotisations');
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$this->accountId]);
 
         $this->scoutYearId = FinanceTestHelper::createScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31', true);
@@ -1208,6 +1210,7 @@ class CampaignControllerTest extends TestCase
                         'label' => $label,
                         'scout_year_id' => (string) $this->scoutYearId,
                         'account_id' => (string) ($accountId ?? $this->accountId),
+                        'category_id' => (string) $this->categoryId,
                     ],
                     [],
                     []

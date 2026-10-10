@@ -15,6 +15,8 @@ final class Transaction
 
     public const CATEGORY_SOURCE_MANUAL = 'manual';
     public const CATEGORY_SOURCE_AUTO = 'auto';
+    /** Taken from the receivable this movement pays (issue #838). */
+    public const CATEGORY_SOURCE_RECEIVABLE = 'receivable';
 
     public function __construct(
         public readonly int $id,

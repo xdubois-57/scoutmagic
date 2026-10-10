@@ -645,6 +645,21 @@ class FinanceService
     }
 
     /**
+     * The categories a receivable can be booked under (issue #838), with
+     * the defaults seeded first: a fresh installation used to meet them
+     * only on the categories page, and a picker offering nothing would
+     * make a campaign impossible to create.
+     *
+     * @return Category[]
+     */
+    public function getCategoriesForReceivables(): array
+    {
+        $this->ensureDefaultCategories();
+
+        return $this->categoryRepository->findActiveOrdered();
+    }
+
+    /**
      * description is mandatory — it's what Service\AiCategorizationService
      * actually sends the model to help it tell categories apart, and a
      * short name alone is rarely enough for that on its own.

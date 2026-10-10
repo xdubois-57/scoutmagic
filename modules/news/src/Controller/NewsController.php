@@ -574,7 +574,7 @@ class NewsController extends AbstractController
                 && $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
             'payment_available' => $form !== null
                 && $this->responseService->isPaymentAvailable()
-                && $form->financeAccountId !== null
+                && $form->hasPaymentDestination()
                 && $this->hasPricedField($fields),
             'contact_email_default' => $email ?? '',
             'member_options' => $memberOptions,
@@ -732,6 +732,7 @@ class NewsController extends AbstractController
             'seo_ai_available' => $this->seoKeywordService->isAvailable(),
             'finance_available' => $this->financeAccount !== null,
             'finance_accounts' => $financeAccounts,
+            'finance_categories' => $this->financeAccount?->getCategories() ?? [],
             'form_id' => $form?->id,
             'issues_ticket' => $form !== null && $form->issuesTicket,
             // The one field on this form that cannot be corrected after
@@ -1015,6 +1016,7 @@ class NewsController extends AbstractController
      *     response_role_min: string,
      *     digest_email: ?string,
      *     finance_account_id: ?int,
+     *     finance_category_id: ?int,
      *     issues_ticket: bool,
      *     event_date: ?string,
      *     event_location: ?string
@@ -1035,6 +1037,7 @@ class NewsController extends AbstractController
             'response_role_min' => (string) $request->getBody('form_response_role_min', 'chief'),
             'digest_email' => $this->nullableString($request->getBody('form_digest_email')),
             'finance_account_id' => $this->resolveFormFinanceAccountId($request),
+            'finance_category_id' => $this->resolveFormFinanceCategoryId($request),
             'issues_ticket' => (bool) $request->getBody('form_issues_ticket', false),
             'event_date' => $this->nullableString($request->getBody('form_event_date')),
             'event_location' => $this->nullableString($request->getBody('form_event_location')),
@@ -1107,6 +1110,29 @@ class NewsController extends AbstractController
         foreach ($this->financeAccount?->getConfiguredAccounts() ?? [] as $account) {
             if ($account['id'] === $accountId) {
                 return $accountId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The submitted Finance category, held to the list the picker offers
+     * (FinanceAccountInterface::getCategories()) for the same reason as the
+     * account above. Unknown ids read as « none », which FormService then
+     * refuses for a form that names an account (issue #838).
+     */
+    private function resolveFormFinanceCategoryId(Request $request): ?int
+    {
+        $raw = $request->getBody('form_finance_category_id');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        $categoryId = (int) $raw;
+        foreach ($this->financeAccount?->getCategories() ?? [] as $category) {
+            if ($category['id'] === $categoryId) {
+                return $categoryId;
             }
         }
 

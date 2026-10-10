@@ -458,6 +458,20 @@ class TransactionRepository
      * unlike updateEditableFields() which also expects a comment/fiscal
      * year to write back.
      */
+    /**
+     * The category a movement takes from the receivable(s) it pays (issue
+     * #838) — or none, when it no longer pays any that names one. Never
+     * over a treasurer's own choice: the SQL leaves a `manual` row alone.
+     */
+    public function setCategoryFromReceivable(int $id, ?int $categoryId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_transactions SET category_id = ?, category_source = ? '
+            . "WHERE id = ? AND (category_source IS NULL OR category_source <> 'manual')"
+        );
+        $stmt->execute([$categoryId, $categoryId !== null ? Transaction::CATEGORY_SOURCE_RECEIVABLE : null, $id]);
+    }
+
     public function setCategoryId(int $id, ?int $categoryId): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ?, category_source = ? WHERE id = '

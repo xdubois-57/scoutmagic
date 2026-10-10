@@ -45,6 +45,9 @@ final class CampaignBlueprint
 
     public const LABEL = 'Vente de calendriers 2026-2027';
 
+    /** Where the campaign's payments are booked (issue #838). */
+    public const CATEGORY = 'Cotisations';
+
     /**
      * The account the money is expected on: the unit account, which is the
      * one the six statements belong to.

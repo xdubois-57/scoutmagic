@@ -405,14 +405,17 @@ class ResponseServiceTest extends TestCase
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, null, 5.0, null);
         $field = $this->fieldRepository->findById($fieldId);
-        $this->formRepository->update($this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 7);
+        $this->formRepository->update(
+            $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 7,
+            financeCategoryId: 9
+        );
 
         $structuredCommunication = $this->createStub(StructuredCommunicationInterface::class);
         $structuredCommunication->method('generate')->willReturn('+++100/0000/00034+++');
 
         $expectedReceivable = $this->createMock(ExpectedReceivableInterface::class);
         $expectedReceivable->expects($this->once())->method('createReceivable')
-            ->with('news', $this->formId, 7, 1000, '+++100/0000/00034+++', 'a@test.com')
+            ->with('news', $this->formId, 7, 1000, '+++100/0000/00034+++', 'a@test.com', 9)
             ->willReturn(55);
 
         $sepaQrCode = $this->createStub(SepaQrCodeInterface::class);

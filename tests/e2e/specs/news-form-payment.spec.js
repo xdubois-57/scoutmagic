@@ -209,6 +209,8 @@ test('a chief publishes an article with a paying form, a family signs up and is 
     const paymentSettings = page.locator('#news-payment-settings');
     await expect(paymentSettings).toBeVisible();
     await paymentSettings.getByLabel('Compte destinataire').selectOption({ label: ACCOUNT_NAME });
+    // Every receivable names its category (issue #838).
+    await paymentSettings.getByLabel('Catégorie').selectOption({ label: 'Weekend de section' });
 
     await page.getByRole('button', { name: 'Enregistrer' }).click();
 

@@ -110,6 +110,9 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- Modules\Finance\Api\FinanceAccountInterface — never by joining
     -- Finance's tables, which is why there is no foreign key here.
     finance_account_id INT UNSIGNED NULL,
+    -- The Finance category its payments are booked under (issue #838),
+    -- reached the same way and unconstrained for the same reason.
+    finance_category_id INT UNSIGNED NULL,
 
     -- 'none' | 'fixed' | 'percentage'. The deposit is a THRESHOLD on the
     -- single rental receivable, never a second receivable (§6.19): the

@@ -17,6 +17,7 @@ use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\CampaignRepository;
+use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CampaignRow;
 use Modules\Finance\Repository\CampaignRowRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
@@ -67,6 +68,8 @@ final class CampaignSeeder
 
     private readonly ScoutYearService $scoutYearService;
 
+    private readonly CategoryRepository $categories;
+
     /**
      * @param array<string, int> $memberIds Tiers => members.id, used only to
      *        keep the roster to members this instance actually has
@@ -82,6 +85,7 @@ final class CampaignSeeder
         $this->rowRepository = new CampaignRowRepository($pdo, $encryption);
         $this->receivableRepository = new ExpectedReceivableRepository($pdo, $encryption);
         $this->scoutYearService = new ScoutYearService($pdo);
+        $this->categories = new CategoryRepository($pdo);
 
         $accountRepository = new AccountRepository($pdo, $encryption);
         $allocationService = new ReceivableAllocationService(
@@ -98,7 +102,7 @@ final class CampaignSeeder
             new CampaignRepository($pdo),
             $this->rowRepository,
             new CampaignImportService(new MemberLookupRepository($pdo)),
-            new ExpectedReceivableService($this->receivableRepository, $allocationService),
+            new ExpectedReceivableService($this->receivableRepository, $allocationService, $this->categories),
             new StructuredCommunicationService($this->receivableRepository),
             $accountRepository,
             new AccountVisibility(TreasurerScope::systemCaller()),
@@ -128,6 +132,7 @@ final class CampaignSeeder
                 CampaignBlueprint::LABEL,
                 $this->scoutYearService->ensureYear(CampaignBlueprint::YEAR),
                 $accountId,
+                $this->categoryId(CampaignBlueprint::CATEGORY),
                 $path,
                 CampaignBlueprint::SOURCE_FILENAME,
                 Role::SUPERADMIN,
@@ -337,5 +342,20 @@ final class CampaignSeeder
         @unlink($reserved);
 
         return $reserved . '.' . $extension;
+    }
+
+    /**
+     * The category of that name — created when the finance seeder has not
+     * made it, so this seeder never depends on running second.
+     */
+    private function categoryId(string $name): int
+    {
+        foreach ($this->categories->findAllOrdered() as $category) {
+            if ($category->name === $name) {
+                return $category->id;
+            }
+        }
+
+        return $this->categories->create($name);
     }
 }

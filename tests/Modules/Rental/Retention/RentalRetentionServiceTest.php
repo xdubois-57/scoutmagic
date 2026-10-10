@@ -59,6 +59,7 @@ class RentalRetentionServiceTest extends TestCase
     private RentalPaymentService $payments;
     private int $assetId;
     private int $accountId;
+    private int $categoryId;
     private string $storagePath;
 
     protected function setUp(): void
@@ -129,6 +130,7 @@ class RentalRetentionServiceTest extends TestCase
             'intendant'
         );
         $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo, 'Locations');
 
         // Accounting years, so the cutoff has something to resolve against.
         foreach ([['2017-2018', '2017-09-01', '2018-08-31'], ['2018-2019', '2018-09-01', '2019-08-31']] as $year) {
@@ -308,6 +310,7 @@ class RentalRetentionServiceTest extends TestCase
         return new PaymentSettings(
             enabled: true,
             financeAccountId: $this->accountId,
+            financeCategoryId: $this->categoryId,
             depositMode: DepositMode::NONE,
             depositAmountCents: null,
             depositPercentage: null,
