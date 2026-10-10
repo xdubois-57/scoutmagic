@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Core\Http\UrlMetadataFetcher;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
@@ -47,7 +48,7 @@ class AlbumService
         private AlbumRepository $albumRepository,
         private MediaRepository $mediaRepository,
         private GalleryAccessService $accessService,
-        private OgScraperService $ogScraperService,
+        private UrlMetadataFetcher $urlMetadataFetcher,
         private StorageBackendFactory $storageBackendFactory,
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
@@ -463,7 +464,10 @@ class AlbumService
             throw new GalleryException('Cet album n\'est pas un album externe.');
         }
 
-        $tags = $this->ogScraperService->fetch($album->externalUrl);
+        $tags = $this->ogTags($album->externalUrl);
+        if ($tags === null) {
+            throw new GalleryException("Impossible de récupérer le lien : {$album->externalUrl}");
+        }
         $ogImageFileId = $this->cacheOgImage($albumId, $tags['image'], $album->createdBy);
         $this->persistOgMetadata($albumId, $tags, $ogImageFileId);
         $this->discardSupersededOgImage($album->ogImageFileId, $ogImageFileId);
@@ -566,17 +570,31 @@ class AlbumService
      */
     private function fetchOgTagsBestEffort(string $url): ?array
     {
-        try {
-            return $this->ogScraperService->fetch($url);
-        } catch (GalleryException) {
-            // Best-effort — module spec: a failed fetch never blocks
-            // saving the album, the "Rafraîchir" button lets the chief retry.
-            return null;
-        }
+        // Best-effort — module spec: a failed fetch never blocks saving
+        // the album, the "Rafraîchir" button lets the chief retry.
+        return $this->ogTags($url);
     }
 
     /**
-     * Best-effort local cache of an og:image (Service\OgScraperService::
+     * The album's three Open Graph fields, as this module stores them, or
+     * null when the page could not be read. An external album shows what
+     * the page says to a sharer — its og: tags — and never falls back to
+     * the page's <title>, which is what a browser tab says.
+     *
+     * @return array{title: ?string, description: ?string, image: ?string}|null
+     */
+    private function ogTags(string $url): ?array
+    {
+        $metadata = $this->urlMetadataFetcher->fetch($url);
+        if ($metadata === null) {
+            return null;
+        }
+
+        return ['title' => $metadata->ogTitle, 'description' => $metadata->description, 'image' => $metadata->imageUrl];
+    }
+
+    /**
+     * Best-effort local cache of an og:image (Core\Http\UrlMetadataFetcher::
      * fetchImageBytes()) — never blocks album creation/refresh, exactly
      * like fetchOgTagsBestEffort() above. The image is downloaded once,
      * EXIF-stripped like any other upload (Core\File\UploadHandler), and
@@ -592,7 +610,7 @@ class AlbumService
             return null;
         }
 
-        $bytes = $this->ogScraperService->fetchImageBytes($imageUrl);
+        $bytes = $this->urlMetadataFetcher->fetchImageBytes($imageUrl);
         if ($bytes === null || $bytes === '') {
             return null;
         }
@@ -672,7 +690,7 @@ class AlbumService
      * allowlist, not a formality: FILTER_VALIDATE_URL happily accepts
      * "javascript:alert(1)", which would be stored XSS against every
      * identified member from a chief-level account. http(s) only — the same
-     * set Service\OgScraperService will actually fetch.
+     * set Core\Http\UrlMetadataFetcher will actually fetch.
      *
      * @throws GalleryException on a missing, over-long or non-http(s) URL
      */

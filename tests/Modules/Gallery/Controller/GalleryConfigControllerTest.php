@@ -26,7 +26,7 @@ use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
@@ -100,7 +100,7 @@ class GalleryConfigControllerTest extends TestCase
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->albumService = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
-            $this->createStub(OgScraperService::class), $storageBackendFactory, $this->storageLocationRepository,
+            $this->createStub(UrlMetadataFetcher::class), $storageBackendFactory, $this->storageLocationRepository,
             $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService,
             $uploadHandler
         );

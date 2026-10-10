@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Service;
+namespace Tests\Core\Http;
 
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-class OgScraperServiceTest extends TestCase
+class UrlMetadataFetcherTest extends TestCase
 {
-    private OgScraperService $service;
+    private UrlMetadataFetcher $service;
 
     protected function setUp(): void
     {
-        $this->service = new OgScraperService();
+        $this->service = new UrlMetadataFetcher();
     }
 
     /**
@@ -22,9 +22,9 @@ class OgScraperServiceTest extends TestCase
      * pages) has no <meta charset>, so DOMDocument::loadHTML() defaulted to
      * ISO-8859-1 and mangled real UTF-8 og:title/og:description content
      * ("·" became "Â·", the camera emoji became "ð¸") — see
-     * OgScraperService::parseOgTags() for the fix.
+     * UrlMetadataFetcher::parse() for the fix.
      */
-    public function testParseOgTagsDecodesUtf8CorrectlyWithNoCharsetMeta(): void
+    public function testParseDecodesUtf8CorrectlyWithNoCharsetMeta(): void
     {
         $html = '<!doctype html><html lang="en-US"><head>'
             . '<meta property="og:title" content="Visite camp Seeonee 2026 · Saturday, Jul 25 📸">'
@@ -32,64 +32,88 @@ class OgScraperServiceTest extends TestCase
             . '<meta property="og:image" content="https://lh3.googleusercontent.com/pw/example=w600-h315-p-k">'
             . '</head><body></body></html>';
 
-        $tags = $this->service->parseOgTags($html);
+        $tags = $this->service->parse($html);
 
-        $this->assertSame('Visite camp Seeonee 2026 · Saturday, Jul 25 📸', $tags['title']);
-        $this->assertSame('Shared album · Tap to view!', $tags['description']);
-        $this->assertSame('https://lh3.googleusercontent.com/pw/example=w600-h315-p-k', $tags['image']);
+        $this->assertSame('Visite camp Seeonee 2026 · Saturday, Jul 25 📸', $tags->ogTitle);
+        $this->assertSame('Shared album · Tap to view!', $tags->description);
+        $this->assertSame('https://lh3.googleusercontent.com/pw/example=w600-h315-p-k', $tags->imageUrl);
     }
 
-    public function testParseOgTagsStillWorksWithAnExplicitCharsetMeta(): void
+    public function testParseStillWorksWithAnExplicitCharsetMeta(): void
     {
         $html = '<!doctype html><html><head><meta charset="utf-8">'
             . '<meta property="og:title" content="Café en forêt">'
             . '</head><body></body></html>';
 
-        $tags = $this->service->parseOgTags($html);
+        $tags = $this->service->parse($html);
 
-        $this->assertSame('Café en forêt', $tags['title']);
+        $this->assertSame('Café en forêt', $tags->ogTitle);
     }
 
-    public function testParseOgTagsReturnsNullsWhenNoTagsPresent(): void
+    public function testParseReturnsNullsWhenNoTagsPresent(): void
     {
-        $tags = $this->service->parseOgTags('<html><head></head><body></body></html>');
+        $tags = $this->service->parse('<html><head></head><body></body></html>');
 
-        $this->assertNull($tags['title']);
-        $this->assertNull($tags['description']);
-        $this->assertNull($tags['image']);
+        $this->assertNull($tags->ogTitle);
+        $this->assertNull($tags->description);
+        $this->assertNull($tags->imageUrl);
     }
 
     /**
      * Some sites (and most WordPress SEO plugins) emit the OG tags with
      * name= instead of the spec's property=. Kept from the parallel
-     * gallery-review fix on main, whose parseOgTags() improvement this
+     * gallery-review fix on main, whose parser improvement this
      * class adopted.
      */
-    public function testParseOgTagsAlsoAcceptsTheNameAttribute(): void
+    public function testParseAlsoAcceptsTheNameAttribute(): void
     {
         $html = '<html><head>'
             . '<meta name="og:title" content="Camp 2026">'
             . '<meta name="OG:IMAGE" content="https://example.org/cover.jpg">'
             . '</head></html>';
 
-        $tags = $this->service->parseOgTags($html);
+        $tags = $this->service->parse($html);
 
-        $this->assertSame('Camp 2026', $tags['title']);
-        $this->assertSame('https://example.org/cover.jpg', $tags['image']);
+        $this->assertSame('Camp 2026', $tags->ogTitle);
+        $this->assertSame('https://example.org/cover.jpg', $tags->imageUrl);
     }
 
     /**
      * name= is a fallback for a missing property=, never an override of it:
      * on an element carrying both, property wins.
      */
-    public function testParseOgTagsPrefersPropertyOverNameOnTheSameElement(): void
+    public function testParsePrefersPropertyOverNameOnTheSameElement(): void
     {
         $html = '<html><head><meta property="og:title" name="og:description" content="valeur"></head></html>';
 
-        $tags = $this->service->parseOgTags($html);
+        $tags = $this->service->parse($html);
 
-        $this->assertSame('valeur', $tags['title']);
-        $this->assertNull($tags['description']);
+        $this->assertSame('valeur', $tags->ogTitle);
+        $this->assertNull($tags->description);
+    }
+
+    /**
+     * The page's own <title> is read too — the link dialog's « baguette
+     * magique » falls back on it when a page has no og:title (#840) —
+     * whitespace collapsed, and only the one in <head>: an inline SVG's
+     * <title> names a drawing, not the page.
+     */
+    public function testParseReadsTheDocumentTitleBesideTheOpenGraphTags(): void
+    {
+        $html = "<html><head><title>\n  Les Scouts —\n   Agenda  </title></head>"
+            . '<body><svg><title>Icône</title></svg></body></html>';
+
+        $tags = $this->service->parse($html);
+
+        $this->assertNull($tags->ogTitle);
+        $this->assertSame('Les Scouts — Agenda', $tags->htmlTitle);
+    }
+
+    public function testParseReportsNoDocumentTitleWhenThereIsOnlyAnSvgOne(): void
+    {
+        $tags = $this->service->parse('<html><head></head><body><svg><title>Icône</title></svg></body></html>');
+
+        $this->assertNull($tags->htmlTitle);
     }
 
     public function testFetchImageBytesReturnsNullForAnInvalidUrl(): void
@@ -137,8 +161,7 @@ class OgScraperServiceTest extends TestCase
     #[DataProvider('ssrfTargetUrls')]
     public function testFetchRejectsPrivateAndReservedTargets(string $url): void
     {
-        $this->expectException(\Modules\Gallery\Api\GalleryException::class);
-        $this->service->fetch($url);
+        $this->assertNull($this->service->fetch($url));
     }
 
     public function testFetchImageBytesRejectsEmbeddedCredentials(): void

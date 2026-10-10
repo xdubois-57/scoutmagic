@@ -31,7 +31,8 @@ use Modules\Gallery\Service\AlbumReadme;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryLocationService;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadata;
+use Core\Http\UrlMetadataFetcher;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Http\Controller\RecordingJournalRepository;
 use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
@@ -261,8 +262,8 @@ final class AlbumReadmeTest extends TestCase
         $locationService = new StorageLocationService($this->locations, $factory, new StorageLocationConsumerRegistry());
         $access = $this->createStub(GalleryAccessService::class);
         $access->method('canManageAlbum')->willReturn(true);
-        $og = $this->createStub(OgScraperService::class);
-        $og->method('fetch')->willReturn(['title' => null, 'description' => null, 'image' => null]);
+        $og = $this->createStub(UrlMetadataFetcher::class);
+        $og->method('fetch')->willReturn(new UrlMetadata(null, null, null, null));
         $files = new FileRepository($this->pdo);
 
         return new AlbumService(

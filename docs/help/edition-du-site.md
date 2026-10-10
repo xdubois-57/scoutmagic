@@ -30,6 +30,11 @@ bouton crayon apparaît. Il ouvre un éditeur avec la mise en forme
 essentielle — titres, gras, listes, liens. Enregistrez : la
 modification est immédiatement en ligne pour tout le monde.
 
+Le bouton « Lien » demande le texte à afficher et l'adresse. Le texte
+reprend ce que vous aviez sélectionné. Laissé vide, c'est l'adresse
+elle-même qui s'affiche. La baguette magique à côté du texte propose le
+titre de la page visée, ou le nom du fichier pour un PDF ou une image.
+
 Un texte collé depuis Word, Google Docs ou une page web garde ses
 titres, son gras, son italique, ses listes et ses liens, mais perd ses
 couleurs et ses polices : il prend la forme exacte que lui auraient

@@ -18,7 +18,7 @@ namespace Core\Security;
  * from outside (audit M4/M5/M6).
  *
  * The IP-range logic here is the same one Modules\Gallery\Service\
- * OgScraperService proved out for link scraping (SECURITY.md §17), factored
+ * Core\Http\UrlMetadataFetcher proved out for link scraping (SECURITY.md §17), factored
  * into one place so the two never drift. Unlike the scraper — which fetches
  * arbitrary http/https pages and pins the resolved IP for the actual
  * connection — this validator only vets an endpoint before it is stored or

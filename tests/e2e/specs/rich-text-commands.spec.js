@@ -74,8 +74,8 @@
 // partials/rich_text_editor.html.twig — not a copy of its behaviour.
 import { expect, test } from '@playwright/test';
 
-import { answerConfirmation } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { openModal } from '../support/modal.js';
 import { scaled } from '../support/timeouts.js';
 
 /** What the fixture's surface is reset to before each command. */
@@ -380,15 +380,19 @@ test('every execCommand the product issues is still performed by this browser en
         produced[name] = entry.produces.test(html) ? STILL_PERFORMED : html;
     }
 
-    // createLink goes through the site's own prompt dialog, which takes
+    // createLink goes through the site's own link dialog, which takes
     // focus — and a contenteditable that loses focus loses its selection,
     // which is why rich-text-link.js captures and restores the range. That
     // round trip is part of what has to keep working, so it is exercised
-    // here rather than stubbed out.
+    // here rather than stubbed out. « Texte du lien » starts with the
+    // selected word and is left as it is, which is the path that hands the
+    // selection to createLink itself (#840).
     expected[LINK_COMMAND.command] = STILL_PERFORMED;
     await seedAndSelect(page, TEXT);
-    await page.locator(`#e2e-toolbar [data-command="${LINK_COMMAND.command}"]`).click();
-    await answerConfirmation(page, { note: LINK });
+    const linkDialog = await openModal(page, 'sm-confirm-modal', () =>
+        page.locator(`#e2e-toolbar [data-command="${LINK_COMMAND.command}"]`).click());
+    await linkDialog.getByLabel('Adresse du lien').fill(LINK);
+    await linkDialog.getByRole('button', { name: 'Insérer le lien' }).click();
 
     // The insertion lands when the dialog's promise resolves, a task after
     // the click that closed it — so it is waited for rather than read

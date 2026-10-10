@@ -1168,6 +1168,22 @@ that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
 
+**The link dialog asks for the text as well as the address** (issue
+#840): « Texte du lien » above « Adresse du lien », built with
+`ScoutMagicConfirm.form()` rather than a dialog of its own. The text
+starts as the selection. Kept as it is, the selection itself is wrapped
+(`createLink`), so whatever bold or italics it carried stays. Changed,
+the new text replaces the selection as a link built from nodes. Left
+empty, the address is shown, as it always was. The magic wand
+(`bi-magic`) beside the text asks `POST /api/lien/libelle` for a
+proposal: the page's `og:title`, then its `<title>`, then the file name
+the address ends with. When there is none, a line under the field says
+so and asks for the text. Only `http(s)` addresses are looked up: a
+`mailto:` or a path on this site has no page to read, and the dialog says
+that without making a request. The server side is
+`Core\Http\LinkLabelResolver` (SECURITY.md §17: the one scraper, and a
+budget per account).
+
 **The toolbar is the same module's, for the same reason**
 (`wireToolbar()`). A toolbar is wired by calling
 `wireToolbar(root, surface)` — never by a script's own `[data-command]`

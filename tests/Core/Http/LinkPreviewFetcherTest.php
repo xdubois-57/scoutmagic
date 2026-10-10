@@ -50,13 +50,13 @@ class LinkPreviewFetcherTest extends TestCase
     }
 
     /**
-     * `gallery`'s own implementation still satisfies the moved contract —
-     * the point of the move was the namespace, not the provider.
+     * The one implementation is core's own since #840, beside the contract
+     * — it moved out of the gallery for the same reason the contract did.
      */
-    public function testGalleryStillProvidesTheOneImplementation(): void
+    public function testCoreProvidesTheOneImplementation(): void
     {
         $this->assertTrue(
-            is_a(\Modules\Gallery\Service\LinkPreviewService::class, LinkPreviewFetcher::class, true)
+            is_a(\Core\Http\LinkPreviewService::class, LinkPreviewFetcher::class, true)
         );
     }
 }

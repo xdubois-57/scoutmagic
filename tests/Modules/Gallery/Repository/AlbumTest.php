@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Regression for the mojibake bug: an external album created before
- * Modules\Gallery\Service\OgScraperService's UTF-8 decoding fix kept
+ * Core\Http\UrlMetadataFetcher's UTF-8 decoding fix kept
  * stale mangled bytes in `title` forever, since only `og_title` gets
  * re-scraped on update()/refreshOg(). displayTitle() is what every
  * rendering path (chief "Gérer la galerie" list, member gallery list,
