@@ -380,6 +380,28 @@ describe('pull-to-refresh.js: the gesture', () => {
         }
     });
 
+    it('lets no stale watchdog end a later refresh after a back/forward cache restore', async () => {
+        vi.useFakeTimers();
+        try {
+            await boot();
+
+            pullPastThreshold();
+            vi.advanceTimersByTime(5000);
+            const restored = new Event('pageshow');
+            Object.defineProperty(restored, 'persisted', { value: true });
+            window.dispatchEvent(restored);
+
+            pullPastThreshold();
+            vi.advanceTimersByTime(3000);
+            // The first watchdog would have fired here (8 s after the first pull).
+            expect(indicator().classList.contains('is-refreshing')).toBe(true);
+            vi.advanceTimersByTime(5000);
+            expect(indicator().classList.contains('is-refreshing')).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('ignores a second pull while the first one is refreshing', async () => {
         await boot();
 

@@ -94,6 +94,9 @@
     var startY = 0;
     var pull = 0;
     var reducedMotion = false;
+    // The reload watchdog's timer, cleared whenever the gesture comes back
+    // to rest: a stale one must never end a later refresh.
+    var watchdog = null;
 
     function prefersReducedMotion() {
         return typeof window.matchMedia === 'function'
@@ -163,6 +166,10 @@
     }
 
     function rest() {
+        if (watchdog !== null) {
+            clearTimeout(watchdog);
+            watchdog = null;
+        }
         state = 'idle';
         pull = 0;
         indicator.classList.remove('is-pulling', 'is-armed', 'is-refreshing', 'is-reduced-motion');
@@ -183,7 +190,11 @@
         // #353). Without this the state would stay 'refreshing' and every
         // later pull would be ignored for the rest of the page's life.
         // When the reload does happen, the page is gone before this fires.
-        setTimeout(function () {
+        if (watchdog !== null) {
+            clearTimeout(watchdog);
+        }
+        watchdog = setTimeout(function () {
+            watchdog = null;
             if (state === 'refreshing') {
                 rest();
             }
