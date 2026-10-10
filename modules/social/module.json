@@ -288,7 +288,7 @@
       "default_value": "0.025",
       "type": "text",
       "label": "Position de départ du curseur de flou",
-      "description": "Où démarre le curseur de flou du composeur, en proportion du petit côté de l'image. Ce n'est plus une règle : le chef déplace le curseur de « Net » à « Très flou » pour chaque publication, et une photo de la galerie peut partir nette, la page le disant en toute lettre avant. Un site qui publiait déjà conserve sa propre valeur ; la tâche de maintenance « Paramètres par défaut » l'aligne sur celle livrée. Non modifiable ici.",
+      "description": "Où démarre le curseur de flou du composeur, en proportion du petit côté de l'image. Ce n'est plus une règle : le chef déplace le curseur de « Net » à « Très flou » pour chaque publication, et une photo de la galerie peut partir nette, la page le disant en toutes lettres avant. Un site qui publiait déjà conserve sa propre valeur ; la tâche de maintenance « Paramètres par défaut » l'aligne sur celle livrée. Non modifiable ici.",
       "editable": false
     }
   ],

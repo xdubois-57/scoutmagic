@@ -13,12 +13,12 @@
 </div>
 
 <p>
-    {% if from_source|default(false) %}
-        Le même texte repartira vers {{ label }}. Le titre et l'image sont relus à la source : s'ils
-        ont changé depuis le premier envoi, cette tentative partira avec les nouveaux.
-    {% else %}
-        La même image et le même texte repartiront vers {{ label }}.
-    {% endif %}
+    {# Since issue #706, IT-02 the image is frozen for a source-backed
+       share too: the card the browser drew at the first « Publier » is
+       kept and resent. The two branches therefore say the same thing,
+       and the sentence that promised a renamed album would reach this
+       retry with its new title is gone. #}
+    La même image et le même texte repartiront vers {{ label }}.
     {% for p in published %}
         {{ p.destination == 'facebook' ? 'La Page Facebook' : (p.destination == 'instagram' ? 'Instagram' : '« ' ~ p.destinationLabel|default('Groupe') ~ ' »') }}, déjà publié le {{ p.publishedAt|french_date }}
         à {{ p.publishedAt|time_fr }}, ne sera pas touché — il n'y aura donc pas de doublon.

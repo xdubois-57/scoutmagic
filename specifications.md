@@ -3558,8 +3558,8 @@ actualité et la communication libre proposent une destination de plus,
   que le flou était une règle fixe, et il a cessé de tenir quand le flou
   est devenu le choix du chef — « la même carte partout » est ce que le
   composeur montre et promet désormais. Le chef qui veut qu'un groupe ait
-  la photo nette met le curseur sur « Net », et la page le dit en toute
-  lettre avant.
+  la photo nette met le curseur sur « Net », et la page le dit en toutes
+  lettres avant.
 - **Chaque groupe est une destination à part entière** : sa propre ligne
   dans « Ce qui est parti », son propre état, et la règle « une seule
   fois » appliquée groupe par groupe. Un même album peut partir dans deux

@@ -149,6 +149,14 @@ final class GroupPublishingService
                     // argument from the image.
                     $source->pageUrl
                 );
+            } catch (CardException $e) {
+                // Its own sentence, not « the site itself failed »: the
+                // chief is told that the image could not be prepared and
+                // that a gallery photo does not leave without its blur.
+                $this->publications->markFailed($source->kind, $source->id, $key, $e->getMessage(), $now);
+                $this->log($source, $groupId, 'publish_failed', 'warning', 'carte indisponible', $userId);
+                $outcomes[] = new PublishOutcome(null, false, $e->getMessage(), $label);
+                continue;
             } catch (GroupPublishException $e) {
                 $this->publications->markFailed($source->kind, $source->id, $key, $e->getMessage(), $now);
                 $this->log($source, $groupId, 'publish_failed', 'warning', 'refusée par le groupe', $userId);
@@ -195,11 +203,21 @@ final class GroupPublishingService
      * The card this source's groups receive, composed once for the whole
      * request — the same bytes to every group, as to every platform.
      *
-     * A source with no image, or a composition that fails, falls back to
-     * the photo as it is rather than refusing to post: a group is inside
-     * the site, and a message that arrives without its card is worth more
-     * than one that does not arrive. `PublishingService` already refuses
-     * a publication with no image at all, before this is ever reached.
+     * **A gallery photo is never the fallback.** For anything else — an
+     * uploaded image, an article's cover — a composition that fails
+     * falls back to the image as it is rather than refusing to post: a
+     * group is inside the site, and a message that arrives without its
+     * card is worth more than one that does not arrive. That reasoning
+     * does not reach a gallery photo, because from IT-02 the blur is the
+     * chief's choice and falling back would send the photo SHARP and
+     * whole, which is the one thing the slider must never do by
+     * accident. There the publication is refused, with the reason, and
+     * the chief can try again. Found in the review of #850.
+     *
+     * `PublishingService` already refuses a publication with no image at
+     * all, before this is ever reached.
+     *
+     * @throws CardException when a gallery photo has no card to travel as
      */
     private function card(ShareSource $source): ?string
     {
@@ -211,7 +229,7 @@ final class GroupPublishingService
         }
 
         if ($this->cards === null || $source->image === null || $source->image === '') {
-            return $source->image;
+            return $this->refuseOrSendAsIs($source);
         }
 
         try {
@@ -223,8 +241,27 @@ final class GroupPublishingService
                 $source->blurRatio
             );
         } catch (CardException) {
-            return $source->image;
+            return $this->refuseOrSendAsIs($source);
         }
+    }
+
+    /**
+     * What to do when no card can be made: send the image as it is, or
+     * refuse because sending it as it is would publish a gallery photo
+     * with no blur on it.
+     *
+     * @throws CardException
+     */
+    private function refuseOrSendAsIs(ShareSource $source): ?string
+    {
+        if ($source->imageFromGallery) {
+            throw new CardException(
+                'L\'image à publier n\'a pas pu être préparée, et une photo de la galerie ne part '
+                . 'pas sans son flou. Réessayez depuis le composeur.'
+            );
+        }
+
+        return $source->image;
     }
 
     private function whyNotClaimed(ShareSource $source, string $key, \DateTimeImmutable $now): string

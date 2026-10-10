@@ -936,7 +936,19 @@ final class CommunicationControllerTest extends TestCase
      * title, this test fails and says which documents to change with it,
      * rather than letting them drift apart again.
      */
-    public function testARenamedAlbumReachesALaterDestinationWithItsNewTitle(): void
+    /**
+     * **The HISTORY's title, not the published one.** This test asserts
+     * `social_publications.source_title`, the label the history shows,
+     * and its POSTs carry no card — so the publication composes one each
+     * time, with the album's title of the day. Once a card IS kept
+     * (issue #706, IT-02, the normal path) the published image and the
+     * title drawn on it are frozen, and a renamed album changes neither:
+     * {@see testASecondDestinationReceivesTheSameCardAsTheFirst}. The
+     * message below used to claim this test was what the documents had
+     * to say, which stopped being true in IT-02 — found in the review of
+     * #850.
+     */
+    public function testARenamedAlbumIsRecordedUnderItsNewTitleInTheHistory(): void
     {
         $this->loginAuthor();
         $body = [
@@ -967,7 +979,7 @@ final class CommunicationControllerTest extends TestCase
             'Week-end de rentrée, deuxième édition',
             $titles['instagram'] ?? null,
             'a source-backed share reads its title at the source on every publication, so the'
-            . ' second destination sends the new one — this is what the documents must say.'
+            . ' history records the new one against the later destination'
         );
         self::assertSame(
             self::ALBUM_TITLE,
@@ -1070,7 +1082,15 @@ final class CommunicationControllerTest extends TestCase
      * what makes the image genuinely fixed, by storing the one the
      * browser composed.
      */
-    public function testAFrozenSourceBackedShareSaysOnlyTheTextIsFixed(): void
+    /**
+     * **The two cases converged in IT-02.** A source-backed share used
+     * to get a weaker notice, truthfully: only its text was frozen,
+     * while the title and image were read at the album on every
+     * publication. Now the card the browser sent is kept and resent, so
+     * both cases get the same sentence. This test pinned the old wording
+     * faithfully and is what caught the correction.
+     */
+    public function testAFrozenSourceBackedShareSaysTheImageIsFixedToo(): void
     {
         $id = $this->sourceBackedCommunication();
         $at = new \DateTimeImmutable('-1 day');
@@ -1090,10 +1110,11 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
 
-        $this->assertStringContainsString('le texte ne change plus', $html);
-        $this->assertStringNotContainsString('l\'image et le texte ne changent plus', $html);
-        // And it says where the title and image really come from.
-        $this->assertStringContainsString('restent ceux de', $html);
+        $this->assertStringContainsString('l\'image et le texte ne changent plus', $html);
+        // And no longer promises that a renamed album would reach a
+        // later destination with its new title: the card carries the old
+        // one.
+        $this->assertStringNotContainsString('restent ceux de', $html);
     }
 
     /**
@@ -1574,7 +1595,7 @@ final class CommunicationControllerTest extends TestCase
      * that very retry. It now says so. Raised in review on the pull
      * request for IT-01, alongside the frozen notice in the composer.
      */
-    public function testTheRetryPageSaysASourcesImageIsReadAgain(): void
+    public function testTheRetryPagePromisesTheSameImageForASourceBackedShareToo(): void
     {
         $id = $this->sourceBackedCommunication();
         $this->failedInstagram($id);
@@ -1583,12 +1604,12 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('relus à la source', $html);
-        $this->assertStringNotContainsString('La même image et le même texte', $html);
+        $this->assertStringContainsString('La même image et le même texte', $html);
+        $this->assertStringNotContainsString('relus à la source', $html);
     }
 
     /**
-     * A retry on a LEGACY album publication is source-backed too.
+     * A retry on a LEGACY album publication still renders.
      *
      * `/medias-sociaux/reessayer/album/{albumId}/{platform}` is still
      * reachable — the retired route's rows survive under
@@ -1596,10 +1617,14 @@ final class CommunicationControllerTest extends TestCase
      * path `$params['id']` is an ALBUM key, not a communication one.
      * Deriving the flag from `communications->find($id)` therefore read
      * an unrelated or missing row and promised « la même image » for a
-     * retry that re-reads the album. Caught in review on the pull
-     * request for IT-01, in the very code the previous commit added.
+     * retry that re-read the album. Caught in review on the pull request
+     * for IT-01, in the very code the previous commit added.
+     *
+     * From IT-02 « la même image » is what every retry promises, this
+     * route included, because the kept card is what travels. The route
+     * still has to resolve and render, which is what this keeps.
      */
-    public function testALegacyAlbumRetrySaysTheImageIsReadAgain(): void
+    public function testALegacyAlbumRetryStillRendersAndPromisesTheSameImage(): void
     {
         $at = new \DateTimeImmutable('-1 hour');
         $this->publications->claim(
@@ -1619,12 +1644,13 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('relus à la source', $html);
-        $this->assertStringNotContainsString('La même image et le même texte', $html);
+        $this->assertStringContainsString('La même image et le même texte', $html);
+        $this->assertStringNotContainsString('relus à la source', $html);
     }
 
     /**
-     * And a communication that owns its image keeps the plain promise.
+     * And a communication that owns its image says the same — the two
+     * cases having converged in IT-02.
      */
     public function testTheRetryPageStillPromisesTheSameImageForAnOwnShare(): void
     {

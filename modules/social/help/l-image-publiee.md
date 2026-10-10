@@ -23,7 +23,7 @@ flou », et l'aperçu suit le curseur pendant que vous le déplacez.
 - **Floutée**, on devine l'ambiance, pas les visages. Pour voir les
   photos, il faut venir sur le site, là où seuls les membres les voient.
 - **Nette**, la photo part reconnaissable. C'est permis, et la page vous
-  le dit en toute lettre avant : « Cette photo de la galerie part sans
+  le dit en toutes lettres avant : « Cette photo de la galerie part sans
   flou. »
 
 C'est à vous de choisir, photo par photo. Une photo de groupe prise de
@@ -57,7 +57,12 @@ en échec avec la raison donnée par Meta, ou indisponible avec la raison.
 
 ## Ce qui ne change plus
 
-Dès qu'une destination a été tentée, le texte et le flou ne changent
-plus : celle publiée plus tard reçoit exactement la même chose. Le titre
-et l'image aussi, sauf pour un album ou une actualité partagés, dont ils
-restent lus à la source.
+Dès qu'une destination a été tentée, **l'image publiée ne change plus**,
+ni le texte, ni le flou : celle publiée plus tard reçoit exactement la
+même image, avec le même titre dessus. C'est l'image que votre navigateur
+a dessinée qui est conservée et renvoyée.
+
+Un album renommé après coup, ou dont on change la couverture, ne modifie
+donc pas ce qui part ensuite. Seul un partage fait avant cette version du
+site, ou depuis un navigateur qui n'a pas pu envoyer l'image, relit encore
+le titre et l'image à la source.

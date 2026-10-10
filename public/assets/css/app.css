@@ -52,9 +52,23 @@
    has exactly the same icon-beside-text shape. */
 .form-check--line-aligned {
     display: flex;
+    /* Wrapping, or the nested row below never reaches its own line: in a
+       single-line flex container a `flex-basis: 100%` child only STARTS
+       that wide and then shrinks, so « Je confirme : réessayer » was
+       squeezed into a third column beside the label — on exactly the
+       rows that have one, the failed ones. Found in the review of #850. */
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 0.5em;
     padding-left: 0;
+}
+
+/* And the label starts from zero rather than from its own text, so a
+   long one — a failure reason from Meta — grows into the space left
+   instead of wrapping below its own checkbox. */
+.form-check--line-aligned > .form-check-label {
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .form-check--line-aligned > .form-check-input {
