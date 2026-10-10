@@ -1212,10 +1212,17 @@ selection and the browser's own undo history. The news editor adds `img` to
 the grammar (`{ images: true }`); a rich-text form field turns pasted
 `{{ keyword }}` text into chips before it lands (`decorate`).
 
-This is not the client-side sanitiser the paragraph above refuses. It reads
-the foreign markup only inside an inert `DOMParser` document, writes nothing
-but elements it creates itself and text nodes, and copies no attribute but
-an href or image src that passed the scheme allowlist. Security stays where
+This is not the client-side sanitiser the paragraph above refuses. **The
+clipboard's HTML is never read as a string**: parsing it here, even in an
+inert `DOMParser` document, is a cross-site scripting sink by CodeQL's
+reading, and an open CodeQL alert blocks the release. The browser parses it,
+with its own paste sanitiser, into a hidden contenteditable next to the
+surface — the « paste bin » of the established editors — and only the
+resulting nodes are read. (`canonicalFragment()` parses strings only for
+the editor's own HTML: a stored text the server already sanitised, or what
+the editor is about to send.) It writes nothing but elements it creates
+itself and text nodes, and copies no attribute but an href or image src that
+passed the scheme allowlist. Security stays where
 it was: `HtmlSanitizer` cleans every string the server receives, and it is
 not widened to match. `tests/fixtures/rich-text/canonical-paste.json` is
 the contract both sides read — Vitest holds that a paste becomes the

@@ -15,13 +15,15 @@
 // à modifier avec les boutons » of the issue — and that a save and a reload
 // change nothing.
 //
-// The clipboard is driven with a synthetic ClipboardEvent carrying a real
-// DataTransfer: the system clipboard is not reachable from a headless CI
-// runner, and what is under test is the page's handling of the event, which
-// is the same event either way. Safari, where the original report came from
-// (#306), is not in the CI's browser set; its share of the issue is the
-// paste event and the canonical form, both engine-independent here, and
-// stays a manual check on a Mac.
+// The paste is a REAL one: the HTML is written to Chromium's clipboard
+// (the page is granted clipboard access) and pasted with the keyboard. A
+// synthetic ClipboardEvent would not do — the editor deliberately never
+// reads the clipboard's HTML as a string, and lets the browser's own paste
+// land in a hidden bin instead (rich-text-link.js, wireSurface()), and a
+// synthetic event has no default action to land anywhere. Safari, where the
+// original report came from (#306), is not in the CI's browser set; the
+// same paste path and canonical form run there, and stay a manual check on
+// a Mac.
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -34,6 +36,10 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
 import { waitForServerResponse } from '../support/response.js';
+
+// The page writes the fragment to the clipboard itself; Chromium asks for
+// these before it lets it.
+test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 /** The public page carrying `editable('contact.text', …)`. */
 const PAGE = '/contact';
@@ -132,8 +138,15 @@ test('a pasted text is the toolbar\'s own HTML, stays editable, and is unchanged
         let dialog = await openEditor(page);
         original = await editorHtml(dialog);
 
-        // Empty the editor, put the caret in it, paste.
-        await dialog.locator('#richTextEditorContent').evaluate((surface, html) => {
+        // Put the fragment on the clipboard, empty the editor, put the
+        // caret in it, paste with the keyboard.
+        await page.evaluate(async (html) => {
+            await navigator.clipboard.write([new ClipboardItem({
+                'text/html': new Blob([html], { type: 'text/html' }),
+                'text/plain': new Blob(['Programme'], { type: 'text/plain' }),
+            })]);
+        }, PASTED);
+        await dialog.locator('#richTextEditorContent').evaluate((surface) => {
             surface.innerHTML = '';
             surface.focus();
             const range = document.createRange();
@@ -141,12 +154,9 @@ test('a pasted text is the toolbar\'s own HTML, stays editable, and is unchanged
             const selection = window.getSelection();
             selection.removeAllRanges();
             selection.addRange(range);
-
-            const data = new DataTransfer();
-            data.setData('text/html', html);
-            data.setData('text/plain', 'Programme');
-            surface.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
-        }, PASTED);
+        });
+        await page.keyboard.press('ControlOrMeta+V');
+        await expect(dialog.locator('#richTextEditorContent h2')).toHaveText('Programme');
 
         // Nothing of the clipboard's styling reached the page…
         const pasted = await editorHtml(dialog);

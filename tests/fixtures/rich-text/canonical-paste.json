@@ -4,7 +4,8 @@
         "tests/js/rich-text-canonical.test.js: canonicalHtml(pasted) === canonical, and canonicalHtml(canonical) === canonical.",
         "tests/Core/Security/RichTextCanonicalContractTest.php: HtmlSanitizer keeps every `canonical` byte for byte.",
         "So what the editor writes is exactly what the server stores, and what it stores reopens unchanged.",
-        "`pasted` is what a word processor or a web page actually puts on the clipboard, trimmed to the part that matters."
+        "`pasted` is what a word processor or a web page actually puts on the clipboard, trimmed to the part that matters.",
+        "In the editor a paste never reaches the canonical form as this string: the browser pastes it into a hidden bin and the nodes are read (rich-text-link.js, wireSurface()). The walker is the same; the string form is how a fixture can hold it."
     ],
     "cases": [
         {

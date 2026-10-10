@@ -542,18 +542,34 @@
     }
 
     /**
-     * Foreign HTML → a fragment of the live document, in the canonical
-     * grammar. The foreign markup is only ever READ, inside an inert
-     * DOMParser document; every node of the result is created here.
+     * An editor's own HTML → a fragment of the live document, in the
+     * canonical grammar. What is passed here is a stored text the server
+     * already sanitised, or the editor's own innerHTML on its way out —
+     * never the clipboard, which only ever reaches canonicalNodes() as the
+     * nodes the browser itself pasted (see wireSurface()). The string is
+     * read inside an inert DOMParser document; every node of the result is
+     * created here.
      *
      * @param {string} html
      * @param {CanonicalOptions} [options]
      * @returns {DocumentFragment}
      */
     function canonicalFragment(html, options) {
+        var source = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+        return canonicalNodes(source.body, options);
+    }
+
+    /**
+     * The children of `sourceRoot` → a fragment of the live document, in the
+     * canonical grammar. `sourceRoot` is only ever read.
+     *
+     * @param {Node} sourceRoot
+     * @param {CanonicalOptions} [options]
+     * @returns {DocumentFragment}
+     */
+    function canonicalNodes(sourceRoot, options) {
         var images = Boolean(options && options.images);
         var doc = document;
-        var source = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
 
         var root = doc.createDocumentFragment();
         /** @type {Node} where finished blocks go */
@@ -793,7 +809,7 @@
             }
         }
 
-        walk(source.body, PLAIN);
+        walk(sourceRoot, PLAIN);
         flush();
 
         return root;
@@ -885,11 +901,72 @@
     }
 
     /**
+     * The paste bin of one surface: a hidden contenteditable right next to
+     * it, created on first use. Next to it rather than on <body>, because a
+     * Bootstrap modal hands focus straight back to itself when it moves
+     * anywhere outside it.
+     *
+     * @param {HTMLElement} surface
+     * @returns {HTMLElement}
+     */
+    function pasteBin(surface) {
+        var next = surface.nextElementSibling;
+        if (next instanceof HTMLElement && next.classList.contains('rich-text-paste-bin')) {
+            return next;
+        }
+        var bin = document.createElement('div');
+        bin.className = 'rich-text-paste-bin visually-hidden';
+        bin.setAttribute('contenteditable', 'true');
+        bin.setAttribute('aria-hidden', 'true');
+        bin.tabIndex = -1;
+        surface.insertAdjacentElement('afterend', bin);
+        return bin;
+    }
+
+    /**
+     * Puts a canonical fragment where the caret was, and says so.
+     *
+     * @param {HTMLElement} surface
+     * @param {DocumentFragment} fragment
+     * @param {CanonicalOptions|undefined} options
+     * @param {(() => void)|null|undefined} afterChange
+     * @returns {void}
+     */
+    function land(surface, fragment, options, afterChange) {
+        var content = fragment;
+        if (options && options.decorate) {
+            var holder = document.createElement('div');
+            holder.appendChild(content);
+            options.decorate(holder);
+            content = document.createDocumentFragment();
+            while (holder.firstChild) {
+                content.appendChild(holder.firstChild);
+            }
+        }
+
+        insertFragment(surface, content);
+        surface.dispatchEvent(new Event('input', { bubbles: true }));
+        if (afterChange) afterChange();
+    }
+
+    /**
      * Gives a contenteditable the canonical paste: every path that pastes
      * — the keyboard, the context menu, a phone's « Coller » — fires
-     * `paste`, and the clipboard's HTML is rebuilt before anything of it
-     * reaches the page. Idempotent per surface, like wireToolbar() per
-     * button: the shared modal is wired by two scripts.
+     * `paste`, and what it carries is rebuilt before anything of it reaches
+     * the text. Idempotent per surface, like wireToolbar() per button: the
+     * shared modal is wired by two scripts.
+     *
+     * THE CLIPBOARD'S HTML IS NEVER READ AS A STRING. Parsing it here, even
+     * into an inert DOMParser document, is a cross-site scripting sink by
+     * CodeQL's reading, and the release refuses an open alert. So the
+     * browser does the parsing it does for every paste anyway — scripts
+     * and event handlers stripped by its own paste sanitiser — into a
+     * hidden contenteditable next to the surface (the « paste bin » of the
+     * established editors), and only the resulting NODES are read, by
+     * canonicalNodes(). The caret is put back and the canonical fragment
+     * inserted where it was, on the browser's undo stack.
+     *
+     * Plain text is read as text: it becomes text nodes and line breaks.
      *
      * @param {HTMLElement} surface
      * @param {CanonicalOptions} [options]
@@ -905,30 +982,41 @@
 
         surface.addEventListener('paste', function (event) {
             var clipboard = event.clipboardData;
-            var html = clipboard ? clipboard.getData('text/html') : '';
+            var types = clipboard ? Array.prototype.slice.call(clipboard.types || []) : [];
+
+            if (types.indexOf('text/html') !== -1) {
+                var range = captureSelection();
+                var bin = pasteBin(surface);
+                bin.replaceChildren();
+                bin.focus();
+                var inBin = document.createRange();
+                inBin.selectNodeContents(bin);
+                var selection = window.getSelection();
+                if (selection) {
+                    selection.removeAllRanges();
+                    selection.addRange(inBin);
+                }
+
+                // No preventDefault(): the browser's own paste lands in the
+                // bin, and is read once it has.
+                window.setTimeout(function () {
+                    var fragment = canonicalNodes(bin, options);
+                    bin.replaceChildren();
+                    restoreSelection(surface, range);
+                    land(surface, fragment, options, afterChange);
+                }, 0);
+                return;
+            }
+
             var text = clipboard ? clipboard.getData('text/plain') : '';
-            if (html === '' && text === '') {
+            if (text === '') {
                 // A file, or a clipboard the page may not read: nothing
                 // here to rebuild. What the browser inserts still goes
                 // through the canonical form when it leaves the editor.
                 return;
             }
             event.preventDefault();
-
-            var fragment = html !== '' ? canonicalFragment(html, options) : plainTextFragment(text);
-            if (options && options.decorate) {
-                var holder = document.createElement('div');
-                holder.appendChild(fragment);
-                options.decorate(holder);
-                fragment = document.createDocumentFragment();
-                while (holder.firstChild) {
-                    fragment.appendChild(holder.firstChild);
-                }
-            }
-
-            insertFragment(surface, fragment);
-            surface.dispatchEvent(new Event('input', { bubbles: true }));
-            if (afterChange) afterChange();
+            land(surface, plainTextFragment(text), options, afterChange);
         });
     }
 

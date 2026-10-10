@@ -33,8 +33,38 @@ async function loadHelper() {
 function pasteEvent(data) {
     const event = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'clipboardData', {
-        value: { getData: (type) => data[type] ?? '' },
+        value: {
+            types: Object.keys(data),
+            getData: (type) => {
+                // The clipboard's HTML is never read as a string — the
+                // browser pastes it into the bin instead. A read here would
+                // be the CodeQL sink the bin exists to avoid.
+                if (type === 'text/html') throw new Error('the HTML was read as a string');
+                return data[type] ?? '';
+            },
+        },
     });
+    return event;
+}
+
+/**
+ * Pastes HTML the way a browser does once the handler has moved the caret
+ * into the bin: the default action writes the clipboard there, then the
+ * handler's timer reads it.
+ *
+ * @param {HTMLElement} surface
+ * @param {string} html what the browser's own paste leaves in the bin
+ * @param {string} [text]
+ * @returns {Promise<Event>}
+ */
+async function pasteHtml(surface, html, text = '') {
+    const event = pasteEvent({ 'text/html': html, 'text/plain': text });
+    surface.dispatchEvent(event);
+    const bin = surface.nextElementSibling;
+    expect(bin?.classList.contains('rich-text-paste-bin')).toBe(true);
+    expect(document.activeElement).toBe(bin);
+    bin.innerHTML = html;
+    await new Promise((r) => setTimeout(r, 0));
     return event;
 }
 
@@ -151,14 +181,17 @@ describe('ScoutMagicRichText.wireSurface() — the paste', () => {
         const surface = surfaceWith('<p>Avant</p>');
         rt.wireSurface(surface);
 
-        const event = pasteEvent({
-            'text/html': '<h1 style="color:red">Titre</h1><p><span style="font-weight:700">gras</span></p>',
-            'text/plain': 'Titre\n\ngras',
-        });
-        surface.dispatchEvent(event);
+        const event = await pasteHtml(
+            surface,
+            '<h1 style="color:red">Titre</h1><p><span style="font-weight:700">gras</span></p>',
+            'Titre\n\ngras'
+        );
 
-        expect(event.defaultPrevented).toBe(true);
+        // The browser's own paste is let through — into the bin — and
+        // only its nodes are read.
+        expect(event.defaultPrevented).toBe(false);
         expect(execCommand).toHaveBeenCalledWith('insertHTML', false, '<h2>Titre</h2><p><strong>gras</strong></p>');
+        expect(surface.nextElementSibling.innerHTML).toBe('');
     });
 
     it('inserts a lone paragraph as inline content, so a word does not split the line it lands in', async () => {
@@ -167,7 +200,7 @@ describe('ScoutMagicRichText.wireSurface() — the paste', () => {
         const surface = surfaceWith('<p>Avant</p>');
         rt.wireSurface(surface);
 
-        surface.dispatchEvent(pasteEvent({ 'text/html': '<span style="font-style:italic">mot</span>' }));
+        await pasteHtml(surface, '<span style="font-style:italic">mot</span>');
 
         expect(execCommand).toHaveBeenCalledWith('insertHTML', false, '<em>mot</em>');
     });
@@ -177,7 +210,7 @@ describe('ScoutMagicRichText.wireSurface() — the paste', () => {
         const surface = surfaceWith('<p>Avant</p>');
         rt.wireSurface(surface);
 
-        surface.dispatchEvent(pasteEvent({ 'text/html': '<ul><li><b>un</b></li></ul>' }));
+        await pasteHtml(surface, '<ul><li><b>un</b></li></ul>');
 
         expect(surface.innerHTML).toBe('<p>Avant</p><ul><li><strong>un</strong></li></ul>');
     });
@@ -226,7 +259,7 @@ describe('ScoutMagicRichText.wireSurface() — the paste', () => {
             },
         });
 
-        surface.dispatchEvent(pasteEvent({ 'text/html': '<p><b>a</b></p><p>b</p>' }));
+        await pasteHtml(surface, '<p><b>a</b></p><p>b</p>');
 
         expect(surface.innerHTML).toBe('<p><strong data-seen="yes">a</strong></p><p>b</p>');
     });

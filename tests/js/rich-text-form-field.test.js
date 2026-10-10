@@ -294,23 +294,20 @@ describe('rich-text-form-field.js: paste (issue #844)', () => {
         expect(surface().querySelectorAll('[data-keyword]')).toHaveLength(1);
     });
 
-    it('pastes canonical HTML whose placeholders are chips before they land, and syncs', () => {
+    it('pastes canonical HTML whose placeholders are chips before they land, and syncs', async () => {
         buildField('');
-        // No insertHTML, no caret: the paste falls back to appending.
-        caretNowhere();
+        // No insertHTML: the paste falls back to inserting the nodes itself.
         document.execCommand = vi.fn(() => false);
 
+        const html = '<p style="color:red"><span style="font-weight:700">Total</span> {{ prix_total }}</p><p>{{ inconnu }}</p>';
         const event = new Event('paste', { bubbles: true, cancelable: true });
         Object.defineProperty(event, 'clipboardData', {
-            value: {
-                getData: (type) => (type === 'text/html'
-                    ? '<p style="color:red"><span style="font-weight:700">Total</span> {{ prix_total }}</p><p>{{ inconnu }}</p>'
-                    : ''),
-            },
+            value: { types: ['text/html'], getData: () => '' },
         });
         surface().dispatchEvent(event);
-
-        expect(event.defaultPrevented).toBe(true);
+        // What the browser's own paste leaves in the bin (rich-text-link.js).
+        /** @type {HTMLElement} */ (surface().nextElementSibling).innerHTML = html;
+        await new Promise((r) => setTimeout(r, 0));
         expect(surface().querySelector('strong')?.textContent).toBe('Total');
         expect(surface().querySelectorAll('[data-keyword="prix_total"]')).toHaveLength(1);
         // Only the closed list becomes a chip, as with a stored value.
