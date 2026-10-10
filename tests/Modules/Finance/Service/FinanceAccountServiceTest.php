@@ -6,6 +6,7 @@ namespace Tests\Modules\Finance\Service;
 
 use Core\Security\EncryptionService;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Service\FinanceAccountService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -29,6 +30,39 @@ class FinanceAccountServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->service = new FinanceAccountService($this->accountRepository);
+    }
+
+    /**
+     * The categories another module's picker offers (issue #838): seeded
+     * first, then only the active ones, as id and name.
+     */
+    public function testGetCategoriesSeedsThenListsTheActiveCategoriesAsIdAndName(): void
+    {
+        $categories = new CategoryRepository($this->pdo);
+        $seeded = false;
+        $service = new FinanceAccountService(
+            $this->accountRepository,
+            $categories,
+            static function () use ($categories, &$seeded): void {
+                $seeded = true;
+                $categories->create('Cotisations', 'Cotisations annuelles');
+                $archived = $categories->create('Ancienne', 'Plus utilisée');
+                $categories->setActive($archived, false);
+            }
+        );
+
+        $listed = $service->getCategories();
+
+        $this->assertTrue($seeded, 'the defaults are seeded before the list is read');
+        $this->assertCount(1, $listed);
+        $this->assertSame(['id', 'name'], array_keys($listed[0]));
+        $this->assertSame('Cotisations', $listed[0]['name']);
+        $this->assertIsInt($listed[0]['id']);
+    }
+
+    public function testGetCategoriesIsEmptyWithoutACategoryRepository(): void
+    {
+        $this->assertSame([], $this->service->getCategories());
     }
 
     public function testGetConfiguredAccountsReturnsOnlyActiveAccounts(): void

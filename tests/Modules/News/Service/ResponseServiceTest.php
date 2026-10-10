@@ -19,6 +19,7 @@ use Core\Security\RoleResolver;
 use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Api\FinanceAccountInterface;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
@@ -431,6 +432,42 @@ class ResponseServiceTest extends TestCase
 
         $this->assertSame('+++100/0000/00034+++', $response->structuredCommunication);
         $this->assertSame(55, $response->receivableId);
+    }
+
+    /**
+     * A form whose Finances category was archived since it was chosen:
+     * the respondent gets a sentence meant for them, not a 500, and no
+     * half-saved answer (issue #838).
+     */
+    public function testSubmitTellsTheRespondentWhenTheFormCanNoLongerTakePayment(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, null, 5.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $this->formRepository->update(
+            $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 7,
+            financeCategoryId: 9
+        );
+
+        $structuredCommunication = $this->createStub(StructuredCommunicationInterface::class);
+        $structuredCommunication->method('generate')->willReturn('+++100/0000/00034+++');
+        $expectedReceivable = $this->createStub(ExpectedReceivableInterface::class);
+        $expectedReceivable->method('createReceivable')
+            ->willThrowException(new FinanceException('Choisissez une catégorie Finances active pour cette créance.'));
+        $financeAccount = $this->createStub(FinanceAccountInterface::class);
+        $financeAccount->method('getConfiguredAccounts')->willReturn([
+            ['id' => 7, 'name' => 'Compte', 'iban' => 'BE68539007547034', 'holder_name' => 'Unité', 'section_id' => null],
+        ]);
+
+        try {
+            $this->service($structuredCommunication, $expectedReceivable, $this->createStub(SepaQrCodeInterface::class), $financeAccount)
+                ->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => '2'], null);
+            $this->fail('A form that can no longer take payment must refuse the answer.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('prévenez son responsable', $e->getMessage());
+            $this->assertInstanceOf(FinanceException::class, $e->getPrevious());
+        }
+
+        $this->assertSame([], $this->responseRepository->findByFormId($this->formId));
     }
 
     // --- IT-02: the ticket ---
