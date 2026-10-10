@@ -28,8 +28,8 @@ d'une créance, ouvrez-le et choisissez « Rattacher à une créance ».
 
 Un virement unique qui couvre plusieurs créances du même foyer. Le site
 propose la répartition, vous corrigez si besoin, puis vous confirmez.
-Tant qu'une répartition est proposée, le surplus n'apparaît pas aussi en
-trop-perçu.
+Si la famille voulait plutôt être remboursée, choisissez « Rembourser
+plutôt » : le surplus passe en trop-perçu à rembourser.
 
 ## Non imputés
 

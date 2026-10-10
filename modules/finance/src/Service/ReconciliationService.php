@@ -355,7 +355,8 @@ class ReconciliationService
      * transfer.
      *
      * Returns null when the leftover has nowhere sensible to go — that is
-     * not a split, it is a trop-perçu, and it belongs in the other tab.
+     * not a split, it is a trop-perçu, and it belongs in the other tab —
+     * and when the treasurer has already chosen to refund it instead.
      *
      * @param int[] $allocatedReceivableIds
      * @param ExpectedReceivable[] $receivables
@@ -381,6 +382,14 @@ class ReconciliationService
             }
         }
         if ($named === null || $named->memberId === null) {
+            return null;
+        }
+
+        // « Rembourser plutôt » already answered: the surplus is owed back,
+        // so it is a trop-perçu waiting for its debit, not a split to
+        // propose again.
+        $namedRefund = ($settlements[$named->id] ?? null)?->refundState;
+        if (in_array($namedRefund, [ReceivableSettlement::REFUND_REQUESTED, ReceivableSettlement::REFUND_DONE], true)) {
             return null;
         }
 

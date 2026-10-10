@@ -342,6 +342,28 @@ class ReconciliationServiceTest extends TestCase
     }
 
     /**
+     * The way out of a split the household did not mean: refunding the
+     * surplus instead. The proposal is not made again, and the row is a
+     * trop-perçu « à rembourser » waiting for its debit (review of #857).
+     */
+    public function testRefundingInsteadOfSplittingMovesTheRowToTropPercus(): void
+    {
+        $lucie = $this->receivable('Lucie', 3825, '+++123/4567/89012+++');
+        $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
+        $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+        $this->assertCount(1, $this->build()['split']);
+
+        $this->allocations->requestRefund($lucie, Role::INTENDANT, 7);
+
+        $view = $this->build();
+        $this->assertSame([], $view['split']);
+        $this->assertCount(1, $view['overpaid']);
+        $this->assertSame($lucie, $view['overpaid'][0]['receivable_id']);
+        $this->assertSame(ReceivableSettlement::REFUND_REQUESTED, $view['overpaid'][0]['refund_state']);
+        $this->assertSame(1, array_sum($view['counts']));
+    }
+
+    /**
      * A payment for another account's receivable is « Mauvais compte »
      * and never « Non imputé » as well.
      */

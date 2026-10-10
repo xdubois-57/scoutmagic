@@ -154,7 +154,21 @@
 
                         <div class="bg-body-tertiary p-3 border-top d-flex flex-wrap gap-2">
                             <button type="submit" class="btn btn-sm btn-primary tap-target">Imputer</button>
+                            {# The other way out: the family meant the surplus
+                               to come back. Declared on the named receivable,
+                               it moves the row to « Trop-perçus » as « À
+                               rembourser » and the split is not proposed
+                               again. A separate form, since forms cannot
+                               nest. #}
+                            <button type="submit" class="btn btn-sm btn-outline-secondary tap-target"
+                                    form="split-refund-{{ item.transaction_id }}">Rembourser plutôt</button>
                         </div>
+                    </form>
+                    <form method="post" action="/finance/reconciliation/overpaid/{{ item.named_receivable_id }}"
+                          id="split-refund-{{ item.transaction_id }}" class="d-none">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+                        <input type="hidden" name="action" value="refund">
                     </form>
                 {% endfor %}
             {% endif %}

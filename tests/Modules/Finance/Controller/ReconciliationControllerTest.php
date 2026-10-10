@@ -333,6 +333,26 @@ class ReconciliationControllerTest extends TestCase
         $this->assertStringContainsString('/finance/reconciliation/not-a-receivable/' . $transactionId, $body);
     }
 
+    /**
+     * Every split proposal offers a second way out — « Rembourser
+     * plutôt », declared on the receivable the transfer named.
+     */
+    public function testASplitProposalOffersToRefundInstead(): void
+    {
+        $lucie = $this->receivable('Lucie', 3825, '+++123/4567/89012+++');
+        $this->receivable('Antoine', 4500, '+++123/4567/89025+++');
+        $transactionId = $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+
+        $body = $this->controller->index($this->get(['tab' => 'split']), [])->getBody();
+
+        $this->assertStringContainsString('form="split-refund-' . $transactionId . '"', $body);
+        $this->assertMatchesRegularExpression(
+            '#action="/finance/reconciliation/overpaid/' . $lucie . '"\s+id="split-refund-' . $transactionId . '"#',
+            $body
+        );
+        $this->assertStringContainsString('Rembourser plutôt', $body);
+    }
+
     public function testNothingIsDeclaredWithoutAValidCsrfToken(): void
     {
         $transactionId = $this->credit('VIREMENT +++999/8888/77758+++', 45.00);
