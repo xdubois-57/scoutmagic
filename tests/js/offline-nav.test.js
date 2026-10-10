@@ -943,3 +943,121 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
         expect(document.getElementById('send').disabled).toBe(true);
     });
 });
+
+/**
+ * The connectivity API pull-to-refresh.js asks (issue #842).
+ *
+ * Nothing of its own to test in isolation, on purpose: it must be the
+ * SAME probe, the SAME ordering protection and the SAME repaint as the
+ * rest of this file, so every assertion here reads what the page shows
+ * and which request the probe made — never a second mechanism.
+ */
+describe('offline-nav.js: window.ScoutMagicConnectivity (issue #842)', () => {
+    function headProbes() {
+        return installedFetch.mock.calls.filter(([input, init]) => (
+            input === '/api/version' && init && init.method === 'HEAD'
+        ));
+    }
+
+    function buildBanner() {
+        document.body.insertAdjacentHTML('beforeend', '<output id="offline-readonly-banner" class="d-none"></output>');
+        return document.getElementById('offline-readonly-banner');
+    }
+
+    beforeEach(() => {
+        delete window.ScoutMagicConnectivity;
+    });
+
+    it('is not exposed on a page without #offline-config-data', async () => {
+        await boot();
+
+        expect(window.ScoutMagicConnectivity).toBeUndefined();
+    });
+
+    it('reports the confirmed verdict, not navigator.onLine', async () => {
+        buildConfig(CORE_WHITELIST);
+        setOnline(false);
+        probeReachable = true;
+        installFetch();
+        await boot();
+        await settle();
+
+        // The browser says offline; the probe answered: not offline.
+        expect(window.ScoutMagicConnectivity.isOfflineConfirmed()).toBe(false);
+
+        probeReachable = false;
+        window.dispatchEvent(new Event('offline'));
+        await settle();
+
+        expect(window.ScoutMagicConnectivity.isOfflineConfirmed()).toBe(true);
+    });
+
+    it('recheck() asks the same probe, repaints the page online and resolves true — even with navigator.onLine still false', async () => {
+        buildConfig(CORE_WHITELIST);
+        const banner = buildBanner();
+        document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a><form><button type="submit" id="send">Envoyer</button></form>');
+        await bootConfirmedOffline();
+        expect(banner.classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('send').disabled).toBe(true);
+        const before = headProbes().length;
+
+        probeReachable = true; // back, and iOS has not said so
+        const verdict = await window.ScoutMagicConnectivity.recheck();
+
+        expect(verdict).toBe(true);
+        expect(navigator.onLine).toBe(false);
+        expect(headProbes()).toHaveLength(before + 1);
+        expect(window.ScoutMagicConnectivity.isOfflineConfirmed()).toBe(false);
+        expect(banner.classList.contains('d-none')).toBe(true);
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
+        expect(document.getElementById('send').disabled).toBe(false);
+    });
+
+    it('recheck() resolves false and leaves the page offline while the server is still unreachable', async () => {
+        buildConfig(CORE_WHITELIST);
+        const banner = buildBanner();
+        document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a>');
+        await bootConfirmedOffline();
+        const before = headProbes().length;
+
+        const verdict = await window.ScoutMagicConnectivity.recheck();
+
+        expect(verdict).toBe(false);
+        expect(headProbes()).toHaveLength(before + 1);
+        expect(banner.classList.contains('d-none')).toBe(false);
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(true);
+    });
+
+    /**
+     * #353's ordering protection, seen from the API: a recheck() overtaken
+     * by a newer probe reports the NEWER answer — the one the page shows —
+     * and never the stale one it issued itself.
+     */
+    it('recheck() overtaken by a newer probe resolves with the newer verdict', async () => {
+        buildConfig(CORE_WHITELIST);
+        document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a>');
+        const pending = [];
+        global.fetch = window.fetch = vi.fn(
+            () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+        );
+        setOnline(false);
+        await boot();                                              // P1, at boot
+        pending[0].reject(new TypeError('Failed to fetch'));
+        await settle();
+        expect(window.ScoutMagicConnectivity.isOfflineConfirmed()).toBe(true);
+
+        const verdict = window.ScoutMagicConnectivity.recheck();   // P2
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        document.dispatchEvent(new Event('visibilitychange'));     // P3
+        expect(pending).toHaveLength(3);
+
+        // P2 answers first, but P3 was issued after it: P2's « unreachable »
+        // is stale the moment it lands, and the verdict waits for P3.
+        pending[1].reject(new TypeError('Failed to fetch'));       // P2: stale
+        await settle();
+        pending[2].resolve({ ok: true });                          // P3: reachable
+
+        await expect(verdict).resolves.toBe(true);
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
+    });
+});

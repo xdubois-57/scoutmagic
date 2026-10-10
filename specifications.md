@@ -307,6 +307,7 @@ All pages in this menu require the `superadmin` role — Maintenance included si
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |
 | Installation | First-run setup (DB, unit settings, email, admin). Same page as Configuration later. |
 | Manifest / Icônes PWA | Progressive Web App manifest (JSON) and adaptive icons (192px, 512px, maskable) for installable app. Offline fallback page. |
+| Tirer pour actualiser | In the **installed application only** (never in a browser tab): from the very top of a page, pulling down shows a small round indicator, and releasing it past the threshold reloads the current page; a shorter pull retracts with no effect. Nothing happens on a page already scrolled, on a sideways movement, from inside a dialog or the menu, or on a second pull while the first is refreshing, and the browser's own gesture never reloads a second time. When the page is confirmed offline, the pull first asks the server again: still unreachable, nothing is reloaded and the « Hors ligne » banner and greyed links stay; reachable again (even while iOS still claims to be offline), the page comes back online and reloads once. Light and dark themes; no movement under « réduire les animations ». ARCHITECTURE.md §8.25. |
 
 ### 4.7 La synchronisation des carnets d'adresses (CardDAV)
 

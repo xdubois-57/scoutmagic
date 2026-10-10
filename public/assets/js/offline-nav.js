@@ -120,6 +120,16 @@
     var probeSequence = 0;
 
     /**
+     * The promise of the most recently ISSUED probe — the one whose
+     * answer will stand, since probeSequence discards every older one.
+     * recheckConnectivity() waits on it to report a verdict that is
+     * actually the page's, not one an overtaken probe never applied.
+     *
+     * @type {Promise<void>}
+     */
+    var latestProbe = Promise.resolve();
+
+    /**
      * Is this page REALLY offline — not merely told so?
      *
      * `navigator.onLine === false` is the trigger and never the verdict.
@@ -161,7 +171,7 @@
     function confirmConnectivity() {
         var issued = ++probeSequence;
 
-        return probeConnectivity().then(function (reachable) {
+        latestProbe = probeConnectivity().then(function (reachable) {
             // A probe a newer one has already overtaken says nothing: it
             // describes a network that has since been asked again, and
             // the newer answer is the one to keep.
@@ -183,6 +193,41 @@
             }
 
             applyState();
+        });
+
+        return latestProbe;
+    }
+
+    /**
+     * Ask the network NOW and resolve with the page's verdict: true when
+     * it is online — no longer « offline confirmed » — false when the
+     * probe still cannot reach the server.
+     *
+     * Nothing of its own: the probe is confirmConnectivity()'s, so it
+     * goes through the same ordering protection and the same applyState()
+     * — the banner, the greyed links and the submit controls already show
+     * the verdict by the time this resolves. If a newer probe overtakes
+     * this one (the heartbeat, a visibilitychange), the verdict is the
+     * newer probe's, for the same reason the page ignores the older one.
+     *
+     * Exposed for pull-to-refresh.js (issue #842): an installed app
+     * stranded on a confirmed « offline » re-asks here instead of
+     * reloading onto the service worker's offline page.
+     *
+     * @returns {Promise<boolean>}
+     */
+    function recheckConnectivity() {
+        confirmConnectivity();
+
+        return settledVerdict();
+    }
+
+    /** @returns {Promise<boolean>} */
+    function settledVerdict() {
+        var awaited = latestProbe;
+
+        return awaited.then(function () {
+            return awaited === latestProbe ? !isOffline() : settledVerdict();
         });
     }
 
@@ -477,6 +522,14 @@
             watchConnectivity();
         }
     });
+
+    // The minimal connectivity API other scripts may rely on (issue #842):
+    // the confirmed verdict this file already acts on, and a way to ask
+    // again. Never navigator.onLine, never a second probe.
+    window.ScoutMagicConnectivity = {
+        isOfflineConfirmed: isOffline,
+        recheck: recheckConnectivity
+    };
 
     // Last, and after the fetch wrapper above: probeConnectivity() needs
     // `originalFetch`, which layer 2 assigns. Started any earlier it

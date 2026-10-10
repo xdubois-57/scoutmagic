@@ -165,6 +165,9 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/offline-prefetch.js',
     '/assets/js/offline-page.js',
     '/assets/js/navigation-feedback.js',
+    // Pull to refresh in the installed app (issue #842) — offline is
+    // exactly when it matters: it is how a stranded app asks again.
+    '/assets/js/pull-to-refresh.js',
     '/assets/img/lesscouts.png',
     '/assets/img/branches/logo_baladins.png',
     '/assets/img/branches/logo_louveteaux.png',

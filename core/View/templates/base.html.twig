@@ -301,6 +301,17 @@
     <script src="{{ asset('/assets/js/offline-cache.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-nav.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-prefetch.js') }}" defer></script>
+    {# Pull to refresh, installed application only (issue #842,
+       assets/js/pull-to-refresh.js). The round indicator is decorative and
+       hidden from assistive technology; the status line next to it is
+       what is announced, and only once a refresh actually starts. Loaded
+       after offline-nav.js, whose connectivity verdict it asks for while
+       the page is offline. #}
+    <div id="pull-to-refresh" class="pull-to-refresh" aria-hidden="true">
+        <i class="bi bi-arrow-clockwise pull-to-refresh-icon"></i>
+    </div>
+    <div id="pull-to-refresh-status" class="visually-hidden" role="status"></div>
+    <script src="{{ asset('/assets/js/pull-to-refresh.js') }}" defer></script>
     {# Ce que l'on voit entre un appui et la page suivante (assets/js/
        navigation-feedback.js) : le menu latéral se ferme, une fine barre
        de progression apparaît en haut de l'écran, et un retour arrière
