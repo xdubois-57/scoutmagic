@@ -75,6 +75,7 @@
 import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
+import { openModal } from '../support/modal.js';
 import { scaled } from '../support/timeouts.js';
 
 /** What the fixture's surface is reset to before each command. */
@@ -388,8 +389,8 @@ test('every execCommand the product issues is still performed by this browser en
     // selection to createLink itself (#840).
     expected[LINK_COMMAND.command] = STILL_PERFORMED;
     await seedAndSelect(page, TEXT);
-    await page.locator(`#e2e-toolbar [data-command="${LINK_COMMAND.command}"]`).click();
-    const linkDialog = page.getByRole('dialog', { name: 'Insérer un lien' });
+    const linkDialog = await openModal(page, 'sm-confirm-modal', () =>
+        page.locator(`#e2e-toolbar [data-command="${LINK_COMMAND.command}"]`).click());
     await linkDialog.getByLabel('Adresse du lien').fill(LINK);
     await linkDialog.getByRole('button', { name: 'Insérer le lien' }).click();
 

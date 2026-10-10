@@ -87,9 +87,12 @@ test('a link takes its text from the dialog, and the wand proposes it', async ({
             selection.addRange(range);
         });
 
-        await editor.getByRole('button', { name: 'Lien', exact: true }).click();
-        const dialog = page.getByRole('dialog', { name: 'Insérer un lien' });
-        await expect(dialog).toBeVisible();
+        // The site's one dialog (confirm.js), opened on top of the editor's
+        // own modal. Answering it hands its id back at once, so it is not
+        // closed through closeModal(): what is waited for is the link.
+        const dialog = await openModal(page, 'sm-confirm-modal', () =>
+            editor.getByRole('button', { name: 'Lien', exact: true }).click());
+        await expect(dialog.getByRole('heading', { name: 'Insérer un lien' })).toBeVisible();
 
         const text = dialog.getByLabel('Texte du lien');
         const address = dialog.getByLabel('Adresse du lien');
@@ -111,7 +114,6 @@ test('a link takes its text from the dialog, and the wand proposes it', async ({
         await expect(text).toHaveValue('Programme du camp.pdf');
 
         await dialog.getByRole('button', { name: 'Insérer le lien' }).click();
-        await expect(dialog).toBeHidden();
 
         // The link is where the word was, with the proposed text.
         const link = surface.locator('a');
