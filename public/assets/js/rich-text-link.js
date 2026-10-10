@@ -716,7 +716,7 @@
         function wordListItem(source, format) {
             flush();
             var tag = isNumberedWordItem(source) ? 'ol' : 'ul';
-            if (wordList === null || wordList.localName !== tag || blockParent.lastChild !== wordList) {
+            if (wordList?.localName !== tag || blockParent.lastChild !== wordList) {
                 wordList = doc.createElement(tag);
                 blockParent.appendChild(wordList);
             }
@@ -977,7 +977,7 @@
         bin.setAttribute('contenteditable', 'true');
         bin.setAttribute('aria-hidden', 'true');
         bin.tabIndex = -1;
-        surface.insertAdjacentElement('afterend', bin);
+        surface.after(bin);
         return bin;
     }
 
