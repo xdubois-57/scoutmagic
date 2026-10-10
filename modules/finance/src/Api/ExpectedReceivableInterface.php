@@ -21,12 +21,17 @@ interface ExpectedReceivableInterface
      * caller-computed (see StructuredCommunicationInterface::generate()).
      * Returns the new receivable's id.
      *
-     * $communication must contain at least one digit: settlement is
-     * detected by matching its digits against the free text of the
-     * account's incoming transactions, so a digit-less communication
-     * could never be matched — it is rejected with a
-     * Modules\Finance\Api\FinanceException rather than stored as a
-     * receivable that can never be settled.
+     * **Every receivable carries a valid Belgian structured
+     * communication** — twelve digits whose last two are the mod-97 check
+     * of the first ten, in any of the spellings
+     * StructuredCommunicationInterface::generate() and the banks use
+     * (issue #837). Settlement is detected by finding exactly those twelve
+     * digits on an incoming transaction, and « Paiements à traiter »
+     * treats a credit carrying a valid one that matches no receivable as a
+     * decision the treasurer owes; neither means anything if a receivable
+     * could be raised under looser text. Anything else is rejected with a
+     * Modules\Finance\Api\FinanceException, and what is stored is the
+     * canonical `+++NNN/NNNN/NNNNN+++` spelling.
      *
      * $memberId names the debtor when the debtor is a member of the unit
      * — `members.id`, the persistent identity, so the link survives the

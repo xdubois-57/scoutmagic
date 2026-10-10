@@ -96,7 +96,7 @@ class ReceivablesControlRenderingTest extends TestCase
         $html = substr($html, $picker);
 
         $order = [];
-        foreach (['Tableau de bord', 'Mouvements', 'Reçus', 'Importer', 'Campagnes', 'Rapprochement', 'Contrôle des créances', 'Outils'] as $label) {
+        foreach (['Tableau de bord', 'Paiements à traiter', 'Mouvements', 'Reçus', 'Importer', 'Campagnes', 'Contrôle des créances', 'Outils'] as $label) {
             $position = strpos($html, '>' . $label . '<');
             $this->assertNotFalse($position, $label . ' is missing from the page picker');
             $order[$label] = $position;

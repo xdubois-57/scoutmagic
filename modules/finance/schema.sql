@@ -166,6 +166,12 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     -- statement format carries it in a field of its own (CODA) — encrypted
     -- like the label it would otherwise be read from (issue #511).
     structured_communication BLOB NULL,
+    -- A treasurer's answer to « Paiements à traiter » > « Non imputés »:
+    -- this credit carries a valid structured communication, and still is
+    -- not a payment for any ScoutMagic receivable (issue #837). Set once,
+    -- never by an import, so the row does not come back on the next one.
+    not_a_receivable_at DATETIME NULL,
+    not_a_receivable_by INT UNSIGNED NULL,
     source ENUM('import', 'manual') NOT NULL,
     imported_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

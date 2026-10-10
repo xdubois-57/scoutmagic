@@ -524,8 +524,8 @@ class DashboardControllerTest extends TestCase
             []
         )->getBody();
 
-        $this->assertStringContainsString('À rapprocher', $body);
-        $this->assertStringContainsString('Rien en attente', $body);
+        $this->assertStringContainsString('Paiements à traiter', $body);
+        $this->assertStringContainsString('Aucun paiement n’attend de décision', $body);
         $this->assertStringContainsString('/finance/reconciliation?account_id=' . $accountId, $body);
     }
 
@@ -542,11 +542,12 @@ class DashboardControllerTest extends TestCase
         FinanceTestHelper::createScoutYear($this->pdo, \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable('today')), '2025-09-01', '2026-08-31', true);
 
         // A receivable so the account has something to reconcile against,
-        // and a credit that names nothing — the orphan case.
+        // and a credit whose valid structured communication names nothing
+        // — the orphan case (issue #837).
         $receivables = new \Modules\Finance\Repository\ExpectedReceivableRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $receivables->create('finance', 1, $accountId, 4500, '+++123/4567/89012+++', null, null);
         $this->transactionRepository->create(
-            $accountId, $fiscalYearId, 'orphan-1', '2026-02-18', 'Virement sans communication',
+            $accountId, $fiscalYearId, 'orphan-1', '2026-02-18', 'Virement +++999/8888/77758+++',
             30.0, null, null, Transaction::SOURCE_IMPORT, null
         );
 
@@ -556,7 +557,7 @@ class DashboardControllerTest extends TestCase
         )->getBody();
 
         $this->assertStringContainsString('1 non imputé', $body);
-        $this->assertStringNotContainsString('Rien en attente', $body);
+        $this->assertStringNotContainsString('Aucun paiement n’attend de décision', $body);
     }
 
     private function createFile(): int

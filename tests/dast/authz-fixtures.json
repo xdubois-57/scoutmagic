@@ -235,6 +235,9 @@
     "/finance/reconciliation/attach/{transactionId}": {
       "transactionId": "1"
     },
+    "/finance/reconciliation/not-a-receivable/{transactionId}": {
+      "transactionId": "1"
+    },
     "/finance/reconciliation/overpaid/{receivableId}": {
       "receivableId": "1"
     },

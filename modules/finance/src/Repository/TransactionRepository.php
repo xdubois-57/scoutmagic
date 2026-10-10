@@ -541,6 +541,20 @@ class TransactionRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Records that a credit is no payment for any receivable. Only the
+     * first declaration is kept: a second click changes neither when nor
+     * who.
+     */
+    public function markNotAReceivable(int $id, ?int $actorUserAccountId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_transactions SET not_a_receivable_at = CURRENT_TIMESTAMP, not_a_receivable_by = ? '
+            . 'WHERE id = ? AND not_a_receivable_at IS NULL'
+        );
+        $stmt->execute([$actorUserAccountId, $id]);
+    }
+
     public function deleteAllForAccount(int $accountId): int
     {
         $stmt = $this->pdo->prepare('DELETE FROM finance_transactions WHERE account_id = ?');
@@ -631,7 +645,8 @@ class TransactionRepository
                     $row['structured_communication'],
                     'finance_transactions.structured_communication'
                 )
-                : null
+                : null,
+            notAReceivableAt: isset($row['not_a_receivable_at']) ? (string) $row['not_a_receivable_at'] : null
         );
     }
 

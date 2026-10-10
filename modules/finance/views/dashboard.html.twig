@@ -80,17 +80,16 @@
             </div>
         {% endif %}
 
-        {# « À rapprocher » is the only tile that is a THING TO DO rather
-           than a state of affairs: a balance is read, a rapprochement is
-           acted on, and nothing else on the site will do it.
+        {# « Paiements à traiter » is the only tile that is a THING TO DO
+           rather than a state of affairs: a balance is read, a payment
+           waiting for a decision is acted on, and nothing else on the site
+           will do it. Every situation it counts has a way out (issue
+           #837), so its resting value is 0.
 
            Its sublabel names what the figure is made of — assembled here
            rather than inside the tile list, where a Twig comment cannot
            go and the four French wordings would drown the other tiles.
-           Naming them matters: a number that stays put is then a
-           deliberate choice the treasurer can see rather than a nag they
-           learn to ignore, an unallocated remainder not being an error
-           in itself. #}
+           Naming them says which tab to open first. #}
         {% set reconciliation_parts = [] %}
         {% if reconciliation_counts.split|default(0) > 0 %}
             {% set reconciliation_parts = reconciliation_parts|merge([reconciliation_counts.split ~ ' à répartir']) %}
@@ -136,12 +135,12 @@
                     link_url: '/finance/receipts?account_id=' ~ selected_account.id,
                 },
                 {
-                    label: 'À rapprocher',
+                    label: 'Paiements à traiter',
                     value: reconciliation_pending|default(0),
                     sublabel: reconciliation_pending|default(0) > 0
                         ? reconciliation_breakdown
-                        : 'Rien en attente',
-                    link_label: 'Rapprocher →',
+                        : 'Aucun paiement n’attend de décision',
+                    link_label: 'Traiter les paiements →',
                     link_url: '/finance/reconciliation?account_id=' ~ selected_account.id,
                 },
             ],

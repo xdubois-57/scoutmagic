@@ -32,7 +32,12 @@ final class Transaction
         public readonly ?string $counterpartyAccount = null,
         public readonly ?string $extraDetails = null,
         public readonly ?string $categorySource = null,
-        public readonly ?string $structuredCommunication = null
+        public readonly ?string $structuredCommunication = null,
+        /**
+         * When a treasurer declared this credit to be no payment for any
+         * receivable (« Paiements à traiter » > « Non imputés »), or null.
+         */
+        public readonly ?string $notAReceivableAt = null
     ) {
     }
 
