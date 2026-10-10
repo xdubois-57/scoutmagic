@@ -57,10 +57,16 @@ en échec avec la raison donnée par Meta, ou indisponible avec la raison.
 
 ## Ce qui ne change plus
 
-Dès qu'une destination a été tentée, **l'image publiée ne change plus**,
-ni le texte, ni le flou : celle publiée plus tard reçoit exactement la
-même image, avec le même titre dessus. C'est l'image que votre navigateur
-a dessinée qui est conservée et renvoyée.
+Dès qu'une publication est partie vers une destination, **l'image publiée
+ne change plus**, ni le texte, ni le flou : celle publiée plus tard reçoit
+exactement la même image, avec le même titre dessus. C'est l'image que
+votre navigateur a dessinée qui est conservée et renvoyée.
+
+Une tentative **refusée d'avance** ne compte pas : si le site vous dit
+qu'une autorisation a expiré, qu'un texte est trop long pour Instagram ou
+qu'une image manque, rien n'est parti et rien n'est figé. Vous pouvez
+encore changer la photo, le titre, le texte et le curseur de flou — et
+c'est bien la nouvelle image qui partira.
 
 Un album renommé après coup, ou dont on change la couverture, ne modifie
 donc pas ce qui part ensuite. Seul un partage fait avant cette version du

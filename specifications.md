@@ -3509,9 +3509,13 @@ brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
 « Publier ». Après « Publier », retour à l'historique.
 
 Une communication appartient à son auteur et aux administrateurs ; pour
-tout autre animateur, elle est « introuvable ». **Dès qu'une destination
-a été tentée, elle ne change plus** : l'image, le titre et le texte sont
-figés, et une destination publiée ensuite reçoit exactement la même chose.
+tout autre animateur, elle est « introuvable ». **Dès qu'une publication
+est partie vers une destination, elle ne change plus** : l'image, le titre
+et le texte sont figés, et une destination publiée ensuite reçoit
+exactement la même chose. Une tentative refusée avant tout envoi — une
+autorisation expirée, un texte trop long pour Instagram, une image
+manquante — ne fige rien : la communication reste modifiable, et c'est
+bien la prochaine image dessinée qui partira.
 
 **« Choisir une photo »** propose **trente photos au maximum, sans
 navigation** : les photos de couverture des quinze albums les plus

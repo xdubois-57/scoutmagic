@@ -242,6 +242,62 @@ final class CommunicationControllerTest extends TestCase
      * affected: `PublishingService::cardBytes()` reads the kept card
      * first. The page did not.
      */
+    public function testTheComposerOfARefusedAttemptIsStillTheChiefsToEdit(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        // Instagram's authorisation has expired, so `publish()` refuses
+        // WITHOUT claiming a publication row — but `keepPostedCard()`
+        // has already stored the card the composer drew.
+        $past = new \DateTimeImmutable('-1 day');
+        $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $past, $past);
+        $refused = $this->postedCard('La carte de la tentative refusée');
+        $this->controller()->update(
+            $this->post([
+                'title' => 'Week-end',
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['instagram'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        $this->assertSame(
+            [],
+            $this->publications->forSource('communication', $id),
+            'the refusal claimed a row after all, so this test proves nothing'
+        );
+        $this->assertNotNull(
+            $this->communications->find($id)?->cardFileId,
+            'the refused attempt stored no card, so this test proves nothing'
+        );
+
+        // The canvas gets its photo: the chief may still move the slider
+        // and must see what it does. Keying the refusal below on « a card
+        // is stored » closed the composer for good — no photo, no draw,
+        // and the next « Publier » posting no card, so the card of this
+        // refused attempt was the one that left.
+        $background = $this->controller()->background($this->get(), ['id' => (string) $id]);
+        $this->assertSame(
+            200,
+            $background->getStatusCode(),
+            'the background was refused although nothing has been published yet'
+        );
+        $this->assertSame(H::groupPhoto(), $background->getBody(), 'the photo served is not the one being shared');
+
+        // And the <img> beside it shows a card composed from the source
+        // as it stands, not the one the refused attempt stored.
+        $served = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+        $this->assertSame(200, $served->getStatusCode());
+        $this->assertNotSame(
+            $refused,
+            $served->getBody(),
+            'the composer showed the card of a refused attempt as if it were fixed'
+        );
+    }
+
     public function testTheComposerOfAFrozenShareShowsTheCardThatWasKept(): void
     {
         $id = $this->sourceBackedCommunication();

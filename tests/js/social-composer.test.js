@@ -93,17 +93,22 @@ function page({
     blur = '0.025',
     title = 'Week-end',
     slider = false,
+    canvas = true,
 } = {}) {
     document.body.innerHTML = `
         <form data-card-form>
           <div data-communication-image data-card-composer>
-            <img src="/medias-sociaux/7/apercu" data-card-preview alt="Carte">
-            <canvas width="1080" height="1080" hidden
-                    data-card-canvas
-                    data-card-background="${background}"
-                    data-card-address="unite.example"
-                    data-card-blur="${blur}"
-                    data-card-title="${title}"></canvas>
+            ${canvas ? `
+              <img src="/medias-sociaux/7/apercu" data-card-preview alt="Carte">
+              <canvas width="1080" height="1080" hidden
+                      data-card-canvas
+                      data-card-background="${background}"
+                      data-card-address="unite.example"
+                      data-card-blur="${blur}"
+                      data-card-title="${title}"></canvas>
+            ` : `
+              <div class="alert alert-secondary mb-0">Choisissez une image : aucune publication ne part sans image.</div>
+            `}
           </div>
           <input type="text" id="communication-title" value="${title}">
           ${slider ? `
@@ -730,6 +735,69 @@ describe('« Donnez d\'abord un titre », computed on the typing', () => {
 
         expect(dom.titleMissing.hidden).toBe(false);
         expect(dom.publish.disabled).toBe(true);
+    });
+});
+
+describe('a draft with no image yet', () => {
+    // `edit.html.twig` renders the <canvas> only inside its
+    // `{% if has_image and preview_path %}` block, while « Téléverser »
+    // and « Donnez d'abord un titre » live in blocks of their own and
+    // are on the page from the start. The composer used to return as
+    // soon as it found no canvas, so both were present and dead on
+    // exactly the page they exist for: the FIRST upload. Found in the
+    // review of #850.
+    it('wires « Téléverser » and the missing-title note although there is nothing to draw', async () => {
+        const dom = page({ canvas: false, title: '' });
+        window.ScoutMagicCard = engine();
+        let picked = 0;
+        await run();
+
+        expect(dom.canvas).toBeNull();
+        // The note the server would only compute on the next POST.
+        expect(dom.titleMissing.hidden).toBe(false);
+        expect(dom.publish.disabled).toBe(true);
+
+        // And one click still opens the picker.
+        expect(dom.uploadField.hidden).toBe(true);
+        expect(dom.uploadButton.type).toBe('button');
+        dom.uploadInput.click = () => {
+            picked += 1;
+        };
+        dom.uploadButton.click();
+        expect(picked).toBe(1);
+
+        makeFilesWritable(dom.uploadInput);
+        dom.uploadInput.files = fileList([{ name: 'photo.jpg' }]);
+        dom.uploadInput.dispatchEvent(new Event('change'));
+        expect(submits).toBe(1);
+    });
+
+    it('asks for no photo and no face, having nothing to draw them into', async () => {
+        const font = fontSet();
+        page({ canvas: false });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        expect(images).toHaveLength(0);
+        expect(font.load).not.toHaveBeenCalled();
+    });
+
+    it('still publishes, with no card attached', async () => {
+        const dom = page({ canvas: false });
+        window.ScoutMagicCard = engine();
+        await run();
+
+        dom.form.dispatchEvent(confirmed(dom));
+        await settle();
+
+        expect(submits).toBe(1);
+        expect(dom.cardField.files).toHaveLength(0);
+        // `action=publish` travels in a field: `hold()` has just disabled
+        // the submitter, and a disabled submitter is left out of the
+        // entry list the browser builds after this event.
+        const hidden = Array.from(dom.form.querySelectorAll('input[type="hidden"][name="action"]'));
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0].value).toBe('publish');
     });
 });
 

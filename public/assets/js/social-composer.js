@@ -36,12 +36,21 @@
     const canvas = /** @type {HTMLCanvasElement|null} */ (root.querySelector('[data-card-canvas]'));
     const fallback = /** @type {HTMLImageElement|null} */ (root.querySelector('[data-card-preview]'));
     const engine = window.ScoutMagicCard;
-    if (!canvas || !engine) {
-        // Nothing to draw with: the <img> stays exactly as the server
-        // rendered it, and the canvas (which is hidden until a draw
-        // succeeds) stays hidden.
-        return;
-    }
+    /**
+     * Whether there is a card to draw AND something to draw it with. When
+     * false the <img> stays exactly as the server rendered it, and the
+     * canvas — hidden until a draw succeeds — stays hidden.
+     *
+     * **Not a reason to stop reading this file.** Returning here was a
+     * defect found in the review of #850: a brand-new communication has
+     * no image yet, so `edit.html.twig` renders no canvas at all — while
+     * the one-click « Téléverser » button and the « Donnez d'abord un
+     * titre » note live in blocks of their own and ARE on that page. They
+     * were therefore present and never wired, and only came alive from
+     * the second image onward, replacing one — which is the case they
+     * are least needed for. Only the drawing is gated on this now.
+     */
+    const drawable = Boolean(canvas) && Boolean(engine);
 
     const titleField = /** @type {HTMLInputElement|null} */ (document.getElementById('communication-title'));
     const blurField = /** @type {HTMLInputElement|null} */ (document.querySelector('[data-card-blur-input]'));
@@ -50,16 +59,22 @@
     );
     const sharpNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-sharp]'));
     const blurredNote = /** @type {HTMLElement|null} */ (document.querySelector('[data-card-blur-blurred]'));
-    const address = canvas.dataset.cardAddress || '';
-    const backgroundUrl = canvas.dataset.cardBackground || '';
+    const address = (canvas && canvas.dataset.cardAddress) || '';
+    const backgroundUrl = (canvas && canvas.dataset.cardBackground) || '';
     /** The canvas carries the strength the server computed; the slider then owns it. */
-    const startingBlur = Number.parseFloat(canvas.dataset.cardBlur || '0') || 0;
+    const startingBlur = Number.parseFloat((canvas && canvas.dataset.cardBlur) || '0') || 0;
 
     /**
      * Whether this card has a photo to wait for. An empty address means
      * there is none, and then there is nothing to wait for.
+     *
+     * `drawable` too, so that a page with nothing to draw into asks for
+     * nothing: the photo this would fetch is a gallery photo served
+     * UNBLURRED, and requesting it to throw it away is worse than
+     * pointless. The test « does nothing at all when the engine did not
+     * load » caught this when the guard above stopped returning.
      */
-    const needsBackground = backgroundUrl !== '';
+    const needsBackground = drawable && backgroundUrl !== '';
 
     /** @type {HTMLImageElement|null} */
     let background = null;
@@ -97,7 +112,9 @@
             return fontRequest;
         }
         const fonts = document.fonts;
-        if (!fonts || typeof fonts.load !== 'function') {
+        // A page with no canvas has no title to measure, and asking
+        // `engine` for its sizes when there is no engine would throw.
+        if (!drawable || !fonts || typeof fonts.load !== 'function') {
             fontSettled();
             fontRequest = Promise.resolve();
 
@@ -116,7 +133,7 @@
     }
 
     function title() {
-        return titleField ? titleField.value : (canvas.dataset.cardTitle || '');
+        return titleField ? titleField.value : ((canvas && canvas.dataset.cardTitle) || '');
     }
 
     /**
@@ -175,7 +192,7 @@
      * includes a face that failed, where the fallback is the card.
      */
     function canDraw() {
-        return fontLanded && (!needsBackground || background !== null);
+        return drawable && fontLanded && (!needsBackground || background !== null);
     }
 
     function draw() {

@@ -299,7 +299,7 @@ final class CommunicationController extends AbstractController
     /** @param array<string, string> $params */
     public function preview(Request $request, array $params): Response
     {
-        return $this->cardOf($this->source($params));
+        return $this->cardOf($this->source($params), $this->frozenShare($params));
     }
 
     /**
@@ -321,10 +321,12 @@ final class CommunicationController extends AbstractController
      */
     public function previewSource(Request $request, array $params): Response
     {
+        // Never frozen: there is no communication here to have published
+        // anything, and so no kept card to prefer over a fresh one.
         return $this->cardOf($this->describedSource(
             (string) ($params['kind'] ?? ''),
             (int) ($params['id'] ?? 0)
-        ));
+        ), false);
     }
 
     /**
@@ -351,7 +353,7 @@ final class CommunicationController extends AbstractController
      */
     public function background(Request $request, array $params): Response
     {
-        return $this->backgroundOf($this->source($params));
+        return $this->backgroundOf($this->source($params), $this->frozenShare($params));
     }
 
     /**
@@ -362,10 +364,11 @@ final class CommunicationController extends AbstractController
      */
     public function backgroundSource(Request $request, array $params): Response
     {
+        // Never frozen, as in `previewSource()` above.
         return $this->backgroundOf($this->describedSource(
             (string) ($params['kind'] ?? ''),
             (int) ($params['id'] ?? 0)
-        ));
+        ), false);
     }
 
     /**
@@ -376,19 +379,31 @@ final class CommunicationController extends AbstractController
      * thing that decides what is served is what the owning module handed
      * over.
      */
-    private function backgroundOf(?ShareSource $source): Response
+    private function backgroundOf(?ShareSource $source, bool $frozen): Response
     {
         if ($source === null || $source->image === null || $source->image === '') {
             return new Response('Not Found', 404);
         }
 
-        // A share with a kept card has nothing left to draw: the card IS
-        // the image, and handing the canvas the album's current cover
-        // would let it draw over the frozen one. Refused rather than
-        // served, so the composer keeps the <img> `cardOf()` serves —
-        // which is that kept card. Found in the review of #850, with
-        // `cardOf()` above.
-        if ($source->card !== null && $source->card !== '') {
+        // A FROZEN share has nothing left to draw: the kept card IS the
+        // image, and handing the canvas the album's current cover would
+        // let it draw over the frozen one. Refused rather than served, so
+        // the composer keeps the <img> `cardOf()` serves — which is that
+        // kept card. Found in the review of #850, with `cardOf()` above.
+        //
+        // **On the freeze, not on « a card is stored ».** Keying this on
+        // `$source->card` was the next defect in the same review, and it
+        // closed the composer of a share that is still the chief's to
+        // edit: `keepPostedCard()` stores the card BEFORE publishing, so
+        // an attempt refused without claiming a row — an expired Meta
+        // token, a caption past Instagram's limit — leaves a card stored
+        // with `isFrozen()` still false. This route then answered 404,
+        // the canvas had no photo, `canDraw()` stayed false forever, and
+        // the next « Publier » posted no card at all — so the card of
+        // the REFUSED attempt was published, discarding the blur the
+        // chief had changed in between. Which is the very defect
+        // `keepPostedCard()` was moved to fix.
+        if ($frozen) {
             return new Response('Not Found', 404);
         }
 
@@ -438,7 +453,7 @@ final class CommunicationController extends AbstractController
      * something this caller may not see, and a composition that failed
      * alike: a chief who may not look at it learns nothing from which.
      */
-    private function cardOf(?ShareSource $source): Response
+    private function cardOf(?ShareSource $source, bool $frozen): Response
     {
         if ($source === null) {
             return new Response('Not Found', 404);
@@ -452,7 +467,15 @@ final class CommunicationController extends AbstractController
         // plus » directly above it. `PublishingService::cardBytes()`
         // already reads this first; the preview did not. Found in the
         // review of #850.
-        if ($source->card !== null && $source->card !== '') {
+        //
+        // **Only once it is frozen**, for the reason `backgroundOf()`
+        // spells out: before that the share is still the chief's to
+        // edit, and a card stored by a refused attempt is not what a
+        // later attempt will send. `PublishingService::cardBytes()` does
+        // read the stored card whether or not the share is frozen, and
+        // must: the FIRST publication is the one that posts a card and
+        // has no publication row yet.
+        if ($frozen && $source->card !== null && $source->card !== '') {
             return (new Response($source->card))
                 ->setHeader('Content-Type', ReceivedCard::MIME)
                 ->setHeader('Cache-Control', 'private, no-store')
@@ -851,6 +874,24 @@ final class CommunicationController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /**
+     * Whether the communication these route parameters name has already
+     * published something.
+     *
+     * Read from the row rather than from the `ShareSource`, which carries
+     * a stored card for an unfrozen share too — see `cardOf()`. A
+     * communication that is not this caller's answers false, and the
+     * source it is asked beside is null anyway, so both routes refuse.
+     *
+     * @param array<string, string> $params
+     */
+    private function frozenShare(array $params): bool
+    {
+        $communication = $this->communications->find((int) ($params['id'] ?? 0));
+
+        return $communication !== null && $this->isFrozen($communication);
     }
 
     /**
