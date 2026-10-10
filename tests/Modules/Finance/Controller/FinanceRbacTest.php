@@ -282,8 +282,17 @@ class FinanceRbacTest extends TestCase
         return match ($name) {
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
-                $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
-                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\ScoutYear\ScoutYearResolver(
+                $this->statementImportRepository, $this->reconciliationServiceForDashboard(),
+                \Tests\Modules\Finance\FinanceTestHelper::allocationService(
+                    $this->pdo,
+                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    new \Modules\Finance\Repository\ExpectedReceivableRepository(
+                        $this->pdo,
+                        new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+                    )
+                ),
+                new \Modules\Finance\Repository\CampaignRepository($this->pdo),
+                new \Core\ScoutYear\ScoutYearResolver(
                 new \Core\Config\ScoutYearService($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Import\MemberYearRepository($this->pdo)

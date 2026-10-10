@@ -8648,12 +8648,10 @@ if ($isEnabled('finance')) {
             $financeBalanceService,
             $financeTransactionRepo,
             $financeReceiptService,
-            $financeCategoryRepo,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
             $financeStatementImportRepo,
-            $financeFirstReceiptResolver,
             $financeReconciliationService,
+            $financeAllocationService,
+            new \Modules\Finance\Repository\CampaignRepository($pdo),
             $scoutYearResolver
         )
     );

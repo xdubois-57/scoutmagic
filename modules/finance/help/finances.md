@@ -11,15 +11,21 @@ related: controle-des-creances, rapprochement, importer-extraits, recus, config-
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
-bancaires importés. Le tableau de bord résume la situation : solde
-actuel, solde le plus bas des derniers mois, dernier extrait importé,
-graphiques d'évolution et bilan par catégorie pour l'exercice choisi.
+bancaires importés. Le tableau de bord tient en deux lignes de quatre
+vignettes, suivies des graphiques et du bilan par catégorie de
+l'exercice choisi.
 
-Une seule de ces vignettes appelle un geste plutôt qu'une lecture :
-« Paiements à traiter » compte les paiements que le site n'a pas su
-rattacher tout seul et qui attendent une décision de votre part. Elle
-indique aussi de quoi ce nombre est fait, rubrique par rubrique ; quand
-tout est traité, elle affiche 0 — voir « Paiements à traiter ».
+La première ligne dit où en est le compte : solde actuel, solde le
+plus bas des 18 derniers mois, dernier extrait importé, et paiements
+encore attendus — ce qui reste dû sur les créances de ce compte, pas
+le montant demandé au départ.
+
+La seconde dit ce qui attend un geste, et chaque vignette mène à
+l'écran où il se fait : les mouvements non catégorisés de l'exercice,
+les reçus qui ne sont associés à aucun mouvement, les paiements à
+traiter (voir « Paiements à traiter ») et les campagnes encore ouvertes
+sur ce compte cette année scoute. Les listes ouvertes ainsi ne montrent
+que ce compte. Quand tout est fait, ces compteurs affichent 0.
 
 ## Qui voit quels comptes
 

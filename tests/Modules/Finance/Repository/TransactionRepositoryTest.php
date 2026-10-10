@@ -421,31 +421,4 @@ class TransactionRepositoryTest extends TestCase
         $this->assertSame(2, $this->repository->countFiltered($this->accountId, $this->fiscalYearId, null, true));
         $this->assertSame(2, $this->repository->countFiltered($this->accountId, $this->fiscalYearId, $categoryId, false));
     }
-
-    /**
-     * The dashboard's "needs a treasurer's hand" list, decided in SQL:
-     * uncategorized, or an expense with no receipt. Categorized income,
-     * and a receipted expense, never qualify.
-     */
-    public function testFindActionNeededSelectsUncategorizedAndUnreceiptedExpensesOnly(): void
-    {
-        $this->pdo->exec("INSERT INTO finance_categories (name) VALUES ('Divers')");
-        $categoryId = (int) $this->pdo->lastInsertId();
-
-        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'A1', '2026-10-04', 'Sans catégorie', 10.0, null, null, Transaction::SOURCE_MANUAL, null);
-        $bareExpense = $this->repository->create($this->accountId, $this->fiscalYearId, 'A2', '2026-10-03', 'Dépense nue', -5.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-        $receiptedExpense = $this->repository->create($this->accountId, $this->fiscalYearId, 'A3', '2026-10-02', 'Dépense justifiée', -5.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-        $this->repository->create($this->accountId, $this->fiscalYearId, 'A4', '2026-10-01', 'Recette classée', 20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-
-        $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('x', 'x', 'application/pdf', 1, 'intendant')");
-        $fileId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename) VALUES ({$this->accountId}, {$fileId}, 'application/pdf', 'r.pdf')");
-        $attachmentId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO finance_transaction_attachments (transaction_id, attachment_id) VALUES ({$receiptedExpense}, {$attachmentId})");
-
-        $needed = $this->repository->findActionNeeded($this->accountId, $this->fiscalYearId, 10);
-
-        $this->assertSame([$uncategorized, $bareExpense], array_map(fn(Transaction $t) => $t->id, $needed));
-        $this->assertCount(1, $this->repository->findActionNeeded($this->accountId, $this->fiscalYearId, 1));
-    }
 }
