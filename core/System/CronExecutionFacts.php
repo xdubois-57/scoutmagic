@@ -114,16 +114,19 @@ final class CronExecutionFacts
     public function report(): array
     {
         $yesNo = static fn(?bool $value): string => $value === null ? 'pas encore mesuré' : ($value ? 'oui' : 'NON');
+        $tool = !$this->pdfMeasured()
+            ? 'pas encore mesuré'
+            : ($this->pdfReady() ? (string) $this->pdfBackend : 'aucun');
 
         return [
-            'Mesuré par : le PHP du cron (SAPI ' . $this->sapi . '), le ' . gmdate('Y-m-d H:i:s', $this->probedAt) . ' UTC',
+            'Mesuré par : le PHP du cron (SAPI ' . $this->sapi . '), le '
+                . gmdate('Y-m-d H:i:s', $this->probedAt) . ' UTC',
             'Exécution de commandes vérifiée (PHP du cron) : ' . ($this->shellWorks ? 'oui' : 'NON')
                 . ' (' . ($this->shellFunction ?? 'aucune fonction') . ' — ' . $this->shellDetail . ')',
             'ffmpeg (PHP du cron) : ' . ($this->ffmpegPath ?? 'introuvable'),
             'ffprobe (PHP du cron) : ' . ($this->ffprobePath ?? 'introuvable'),
             'proc_open disponible (PHP du cron) : ' . $yesNo($this->pdfProcOpen),
-            'Outil de compression PDF (PHP du cron) : '
-                . (!$this->pdfMeasured() ? 'pas encore mesuré' : ($this->pdfReady() ? (string) $this->pdfBackend : 'aucun')),
+            'Outil de compression PDF (PHP du cron) : ' . $tool,
         ];
     }
 
@@ -134,9 +137,9 @@ final class CronExecutionFacts
             '',
             'text',
             'Capacités d\'exécution du cron',
-            'Ce que le PHP du cron sait exécuter (fonction, erreur exacte, ffmpeg, ffprobe, proc_open et outil de compression PDF), en JSON, avec '
-                . 'l\'heure de la mesure. Écrit par public/cron.php, lu par la page Santé de l\'hébergement et '
-                . 'par la galerie. Lecture seule.',
+            'Ce que le PHP du cron sait exécuter (fonction, erreur exacte, ffmpeg, ffprobe, proc_open et outil '
+                . 'de compression PDF), en JSON, avec l\'heure de la mesure. Écrit par public/cron.php, lu par la '
+                . 'page Santé de l\'hébergement et par la galerie. Lecture seule.',
             null,
             null,
             null,

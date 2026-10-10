@@ -138,7 +138,8 @@ class CommandsCollector implements SupportCollectorInterface
                 $shell['declared'] ? 'shell_execution_declared_but_not_working' : 'shell_execution_disabled'
             );
             foreach ([...array_keys(self::COMMANDS), ...array_keys(self::HOST_INVENTORY)] as $command) {
-                $lines[] = $command . ' : non vérifiable depuis ce PHP (l\'exécution de commandes n\'y fonctionne pas)';
+                $lines[] = $command . ' : non vérifiable depuis ce PHP '
+                    . '(l\'exécution de commandes n\'y fonctionne pas)';
             }
             $this->cronSection($lines, $context);
             $context->addFileFromContent('commands.txt', implode("\n", $lines) . "\n");
