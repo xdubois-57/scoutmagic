@@ -16,6 +16,9 @@
   (dashboard/movements/receipts filter forms, import's own form field),
   so showing both would be redundant.
 #}
+{# « Contrôle des créances » comes after the screens where the work is
+   done (issue #836): it is a cross-module check, not a step of the
+   workflow. #}
 {% include 'partials/page_picker.html.twig' with {
     picker_id: 'finance-page-picker',
     pages: [
@@ -23,9 +26,9 @@
         {'url': '/finance/movements', 'label': 'Mouvements'},
         {'url': '/finance/receipts', 'label': 'Reçus'},
         {'url': '/finance/import', 'label': 'Importer'},
-        {'url': '/finance/receivables', 'label': 'Paiements attendus'},
         {'url': '/finance/campaigns', 'label': 'Campagnes'},
         {'url': '/finance/reconciliation', 'label': 'Rapprochement'},
+        {'url': '/finance/receivables', 'label': 'Contrôle des créances'},
         {'url': '/finance/tools', 'label': 'Outils'},
     ],
     current_path: current_path,

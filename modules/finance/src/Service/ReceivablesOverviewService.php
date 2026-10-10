@@ -9,13 +9,17 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Security\Role;
+use Modules\Finance\Api\ReceivableDestination;
 use Modules\Finance\Api\ReceivableSourceDescriberInterface;
+use Modules\Finance\Api\ReceivableSourceDestinationInterface;
+use Modules\Finance\Api\ReceivableViewer;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 
 /**
- * Builds the view model for the "Paiements attendus" reconciliation page
- * (Controller\ReceivablesController) — a generic, module-agnostic list of
+ * Builds the view model for the « Contrôle des créances » page
+ * (Controller\ReceivablesController; « Contrôle des créances » until issue
+ * #836) — a generic, module-agnostic list of
  * every finance_expected_receivables row grouped by source_module (level
  * 1) then by source_reference_id (level 2), with each row's live-computed
  * status (level 3). Finance has no notion of what a source instance "is"
@@ -68,6 +72,11 @@ class ReceivablesOverviewService
      * at all — see where it is computed. `receivables` is every row of the
      * source with the instance boundaries removed, for when it is not.
      *
+     * `destination` is where an instance is actually managed — the screen
+     * of the module that raised it, for $viewer (issue #836) — or null.
+     * Each row carries its instance's, for when the middle level is
+     * dropped. Without a $viewer no destination is asked for at all.
+     *
      * @return array<int, array{
      *     source_module: string,
      *     source_label: string,
@@ -77,6 +86,7 @@ class ReceivablesOverviewService
      *     instances: array<int, array{
      *         source_reference_id: int,
      *         instance_label: string,
+     *         destination: array{label: string, url: string}|null,
      *         amount_due: int,
      *         amount_received: int,
      *         receivables: array<
@@ -88,7 +98,8 @@ class ReceivablesOverviewService
      *                 communication: string,
      *                 amount_due: int,
      *                 amount_received: int,
-     *                 status: string
+     *                 status: string,
+     *                 destination: array{label: string, url: string}|null
      *             }
      *         >
      *     }>,
@@ -101,12 +112,13 @@ class ReceivablesOverviewService
      *             communication: string,
      *             amount_due: int,
      *             amount_received: int,
-     *             status: string
+     *             status: string,
+     *             destination: array{label: string, url: string}|null
      *         }
      *     >
      * }>
      */
-    public function buildOverview(Role $viewerRole): array
+    public function buildOverview(Role $viewerRole, ?ReceivableViewer $viewer = null): array
     {
         $overview = [];
         $visibleAccountIds = $this->visibleAccountIds($viewerRole);
@@ -148,6 +160,7 @@ class ReceivablesOverviewService
             $sourceAmountReceived = 0;
 
             foreach ($instancesByReference as $referenceId => $group) {
+                $destination = $viewer !== null ? $this->destination($sourceModule, $referenceId, $viewer) : null;
                 $rows = [];
                 $instanceAmountDue = 0;
                 $instanceAmountReceived = 0;
@@ -175,6 +188,7 @@ class ReceivablesOverviewService
                         'amount_due' => $status['amount_due'],
                         'amount_received' => $status['amount_received'],
                         'status' => $status['status'],
+                        'destination' => $destination,
                     ];
 
                     $rows[] = $row;
@@ -186,6 +200,7 @@ class ReceivablesOverviewService
                 $instances[] = [
                     'source_reference_id' => $referenceId,
                     'instance_label' => $this->instanceLabel($sourceModule, $referenceId),
+                    'destination' => $destination,
                     'amount_due' => $instanceAmountDue,
                     'amount_received' => $instanceAmountReceived,
                     'receivables' => $rows,
@@ -357,6 +372,33 @@ class ReceivablesOverviewService
         // an object somebody deleted. Naming the group by its id is honest;
         // a made-up name would not be.
         return ucfirst($sourceModule) . ' #' . $referenceId;
+    }
+
+    /**
+     * Where this instance is managed, for this viewer — asked of the
+     * source's describer when it also speaks
+     * {@see ReceivableSourceDestinationInterface}, and treated as absent
+     * when it does not, when it answers null, or when it throws: a link
+     * nobody can produce is simply not shown.
+     *
+     * @return array{label: string, url: string}|null
+     */
+    private function destination(string $sourceModule, int $referenceId, ReceivableViewer $viewer): ?array
+    {
+        $describer = $this->describers[$sourceModule] ?? null;
+        if (!$describer instanceof ReceivableSourceDestinationInterface) {
+            return null;
+        }
+
+        try {
+            $destination = $describer->destinationFor($referenceId, $viewer);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $destination instanceof ReceivableDestination
+            ? ['label' => $destination->label, 'url' => $destination->url]
+            : null;
     }
 
     /**

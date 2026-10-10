@@ -93,8 +93,16 @@ final class ExtrasBlueprint
      */
     public const RECEIVABLE_AMOUNT_CENTS = 6500;
 
-    /** The module name recorded as the source of these receivables. */
-    public const RECEIVABLE_SOURCE_MODULE = 'reference_dataset';
+    /**
+     * The module name recorded as the source of these receivables — and,
+     * since no module describes it, the name « Contrôle des créances »
+     * shows for their group: finance capitalises a source it has no
+     * describer for. It used to be `reference_dataset`, which put
+     * « Reference_dataset » in front of whoever opened that page (issue
+     * #836). Chosen to read right through that fallback, rather than by a
+     * special case for a fixture in production code.
+     */
+    public const RECEIVABLE_SOURCE_MODULE = 'cotisations';
 
     /**
      * The email address of every section, and of the synthesised Staff d'U.

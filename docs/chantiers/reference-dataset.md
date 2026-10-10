@@ -566,7 +566,7 @@ dans ARCHITECTURE.md §8.3.
 2. **Le montant dû d'une créance n'est pas le montant payé.** Les paiements du
    relevé sont tirés entre 35 € et 95 €, la cotisation vaut 65 € : certains
    foyers sont à jour, d'autres en dessous, d'autres au-dessus. Une page
-   « Paiements attendus » où tout est soldé ne montre rien.
+   « Contrôle des créances » où tout est soldé ne montre rien.
 3. **Un départ marqué qui ne se réalise pas.** Deux des trois marquages
    correspondent à des membres réellement absents l'année suivante ; le
    troisième porte sur quelqu'un qui reste. Un marquage est une prévision, pas
