@@ -195,9 +195,10 @@ export function toStoredHtml(surface) {
     // Then a placeholder typed by hand rather than inserted: normalise its
     // spacing so it matches the server's pattern exactly, instead of
     // failing to substitute over a stray double space.
-    // Images already in the value are kept, as in editable.js: content the
-    // server accepted is not dropped by being saved again.
-    return window.ScoutMagicRichText.canonicalHtml(clone.innerHTML, { images: true }).replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, '{{ $1 }}');
+    // What the value already held and the server accepted (an image, an
+    // <h4>, a quotation) is kept, as in editable.js: it is not dropped by
+    // being saved again.
+    return window.ScoutMagicRichText.canonicalHtml(clone.innerHTML, { stored: true }).replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/g, '{{ $1 }}');
 }
 
 /**
@@ -250,7 +251,7 @@ export function wireField(root) {
     // It is shown in the canonical form (issue #844) — a text stored before
     // it is presented as the toolbar would have written it — and all that
     // is then missing is the chips.
-    surface.replaceChildren(window.ScoutMagicRichText.canonicalFragment(surface.innerHTML, { images: true }));
+    surface.replaceChildren(window.ScoutMagicRichText.canonicalFragment(surface.innerHTML, { stored: true }));
     chipify(surface, known);
     surface.setAttribute('contenteditable', 'true');
     // Announced as an editable multi-line box only now that it is one.

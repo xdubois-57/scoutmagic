@@ -1210,7 +1210,11 @@ its style there, and the formatting changed on save. It does not run after
 each toolbar command: rewriting the live DOM under the caret would lose the
 selection and the browser's own undo history. The news editor adds `img` to
 the grammar (`{ images: true }`); a rich-text form field turns pasted
-`{{ keyword }}` text into chips before it lands (`decorate`).
+`{{ keyword }}` text into chips before it lands (`decorate`). A text being
+**reopened or saved again** is canonicalised with `{ stored: true }`: what
+the sanitiser accepted and no button makes — `img`, `h4`, `blockquote` —
+survives, so saving an untouched text never changes it. Only a paste is
+held to the toolbar's own gestures.
 
 This is not the client-side sanitiser the paragraph above refuses. **The
 clipboard's HTML is never read as a string**: parsing it here, even in an

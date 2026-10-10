@@ -158,6 +158,27 @@ describe('ScoutMagicRichText.canonicalHtml() — images, only where the surface 
     });
 });
 
+describe('ScoutMagicRichText.canonicalHtml() — a stored text keeps what the server accepted', () => {
+    it('keeps an <h4> and a quotation that no button makes, but a paste flattens them', async () => {
+        const rt = await loadHelper();
+        const stored = '<h4>Petit titre</h4><blockquote><p>Cité</p><p><b>Encore</b></p></blockquote><p>Fin</p>';
+
+        // Opening and saving again must not change what the author did not touch.
+        expect(rt.canonicalHtml(stored, { stored: true }))
+            .toBe('<h4>Petit titre</h4><blockquote><p>Cité</p><p><strong>Encore</strong></p></blockquote><p>Fin</p>');
+        // A paste is held to the toolbar's own gestures.
+        expect(rt.canonicalHtml(stored)).toBe('<h3>Petit titre</h3><p>Cité</p><p><strong>Encore</strong></p><p>Fin</p>');
+    });
+
+    it('is idempotent in that mode too, and gives loose quoted text a paragraph', async () => {
+        const rt = await loadHelper();
+        const once = rt.canonicalHtml('<blockquote>Une citation</blockquote><img src="/files/2" alt="x">', { stored: true });
+
+        expect(once).toBe('<blockquote><p>Une citation</p></blockquote><p><img src="/files/2" alt="x"></p>');
+        expect(rt.canonicalHtml(once, { stored: true })).toBe(once);
+    });
+});
+
 describe('ScoutMagicRichText.canonicalFragment()', () => {
     it('builds nodes of the live document and never runs what it reads', async () => {
         const rt = await loadHelper();

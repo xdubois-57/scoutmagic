@@ -33,6 +33,7 @@ interface HelpSearchEntry {
 // common canonical grammar (issue #844).
 interface ScoutMagicRichTextOptions {
     images?: boolean;
+    stored?: boolean;
     decorate?: (container: HTMLElement) => void;
 }
 

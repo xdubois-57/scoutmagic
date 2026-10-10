@@ -64,6 +64,20 @@ final class RichTextCanonicalContractTest extends TestCase
         $this->assertSame($expected, (new HtmlSanitizer())->sanitize($canonical));
     }
 
+    /**
+     * The `stored` form — what an editor sends back for a text it reopened —
+     * keeps the tags the sanitiser accepts and no button makes. The server
+     * must keep those as they are too, or saving an untouched text would
+     * still change it. Mirrors tests/js/rich-text-canonical.test.js.
+     */
+    public function testTheServerKeepsWhatAReopenedTextKeeps(): void
+    {
+        $stored = '<h4>Petit titre</h4><blockquote><p>Cité</p><p><strong>Encore</strong></p></blockquote>'
+            . '<p><img src="/files/2" alt="x"></p>';
+
+        $this->assertSame($stored, (new HtmlSanitizer())->sanitize($stored));
+    }
+
     #[DataProvider('cases')]
     public function testWhatThePasteCarriedIsStillRefusedWhenItReachesTheServerUnnormalised(string $pasted, string $canonical): void
     {

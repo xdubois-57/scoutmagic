@@ -226,6 +226,11 @@
      * @typedef {object} CanonicalOptions
      * @property {boolean} [images] keep <img> — the news editor has an
      *           image button; the generic surfaces do not
+     * @property {boolean} [stored] the text is one the server already
+     *           accepted, being opened or saved again: what the sanitiser
+     *           keeps and no button makes — <img>, <h4>, <blockquote> —
+     *           survives, because dropping it on save would change the text
+     *           without anybody asking. A paste never gets this.
      * @property {(container: HTMLElement) => void} [decorate] runs over a
      *           pasted fragment before it is inserted — rich-text form
      *           fields turn `{{ keyword }}` text into chips here
@@ -587,7 +592,8 @@
      * @returns {DocumentFragment}
      */
     function canonicalNodes(sourceRoot, options) {
-        var images = Boolean(options?.images);
+        var stored = Boolean(options?.stored);
+        var images = stored || Boolean(options?.images);
         var doc = document;
 
         var root = doc.createDocumentFragment();
@@ -822,17 +828,42 @@
             } else if (tag === 'li' || tag === 'p') {
                 block(element, 'p', inner);
             } else if (Object.hasOwn(HEADINGS, tag)) {
-                block(element, HEADINGS[tag], inner);
+                block(element, stored && tag === 'h4' ? 'h4' : HEADINGS[tag], inner);
             } else if (tag === 'pre') {
                 preformatted = true;
                 block(element, 'p', inner);
                 preformatted = false;
+            } else if (stored && tag === 'blockquote' && item === null) {
+                quotation(element, inner);
             } else if (TRANSPARENT_BLOCKS.has(tag)) {
                 boundary();
                 walk(element, inner);
                 boundary();
             } else {
                 walk(element, inner);
+            }
+        }
+
+        /**
+         * A stored <blockquote>, kept as one: its content becomes blocks
+         * inside it rather than beside it.
+         *
+         * @param {Element} source
+         * @param {Format} format
+         * @returns {void}
+         */
+        function quotation(source, format) {
+            flush();
+            var quote = doc.createElement('blockquote');
+            blockParent.appendChild(quote);
+            var outer = blockParent;
+            blockParent = quote;
+            walk(source, format);
+            flush();
+            blockParent = outer;
+            wordList = null;
+            if (!quote.hasChildNodes()) {
+                quote.remove();
             }
         }
 
