@@ -243,6 +243,28 @@ describe('pull-to-refresh.js: the gesture', () => {
         expect(reload).not.toHaveBeenCalled();
     });
 
+    it('ignores a pull on the page while a dropdown menu is open', async () => {
+        document.body.insertAdjacentHTML('beforeend', '<ul class="dropdown-menu show"><li>Mon compte</li></ul>');
+        await boot();
+
+        const moves = pullPastThreshold();
+
+        expect(reload).not.toHaveBeenCalled();
+        expect(moves.some((event) => event.defaultPrevented)).toBe(false);
+    });
+
+    it('hands the touch back to the browser when the pull reverses above its start', async () => {
+        await boot();
+
+        const moves = gesture(document.body, [100, 10], [[100, 30], [100, 90], [100, 5], [100, -60]]);
+
+        expect(moves[1].defaultPrevented).toBe(true);
+        expect(moves[2].defaultPrevented).toBe(false);
+        expect(moves[3].defaultPrevented).toBe(false);
+        expect(indicator().classList.contains('is-pulling')).toBe(false);
+        expect(reload).not.toHaveBeenCalled();
+    });
+
     it('ignores a pull inside a list that is itself scrolled down', async () => {
         document.body.insertAdjacentHTML('beforeend', '<div id="list"><p id="row">x</p></div>');
         Object.defineProperty(document.getElementById('list'), 'scrollTop', { configurable: true, value: 120 });

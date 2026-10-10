@@ -62,7 +62,9 @@
     // .offcanvas class, hence the list.
     var OFFCANVAS = ['.offcanvas', '.offcanvas-sm', '.offcanvas-md', '.offcanvas-lg', '.offcanvas-xl', '.offcanvas-xxl'];
     var OWN_SCROLL_SURFACES = ['.modal', '.dropdown-menu'].concat(OFFCANVAS).join(', ');
-    var OPEN_OVERLAYS = ['.modal.show'].concat(
+    // An open dropdown counts too: a pull on the page behind it would
+    // reload under a menu the user is reading.
+    var OPEN_OVERLAYS = ['.modal.show', '.dropdown-menu.show'].concat(
         OFFCANVAS.map(function (selector) { return selector + '.show, ' + selector + '.showing'; })
     ).join(', ');
 
@@ -233,6 +235,12 @@
             state = 'pulling';
             indicator.classList.add('is-pulling');
             indicator.classList.toggle('is-reduced-motion', reducedMotion);
+        } else if (dy <= 0) {
+            // Back above where the finger landed: the user changed their
+            // mind. The touch goes back to the browser — without this the
+            // page would stay scroll-locked until the finger lifts.
+            rest();
+            return;
         }
 
         pull = Math.max(0, Math.min(dy * RESISTANCE, MAX_PULL));
