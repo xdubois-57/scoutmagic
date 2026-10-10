@@ -8,7 +8,10 @@ use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Journal\JournalRepository;
+use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Pdf\PdfCompressor;
+use Core\Scheduler\SchedulerService;
 use Modules\Documents\Repository\DocumentRepository;
 use Modules\Documents\Repository\DocumentVersionRepository;
 use Modules\Documents\Service\DocumentService;
@@ -65,7 +68,10 @@ final class DocumentsTestHelper
         string $storage,
         ?FileRepository $files = null,
         ?DocumentRepository $documents = null,
-        ?DocumentVersionRepository $versions = null
+        ?DocumentVersionRepository $versions = null,
+        ?PdfCompressor $compressor = null,
+        ?SchedulerService $scheduler = null,
+        ?SettingService $settings = null
     ): DocumentService {
         $files ??= new FileRepository($pdo);
         return new DocumentService(
@@ -75,7 +81,10 @@ final class DocumentsTestHelper
             $files,
             new AttachedFileRemover($files, $storage),
             new JournalService(new JournalRepository($pdo)),
-            $storage
+            $storage,
+            $compressor,
+            $scheduler,
+            $settings
         );
     }
 

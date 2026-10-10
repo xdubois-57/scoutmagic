@@ -20,6 +20,7 @@ use Core\Member\SectionDocumentService;
 use Core\Member\SectionMembershipRepository;
 use Core\Member\SectionService;
 use Core\Pdf\PdfCompressor;
+use Core\System\CronExecutionFacts;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
@@ -83,8 +84,7 @@ class SectionDocumentServiceTest extends TestCase
             new ScoutYearService($this->pdo),
             new JournalService(new JournalRepository($this->pdo)),
             new SchedulerService(new SchedulerRepository($this->pdo)),
-            $settingService,
-            new PdfCompressor($this->storagePath . '/temp')
+            $settingService
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -112,6 +112,34 @@ class SectionDocumentServiceTest extends TestCase
             is_dir($path) ? $this->removeDirectory($path) : unlink($path);
         }
         rmdir($dir);
+    }
+
+    /**
+     * #804: the tool is the CRON's — it compresses these documents in a task —
+     * and never detected in the web request. Unknown stays unknown.
+     */
+    public function testTheDetectedBackendIsWhatTheCronMeasuredAndUnknownBeforeThat(): void
+    {
+        $this->assertNull($this->service->refreshDetectedBackend(), 'never measured: no claim either way');
+
+        $this->settingService->register(CronExecutionFacts::SETTING, '', 'text', 'x', 'x', null, null, null, false);
+        $store = function (?bool $procOpen, ?string $backend): void {
+            $this->settingService->setInternal(CronExecutionFacts::SETTING, (string) json_encode(
+                (new CronExecutionFacts(
+                    1_800_000_000, 'cli', true, true, 'exec', 'code 0', null, null, $procOpen, $backend
+                ))->toArray()
+            ));
+        };
+
+        $store(null, null);
+        $this->assertNull($this->service->refreshDetectedBackend(), 'measured before the cron looked at PDFs');
+
+        $store(true, PdfCompressor::BACKEND_GHOSTSCRIPT);
+        $this->assertSame(PdfCompressor::BACKEND_GHOSTSCRIPT, $this->service->refreshDetectedBackend());
+        $this->assertSame(PdfCompressor::BACKEND_GHOSTSCRIPT, $this->settingService->get('section_document_compression_backend'));
+
+        $store(false, PdfCompressor::BACKEND_NONE);
+        $this->assertSame(PdfCompressor::BACKEND_NONE, $this->service->refreshDetectedBackend());
     }
 
     public function testUploadCreatesADocumentAndSetsFileOwnership(): void

@@ -13,8 +13,8 @@ use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Journal\JournalService;
-use Core\Pdf\PdfCompressor;
 use Core\Scheduler\SchedulerService;
+use Core\System\CronExecutionFacts;
 
 /**
  * Section documents (camp booklets, activity sheets, material lists) —
@@ -61,22 +61,33 @@ class SectionDocumentService
         private ScoutYearService $scoutYearService,
         private JournalService $journalService,
         private SchedulerService $schedulerService,
-        private SettingService $settingService,
-        private PdfCompressor $pdfCompressor
+        private SettingService $settingService
     ) {
     }
 
     /**
-     * Re-detects the available PDF compression backend and caches it in
-     * the read-only 'section_document_compression_backend' setting shown
-     * (greyed) on the Paramètres page — called from StaffsController::
-     * index() rather than on every request, since it's a real subprocess
-     * spawn (a quick --version-style check) and is only actually
-     * consulted from the Staffs page's own explanatory panel.
+     * The PDF compression tool the CRON's PHP found, or null while it has
+     * never measured (#804). Caches it in the read-only
+     * 'section_document_compression_backend' setting shown (greyed) on the
+     * Paramètres page — called from StaffsController::index().
+     *
+     * **Read from the cron's measurement, never detected here**: compression
+     * of a section document runs in a task, so what counts is what the
+     * cron's PHP can do — the web PHP may be forbidden to launch any program
+     * on a host where the cron compresses very well, and a warning measured
+     * in the wrong PHP tells the chief that nothing will be compressed when
+     * it will. It also spares the staff page a process spawn per display.
+     *
+     * Null is « unknown », and the page then says nothing: it is neither
+     * « no tool » (warning) nor a tool.
      */
-    public function refreshDetectedBackend(): string
+    public function refreshDetectedBackend(): ?string
     {
-        $backend = $this->pdfCompressor->detectBackend();
+        $facts = CronExecutionFacts::read($this->settingService);
+        if ($facts === null || !$facts->pdfMeasured()) {
+            return null;
+        }
+        $backend = (string) $facts->pdfBackend;
         $this->settingService->setInternal('section_document_compression_backend', $backend);
 
         return $backend;
