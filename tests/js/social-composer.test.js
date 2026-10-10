@@ -595,6 +595,37 @@ describe('« Publier » sends the card the page drew', () => {
         expect(submits).toBe(1);
     });
 
+    it('does not intercept, or break on, a submit that names no button', async () => {
+        // Enter pressed in a text field submits with no submitter in
+        // several browsers. Nothing is being published, so the composer
+        // has to stand aside — and it reads that off `submitter?.value`.
+        //
+        // **The uncaught error is the assertion that matters here.** A
+        // guard that lets a null submitter through reaches
+        // `submitter.dataset.confirm` and throws; jsdom reports that and
+        // carries on, so `defaultPrevented`, the card field and the
+        // hidden field all look exactly as they do when the guard works.
+        // Asserting only those three gave a test that passed with the
+        // guard broken.
+        const { dom } = await ready({ size: 1, type: 'image/jpeg' });
+        const thrown = [];
+        const onError = (e) => {
+            thrown.push(String(e.error || e.message));
+        };
+        window.addEventListener('error', onError);
+
+        const event = new Event('submit', { cancelable: true, bubbles: true });
+        Object.defineProperty(event, 'submitter', { value: null });
+        dom.form.dispatchEvent(event);
+        await settle();
+        window.removeEventListener('error', onError);
+
+        expect(thrown).toEqual([]);
+        expect(event.defaultPrevented).toBe(false);
+        expect(dom.cardField.files).toHaveLength(0);
+        expect(dom.form.querySelectorAll('input[type="hidden"][name="action"]')).toHaveLength(0);
+    });
+
     it('does not intercept the gallery and upload round trips', async () => {
         const { dom } = await ready({ size: 1, type: 'image/jpeg' });
 

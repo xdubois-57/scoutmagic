@@ -87,16 +87,18 @@
      * place, which is a card whose title wraps slightly differently —
      * not the absence of a card.
      */
+    /** The face has settled, loaded or failed — either way, draw. */
+    function fontSettled() {
+        fontLanded = true;
+    }
+
     function cardFont() {
         if (fontRequest !== null) {
             return fontRequest;
         }
-        const settled = function () {
-            fontLanded = true;
-        };
         const fonts = document.fonts;
         if (!fonts || typeof fonts.load !== 'function') {
-            settled();
+            fontSettled();
             fontRequest = Promise.resolve();
 
             return fontRequest;
@@ -104,9 +106,9 @@
         try {
             fontRequest = fonts
                 .load('700 ' + engine.cardConstants().titleSize + 'px "ScoutMagic Card"')
-                .then(settled, settled);
+                .then(fontSettled, fontSettled);
         } catch (error) {
-            settled();
+            fontSettled();
             fontRequest = Promise.resolve();
         }
 
@@ -368,7 +370,7 @@
             const submitter = /** @type {HTMLButtonElement|null} */ (event.submitter);
             // The gallery and upload buttons are round trips that keep the
             // draft; only « Publier » sends an image.
-            if (!submitter || submitter.value !== 'publish') {
+            if (submitter?.value !== 'publish') {
                 return;
             }
             if (sending) {
@@ -423,7 +425,12 @@
     // Claimed before the photo arrives, so the two waits overlap and the
     // first draw is the only draw. Whichever lands second asks for the
     // frame: the photo's own `load` handler below, or this.
-    cardFont().then(function () {
+    //
+    // `void`, because nothing here has anybody to answer to and
+    // `cardFont()` cannot reject — it hands both arms of the font's own
+    // promise to the same handler, and the two branches that have no
+    // font set to ask resolve at once.
+    void cardFont().then(function () {
         if (canDraw()) {
             schedule();
         }
