@@ -18,7 +18,7 @@
        is the one below: no second way to open a map. #}
     {% set _banner = carpool.day_banner %}
     {% if _banner %}
-        <div class="alert alert-{{ _banner.tone }} mb-3" role="region" aria-label="Votre trajet d'aujourd'hui" data-carpool-day-banner>
+        <section class="alert alert-{{ _banner.tone }} mb-3" aria-label="Votre trajet d'aujourd'hui" data-carpool-day-banner>
             <div class="fw-semibold mb-1">
                 <i class="bi bi-car-front" aria-hidden="true"></i>
                 Aujourd'hui · {{ _banner.direction }} à {{ _banner.time }}
@@ -54,7 +54,7 @@
                     </div>
                 {% endfor %}
             {% endif %}
-        </div>
+        </section>
     {% endif %}
 
     {# What the address IS depends on the direction (#703): every car of
