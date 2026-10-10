@@ -971,19 +971,28 @@
      */
     function plainTextFragment(text) {
         var fragment = document.createDocumentFragment();
-        // Any run of blank lines separates two paragraphs, however long.
-        String(text).replace(/\r\n?/g, '\n').split(/\n(?:[ \t]*\n)+/).forEach(function (paragraph) {
-            if (paragraph.trim() === '') {
-                return;
-            }
-            paragraph = paragraph.replace(/^\n+|\n+$/g, '');
+        /** @type {string[]} the lines of the paragraph being read */
+        var lines = [];
+        var close = function () {
+            if (lines.length === 0) return;
             var block = document.createElement('p');
-            paragraph.split('\n').forEach(function (line, index) {
+            lines.forEach(function (line, index) {
                 if (index > 0) block.appendChild(document.createElement('br'));
                 block.appendChild(document.createTextNode(line));
             });
             fragment.appendChild(block);
+            lines = [];
+        };
+        // Line by line, not one split on a pattern: a blank line closes the
+        // paragraph, so any run of them separates two, however long.
+        String(text).replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+            if (line.trim() === '') {
+                close();
+            } else {
+                lines.push(line);
+            }
         });
+        close();
         return fragment;
     }
 
