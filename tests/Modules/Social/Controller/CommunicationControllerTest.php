@@ -232,6 +232,118 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **The slider's value is stored**, which nothing asserted until the
+     * review of #850 — on the headline feature of this iteration, and
+     * `AGENTS.md` § Tests makes it mandatory.
+     */
+    public function testTheSliderValueIsStoredWithTheCommunication(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'blur_ratio' => '0.1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertEqualsWithDelta(0.1, (float) $this->pdo->query(
+            'SELECT blur_ratio FROM social_communications WHERE id = ' . $id
+        )->fetchColumn(), 0.0001);
+    }
+
+    /**
+     * And it is clamped, not trusted: a value past the slider's end, or
+     * one no number can be read from, must not reach the renderer.
+     */
+    public function testAnImpossibleSliderValueIsBroughtIntoRange(): void
+    {
+        $this->loginAuthor();
+        $stored = function (string $posted): float {
+            $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+            $this->controller()->update(
+                $this->post(['title' => 'Week-end', 'body' => 'Texte', 'blur_ratio' => $posted]),
+                ['id' => (string) $id]
+            );
+
+            return (float) $this->pdo->query(
+                'SELECT blur_ratio FROM social_communications WHERE id = ' . $id
+            )->fetchColumn();
+        };
+
+        $this->assertSame(0.0, $stored('-1'), 'a negative ratio must become « Net », not a negative radius');
+        $this->assertEqualsWithDelta(CardService::MAX_BLUR_RATIO, $stored('5'), 0.0001);
+        // Unreadable: the site's own starting position, never zero — a
+        // value nobody could parse is not a chief asking for « Net ».
+        $this->assertEqualsWithDelta(CardService::DEFAULT_BLUR_RATIO, $stored('très flou'), 0.0001);
+    }
+
+    /**
+     * **A POST with no slider at all leaves the stored value alone.**
+     *
+     * The retry page posts to this controller and carries no slider, so
+     * reading an absent field as zero would silently turn a blurred
+     * share sharp on its second attempt. The guard that prevents it had
+     * no test until the review of #850 — the kind of guard that regresses
+     * without a sound.
+     */
+    public function testAPostWithoutTheSliderKeepsTheBlurAlreadyChosen(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'blur_ratio' => '0.08']),
+            ['id' => (string) $id]
+        );
+
+        // No `blur_ratio` key at all, as the retry page posts.
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertEqualsWithDelta(0.08, (float) $this->pdo->query(
+            'SELECT blur_ratio FROM social_communications WHERE id = ' . $id
+        )->fetchColumn(), 0.0001, 'an absent slider was read as « Net » and turned a blurred share sharp');
+    }
+
+    /**
+     * And once something has left, the slider no longer moves it: the
+     * blur is frozen with the text and the card.
+     */
+    public function testAFrozenShareIgnoresAPostedSliderValue(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'blur_ratio' => '0.08']),
+            ['id' => (string) $id]
+        );
+
+        $at = new \DateTimeImmutable('-1 day');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'facebook',
+            false,
+            $this->author,
+            $at,
+            $at->modify('-1 day'),
+            '',
+            'Texte'
+        );
+        $this->publications->markPublished('communication', $id, 'facebook', '42_9', $at, $at);
+
+        $this->controller()->update(
+            $this->post(['title' => 'Week-end', 'body' => 'Texte', 'blur_ratio' => '0']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertEqualsWithDelta(0.08, (float) $this->pdo->query(
+            'SELECT blur_ratio FROM social_communications WHERE id = ' . $id
+        )->fetchColumn(), 0.0001, 'a frozen share let its blur be changed');
+    }
+
+    /**
      * **Nor does a destination that refused.** Found in the review of
      * #850, after the fix below covered only one path of three.
      *
