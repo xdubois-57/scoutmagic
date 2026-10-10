@@ -171,6 +171,8 @@ describe('ScoutMagicRichText.canonicalHtml() — siteImages', () => {
 
         expect(rt.canonicalHtml('<p><img src="https://ailleurs.be/x.png">a</p>', { siteImages: true })).toBe('<p>a</p>');
         expect(rt.canonicalHtml('<p><img src="//ailleurs.be/x.png">b</p>', { siteImages: true })).toBe('<p>b</p>');
+        // A browser reads a backslash after the first slash as a slash.
+        expect(rt.canonicalHtml('<p><img src="/\\ailleurs.be/x.png">c</p>', { siteImages: true })).toBe('<p>c</p>');
     });
 });
 

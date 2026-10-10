@@ -783,7 +783,9 @@
          */
         function imageSegment(element, format) {
             var src = images || siteImages ? safeUrl(element.getAttribute('src'), true) : null;
-            if (src === null || (!images && !/^\/(?!\/)/.test(src))) {
+            // A path from the root, and only that: `//host` is another site,
+            // and so is `/\host`, a browser reading a backslash as a slash.
+            if (src === null || (!images && !/^\/(?![/\\])/.test(src))) {
                 return null;
             }
             /** @param {string} name @returns {string|null} */
