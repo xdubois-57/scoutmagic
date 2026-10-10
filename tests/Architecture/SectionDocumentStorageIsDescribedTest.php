@@ -49,7 +49,6 @@ class SectionDocumentStorageIsDescribedTest extends TestCase
      */
     private const STORAGE_COLLABORATORS = [
         'Core\File\EncryptedFileStorageService',
-        'Core\Pdf\PdfCompressor',
         'Core\Scheduler\SchedulerService',
     ];
 

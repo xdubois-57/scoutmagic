@@ -2949,8 +2949,7 @@ $sectionDocumentService = new \Core\Member\SectionDocumentService(
     $scoutYearService,
     $journalService,
     $schedulerService,
-    $settingService,
-    new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+    $settingService
 );
 
 // Unit logo (favicon, PWA icons, footer logo — originally Lot 1's PWA-only
@@ -7747,7 +7746,10 @@ if ($isEnabled('documents')) {
         $attachedFileRemover,
         $journalService,
         $storagePath,
-        new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+        new \Core\Pdf\PdfCompressor($storagePath . '/temp'),
+        // The cron compresses when it can (#804); the upload only queues it.
+        $schedulerService,
+        $settingService
     );
     $frontController->registerController(
         \Modules\Documents\Controller\DocumentsPublicController::class,
