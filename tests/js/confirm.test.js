@@ -453,6 +453,89 @@ describe('ScoutMagicConfirm.prompt() with a note', () => {
 // all. It used to be an inline <script> in base.html.twig, where no unit
 // test could reach it — and before that, an identical copy in three page
 // templates, missing from a fourth.
+describe('ScoutMagicConfirm.form()', () => {
+    const fields = () => [
+        {
+            name: 'text',
+            label: 'Texte du lien',
+            value: 'Notre site',
+            action: { label: 'Proposer le titre de la page', icon: 'bi-magic', run: vi.fn() },
+        },
+        { name: 'url', label: 'Adresse du lien', placeholder: 'https://…' },
+    ];
+
+    it('labels each field, in order, and focuses the first', async () => {
+        const smConfirm = await loadConfirm();
+        smConfirm.form({ title: 'Insérer un lien', fields: fields() });
+
+        const labels = [...document.querySelectorAll('#sm-confirm-modal label')];
+        expect(labels.map((l) => l.textContent)).toEqual(['Texte du lien', 'Adresse du lien']);
+        labels.forEach((label) => {
+            expect(document.getElementById(label.htmlFor)).not.toBeNull();
+        });
+        const first = /** @type {HTMLInputElement} */ (document.getElementById(labels[0].htmlFor));
+        expect(first.value).toBe('Notre site');
+        expect(document.activeElement).toBe(first);
+    });
+
+    it('resolves to every value by name', async () => {
+        const smConfirm = await loadConfirm();
+        const answer = smConfirm.form({ title: 'Insérer un lien', fields: fields(), confirmLabel: 'Insérer le lien' });
+        const inputs = /** @type {HTMLInputElement[]} */ ([...document.querySelectorAll('#sm-confirm-modal input')]);
+        inputs[1].value = 'lesscouts.be';
+
+        buttonLabelled('Insérer le lien').click();
+
+        await expect(answer).resolves.toEqual({ text: 'Notre site', url: 'lesscouts.be' });
+    });
+
+    it('agrees on Enter in any field, and resolves to null on Annuler', async () => {
+        const smConfirm = await loadConfirm();
+        const agreed = smConfirm.form({ title: 'Insérer un lien', fields: fields() });
+        document.querySelectorAll('#sm-confirm-modal input')[1]
+            .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await expect(agreed).resolves.toEqual({ text: 'Notre site', url: '' });
+
+        const dismissed = smConfirm.form({ title: 'Insérer un lien', fields: fields() });
+        buttonLabelled('Annuler').click();
+        await expect(dismissed).resolves.toBeNull();
+    });
+
+    it('gives a field\'s action a named icon button, and lets it fill fields and say what it found', async () => {
+        const smConfirm = await loadConfirm();
+        let release;
+        const run = vi.fn((control) => new Promise((resolve) => {
+            control.set('text', 'Agenda');
+            control.note('text', 'Rien de mieux.', 'warning');
+            release = resolve;
+        }));
+        smConfirm.form({
+            title: 'Insérer un lien',
+            fields: [{ name: 'text', label: 'Texte du lien', action: { label: 'Proposer le titre de la page', icon: 'bi-magic', run } }],
+        });
+
+        const button = /** @type {HTMLButtonElement} */ (document.querySelector('#sm-confirm-modal .input-group button'));
+        expect(button.getAttribute('aria-label')).toBe('Proposer le titre de la page');
+        expect(button.querySelector('i.bi.bi-magic')?.getAttribute('aria-hidden')).toBe('true');
+
+        button.click();
+        expect(run).toHaveBeenCalledTimes(1);
+        // Disabled while the answer is on its way: one question at a time.
+        expect(button.disabled).toBe(true);
+
+        const input = /** @type {HTMLInputElement} */ (document.querySelector('#sm-confirm-modal input'));
+        const note = document.getElementById(input.getAttribute('aria-describedby'));
+        expect(input.value).toBe('Agenda');
+        expect(note.textContent).toBe('Rien de mieux.');
+        expect(note.getAttribute('aria-live')).toBe('polite');
+        expect(note.className).toContain('text-warning-emphasis');
+
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(button.disabled).toBe(false);
+    });
+});
+
 describe('the delegated data-confirm form handler', () => {
     /**
      * @param {Record<string, string>} attrs

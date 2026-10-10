@@ -139,8 +139,53 @@
         selection.addRange(range);
     }
 
+    // The « baguette magique »: proposes a link's text from the page it
+    // points at (core/Http/Controller/LinkLabelController.php).
+    var LABEL_ENDPOINT = '/api/lien/libelle';
+
     /**
-     * Asks for a URL and wraps the current selection in a link.
+     * Fills « Texte du lien » from the page at the address typed below it —
+     * its title, or the name of the file it ends with — or says, under the
+     * field, why it could not.
+     *
+     * @param {ScoutMagicFormControl} control
+     * @returns {Promise<void>}
+     */
+    function suggestLabel(control) {
+        var href = normalizeUrl(control.value('url'));
+        if (href === null) {
+            control.note('text', 'Indiquez d\'abord l\'adresse du lien.', 'warning');
+            return Promise.resolve();
+        }
+        if (!/^https?:\/\//i.test(href)) {
+            control.note('text', 'Aucun titre à proposer pour cette adresse : tapez le texte du lien.', 'warning');
+            return Promise.resolve();
+        }
+
+        control.note('text', 'Recherche du titre de la page…', 'muted');
+        return window.ScoutMagicApi.postJson(LABEL_ENDPOINT, { url: href }).then(function (res) {
+            var label = res.ok && res.data?.success ? res.data.label : null;
+            if (typeof label === 'string' && label !== '') {
+                control.set('text', label);
+                control.note('text', '');
+                return;
+            }
+            if (!res.ok && typeof res.data?.error === 'string') {
+                control.note('text', res.data.error, 'warning');
+                return;
+            }
+            control.note('text', 'Aucun titre trouvé pour cette page : tapez le texte du lien.', 'warning');
+        });
+    }
+
+    /**
+     * Asks for a link — the text to show and the address — and puts it
+     * where the selection was.
+     *
+     * « Texte du lien » starts with the selected text, so selecting a word
+     * and clicking « Lien » still links that word; it can be changed, or
+     * proposed from the page by the button beside it (issue #840). Left
+     * empty, the address itself is shown, as before.
      *
      * @param {HTMLElement|null} surface the contenteditable to give focus
      *        back to. Passing null still works — the selection is restored
@@ -149,25 +194,35 @@
      */
     function insertLink(surface) {
         var range = captureSelection();
+        var selected = range === null ? '' : range.toString();
 
-        return window.ScoutMagicConfirm.prompt({
-            message: 'URL du lien :',
+        return window.ScoutMagicConfirm.form({
             title: 'Insérer un lien',
-            placeholder: 'https://…',
+            fields: [
+                {
+                    name: 'text',
+                    label: 'Texte du lien',
+                    value: selected.trim(),
+                    placeholder: 'L\'adresse, si vous le laissez vide',
+                    action: {
+                        label: 'Proposer le titre de la page',
+                        icon: 'bi-magic',
+                        run: suggestLabel
+                    }
+                },
+                { name: 'url', label: 'Adresse du lien', placeholder: 'https://…' }
+            ],
             confirmLabel: 'Insérer le lien'
         }).then(function (answer) {
+            restoreSelection(surface, range);
             if (answer === null) {
-                // Dismissed: put the caret back so the visitor can carry on
-                // typing where they left off.
-                restoreSelection(surface, range);
+                // Dismissed: the caret is back where the visitor left it.
                 return false;
             }
 
-            var href = normalizeUrl(answer);
-            restoreSelection(surface, range);
-
+            var href = normalizeUrl(answer.url);
             if (href === null) {
-                if (answer.trim() !== '') {
+                if (String(answer.url || '').trim() !== '') {
                     window.ScoutMagicToast.show(
                         'Ce lien n\'a pas pu être inséré : seules les adresses web, email et téléphone sont acceptées.',
                         { variant: 'error' }
@@ -176,7 +231,26 @@
                 return false;
             }
 
-            document.execCommand('createLink', false, href);
+            var text = String(answer.text || '').trim();
+            if (selected.trim() !== '' && text === selected.trim()) {
+                // The selection, unchanged: wrapping it keeps whatever bold
+                // or italics it already carried.
+                document.execCommand('createLink', false, href);
+                return true;
+            }
+
+            // A new text: the link replaces the selection, built from
+            // nodes — the text is the visitor's, never read as markup.
+            var link = document.createElement('a');
+            link.setAttribute('href', href);
+            link.textContent = text === '' ? href : text;
+            var fragment = document.createDocumentFragment();
+            fragment.appendChild(link);
+            if (surface) {
+                insertFragment(surface, fragment);
+            } else {
+                document.execCommand('insertHTML', false, link.outerHTML);
+            }
             return true;
         });
     }

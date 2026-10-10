@@ -16,9 +16,11 @@
 // sheet that steals the whole screen. Nothing about it says which action is
 // dangerous, and nothing about it can.
 //
-// Two modes, one dialog:
+// Three modes, one dialog:
 //   ask(...)    → Promise<boolean>       « Supprimer ce reçu ? »
-//   prompt(...) → Promise<string|null>   « URL du lien : » [______]
+//   prompt(...) → Promise<string|null>   « Adresse : » [______]
+//   form(...)   → Promise<Object|null>   « Texte du lien » [______] [✨]
+//                                         « Adresse du lien » [______]
 //
 // prompt() exists so that the ban on native dialogs can be total. Two call
 // sites needed a one-field answer rather than a yes/no — the rich-text
@@ -26,6 +28,12 @@
 // pre-selected link to copy when navigator.clipboard is unavailable. Both
 // were window.prompt(), which on mobile is the worst of the three native
 // boxes.
+//
+// form() is the same dialog with more than one field, each with its own
+// label, and optionally a small button beside a field that fills it in —
+// the link dialog's « Texte du lien » and its « baguette magique » were the
+// first (issue #840). A second dialog builder for them would have been the
+// second dialog of the site.
 //
 // It renders the same modal the rest of the site uses (partials/modal.html.twig's
 // conventions, down to the '{id}-title' id), in French, with the danger
@@ -56,9 +64,11 @@
      *          variant: string, content?: Array<{kind?: string, tone?: string, title?: string,
      *          text?: string, items?: string[], note?: string}>,
      *          input: ({value: string, placeholder: string, inputType: string,
-     *          readonly: boolean, multiline: boolean, label: string, maxLength?: number}|null)}} opts
+     *          readonly: boolean, multiline: boolean, label: string, maxLength?: number}|null),
+     *          fields?: FormField[]}} opts
      * @returns {{root: HTMLElement, confirmBtn: HTMLButtonElement,
-     *            cancelBtn: HTMLButtonElement, field: (HTMLInputElement|null)}}
+     *            cancelBtn: HTMLButtonElement, field: (HTMLInputElement|null),
+     *            form: (FormControl|null)}}
      */
     function buildModal(opts) {
         var root = document.createElement('div');
@@ -135,6 +145,8 @@
             body.appendChild(field);
         }
 
+        var form = opts.fields?.length ? buildFields(body, opts.fields) : null;
+
         var footer = document.createElement('div');
         footer.className = 'modal-footer';
         var cancelBtn = document.createElement('button');
@@ -158,8 +170,24 @@
 
         close.addEventListener('click', dismiss);
         cancelBtn.addEventListener('click', dismiss);
+        /** @returns {boolean|string|Object<string, string>} */
+        var answer = function () {
+            if (form !== null) {
+                return form.values();
+            }
+            return field === null ? true : field.value;
+        };
         confirmBtn.addEventListener('click', function () {
-            settle(field === null ? true : field.value);
+            settle(answer());
+        });
+        form?.inputs.forEach(function (input) {
+            // Enter in any field agrees, as it does in a prompt.
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    settle(answer());
+                }
+            });
         });
         if (field !== null && !opts.input.multiline) {
             // Only for a one-line answer: in a textarea, Enter is how you
@@ -172,7 +200,143 @@
             });
         }
 
-        return { root: root, confirmBtn: confirmBtn, cancelBtn: cancelBtn, field: field };
+        return { root: root, confirmBtn: confirmBtn, cancelBtn: cancelBtn, field: field, form: form };
+    }
+
+    /**
+     * @typedef {object} FormFieldAction
+     * @property {string} label  its accessible name and tooltip
+     * @property {string} icon   a Bootstrap icon class (`bi-…`)
+     * @property {(control: FormControl) => (Promise<void>|void)} run
+     *           what a click does; the button stays disabled until a
+     *           returned promise settles, so a slow answer cannot be asked
+     *           for twice
+     */
+
+    /**
+     * @typedef {object} FormField
+     * @property {string} name
+     * @property {string} label
+     * @property {string} [value]
+     * @property {string} [placeholder]
+     * @property {string} [inputType]
+     * @property {FormFieldAction} [action]
+     */
+
+    /**
+     * What a form()'s caller — and an action's run() — can do with the
+     * fields while the dialog is open.
+     *
+     * @typedef {object} FormControl
+     * @property {HTMLInputElement[]} inputs
+     * @property {(name: string) => string} value
+     * @property {(name: string, value: string) => void} set
+     * @property {(name: string, text: string, tone?: 'muted'|'warning'|'danger') => void} note
+     *           a short line under a field, read aloud; '' clears it
+     * @property {() => Object<string, string>} values
+     */
+
+    /**
+     * Renders form()'s fields into the body: a label, the field, the
+     * optional button beside it, and the line under it that an action uses
+     * to say what it found — or that it found nothing.
+     *
+     * @param {HTMLElement} body
+     * @param {FormField[]} fields
+     * @returns {FormControl}
+     */
+    function buildFields(body, fields) {
+        /** @type {Object<string, HTMLInputElement>} */
+        var byName = {};
+        /** @type {Object<string, HTMLElement>} */
+        var notes = {};
+        /** @type {HTMLInputElement[]} */
+        var inputs = [];
+
+        /** @type {FormControl} */
+        var control = {
+            inputs: inputs,
+            value: function (name) { return byName[name] ? byName[name].value : ''; },
+            set: function (name, value) {
+                if (byName[name]) {
+                    byName[name].value = value;
+                }
+            },
+            note: function (name, text, tone) {
+                var note = notes[name];
+                if (!note) {
+                    return;
+                }
+                note.textContent = text;
+                note.className = 'form-text mt-1 ' + ({
+                    warning: 'text-warning-emphasis',
+                    danger: 'text-danger'
+                }[tone || ''] || '');
+            },
+            values: function () {
+                /** @type {Object<string, string>} */
+                var out = {};
+                inputs.forEach(function (input) { out[input.name] = input.value; });
+                return out;
+            }
+        };
+
+        fields.forEach(function (spec, index) {
+            var id = MODAL_ID + '-field-' + index;
+            var label = document.createElement('label');
+            label.className = 'form-label' + (index > 0 ? ' mt-3' : '');
+            label.htmlFor = id;
+            label.textContent = spec.label;
+
+            var input = document.createElement('input');
+            input.type = spec.inputType || 'text';
+            input.className = 'form-control';
+            input.id = id;
+            input.name = spec.name;
+            input.value = spec.value || '';
+            input.placeholder = spec.placeholder || '';
+            byName[spec.name] = input;
+            inputs.push(input);
+
+            var note = document.createElement('div');
+            note.className = 'form-text mt-1';
+            note.id = id + '-note';
+            // Polite: what the button found is worth hearing, not worth
+            // interrupting the visitor for.
+            note.setAttribute('aria-live', 'polite');
+            input.setAttribute('aria-describedby', note.id);
+            notes[spec.name] = note;
+
+            body.appendChild(label);
+            if (spec.action) {
+                var group = document.createElement('div');
+                group.className = 'input-group';
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-outline-secondary';
+                button.title = spec.action.label;
+                button.setAttribute('aria-label', spec.action.label);
+                var icon = document.createElement('i');
+                icon.className = 'bi ' + spec.action.icon;
+                icon.setAttribute('aria-hidden', 'true');
+                button.appendChild(icon);
+                var action = spec.action;
+                button.addEventListener('click', function () {
+                    button.disabled = true;
+                    Promise.resolve(action.run(control)).finally(function () {
+                        button.disabled = false;
+                    });
+                });
+                group.appendChild(input);
+                group.appendChild(button);
+                body.appendChild(group);
+            } else {
+                body.appendChild(input);
+            }
+            body.appendChild(note);
+        });
+
+        return control;
     }
 
     /**
@@ -242,7 +406,7 @@
      * after the first answer is a no-op — Escape landing on the same frame
      * as a click must not resolve the promise twice.
      *
-     * @param {boolean|string|null} result
+     * @param {boolean|string|Object<string, string>|null} result
      * @returns {void}
      */
     function settle(result) {
@@ -313,9 +477,9 @@
      *          text?: string, items?: string[], note?: string}>,
      *          input: ({value: string, placeholder: string, inputType: string,
      *          readonly: boolean, selectOnOpen: boolean, multiline: boolean, maxLength?: number,
-     *          label: string}|null)}} opts
+     *          label: string}|null), fields?: FormField[]}} opts
      * @param {boolean|null} cancelValue what a dismissal resolves to
-     * @returns {Promise<boolean|string|null>}
+     * @returns {Promise<boolean|string|Object<string, string>|null>}
      */
     function show(opts, cancelValue) {
         dismiss();
@@ -327,6 +491,10 @@
 
         return new Promise(function (resolve) {
             function takeFocus() {
+                if (built.form !== null) {
+                    built.form.inputs[0].focus();
+                    return;
+                }
                 if (field === null) {
                     // Never the destructive button.
                     built.cancelBtn.focus();
@@ -462,13 +630,33 @@
         }, null));
     }
 
-    // The two functions above, as one object — exported below, and used
+    /**
+     * Asks the visitor for several values at once, and resolves to them by
+     * name — or null if they dismissed the dialog.
+     *
+     * @param {{title: string, message?: string, fields: FormField[],
+     *          confirmLabel?: string, cancelLabel?: string}} input
+     * @returns {Promise<Object<string, string>|null>}
+     */
+    function form(input) {
+        return /** @type {Promise<Object<string, string>|null>} */ (show({
+            message: input.message || '',
+            title: input.title || 'Saisie',
+            confirmLabel: input.confirmLabel || 'Valider',
+            cancelLabel: input.cancelLabel || 'Annuler',
+            variant: 'primary',
+            input: null,
+            fields: input.fields
+        }, null));
+    }
+
+    // The three functions above, as one object — exported below, and used
     // by the delegated handler through it rather than by their bare names.
     // A bare `prompt(...)` anywhere in this repository is the native box
     // this file exists to abolish, and the check that enforces that
     // (UxConventionsTest::testNoNativeBrowserDialogs) is right to read it
     // that way even here.
-    var api = { ask: ask, prompt: prompt };
+    var api = { ask: ask, prompt: prompt, form: form };
 
     /**
      * Stops the submit of any form carrying data-confirm, asks, and
