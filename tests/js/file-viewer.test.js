@@ -249,6 +249,15 @@ describe('file-viewer', () => {
         expect(viewer().querySelector('img').src).toContain('/files/2');
     });
 
+    it('marks the overlay so a pull down over it never reloads the page behind (issue #842)', async () => {
+        buildPage('<a id="a" href="/files/1" data-file-viewer="/files/1" data-file-image="1">Un</a>');
+        await load();
+
+        document.getElementById('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(viewer().hasAttribute('data-no-pull-to-refresh')).toBe(true);
+    });
+
     describe('the installed application, where there is no back button', () => {
         beforeEach(() => {
             pretendStandalone(true);

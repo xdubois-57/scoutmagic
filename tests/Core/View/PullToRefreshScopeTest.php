@@ -53,7 +53,7 @@ class PullToRefreshScopeTest extends TestCase
             $this->read('modules/gallery/views/partials/lightbox.html.twig')
         );
         $this->assertStringContainsString(
-            "setAttribute('data-no-pull-to-refresh', '')",
+            "viewer.dataset.noPullToRefresh = '';",
             $this->read('public/assets/js/file-viewer.js')
         );
     }

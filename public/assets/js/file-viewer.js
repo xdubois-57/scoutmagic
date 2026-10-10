@@ -187,7 +187,7 @@
         viewer.className = 'file-viewer d-none';
         // A pull down over the open viewer must never reload the page
         // behind it (pull-to-refresh.js, issue #842).
-        viewer.setAttribute('data-no-pull-to-refresh', '');
+        viewer.dataset.noPullToRefresh = '';
 
         closeButton = doc.createElement('button');
         closeButton.type = 'button';
