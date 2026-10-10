@@ -216,6 +216,26 @@ describe('ScoutMagicRichText.canonicalHtml() — a stored text keeps what the se
         expect(once).toBe('<blockquote><p>Une citation</p></blockquote><p><img src="/files/2" alt="x"></p>');
         expect(rt.canonicalHtml(once, { stored: true })).toBe(once);
     });
+
+    it('keeps a link\'s target, rel and title, which no button makes, but a paste drops them', async () => {
+        const rt = await loadHelper();
+        // As the default RGPD page writes its links.
+        const stored = '<p><a href="https://www.lesscouts.be" target="_blank" rel="noopener noreferrer" title="Les Scouts">'
+            + '<strong>Les Scouts</strong></a> et <a href="/contact" title="Nous écrire">nous</a></p>';
+
+        expect(rt.canonicalHtml(stored, { stored: true })).toBe(stored);
+        expect(rt.canonicalHtml(stored)).toBe(
+            '<p><a href="https://www.lesscouts.be"><strong>Les Scouts</strong></a> et <a href="/contact">nous</a></p>',
+        );
+    });
+
+    it('keeps two neighbouring links to one address apart when they open differently', async () => {
+        const rt = await loadHelper();
+        const stored = '<p><a href="/x" target="_blank">a</a><a href="/x">b</a></p>';
+
+        expect(rt.canonicalHtml(stored, { stored: true })).toBe(stored);
+        expect(rt.canonicalHtml(stored)).toBe('<p><a href="/x">ab</a></p>');
+    });
 });
 
 describe('ScoutMagicRichText.canonicalFragment()', () => {

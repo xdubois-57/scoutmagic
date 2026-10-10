@@ -1212,8 +1212,8 @@ selection and the browser's own undo history. The news editor adds `img` to
 the grammar (`{ images: true }`); a rich-text form field turns pasted
 `{{ keyword }}` text into chips before it lands (`decorate`). A text being
 **reopened or saved again** is canonicalised with `{ stored: true }`: what
-the sanitiser accepted and no button makes — `img`, `h4`, `blockquote` —
-survives, so saving an untouched text never changes it. Only a paste is
+the sanitiser accepted and no button makes — `img`, `h4`, `blockquote`, a
+link's `target`, `rel` and `title` — survives, so saving an untouched text never changes it. Only a paste is
 held to the toolbar's own gestures.
 
 This is not the client-side sanitiser the paragraph above refuses. **The

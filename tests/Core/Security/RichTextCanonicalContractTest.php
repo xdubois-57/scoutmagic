@@ -73,7 +73,9 @@ final class RichTextCanonicalContractTest extends TestCase
     public function testTheServerKeepsWhatAReopenedTextKeeps(): void
     {
         $stored = '<h4>Petit titre</h4><blockquote><p>Cité</p><p><strong>Encore</strong></p></blockquote>'
-            . '<p><img src="/files/2" alt="x"></p>';
+            . '<p><img src="/files/2" alt="x"></p>'
+            . '<p><a href="https://www.lesscouts.be" target="_blank" rel="noopener noreferrer" title="Les Scouts">'
+            . '<strong>Les Scouts</strong></a></p>';
 
         $this->assertSame($stored, (new HtmlSanitizer())->sanitize($stored));
     }

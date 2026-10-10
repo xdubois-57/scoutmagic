@@ -234,8 +234,8 @@
      *           without letting a paste bring one in from another site
      * @property {boolean} [stored] the text is one the server already
      *           accepted, being opened or saved again: what the sanitiser
-     *           keeps and no button makes — <img>, <h4>, <blockquote> —
-     *           survives, because dropping it on save would change the text
+     *           keeps and no button makes — <img>, <h4>, <blockquote>, a
+     *           link's target, rel and title — survives, because dropping it on save would change the text
      *           without anybody asking. A paste never gets this.
      * @property {(container: HTMLElement) => void} [decorate] runs over a
      *           pasted fragment before it is inserted — rich-text form
@@ -248,6 +248,9 @@
      * @property {boolean} italic
      * @property {boolean} underline
      * @property {string|null} href
+     * @property {Array<[string, string]>|null} [linkAttributes] the link's
+     *           target, rel and title, in their order — kept for a stored
+     *           text only (see `stored`)
      */
 
     /**
@@ -259,7 +262,30 @@
      */
 
     /** @type {Format} */
-    var PLAIN = { bold: false, italic: false, underline: false, href: null };
+    var PLAIN = { bold: false, italic: false, underline: false, href: null, linkAttributes: null };
+
+    // What a stored link keeps besides its href: what the sanitiser accepts
+    // on <a>, and no button writes.
+    var LINK_ATTRIBUTES = new Set(['target', 'rel', 'title']);
+
+    /**
+     * Everything that tells one link from another: two neighbours with the
+     * same href but a different target are two links.
+     *
+     * @param {Format} format
+     * @returns {string|null}
+     */
+    function linkKey(format) {
+        return format.href === null ? null : JSON.stringify([format.href, format.linkAttributes ?? null]);
+    }
+
+    /**
+     * @param {Format} format
+     * @returns {Format} the same link, and no formatting
+     */
+    function linkOnly(format) {
+        return { bold: false, italic: false, underline: false, href: format.href, linkAttributes: format.linkAttributes ?? null };
+    }
 
     // Whatever a page or a word processor puts on the clipboard that is not
     // text to keep: dropped with its content, as the server drops script,
@@ -351,22 +377,33 @@
      *
      * @param {Element} element
      * @param {Format} inherited
+     * @param {boolean} [stored] keep a link's target, rel and title
      * @returns {Format}
      */
-    function formatOf(element, inherited) {
+    function formatOf(element, inherited, stored) {
         var tag = element.localName;
         /** @type {Format} */
         var format = {
             bold: inherited.bold || tag === 'strong' || tag === 'b',
             italic: inherited.italic || tag === 'em' || tag === 'i' || tag === 'cite' || tag === 'var' || tag === 'dfn',
             underline: inherited.underline || tag === 'u' || tag === 'ins',
-            href: inherited.href
+            href: inherited.href,
+            linkAttributes: inherited.linkAttributes ?? null
         };
 
         if (tag === 'a') {
             var href = safeUrl(element.getAttribute('href'));
             if (href !== null) {
                 format.href = href;
+                format.linkAttributes = null;
+                if (stored) {
+                    /** @type {Array<[string, string]>} */
+                    var kept = [];
+                    Array.from(element.attributes).forEach(function (attribute) {
+                        if (LINK_ATTRIBUTES.has(attribute.name)) kept.push([attribute.name, attribute.value]);
+                    });
+                    format.linkAttributes = kept.length > 0 ? kept : null;
+                }
             }
         }
 
@@ -435,7 +472,7 @@
      * @returns {boolean}
      */
     function sameFormat(a, b) {
-        return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.href === b.href;
+        return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && linkKey(a) === linkKey(b);
     }
 
     /**
@@ -482,7 +519,7 @@
 
         segments.forEach(function (segment) {
             var fmt = heading
-                ? { bold: false, italic: segment.fmt.italic, underline: segment.fmt.underline, href: segment.fmt.href }
+                ? Object.assign(linkOnly(segment.fmt), { italic: segment.fmt.italic, underline: segment.fmt.underline })
                 : segment.fmt;
 
             if (segment.br) {
@@ -493,7 +530,7 @@
                 return;
             }
             if (segment.img) {
-                out.push({ img: segment.img, fmt: { bold: false, italic: false, underline: false, href: fmt.href } });
+                out.push({ img: segment.img, fmt: linkOnly(fmt) });
                 lineStart = false;
                 lastSpace = false;
                 return;
@@ -582,18 +619,26 @@
         }
 
         var key = NESTING[level].key;
+        /** @param {Format} format @returns {string|boolean|null} */
+        var valueOf = function (format) {
+            return key === 'href' ? linkKey(format) : format[key];
+        };
         var i = 0;
         while (i < segments.length) {
-            var value = segments[i].fmt[key];
+            var value = valueOf(segments[i].fmt);
             var j = i + 1;
-            while (j < segments.length && segments[j].fmt[key] === value) {
+            while (j < segments.length && valueOf(segments[j].fmt) === value) {
                 j++;
             }
             var run = segments.slice(i, j);
             if (value) {
                 var wrapper = doc.createElement(NESTING[level].tag);
                 if (key === 'href') {
-                    wrapper.setAttribute('href', String(value));
+                    var link = segments[i].fmt;
+                    wrapper.setAttribute('href', String(link.href));
+                    (link.linkAttributes ?? []).forEach(function (attribute) {
+                        wrapper.setAttribute(attribute[0], attribute[1]);
+                    });
                 }
                 parent.appendChild(wrapper);
                 emit(doc, wrapper, run, level + 1);
@@ -933,7 +978,7 @@
             if (DROPPED.has(element.localName) || isHidden(element) || visitLeaf(element, format)) {
                 return;
             }
-            visitContainer(element, formatOf(element, format));
+            visitContainer(element, formatOf(element, format, stored));
         }
 
         /**
