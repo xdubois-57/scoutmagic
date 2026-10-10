@@ -1056,9 +1056,23 @@ final class CommunicationController extends AbstractController
      * Keeps the card the browser posted, once per share (issue #706,
      * IT-02).
      *
-     * **Once**, and the guard is the same as the text's: a destination
-     * published later must receive the image the first one did, so a
-     * communication that has already been tried keeps the card it had.
+     * **Once the communication is FROZEN**, and that is the whole guard —
+     * the same one the text has. While nothing has been published, a new
+     * « Publier » replaces the card, because the chief may still change
+     * the photo and the slider and must get what they are looking at.
+     *
+     * Guarding on `cardFileId !== null` instead was a defect found in
+     * the review of #850, and a subtle one: several refusals inside
+     * `PublishingService::publish()` — a blocked source, a caption past
+     * Instagram's limit, a Meta token that has expired — record a failed
+     * outcome and return WITHOUT claiming a publication row, so
+     * `isFrozen()` stays false. The card of that refused attempt was
+     * stored all the same, and the next attempt could not replace it:
+     * the chief changed the photo, raised the blur, published
+     * successfully, and the site sent the first attempt's card. Moving
+     * this call after the « no destination » refusal fixed one path of
+     * three; the rule fixes all of them.
+     *
      * A POST that carries no card at all — JavaScript off, a canvas the
      * browser refused — leaves the row as it is, and the publication then
      * composes one as it always did, rather than refusing to publish at
@@ -1073,7 +1087,7 @@ final class CommunicationController extends AbstractController
         if (!is_string($tmp) || $tmp === '' || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return $communication;
         }
-        if ($this->isFrozen($communication) || $communication->cardFileId !== null) {
+        if ($this->isFrozen($communication)) {
             return $communication;
         }
 
@@ -1100,6 +1114,12 @@ final class CommunicationController extends AbstractController
             $communication->id
         );
         $this->communications->updateCardFile($communication->id, $fileId, new \DateTimeImmutable());
+        // The card this one replaces, dropped only once the row points at
+        // the new one: the other order would leave a row naming a file
+        // that no longer exists if the update failed in between.
+        if ($communication->cardFileId !== null) {
+            $this->cardFiles->delete($communication->cardFileId);
+        }
 
         return $this->communications->find($communication->id) ?? $communication;
     }

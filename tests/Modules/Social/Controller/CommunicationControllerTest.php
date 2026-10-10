@@ -232,6 +232,57 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **Nor does a destination that refused.** Found in the review of
+     * #850, after the fix below covered only one path of three.
+     *
+     * `isFrozen()` asks whether a publication row exists, and a row is
+     * written only by `claim()`. Three refusals inside
+     * `PublishingService::publish()` return before claiming — a blocked
+     * source, a caption past Instagram's limit, and a Meta token that is
+     * no longer accepted. The communication therefore stays unfrozen and
+     * the chief may still change the photo and the slider; guarding the
+     * card on `cardFileId !== null` meant the next attempt could not
+     * replace it, and the site published the refused attempt's card
+     * instead of the one on screen.
+     */
+    public function testARefusedDestinationDoesNotFreezeTheCardEither(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+
+        // Instagram's authorisation has expired.
+        $past = new \DateTimeImmutable('-1 day');
+        $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $past, $past);
+
+        $refused = $this->postedCard('La carte de la tentative refusée');
+        $body = ['title' => 'Week-end', 'body' => 'Texte', 'action' => 'publish', 'destinations' => ['instagram']];
+        $this->controller()->update($this->post($body), ['id' => (string) $id]);
+        FlashMessage::get();
+
+        $this->assertSame(
+            [],
+            $this->publications->forSource('communication', $id),
+            'the refusal claimed a row after all, so this test proves nothing'
+        );
+
+        // The token is restored and the chief, still free to change the
+        // photo and the blur, draws another card.
+        $now = new \DateTimeImmutable();
+        $this->connections->connect(SocialPlatform::Instagram, '9', 'unite25', 'IGT', $now->modify('+60 days'), $now);
+        $second = $this->postedCard('La carte réellement publiée');
+        $this->controller()->update($this->post($body), ['id' => (string) $id]);
+
+        $container = $this->request('/media');
+        $this->assertNotNull($container, 'Instagram was never handed a container');
+        $url = (string) ($container['fields']['image_url'] ?? '');
+        $served = $this->cardsService()->open(substr($url, -64), new \DateTimeImmutable());
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $sent = (string) file_get_contents($served);
+        $this->assertSame($second, $sent, 'Instagram was handed the card of a refused attempt');
+        $this->assertNotSame($refused, $sent);
+    }
+
+    /**
      * **A « Publier » that publishes nothing freezes nothing.** Found in
      * the review of #850: the card used to be kept before the
      * destination check, so a POST refused for « Cochez au moins une
