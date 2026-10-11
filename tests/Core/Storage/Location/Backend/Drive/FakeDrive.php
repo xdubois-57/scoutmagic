@@ -73,6 +73,12 @@ final class FakeDrive
     /** A status to answer every PATCH with, instead of succeeding. */
     public ?int $failPatchesWith = null;
 
+    /**
+     * When set, the only client secret Google accepts: a token request
+     * carrying another one is refused as Google refuses it (`invalid_client`).
+     */
+    public ?string $acceptedClientSecret = null;
+
     /** The id of the ScoutMagic parent folder, when the tree was seeded. */
     public ?string $parentFolderId = null;
 
@@ -258,6 +264,11 @@ final class FakeDrive
         }
 
         if (str_contains($url, 'oauth2.googleapis.com/token')) {
+            parse_str((string) $body, $form);
+            if ($this->acceptedClientSecret !== null && ($form['client_secret'] ?? null) !== $this->acceptedClientSecret) {
+                return ['status' => 401, 'body' => '{"error":"invalid_client"}'];
+            }
+
             return ['status' => 200, 'body' => (string) json_encode([
                 'access_token' => 'ya29.test',
                 'refresh_token' => 'refresh-abc',
