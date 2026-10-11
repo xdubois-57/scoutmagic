@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Sauvegardes : une liste qui dit vrai, une restauration qui n'efface rien</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1.doc{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 12px;max-width:72ch;line-height:1.5}
+.legende{background:#fff4e5;border:1px solid #b45309;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.55;max-width:72ch;margin:0 0 28px;color:#3d1d00}
+.ecran{margin:0 0 40px}
+.ecran>h2{font-size:19px;margin:0 0 6px}
+.ecran>p.note{font-size:14px;color:#495057;margin:0 0 12px;max-width:72ch;line-height:1.5}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.cadre.etroit{width:320px}
+.sommaire{margin:0 0 28px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+.ecr{box-sizing:border-box;padding:16px;display:flex;flex-direction:column;gap:14px;background:#fff;color:#212529}
+.tag{align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:2px 6px}
+.tag.nouveau{background:#5a32a3;color:#fff}
+.tag.modifie{border:1px solid #b45309;background:#fff4e5;color:#7a3500}
+.tag.inchange{border:1px dashed #6c757d;color:#495057}
+.carte{border:1px solid #dee2e6;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.carte h3{margin:0;font-size:16px;font-weight:600}
+.pointille{border:1px dashed #adb5bd;border-radius:8px;padding:12px;background:#f8f9fa;font-size:13px;color:#495057;line-height:1.5;display:flex;flex-direction:column;gap:6px}
+.ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-bottom:1px solid #dee2e6;padding:10px 0}
+.ligne .texte{flex:1 1 180px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.badges{display:flex;flex-wrap:wrap;gap:4px}
+.b{font-size:12px;border-radius:999px;padding:2px 8px;font-weight:600}
+.b.fam{background:#e7f1ff;color:#052c65}
+.b.ok{background:#146c43;color:#fff}
+.b.ko{background:#b02a37;color:#fff}
+.b.gris{background:#f8f9fa;color:#41464b;border:1px solid #dee2e6;font-weight:400}
+.meta{font-size:13px;color:#5c636a}
+.meta .ou{white-space:nowrap}
+.note-ligne{font-size:13px;color:#41464b}
+.actions{display:inline-flex;flex-wrap:nowrap;gap:6px;margin-left:auto}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;border:1px solid #6c757d;background:#fff;color:#343a40;font-size:15px}
+.ib.del{border-color:#b02a37;color:#b02a37}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border-radius:6px;font-size:14px;font-family:inherit;text-decoration:none;border:1px solid #6c757d;background:#fff;color:#343a40}
+.btn.prim{background:#0d6efd;border-color:#0d6efd;color:#fff}
+.btn.danger{border-color:#b02a37;color:#b02a37;background:#fff}
+.btn.dark{background:#343a40;border-color:#343a40;color:#fff}
+.alerte{border-radius:8px;padding:12px;font-size:14px;line-height:1.5}
+.alerte.succes{background:#d1e7dd;border:1px solid #a3cfbb;color:#0a3622}
+.alerte.danger{background:#f8d7da;border:1px solid #f1aeb5;color:#58151c}
+.alerte.info{background:#e7f1ff;border:1px solid #9ec5fe;color:#052c65}
+.alerte.warn{background:#fff3cd;border:1px solid #ffe69c;color:#664d03}
+label.l{font-size:14px}
+input.i,select.i{min-height:44px;border:1px solid #ced4da;border-radius:6px;padding:0 10px;font-size:15px;font-family:inherit;background:#fff;width:100%;box-sizing:border-box}
+.voile{background:rgba(33,37,41,.55);justify-content:center;min-height:760px}
+.dialog{background:#fff;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.dialog h2{margin:0;font-size:18px;font-weight:600}
+.dialog p{margin:0;font-size:15px;line-height:1.5}
+.pied{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+ol.etapes{margin:0;padding-left:20px;font-size:14px;line-height:1.6}
+.barre{height:8px;border-radius:999px;background:#e9ecef;overflow:hidden}
+.barre>span{display:block;height:100%;width:38%;background:#0d6efd}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #0d6efd;border-right-color:transparent;border-radius:50%}
+</style>
+</head>
+<body>
+<div class="page">
+<h1 class="doc">Sauvegardes : une liste qui dit vrai, une restauration qui n'efface rien</h1>
+<p class="lede">Maquette de référence du chantier de l'issue #847 (dépendance : #832). Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états — pas sur le style : les styles sont en ligne pour rendre le fichier autonome, le produit suit Bootstrap 5 et <code>design.md</code>. Largeur de référence : 390 px ; un écran à 320 px pour la ligne d'actions.</p>
+<p class="legende"><strong>Ces maquettes sont partielles.</strong> Chaque zone porte une étiquette : <strong>NOUVEAU</strong> = à créer ; <strong>MODIFIÉ</strong> = seul ce que dit l'étiquette change ; <strong>INCHANGÉ</strong> = ne pas toucher, même si la zone est abrégée ou seulement nommée dans un encadré en pointillé. Tout ce qui n'est pas dessiné — les autres sous-pages de la maintenance, le format de la date et de la taille, la confirmation de suppression, le mécanisme du mot de passe — reste exactement comme aujourd'hui.</p>
+<ul class="sommaire">
+<li><a href="#liste">Sauvegardes récentes, après une restauration</a></li>
+<li><a href="#etroit">Une ligne à 320 px</a></li>
+<li><a href="#disparu">Fichier disparu au clic</a></li>
+<li><a href="#restaurer">Restaurer une sauvegarde</a></li>
+<li><a href="#refus">Restauration refusée</a></li>
+<li><a href="#horssite">Copies hors site</a></li>
+<li><a href="#horssite-etats">Copies hors site — chargement et erreur</a></li>
+<li><a href="#dlg-horssite">Dialogue — restaurer une copie hors site</a></li>
+<li><a href="#dlg-ancienne">Dialogue — ancienne phrase de passe</a></li>
+<li><a href="#rapatriement">Rapatriement en cours</a></li>
+<li><a href="#dlg-annuler">Confirmation — annuler la restauration</a></li>
+</ul>
+
+<!-- ===================================================== -->
+<section class="ecran" id="liste">
+<h2>Sauvegardes récentes, juste après une restauration</h2>
+<p class="note">La liste est celle d'avant la restauration, remise telle quelle puis vérifiée sur le disque : aucune ligne de la sauvegarde restaurée n'y revient. Chaque action n'apparaît que si elle est réellement possible.</p>
+<div class="cadre"><div class="ecr">
+
+  <span class="tag nouveau">Nouveau — après une restauration terminée</span>
+  <div class="alerte succes" role="status">
+    <strong>Restauration terminée.</strong> Le site est revenu à la sauvegarde du 2 octobre 2026 à 3 h 00. La copie de sécurité prise juste avant est en tête de la liste : elle permet d'annuler cette restauration.
+  </div>
+
+  <div class="carte">
+    <span class="tag modifie">Modifié — voir chaque ligne</span>
+    <h3>Sauvegardes récentes</h3>
+
+    <!-- 1. Safety copy -->
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Avant restauration</span><span class="b ok">Vérifiée</span></div>
+        <span class="meta">11/10/2026 10:12 · 1,3 Go · <span class="ou">Sur ce serveur</span></span>
+        <span class="note-ligne">Copie de sécurité prise avant la restauration du 11 octobre 2026 à 10 h 12.</span>
+        <a href="#dlg-annuler" class="btn" style="align-self:flex-start">Annuler cette restauration</a>
+      </div>
+      <div class="actions"><span class="ib" title="Télécharger">⬇</span><span class="ib" title="Afficher le mot de passe">🔑</span><span class="ib del" title="Supprimer">🗑</span></div>
+    </div>
+    <span class="tag nouveau">Nouveau — libellé « Avant restauration », note et bouton d'annulation</span>
+
+    <!-- 2. Normal -->
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Planifiée</span><span class="b ok">Vérifiée</span></div>
+        <span class="meta">11/10/2026 03:00 · 1,2 Go · <span class="ou">Sur ce serveur</span></span>
+      </div>
+      <div class="actions"><span class="ib">⬇</span><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    </div>
+    <span class="tag modifie">Modifié — « Sur ce serveur » ; actions groupées, jamais séparées</span>
+
+    <!-- 3. Archive missing -->
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Planifiée</span><span class="b ko" title="L'archive de cette sauvegarde n'est plus sur ce serveur. Elle ne peut plus être téléchargée ni restaurée ; son mot de passe reste affiché, pour une copie déjà téléchargée.">Archive absente</span></div>
+        <span class="meta">09/10/2026 03:00 · <span class="ou">Sur ce serveur</span></span>
+      </div>
+      <div class="actions"><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    </div>
+    <span class="tag nouveau">Nouveau — badge « Archive absente » ; restent le mot de passe, s'il est gardé, et « Supprimer »</span>
+
+    <!-- 4. Dump missing -->
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Complète (sans galerie)</span><span class="b ko" title="La base de données de cette sauvegarde n'est plus sur ce serveur. L'archive se télécharge encore, mais la sauvegarde ne peut plus être restaurée ici.">Base de données absente</span></div>
+        <span class="meta">07/10/2026 18:40 · 640 Mo · <span class="ou">Sur ce serveur</span></span>
+      </div>
+      <div class="actions"><span class="ib">⬇</span><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    </div>
+    <span class="tag nouveau">Nouveau — badge « Base de données absente » ; téléchargeable, plus restaurable</span>
+
+    <!-- 5. Database export -->
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Base de données</span><span class="b gris">Export</span></div>
+        <span class="meta">05/10/2026 21:05 · 38 Mo · <span class="ou">Sur ce serveur</span></span>
+        <span class="note-ligne">À télécharger seulement : sans les fichiers du site, elle ne se restaure pas ici.</span>
+      </div>
+      <div class="actions"><span class="ib">⬇</span><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    </div>
+    <span class="tag nouveau">Nouveau — badge « Export » et sa phrase</span>
+
+    <!-- 6. Both missing -->
+    <div class="ligne" style="border-bottom:0">
+      <div class="texte">
+        <div class="badges"><span class="b fam">Planifiée</span><span class="b ko" title="Les fichiers de cette sauvegarde ne sont plus sur ce serveur. Son mot de passe reste affiché, pour une copie déjà téléchargée.">Fichiers absents</span></div>
+        <span class="meta">03/10/2026 03:00 · <span class="ou">Sur ce serveur</span></span>
+      </div>
+      <div class="actions"><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    </div>
+    <span class="tag nouveau">Nouveau — badge « Fichiers absents » ; restent le mot de passe, s'il est gardé, et « Supprimer »</span>
+
+    <div class="pointille">
+      <span class="tag inchange">Inchangé</span>
+      Le titre, l'ordre (par date), les badges de famille et d'intégrité existants, le format de la date et de la taille, le bouton « Voir plus », la confirmation de suppression et le champ du mot de passe révélé sous la ligne restent comme aujourd'hui. Le badge d'absence remplace sur sa ligne le badge d'intégrité « Fichier absent ».
+    </div>
+  </div>
+
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="etroit">
+<h2>Une ligne à 320 px</h2>
+<p class="note">Le texte et les badges passent à la ligne s'il le faut ; les actions restent un seul groupe, sur une seule rangée, sans débordement.</p>
+<div class="cadre etroit"><div class="ecr">
+  <span class="tag modifie">Modifié — groupe d'actions indissociable</span>
+  <div class="ligne" style="border-bottom:0">
+    <div class="texte">
+      <div class="badges"><span class="b fam">Complète (sans galerie)</span><span class="b ok">Vérifiée</span></div>
+      <span class="meta">10/10/2026 18:02 · 1,2 Go · <span class="ou">Sur ce serveur</span></span>
+    </div>
+    <div class="actions"><span class="ib">⬇</span><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="disparu">
+<h2>Fichier disparu entre l'affichage et le clic</h2>
+<p class="note">« Télécharger » vérifie d'abord que l'archive est là. Si elle ne l'est plus, rien n'est ouvert — ni dans un onglet, ni dans l'application installée — et la ligne le dit.</p>
+<div class="cadre"><div class="ecr">
+  <span class="tag nouveau">Nouveau</span>
+  <div class="ligne" style="border-bottom:0">
+    <div class="texte">
+      <div class="badges"><span class="b fam">Planifiée</span><span class="b ko">Archive absente</span></div>
+      <span class="meta">10/10/2026 03:00 · <span class="ou">Sur ce serveur</span></span>
+    </div>
+    <div class="actions"><span class="ib">🔑</span><span class="ib del">🗑</span></div>
+    <div class="alerte danger" role="status" style="flex-basis:100%">L'archive de cette sauvegarde n'est plus sur ce serveur. Elle ne peut plus être téléchargée ni restaurée ; vous pouvez supprimer la ligne.</div>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="restaurer">
+<h2>Restaurer une sauvegarde</h2>
+<p class="note">Le sélecteur ne propose que ce qui peut être restauré : ni les exports « Base de données », ni les sauvegardes dont un fichier manque, ni les portables (comme aujourd'hui).</p>
+<div class="cadre"><div class="ecr">
+  <div class="carte">
+    <span class="tag inchange">Inchangé — titre, texte d'introduction, choix de la source, mot de passe, mot-clé RESTAURER</span>
+    <h3>Restaurer une sauvegarde</h3>
+    <span class="tag modifie">Modifié — contenu de la liste, et une phrase pour la configuration seule</span>
+    <label class="l" for="sel">Sauvegarde à restaurer</label>
+    <select id="sel" class="i">
+      <option>Avant restauration — 11/10/2026 10:12</option>
+      <option>Planifiée — 11/10/2026 03:00</option>
+      <option selected>Configuration seule — 08/10/2026 14:30</option>
+    </select>
+    <div class="alerte info">Seuls les réglages et l'état des modules reviendront au 8 octobre 2026. Les membres, les finances, les actualités et tout le reste ne bougeront pas.</div>
+    <div class="pointille">La phrase « Aucune sauvegarde de ce serveur ne peut être restaurée pour l'instant. » reste, quand la liste est vide.</div>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="refus">
+<h2>Restauration refusée</h2>
+<p class="note">Le fichier a disparu entre l'affichage et l'envoi du formulaire : la restauration est refusée tout de suite, avant la copie de sécurité. Rien n'a été modifié.</p>
+<div class="cadre"><div class="ecr">
+  <span class="tag nouveau">Nouveau — message en tête de page</span>
+  <div class="alerte danger" role="alert"><strong>Restauration refusée.</strong> Cette sauvegarde ne peut plus être restaurée : son archive n'est plus sur ce serveur. Rien n'a été modifié.</div>
+  <div class="pointille">Variantes : « sa base de données n'est plus sur ce serveur », « ses fichiers ne sont plus sur ce serveur ».</div>
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="horssite">
+<h2>Copies hors site</h2>
+<p class="note">Nouvelle carte de « Sauvegardes récentes », sous la liste. Elle se charge d'elle-même à l'ouverture de la page, sans la bloquer. Les copies sont lues sur la destination, jamais déduites de la base.</p>
+<div class="cadre"><div class="ecr">
+  <div class="carte">
+    <span class="tag nouveau">Nouveau</span>
+    <h3>Copies hors site</h3>
+    <span class="meta">Google Drive — Mon Drive / ScoutMagic</span>
+
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b ok">Lisible avec la phrase actuelle</span></div>
+        <span class="meta">11/10/2026 04:10 · 1,4 Go</span>
+      </div>
+      <div class="actions"><a class="btn" href="#dlg-horssite">Restaurer</a></div>
+    </div>
+    <div class="ligne">
+      <div class="texte">
+        <div class="badges"><span class="b ok">Lisible avec la phrase actuelle</span></div>
+        <span class="meta">04/10/2026 04:08 · 1,3 Go</span>
+      </div>
+      <div class="actions"><a class="btn" href="#dlg-horssite">Restaurer</a></div>
+    </div>
+    <div class="ligne" style="border-bottom:0">
+      <div class="texte">
+        <div class="badges"><span class="b gris">Ancienne phrase de passe</span></div>
+        <span class="meta">12/07/2026 04:02 · 1,1 Go</span>
+      </div>
+      <div class="actions"><a class="btn" href="#dlg-ancienne">Restaurer</a></div>
+    </div>
+
+    <span class="note-ligne">Sur une installation neuve, téléchargez une copie depuis Google Drive et déposez-la dans « Restaurer une sauvegarde », avec la phrase de passe notée.</span>
+  </div>
+</div></div>
+</section>
+
+<section class="ecran" id="horssite-etats">
+<h2>Copies hors site — chargement, aucune destination, destination injoignable</h2>
+<div style="display:flex;flex-wrap:wrap;gap:16px">
+<div class="cadre"><div class="ecr">
+  <div class="carte">
+    <span class="tag nouveau">Nouveau — pendant la lecture</span>
+    <h3>Copies hors site</h3>
+    <span class="meta"><span class="spin" aria-hidden="true"></span> Lecture de Google Drive…</span>
+  </div>
+  <div class="carte">
+    <span class="tag nouveau">Nouveau — aucune destination choisie</span>
+    <h3>Copies hors site</h3>
+    <span class="note-ligne">Aucune copie ne part hors de ce serveur. Choisissez une destination dans <a href="#">Sauvegarde automatique</a>.</span>
+  </div>
+  <div class="carte">
+    <span class="tag nouveau">Nouveau — destination injoignable</span>
+    <h3>Copies hors site</h3>
+    <div class="alerte warn">Google Drive ne répond pas pour l'instant : la liste des copies n'a pas pu être lue. Les copies déjà déposées ne sont pas touchées.</div>
+    <button class="btn" type="button" style="align-self:flex-start">Réessayer</button>
+  </div>
+</div></div>
+</div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="dlg-horssite">
+<h2>Dialogue — restaurer une copie hors site</h2>
+<div class="cadre"><div class="ecr voile">
+  <div class="dialog" role="dialog" aria-modal="true">
+    <span class="tag nouveau">Nouveau</span>
+    <h2>Restaurer la copie hors site du 11 octobre 2026 ?</h2>
+    <p>Le site va :</p>
+    <ol class="etapes">
+      <li>rapatrier la copie depuis Google Drive (1,4 Go) ;</li>
+      <li>prendre une copie de sécurité de son état actuel ;</li>
+      <li>revenir au 11 octobre 2026 à 4 h 10.</li>
+    </ol>
+    <p style="font-size:13px;color:#5c636a">La phrase de passe est connue du site : vous n'avez rien à saisir. Vous pourrez annuler la restauration depuis la copie de sécurité.</p>
+    <label class="l" for="kw1">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+    <input id="kw1" class="i" type="text">
+    <div class="pied"><a class="btn" href="#horssite">Annuler</a><a class="btn danger" href="#rapatriement">Restaurer</a></div>
+  </div>
+</div></div>
+</section>
+
+<section class="ecran" id="dlg-ancienne">
+<h2>Dialogue — copie chiffrée avec une ancienne phrase de passe</h2>
+<div class="cadre"><div class="ecr voile">
+  <div class="dialog" role="dialog" aria-modal="true">
+    <span class="tag nouveau">Nouveau</span>
+    <h2>Restaurer la copie hors site du 12 juillet 2026 ?</h2>
+    <p>Elle a été chiffrée avec une phrase de passe remplacée depuis. Saisissez celle qui était en vigueur à cette date, telle que vous l'aviez notée.</p>
+    <label class="l" for="pp">Phrase de passe de cette copie</label>
+    <input id="pp" class="i" type="password" autocomplete="off">
+    <p style="font-size:13px;color:#5c636a">La phrase est vérifiée une fois la copie rapatriée, avant de toucher au site. Si elle est fausse, vous pourrez la ressaisir sans tout rapatrier à nouveau.</p>
+    <label class="l" for="kw2">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+    <input id="kw2" class="i" type="text">
+    <div class="pied"><a class="btn" href="#horssite">Annuler</a><a class="btn danger" href="#rapatriement">Restaurer</a></div>
+  </div>
+</div></div>
+</section>
+
+<section class="ecran" id="rapatriement">
+<h2>Rapatriement en cours</h2>
+<p class="note">Le rapatriement se fait en plusieurs passages ; la page peut être fermée. La restauration elle-même suit le parcours d'aujourd'hui.</p>
+<div class="cadre"><div class="ecr">
+  <div class="carte">
+    <span class="tag nouveau">Nouveau — à la place des boutons de la carte « Copies hors site »</span>
+    <h3>Copies hors site</h3>
+    <strong style="font-size:15px">Rapatriement de la copie du 11 octobre 2026…</strong>
+    <div class="barre" role="progressbar" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+    <span class="meta">540 Mo sur 1,4 Go. Vous pouvez quitter cette page : la restauration commencera d'elle-même ensuite, et le résultat s'affichera ici à la fin.</span>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================== -->
+<section class="ecran" id="dlg-annuler">
+<h2>Confirmation — annuler la restauration</h2>
+<div class="cadre"><div class="ecr voile">
+  <div class="dialog" role="dialog" aria-modal="true">
+    <span class="tag nouveau">Nouveau</span>
+    <h2>Annuler la restauration du 11 octobre ?</h2>
+    <p>Les données du site reviendront à leur état du 11 octobre 2026 à 10 h 12, juste avant la restauration. La liste des sauvegardes et le journal restent ceux d'aujourd'hui, et les tâches planifiées en attente sont abandonnées.</p>
+    <div class="alerte warn">Ce qui a été fait sur le site depuis la restauration sera perdu.</div>
+    <label class="l" for="kw3">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+    <input id="kw3" class="i" type="text">
+    <div class="pied"><a class="btn" href="#liste">Ne rien faire</a><a class="btn dark" href="#liste">Annuler la restauration</a></div>
+  </div>
+</div></div>
+</section>
+
+</div>
+</body>
+</html>
