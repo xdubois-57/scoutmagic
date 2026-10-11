@@ -6,11 +6,16 @@ namespace Tests\Core\Storage\Location;
 
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
+use Core\Storage\Location\Backend\WebDavBackend;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\StorageListing;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -19,8 +24,11 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationTargetNotEmptyException;
 use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\StoredObject;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
+use Tests\Core\Storage\Location\Backend\RefusingBackend;
+use Tests\Core\Storage\Location\Backend\WebDav\FakeWebDavServer;
 use Tests\DatabaseTestHelper;
 
 /**
@@ -577,6 +585,94 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
+     * A WebDAV share is a target like a local folder: declaring a location
+     * on one that already holds files waits for a confirmation, and the
+     * share is asked once, at its top, whatever lies deeper in it.
+     */
+    public function testDeclaringALocationOnAShareThatHoldsFilesWaitsForAConfirmation(): void
+    {
+        $share = new FakeWebDavServer();
+        $probes = new ProbeRecorder(new WebDavBackend(
+            new WebDavClient($share->transport()),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        ));
+        $service = $this->serviceProbing($probes);
+        $config = new WebDavLocationConfig($share->baseUrl, 'unite');
+
+        $service->create(StorageLocationType::WebDav, 'Partage vide', $config, 'le-mot-de-passe');
+        $this->assertSame([$share->baseUrl], $probes->targets);
+
+        $probes->backend->put('12/13/photo.jpg', 'octets', 'image/jpeg');
+        $share->calls = [];
+        try {
+            $service->create(StorageLocationType::WebDav, 'Partage plein', $config, 'le-mot-de-passe');
+            $this->fail('A share holding files must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            $this->assertStringContainsString('contient déjà des fichiers', $e->getMessage());
+        }
+        $this->assertCount(1, $share->calls);
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
+    /**
+     * A bucket has no cheap « anything here? » of its own: one entry of
+     * its listing answers, which S3 caps on the server. What names the
+     * target is the endpoint and the bucket — a new public address or
+     * access key reaches the same objects and is not looked at.
+     */
+    public function testPointingALocationAtABucketThatHoldsObjectsWaitsForAConfirmation(): void
+    {
+        $bucket = new class extends RefusingBackend {
+            /** @var list<int> */
+            public array $limits = [];
+            /** @var list<StoredObject> */
+            public array $objects = [];
+
+            public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
+            {
+                $this->limits[] = $limit;
+
+                return new StorageListing(array_slice($this->objects, 0, $limit));
+            }
+        };
+        $probes = new ProbeRecorder($bucket);
+        $service = $this->serviceProbing($probes);
+        $id = $service->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket',
+            new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'vide', 'ak'),
+            'sk'
+        );
+
+        $service->update(
+            $id,
+            'Bucket',
+            new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'vide', 'ak2', null, 'https://cdn.example.org'),
+            null
+        );
+        $this->assertSame(['https://s3.example.org/vide'], $probes->targets);
+
+        $bucket->objects = [new StoredObject('12/a.jpg', 6), new StoredObject('12/b.jpg', 6)];
+        try {
+            $service->update($id, 'Bucket', new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'plein', 'ak'), null);
+            $this->fail('A bucket holding objects must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException) {
+        }
+        $this->assertSame(['https://s3.example.org/vide', 'https://s3.example.org/plein'], $probes->targets);
+        $this->assertSame([1, 1], $bucket->limits);
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(ObjectStorageLocationConfig::class, $config);
+        $this->assertSame('vide', $config->bucket);
+
+        $service->update($id, 'Bucket', new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'plein', 'ak'), null, true);
+
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(ObjectStorageLocationConfig::class, $config);
+        $this->assertSame('plein', $config->bucket);
+    }
+
+    /**
      * The repair the ticket asks for: a restore brought back a folder id
      * that leads nowhere, the files are in another folder, and the
      * location is attached to it — by its address, after a look, and
@@ -1097,6 +1193,28 @@ class StorageLocationServiceTest extends TestCase
         $this->service->checkNow($this->repository->findById($id));
 
         $this->assertFalse($this->repository->findById($id)?->lastCheckOk);
+    }
+
+    private function serviceProbing(ProbeRecorder $probes): StorageLocationService
+    {
+        $factory = new class ($this->repository, $this->storagePath, $probes) extends StorageBackendFactory {
+            public function __construct(
+                StorageLocationRepository $repository,
+                string $storagePath,
+                private ProbeRecorder $probes
+            ) {
+                parent::__construct($repository, $storagePath);
+            }
+
+            public function probe(StorageLocation $proposed, ?string $secret): StorageBackendInterface
+            {
+                $this->probes->targets[] = $proposed->config->target();
+
+                return $this->probes->backend;
+            }
+        };
+
+        return new StorageLocationService($this->repository, $factory, $this->consumers);
     }
 
     /**
