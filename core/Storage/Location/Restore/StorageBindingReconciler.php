@@ -86,6 +86,8 @@ final class StorageBindingReconciler
 
         $report = [];
         $matched = [];
+        $keepTheirId = [];
+        $needANewId = [];
         foreach ($before->rows as $current) {
             $twin = $sameInstallation ? ($restored[$current['id']] ?? null) : null;
             if ($twin !== null && $twin['type'] === $current['type']) {
@@ -97,7 +99,22 @@ final class StorageBindingReconciler
                 continue;
             }
 
-            $report[] = $this->putBack($current, $restored, $labels);
+            if (isset($restored[$current['id']])) {
+                $needANewId[] = $current;
+            } else {
+                $keepTheirId[] = $current;
+            }
+        }
+
+        // **Every row that keeps its id goes in before any row that needs
+        // a new one.** A new id is the table's next one, and it could be
+        // exactly the id a later row still has to be put back under: two
+        // rows, one primary key, and the reconciliation stopping halfway.
+        foreach ($keepTheirId as $current) {
+            $report[] = $this->putBack($current, $current['id'], $labels);
+        }
+        foreach ($needANewId as $current) {
+            $report[] = $this->putBack($current, null, $labels);
         }
 
         // $restored was read before anything was put back, so the rows
@@ -151,10 +168,10 @@ final class StorageBindingReconciler
 
     /**
      * @param array{id: int, type: string, label: string, config: string, secret: ?string} $current
-     * @param array<int, array{id: int, type: string, label: string, config: string, secret: ?string}> $restored
+     * @param ?int $id the id to put it back under, or null for the table's next one
      * @param array<string, true> $labels
      */
-    private function putBack(array $current, array $restored, array &$labels): string
+    private function putBack(array $current, ?int $id, array &$labels): string
     {
         $label = $current['label'];
         if (isset($labels[$label])) {
@@ -168,7 +185,7 @@ final class StorageBindingReconciler
 
         $readable = $this->readable($current['secret']);
         $this->repository->insert(
-            isset($restored[$current['id']]) ? null : $current['id'],
+            $id,
             $current['type'],
             $label,
             $current['config'],

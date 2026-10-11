@@ -178,6 +178,29 @@ final class StorageBindingReconcilerTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations WHERE is_default = 1')->fetchColumn());
     }
 
+    /**
+     * Today has more locations than the archive: the one put back under a
+     * new id must not take the id another one is about to be put back
+     * under — the next id of the table is exactly that one.
+     */
+    public function testANewIdNeverTakesTheIdAnotherLocationKeeps(): void
+    {
+        $this->insert(1, 'local', 'Disque du serveur', '{"path":"gallery"}', null, default: true);
+        $this->insert(2, 'google_drive', 'Drive', $this->drive('dossier-ici'), 'grant-ici');
+        $before = $this->snapshot();
+
+        $this->replaceWithBackup([[1, 'local', 'Disque de là-bas', '{"path":"ailleurs"}', null, true]]);
+
+        $this->reconciler()->reconcile($before, false);
+
+        $this->assertStringContainsString('dossier-ici', (string) $this->row(2)['config']);
+        $this->assertStringContainsString('ailleurs', (string) $this->row(1)['config']);
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM storage_locations WHERE config LIKE '%gallery%'"
+        )->fetchColumn());
+        $this->assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations')->fetchColumn());
+    }
+
     /** The same id holding another kind of storage is another location. */
     public function testTheSameIdOfAnotherKindIsNotTheSameLocation(): void
     {
@@ -261,6 +284,9 @@ final class StorageBindingReconcilerTest extends TestCase
     private function replaceWithBackup(array $rows): void
     {
         $this->pdo->exec('DELETE FROM storage_locations');
+        // A restore recreates the table, so its next id starts again from
+        // what the backup holds — not from what this site had counted to.
+        $this->pdo->exec("DELETE FROM sqlite_sequence WHERE name = 'storage_locations'");
         foreach ($rows as [$id, $type, $label, $config, $secret, $default]) {
             $this->insert($id, $type, $label, $config, $secret, $default);
         }
