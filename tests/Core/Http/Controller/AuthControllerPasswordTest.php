@@ -83,6 +83,26 @@ class AuthControllerPasswordTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertTrue($data['success']);
         $this->assertTrue(AuthSession::isAuthenticated());
+        $this->assertSame('/', $data['redirect']);
+    }
+
+    public function testASuccessfulLoginGoesBackToThePageThatAskedForIt(): void
+    {
+        $account = $this->userRepo->create('return@example.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('CorrectPassword', PASSWORD_DEFAULT));
+        \Core\Security\LoginReturn::remember('/r/abc123');
+
+        $request = $this->createJsonRequest('/login/password', [
+            'email' => 'return@example.com',
+            'password' => 'CorrectPassword',
+            '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
+        ]);
+
+        $data = json_decode($this->controller->loginWithPassword($request, [])->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertSame('/r/abc123', $data['redirect']);
     }
 
     public function testLoginWithoutRgpdConsentReturnsFailure(): void

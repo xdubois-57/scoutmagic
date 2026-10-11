@@ -12,6 +12,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SafeRedirect;
 use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -21,6 +22,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\LastLoginMethodCookie;
+use Core\Security\LoginReturn;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
 use Core\Security\PendingMagicLink;
@@ -73,13 +75,21 @@ class AuthController extends AbstractController
     /**
      * GET /login — render the login page.
      *
+     * `?return=<path>` is where the visitor goes once logged in
+     * (Core\Security\LoginReturn, issue #833). A visitor already logged
+     * in goes there at once.
+     *
      * @param array<string, string> $params
      */
     public function login(Request $request, array $params): Response
     {
+        $return = (string) $request->getQuery('return', '');
         if (AuthSession::isAuthenticated()) {
-            return $this->redirect('/');
+            LoginReturn::forget();
+            return $this->redirect(SafeRedirect::loginReturnPath($return));
         }
+
+        LoginReturn::remember($return);
 
         $csrfToken = CsrfGuard::generateToken();
 
@@ -244,6 +254,9 @@ class AuthController extends AbstractController
             // here, or go back to the window where they asked — which is
             // the one that is about to be identified.
             'signed_in_here' => $isRequestingSession,
+            // Read, not spent: the tab polling for this link is in the
+            // same session and is the one that consumes it.
+            'continue_to' => $isRequestingSession ? LoginReturn::target() : '/',
         ]);
     }
 
@@ -287,7 +300,10 @@ class AuthController extends AbstractController
 
         PendingMagicLink::forget();
 
-        return $this->json(['confirmed' => true]);
+        return $this->json([
+            'confirmed' => true,
+            'redirect' => AuthSession::isAuthenticated() ? LoginReturn::consume() : '/',
+        ]);
     }
 
     /**
@@ -355,7 +371,7 @@ class AuthController extends AbstractController
         $this->storeLinkedMembers($account->email);
         $this->rememberLoginMethod('password');
 
-        return $this->json(['success' => true]);
+        return $this->json(['success' => true, 'redirect' => LoginReturn::consume()]);
     }
 
     /**
@@ -410,7 +426,7 @@ class AuthController extends AbstractController
         $this->storeLinkedMembers($account->email);
         $this->rememberLoginMethod('passkey');
 
-        return $this->json(['success' => true]);
+        return $this->json(['success' => true, 'redirect' => LoginReturn::consume()]);
     }
 
     /**
@@ -428,6 +444,7 @@ class AuthController extends AbstractController
 
         AuthSession::logout();
         PendingMagicLink::forget();
+        LoginReturn::forget();
         ScoutYearSession::clear();
         TemporaryMemberSession::clear();
         // The help assistant's conversation dies here too: it lives only

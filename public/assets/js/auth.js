@@ -25,6 +25,27 @@
         });
     });
 
+    /**
+     * Where a successful login goes: the path the server read back from the
+     * session (Core\Security\LoginReturn, issue #833), or `/`. The server
+     * only ever sends an internal path; this refuses anything else anyway,
+     * so a broken or tampered answer cannot send the visitor off the site.
+     * Control characters included, as SafeRedirect::internalPath() does: a
+     * browser drops a tab or a line break from a URL before reading it, so
+     * `/<tab>/evil.example` would land on `//evil.example`.
+     *
+     * @param {unknown} target
+     * @returns {string}
+     */
+    function afterLogin(target) {
+        if (typeof target !== 'string' || target.charAt(0) !== '/'
+            || target.indexOf('//') !== -1 || target.indexOf('\\') !== -1
+            || Array.from(target).some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f)) {
+            return '/';
+        }
+        return target;
+    }
+
     function getCsrf() {
         return /** @type {HTMLInputElement} */ (document.getElementById('csrf-token')).value;
     }
@@ -171,15 +192,27 @@
     });
 
     function startPolling(pollId) {
+        // One poll at a time. The 3s tick and the visibility handler below
+        // can fire together (a throttled tab brought back), and the first
+        // confirmed answer spends the return path server-side
+        // (LoginReturn::consume(), issue #833): a second request in flight
+        // would get `/`, and could be the answer acted on.
+        var inFlight = false;
+
         function checkOnce() {
+            if (inFlight) {
+                return;
+            }
+            inFlight = true;
             fetch('/auth/poll/' + pollId)
+                .finally(function() { inFlight = false; })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.confirmed && pollingInterval) {
                         stopPolling();
                         showState(stateConfirmed);
                         setTimeout(function() {
-                            window.location.href = '/';
+                            window.location.href = afterLogin(data.redirect);
                         }, 2000);
                     }
                 })
@@ -286,7 +319,7 @@
                 var data = await res.json();
 
                 if (data.success) {
-                    window.location.href = '/';
+                    window.location.href = afterLogin(data.redirect);
                 } else if (data.locked_seconds) {
                     lockoutEl.textContent =
                         'Trop de tentatives. Réessayez dans ' + Math.ceil(data.locked_seconds / 60) + ' minute(s).';
@@ -416,7 +449,7 @@
                 var result = await verifyRes.json();
 
                 if (result.success) {
-                    window.location.href = '/';
+                    window.location.href = afterLogin(result.redirect);
                 } else {
                     errorEl.textContent = result.error || 'L\'authentification a échoué.';
                     errorEl.classList.remove('d-none');
@@ -451,5 +484,6 @@
     globalThis.ScoutMagicAuthInternals = {
         base64ToBuffer: base64ToBuffer,
         bufferToBase64: bufferToBase64,
+        afterLogin: afterLogin,
     };
 })();

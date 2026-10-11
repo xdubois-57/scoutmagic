@@ -291,6 +291,115 @@ class AuthControllerTest extends TestCase
         $this->assertNull(\Core\Member\TemporaryMemberSession::get());
     }
 
+    /**
+     * Issue #833: a page that needs a session sends its visitor to
+     * /login?return=<path>, and the login goes back there.
+     */
+    public function testAMagicLinkCollectedByTheAskingWindowGoesBackToTheReturnPath(): void
+    {
+        $this->startTestSession();
+        $this->controller->login(new Request('GET', '/login', ['return' => '/r/abc123'], [], [], []), []);
+
+        $member = new \Core\Security\UserAccount(
+            id: 5,
+            email: 'poll@test.com',
+            firstName: null,
+            lastName: null,
+            passwordHash: null,
+            isSuperAdmin: true,
+            lastLoginAt: null
+        );
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('getUserById')->willReturn($member);
+        PendingMagicLink::remember(1);
+
+        $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertTrue($body['confirmed']);
+        $this->assertSame('/r/abc123', $body['redirect']);
+        $this->assertSame('/', \Core\Security\LoginReturn::target(), 'Spent by the login that used it.');
+    }
+
+    public function testALoginWithoutAReturnPathGoesHome(): void
+    {
+        $this->startTestSession();
+        $this->controller->login(new Request('GET', '/login', [], [], [], []), []);
+
+        $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('getUserById')->willReturn($member);
+        PendingMagicLink::remember(1);
+
+        $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
+
+        $this->assertSame('/', json_decode($response->getBody(), true)['redirect']);
+    }
+
+    public function testAnExternalReturnAddressIsNeverFollowed(): void
+    {
+        $this->startTestSession();
+        $this->controller->login(new Request('GET', '/login', ['return' => 'https://evil.example/'], [], [], []), []);
+
+        $this->assertSame('/', \Core\Security\LoginReturn::target());
+    }
+
+    public function testAVisitorAlreadyLoggedInGoesStraightToTheReturnPath(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'identified');
+
+        $response = $this->controller->login(new Request('GET', '/login', ['return' => '/r/abc123'], [], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/r/abc123', $response->getHeaders()['Location']);
+    }
+
+    public function testAVisitorAlreadyLoggedInIsNotSentOffSite(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'identified');
+
+        $response = $this->controller->login(new Request('GET', '/login', ['return' => '//evil.example'], [], [], []), []);
+
+        $this->assertSame('/', $response->getHeaders()['Location']);
+    }
+
+    public function testTheConfirmationPageOpenedInTheAskingSessionContinuesToTheReturnPath(): void
+    {
+        $this->startTestSession();
+        $this->controller->login(new Request('GET', '/login', ['return' => '/r/abc123'], [], [], []), []);
+        PendingMagicLink::remember(7);
+        $this->authService->method('verifyMagicLink')->willReturn(
+            new \Core\Security\VerifiedMagicLink('poll@test.com', 5)
+        );
+        $this->authService->method('getUserById')->willReturn(
+            new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null)
+        );
+
+        $response = $this->controller->verifyMagicLink(
+            new Request('GET', '/auth/verify', ['token' => 'tok', 'id' => '7'], [], [], []),
+            []
+        );
+
+        $this->assertStringContainsString('href="/r/abc123"', $response->getBody());
+        // Not spent: the tab polling for this link collects it.
+        $this->assertSame('/r/abc123', \Core\Security\LoginReturn::target());
+    }
+
+    public function testLogoutForgetsTheReturnPath(): void
+    {
+        $this->startTestSession();
+        \Core\Security\LoginReturn::remember('/r/abc123');
+        $token = \Core\Security\CsrfGuard::generateToken();
+
+        $this->controller->logout(new Request('POST', '/logout', [], ['_csrf_token' => $token], [], []), []);
+
+        $this->assertSame('/', \Core\Security\LoginReturn::target());
+    }
+
     private function startTestSession(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
