@@ -732,11 +732,22 @@ final class CommunicationController extends AbstractController
         // The caption and title are frozen with the rest, so the row
         // carries what the public page shows rather than the draft's
         // current text.
+        // **`retry: true`, so a row left `pending` repairs itself.**
+        // `claim()` and `markPublished()` are two statements: a request
+        // that dies between them leaves a `pending` row which freezes the
+        // communication, shows no date and offers no « Réessayer » —
+        // there is nothing to retry for a gesture. Without this flag
+        // every later gesture answered `recorded: false` and the row
+        // stayed broken for good. With it, clicking share again past
+        // `STALE_MINUTES` takes the row over and finishes it; the gesture
+        // IS the confirmation a retry needs, there being no form to tick.
+        // A `published` row is still never re-claimed, so the same share
+        // twice is recorded once. CodeRabbit on PR #868.
         $claimed = $this->publications->claim(
             ShareSource::KIND_COMMUNICATION,
             $communication->id,
             $kind->value,
-            false,
+            true,
             AuthSession::getUserAccountId(),
             $now,
             $now->modify('-' . PublishingService::STALE_MINUTES . ' minutes'),

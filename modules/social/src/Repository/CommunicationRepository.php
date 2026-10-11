@@ -69,7 +69,15 @@ class CommunicationRepository
         $stamp = $now->format('Y-m-d H:i:s');
         // Null for a communication with no source: there is nothing to be
         // a duplicate of, and the unique key then matches no row.
-        $hash = $sourceKind === null ? null : hash('sha256', $body);
+        //
+        // **Null for an unknown author too**, and that is the key's own
+        // arithmetic rather than a choice: `created_by` is one of its four
+        // columns, and a NULL in any of them collides with nothing — so a
+        // hash written beside a null author would promise a refusal the
+        // database cannot make. Saying it here keeps « no author, no
+        // twin » readable where the hash is decided, instead of leaving a
+        // branch downstream that can never run. CodeRabbit on PR #868.
+        $hash = $sourceKind === null || $createdBy === null ? null : hash('sha256', $body);
 
         try {
             $this->pdo->prepare(
@@ -85,7 +93,7 @@ class CommunicationRepository
             }
         }
 
-        $twin = $this->twin((string) $sourceKind, (int) $sourceId, (string) $hash, $createdBy);
+        $twin = $this->twin((string) $sourceKind, (int) $sourceId, (string) $hash, (int) $createdBy);
 
         // The key raised and the row is not there: another request rolled
         // its own back between the two statements. Nothing to answer with,
@@ -102,23 +110,18 @@ class CommunicationRepository
      * The row `uq_social_communications_twin` matched, read back by the
      * same columns the key is built from.
      */
-    private function twin(string $sourceKind, int $sourceId, string $hash, ?int $createdBy): ?int
+    private function twin(string $sourceKind, int $sourceId, string $hash, int $createdBy): ?int
     {
-        // The author is compared with an explicit IS NULL branch rather
-        // than MySQL's `<=>`, which SQLite — what the suite runs on
-        // outside the `database` group — does not know.
-        $author = $createdBy === null ? 'created_by IS NULL' : 'created_by = ?';
-        $parameters = [$sourceKind, $sourceId, $hash];
-        if ($createdBy !== null) {
-            $parameters[] = $createdBy;
-        }
-
+        // The author is never null here: {@see create()} writes no hash
+        // without one, so the key cannot have raised. An `IS NULL` branch
+        // stood here and could not run, which read as a guarantee the
+        // database does not give (CodeRabbit on PR #868).
         $statement = $this->pdo->prepare(
             'SELECT id FROM social_communications'
             . ' WHERE source_kind = ? AND source_id = ? AND body_hash = ?'
-            . ' AND ' . $author . ' ORDER BY id DESC LIMIT 1'
+            . ' AND created_by = ? ORDER BY id DESC LIMIT 1'
         );
-        $statement->execute($parameters);
+        $statement->execute([$sourceKind, $sourceId, $hash, $createdBy]);
         $id = $statement->fetchColumn();
 
         return $id === false ? null : (int) $id;
@@ -187,7 +190,8 @@ class CommunicationRepository
         try {
             $this->pdo->prepare(
                 'UPDATE social_communications SET title = ?, body = ?, updated_at = ?,'
-                . ' body_hash = CASE WHEN source_kind IS NULL THEN NULL ELSE ? END WHERE id = ?'
+                . ' body_hash = CASE WHEN source_kind IS NULL OR created_by IS NULL'
+                . ' THEN NULL ELSE ? END WHERE id = ?'
             )->execute([$title, $body, $now->format('Y-m-d H:i:s'), hash('sha256', $body), $id]);
         } catch (\PDOException $e) {
             if (!self::isDuplicate($e)) {

@@ -341,7 +341,10 @@
            fixed sentence cannot say « Cet album est déjà parti sur
            Facebook le 12 septembre, avec le même message » for one
            destination and « Jamais partagé ici. » for the next.
-           `social-composer.js` owns it now, and keeps the two things the
+           `social-publish-confirm.js` owns it now — a file of its own,
+           because `social-composer.js` returns at once on a page with no
+           card to draw while the confirmation has to stand either way —
+           and it keeps the two things the
            fixed sentence carried — that a publication is public and
            outside the site, and the gallery photo leaving sharp. With no
            JavaScript the form posts with no dialog, as it did before

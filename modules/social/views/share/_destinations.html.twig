@@ -7,17 +7,26 @@
 
    **`data-shared-line`** carries what this source has already been
    through at that destination (issue #706, IT-05), so the confirmation
-   `social-composer.js` builds can quote it for the boxes actually
+   `social-publish-confirm.js` builds can quote it for the boxes actually
    ticked. An attribute rather than a JSON blob in a <script>: Twig
    escapes an attribute whatever a caption contains, and a caption can
    contain anything. A destination with no attribute was never shared,
-   and the dialog says « Jamais partagé ici. » itself. #}
+   and the dialog says « Jamais partagé ici. » itself.
+
+   **`data-destination-label` is the checkbox's own label**, « Page
+   Facebook » and not « Facebook »: the dialog's block heading stands for
+   the box that was ticked, and a chief comparing the two must read the
+   same name twice. The mockup writes « Facebook » in both places because
+   its checkbox says « Facebook » too; ours names the account. The
+   SENTENCE inside the block keeps the short name — « est déjà parti sur
+   Facebook » — which is what reads in a sentence and what the mockup
+   writes there (`Service\ShareHistory`). CodeRabbit on PR #868. #}
 <fieldset class="mb-3">
     <legend class="h6">Publier sur</legend>
     {% for d in destinations %}
         {% set shared = shared_by_destination[d.value]|default(null) %}
         <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}"
-             data-destination-label="{{ d.value|capitalize }}"
+             data-destination-label="{{ d.label }}"
              {% if shared %}data-shared-line="{{ shared.line }}"{% endif %}>
             <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
                    id="dest-{{ d.value }}"

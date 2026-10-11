@@ -1631,6 +1631,82 @@ final class CommunicationControllerTest extends TestCase
         );
     }
 
+    /**
+     * **A gesture left half-written repairs itself** (CodeRabbit on PR
+     * #868).
+     *
+     * `claim()` and `markPublished()` are two statements, so a request
+     * that dies between them leaves a `pending` row — which freezes the
+     * communication, has no date to show and offers no « Réessayer »,
+     * there being nothing to retry for a gesture. Claimed without the
+     * retry flag, every later click answered `recorded: false` and the
+     * row stayed broken for good. The click IS the confirmation here:
+     * there is no form to tick.
+     */
+    public function testAGestureLeftPendingIsTakenOverByTheNextOne(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        // The row a request that died between the two statements leaves:
+        // claimed long enough ago to be stale, never published.
+        $old = new \DateTimeImmutable('-1 hour');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $old,
+            $old->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $response = $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $this->assertSame(
+            ['recorded' => true, 'published' => true],
+            [
+                'recorded' => json_decode($response->getBody(), true)['recorded'] ?? null,
+                'published' => $this->publications->forSource('communication', $id)['copy']?->isPublished(),
+            ]
+        );
+    }
+
+    /**
+     * And while it is waiting, the history says « En cours » rather than
+     * dating it: the direct branch sat BESIDE the published state instead
+     * of under it, so a row with no `publishedAt` printed « Le  à », two
+     * holes where a date belongs (CodeRabbit on PR #868).
+     *
+     * Asserted on the sentence that must appear, not on the holes: this
+     * class flattens runs of whitespace before matching — otherwise a
+     * sentence wrapped in the template would fail on its indentation —
+     * so « Le  à » is « Le à » by the time any assertion sees it, and a
+     * test looking for the two spaces could not fail.
+     */
+    public function testAGesturePendingIsNotDatedInTheHistory(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $now = new \DateTimeImmutable();
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $now,
+            $now->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertStringContainsString('En cours', $flat);
+    }
+
     /** An unknown gesture is refused rather than recorded as something. */
     public function testAnUnknownGestureIsRefused(): void
     {

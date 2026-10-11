@@ -56,13 +56,19 @@
                         <span class="flex-grow-1">
                             {{ row.label }}
                             <br>
-                            {% if row.direct %}
+                            {% if row.state == 'published' and row.direct %}
                                 {# Dated, and never « Publié » or
                                    « envoyé » (issue #706, IT-05): the site
                                    handed the link to the phone or to the
                                    clipboard, and what happened next never
                                    came back to it. The label above
-                                   already says which gesture it was. #}
+                                   already says which gesture it was.
+
+                                   **Under the published state and not
+                                   beside it**: a direct row still waiting
+                                   has no `publishedAt`, and this branch
+                                   read « Le  à » with two holes in it.
+                                   CodeRabbit on PR #868. #}
                                 <span class="small text-body-secondary">Le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>
                             {% elseif row.state == 'published' %}
                                 <span class="small text-body-secondary">Publié le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>

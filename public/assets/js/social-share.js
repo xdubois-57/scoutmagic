@@ -122,14 +122,25 @@
      * Records the share that happened. The reload is what puts the new
      * line in « Ce qui est parti » — and the freeze it brings is what the
      * composer must show, so a stale page would offer buttons the server
-     * has started refusing.
+     * has started refusing. It happens only if the recording did: a
+     * reload over a refusal would wipe the message saying so.
      *
      * @param {string} recordUrl
      * @param {string} kind
      * @returns {Promise<void>}
      */
     function record(recordUrl, kind) {
-        return api.postJson(recordUrl, { kind: kind }).then(function () {
+        return api.postJson(recordUrl, { kind: kind }).then(function (answer) {
+            // **The reload would hide its own failure.** The link is
+            // already in the chief's hands, but an expired session or a
+            // 404 means nothing was recorded and nothing frozen — and a
+            // reloaded page says none of that, because it clears the live
+            // region on the way out. CodeRabbit on PR #868.
+            if (!answer?.ok) {
+                announce('Le lien est parti, mais le partage n’a pas pu être enregistré.', false);
+
+                return;
+            }
             if (kind === 'copy') {
                 announce('Lien copié', true);
             }

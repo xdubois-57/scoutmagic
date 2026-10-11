@@ -278,6 +278,29 @@ final class CommunicationRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * **No author, no twin**, and that is the unique key's own arithmetic
+     * (CodeRabbit on PR #868): `created_by` is one of its four columns,
+     * and a NULL in any of them collides with nothing. So the hash is
+     * NULL too — a hash written beside a null author would promise a
+     * refusal the database cannot make, and `twin()` carried a branch for
+     * it that could never run.
+     */
+    public function testWithNoAuthorThereIsNoTwinToFind(): void
+    {
+        $first = $this->repository->create('', 'Les photos sont en ligne', null, $this->now, 'album', 3);
+        $second = $this->repository->create('', 'Les photos sont en ligne', null, $this->now, 'album', 3);
+
+        $this->assertSame(
+            ['two rows' => true, 'hash' => null],
+            [
+                'two rows' => $first !== $second,
+                'hash' => $this->pdo->query('SELECT body_hash FROM social_communications WHERE id = ' . $first)
+                    ->fetchColumn() ?: null,
+            ]
+        );
+    }
+
     private function rows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();

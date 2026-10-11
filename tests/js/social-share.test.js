@@ -177,6 +177,34 @@ describe('with a share sheet', () => {
     });
 });
 
+describe('when recording it fails', () => {
+    /**
+     * **The reload would hide its own failure.** The link is already in
+     * the chief's hands, but nothing was recorded and nothing frozen —
+     * and a reloaded page says none of that, because it clears the live
+     * region on the way out. (CodeRabbit on PR #868.)
+     */
+    it('says so and does not reload', async () => {
+        window.ScoutMagicApi.postJson = (url, body) => {
+            posted.push({ url, body });
+
+            return Promise.resolve(
+                url.endsWith('/lien')
+                    ? { ok: true, status: 200, data: { url: 'https://unite.example/partage/abc' } }
+                    : { ok: false, status: 403, data: { error: 'Session expirée.' } }
+            );
+        };
+
+        await load();
+        button().click();
+        await settle();
+
+        expect(
+            [feedback().textContent, window.location.reload.mock.calls.length]
+        ).toEqual(['Le lien est parti, mais le partage n’a pas pu être enregistré.', 0]);
+    });
+});
+
 describe('when the link cannot be prepared', () => {
     it('reports the server’s own reason and hands nothing over', async () => {
         window.ScoutMagicApi.postJson = (url, body) => {
