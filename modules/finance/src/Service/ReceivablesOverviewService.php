@@ -369,8 +369,9 @@ class ReceivablesOverviewService
 
         $amounts = [];
         foreach ($this->allocations->findByTransactionId($transactionId) as $allocation) {
-            // 0 is a removal kept so the next import does not redo it.
-            if ($allocation->amountCents <= 0) {
+            // 0 is a removal kept so the next import does not redo it; a
+            // refund is negative and still names what it refunds.
+            if ($allocation->amountCents === 0) {
                 continue;
             }
             $amounts[$allocation->receivableId] = ($amounts[$allocation->receivableId] ?? 0) + $allocation->amountCents;

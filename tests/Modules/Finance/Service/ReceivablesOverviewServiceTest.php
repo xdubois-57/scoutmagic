@@ -446,6 +446,21 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame([$kept], array_column($linked, 'id'));
     }
 
+    /**
+     * A refund is stored negative: still listed, with its negative share.
+     */
+    public function testARefundIsListedWithItsNegativeShare(): void
+    {
+        $deposit = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $movement = $this->movement(-50.00);
+        $this->allocate($movement, $deposit, -5000);
+
+        $linked = $this->linkedService()->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame([$deposit], array_column($linked, 'id'));
+        $this->assertSame(-5000, $linked[0]['amount_cents']);
+    }
+
     public function testAMovementThatPaysNothingListsNothing(): void
     {
         $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));

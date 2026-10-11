@@ -95,6 +95,19 @@ class MovementDescriptionServiceTest extends TestCase
         $this->assertSame('Paiement non imputé', $presented[$removed]['description']);
     }
 
+    /**
+     * A refund is stored negative: it still names what it refunds.
+     */
+    public function testARefundNamesTheReceivableItRefunds(): void
+    {
+        $receivables = FinanceTestHelper::receivableService($this->pdo, $this->encryption);
+        $camp = $receivables->createReceivable('news', 2, $this->accountId, 9000, '+++123/4567/89103+++', 'Camp Jean', $this->categoryId);
+        $refund = $this->movement('Remboursement', -20.00);
+        $this->allocate($refund, $camp, -2000);
+
+        $this->assertStringStartsWith('News #2 — Camp Jean', $this->present([$refund])[$refund]['description']);
+    }
+
     public function testACreditCarryingAnUnknownCommunicationIsUnimputed(): void
     {
         $movement = $this->movement('+++123/4567/89002+++', 45.00);
