@@ -135,7 +135,7 @@
             region.className = 'visually-hidden';
             region.setAttribute('role', 'status');
             region.setAttribute('aria-live', 'polite');
-            region.setAttribute('data-phone-status', '');
+            region.dataset.phoneStatus = '';
             document.body.appendChild(region);
         }
         return region;
