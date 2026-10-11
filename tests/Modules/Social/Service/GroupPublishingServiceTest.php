@@ -93,6 +93,47 @@ final class GroupPublishingServiceTest extends TestCase
         $this->assertStringNotContainsString('Les photos', $this->journal->textOf('published'));
     }
 
+    /**
+     * **An article reaches a group as a card and its own link** (issue
+     * #706, IT-03).
+     *
+     * Facebook gets a LINK for an article — `PublishingService::send()`
+     * branches on `$source->link` — and shows the article page's Open
+     * Graph preview. A group is inside the site, so it gets what every
+     * other destination gets: the card, with the article's title drawn
+     * on it, beside a real clickable link to the article.
+     *
+     * Untested until IT-03: the group test above uses an ALBUM, and the
+     * article tests in `PublishingServiceTest` stop at the two Meta
+     * platforms.
+     */
+    public function testAnArticleReachesAGroupAsACardAndItsOwnLink(): void
+    {
+        $outcomes = $this->publish($this->article(), [3]);
+
+        $this->assertTrue($outcomes[0]->published, $outcomes[0]->message);
+
+        // The card, not the cover: a 1080 square composed from it.
+        $sent = (string) $this->groups->posts[0]['image'];
+        $this->assertNotSame(H::groupPhoto(), $sent, 'the group was handed the article\'s cover itself');
+        $size = (array) getimagesizefromstring($sent);
+        $this->assertSame(
+            [CardRenderer::SIZE, CardRenderer::SIZE, 'image/jpeg'],
+            [$size[0] ?? null, $size[1] ?? null, $size['mime'] ?? null]
+        );
+
+        // An article's cover is public by design, so the card carries no
+        // blur — and composing it again with one would not match.
+        $this->assertSame(
+            (new CardRenderer())->render(H::groupPhoto(), 'Inscriptions ouvertes', 'unite.example/s/abc', false, 0.0),
+            $sent,
+            'the article\'s card is not the unblurred composition of its cover'
+        );
+
+        // The article's own address, so a member can go and read it.
+        $this->assertSame('https://unite.example/s/abc', $this->groups->posts[0]['link']);
+    }
+
     public function testOnceHoldsGroupByGroup(): void
     {
         $this->publish($this->album(), [3]);
@@ -251,6 +292,23 @@ final class GroupPublishingServiceTest extends TestCase
 
         return (new GroupPublishingService($this->groups, $this->publications, $journal, $cards))
             ->publish($source, $groupIds, 'Les photos sont en ligne', $retries, 'chef@unite.be', 'chief', 7, $this->now);
+    }
+
+    /**
+     * An article as `ShareSourceResolver::article()` builds one: its own
+     * public URL in BOTH `link` and `pageUrl`, and `imageFromGallery`
+     * false — an article's cover is public by design, so there is
+     * nothing to blur and the composer offers no slider for it.
+     */
+    private function article(): ShareSource
+    {
+        return new ShareSource(
+            'article', 5, 'Inscriptions ouvertes', H::groupPhoto(), false,
+            'https://unite.example/s/abc', 'unite.example/s/abc',
+            'Inscriptions ouvertes — à lire sur unite.example/s/abc',
+            '/news/5/gerer',
+            null, 'https://unite.example/s/abc'
+        );
     }
 
     private function album(?string $image = null): ShareSource

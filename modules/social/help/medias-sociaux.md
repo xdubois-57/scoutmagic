@@ -8,7 +8,7 @@ question: Comment partager un album photo ou une actualité sur Facebook ou Inst
 question: Comment publier une annonce sur la Page Facebook de l'unité ?
 question: Pourquoi n'y a-t-il pas de bouton « Partager » ?
 paths: /medias-sociaux/nouvelle, /medias-sociaux/nouvelle/*/*, /medias-sociaux/*, /medias-sociaux/*/photo
-related: l-image-publiee, ce-qui-est-parti, gerer-la-galerie, publier-une-actualite, reseaux-sociaux
+related: l-image-publiee, ce-que-recoit-chaque-destination, ce-qui-est-parti, gerer-la-galerie, publier-une-actualite
 ---
 
 « Médias sociaux », dans l'espace animateurs, est la page d'où part
@@ -33,7 +33,11 @@ aucune, le bouton est absent et la page le dit en une ligne.
 La page se lit de haut en bas, dans l'ordre où la publication se compose :
 
 - **l'image, telle qu'elle sera publiée**, titre et adresse du site
-  écrits dessus ;
+  écrits dessus — sauf sur la Page Facebook quand vous partagez une
+  actualité, qui part en lien et dont Facebook fabrique son propre
+  aperçu ; la page vous le dit sous l'image, et
+  [Ce que reçoit chaque destination](ce-que-recoit-chaque-destination)
+  l'explique ;
 - **« Galerie »** ou **« Téléverser »**, pour une communication écrite de
   zéro. Quand l'image vient d'un album ou d'une actualité, elle et son
   titre ne se changent pas ici : ils se changent là-bas ;

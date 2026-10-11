@@ -826,6 +826,23 @@ final class CommunicationController extends AbstractController
             'uploadable' => !$fromSource,
             'from_source' => $fromSource,
             'image_is_settled' => self::imageIsSettled($source, $fromSource),
+            // **Whether Facebook will build its own preview instead of
+            // showing this card** (issue #706, IT-03).
+            //
+            // Keyed on `link`, which is the very field
+            // `PublishingService::send()` branches on: a non-null link
+            // makes the Page post a LINK publication, and Facebook then
+            // renders the target page's Open Graph tags — for an
+            // article, its cover, title and summary — not the card. The
+            // sentence under the card promised « exactement ce qui sera
+            // publié » to everyone, which was true of Instagram and the
+            // groups and false of Facebook.
+            //
+            // The same signal rather than the kind, so IT-04 carries it
+            // for free: once a communication has a public page, an album
+            // shared to the Page becomes a link publication too, and
+            // this says so without being touched.
+            'link_preview_on_facebook' => ($source->link ?? null) !== null,
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
