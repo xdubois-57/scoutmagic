@@ -1,0 +1,196 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Core\Storage\Location\Restore;
+
+use Core\Security\EncryptionService;
+
+/**
+ * Puts today's storage bindings back after a restore (#832) — see
+ * {@see StorageBindingSnapshot} for why they are state outside the backup.
+ *
+ * Run once the restored schema is current, against the snapshot taken
+ * just before the database was replaced. Three cases, and in none of them
+ * is anything created, moved, renamed or deleted in the storage itself:
+ *
+ * - **A location in both** keeps today's binding — its configuration, its
+ *   credential and its label — over the backup's. The label goes with
+ *   them because a Drive location's folder carries it (#474): restoring an
+ *   old label would only make it disagree with the folder. When the
+ *   credential cannot be read any more (a portable restore installs the
+ *   archive's keys), today's configuration is kept with the backup's
+ *   credential, and the location says to enter it again.
+ * - **A location only in the snapshot** — created after the backup was
+ *   taken — is put back, never as the default: data written there since
+ *   must stay reachable.
+ * - **A location only in the backup** — deleted since, or brought by a
+ *   portable archive from another installation — comes back as the backup
+ *   has it, and says that its target was not checked. It is not replaced,
+ *   not rebound to a guess, and not removed.
+ *
+ * A row says which with `reconciliation_note`, shown on the locations page
+ * until an administrator saves the location; the health recorded against
+ * the replaced binding is cleared so the next check measures the real one.
+ *
+ * **Matched by id, and only within one installation.** Ids are this
+ * installation's own counter: an ordinary restore and a portable archive
+ * of this same site agree on them, and a portable archive from ANOTHER
+ * installation does not — its location 2 is not this site's location 2.
+ * There, nothing is matched: today's locations are all put back beside the
+ * archive's, and the archive's are all flagged.
+ *
+ * Which album or backup uses which location is the backup's business, and
+ * comes back with it. Nothing here re-points a usage; a location whose
+ * binding changed is named in the report, which is the journal's, so that
+ * an administrator can tell where a usage may now point at bytes that
+ * moved after the backup was taken.
+ */
+final class StorageBindingReconciler
+{
+    public const NOTE_FROM_BACKUP = "Cet emplacement vient de la sauvegarde restaurée et n'existait pas sur le site "
+        . 'juste avant la restauration : sa cible (dossier, partage ou bucket) n\'a pas été vérifiée. Assurez-vous '
+        . 'qu\'elle contient bien les fichiers attendus avant de vous en servir.';
+
+    public const NOTE_SECRET_UNREADABLE = "La liaison d'avant la restauration a été conservée, mais ses identifiants "
+        . "n'ont pas pu être relus avec les clés restaurées : saisissez-les à nouveau, puis testez l'emplacement.";
+
+    public const NOTE_KEPT_BESIDE = "Cet emplacement existait sur le site juste avant la restauration et la "
+        . 'sauvegarde ne le connaissait pas : il a été conservé, avec les fichiers qu\'il contient.';
+
+    private const RESTORED_SUFFIX = ' (avant restauration)';
+
+    public function __construct(
+        private StorageBindingRepository $repository,
+        private EncryptionService $encryption
+    ) {
+    }
+
+    /**
+     * @param bool $sameInstallation whether the restored backup was taken
+     *        by this installation — see the class docblock
+     * @return list<string> one French line per location that changed,
+     *         for the journal
+     */
+    public function reconcile(StorageBindingSnapshot $before, bool $sameInstallation): array
+    {
+        $restored = [];
+        foreach ($this->repository->rows() as $row) {
+            $restored[$row['id']] = $row;
+        }
+        $labels = array_fill_keys(array_map(static fn (array $row): string => $row['label'], $restored), true);
+
+        $report = [];
+        $matched = [];
+        foreach ($before->rows as $current) {
+            $twin = $sameInstallation ? ($restored[$current['id']] ?? null) : null;
+            if ($twin !== null && $twin['type'] === $current['type']) {
+                $matched[$twin['id']] = true;
+                $line = $this->rebind($twin, $current, $labels);
+                if ($line !== null) {
+                    $report[] = $line;
+                }
+                continue;
+            }
+
+            $report[] = $this->putBack($current, $restored, $labels);
+        }
+
+        // $restored was read before anything was put back, so the rows
+        // inserted above are not in it: what is left unmatched here is
+        // exactly what only the backup knew.
+        foreach ($restored as $id => $row) {
+            if (isset($matched[$id])) {
+                continue;
+            }
+            $this->repository->flag($id, self::NOTE_FROM_BACKUP);
+            $report[] = "« {$row['label']} » : venu de la sauvegarde, cible non vérifiée.";
+        }
+
+        return $report;
+    }
+
+    /**
+     * @param array{id: int, type: string, label: string, config: string, secret: ?string} $restored
+     * @param array{id: int, type: string, label: string, config: string, secret: ?string} $current
+     * @param array<string, true> $labels
+     */
+    private function rebind(array $restored, array $current, array &$labels): ?string
+    {
+        $readable = $this->readable($current['secret']);
+        $secret = $readable ? $current['secret'] : $restored['secret'];
+        $label = $restored['label'];
+        if ($current['label'] !== $restored['label'] && !isset($labels[$current['label']])) {
+            unset($labels[$restored['label']]);
+            $labels[$current['label']] = true;
+            $label = $current['label'];
+        }
+
+        if ($readable && $label === $restored['label'] && $current['config'] === $restored['config']
+            && $secret === $restored['secret']
+        ) {
+            return null;
+        }
+
+        $this->repository->rebind(
+            $restored['id'],
+            $label,
+            $current['config'],
+            $secret,
+            $readable ? null : self::NOTE_SECRET_UNREADABLE
+        );
+
+        return $readable
+            ? "« {$label} » : liaison d'avant la restauration conservée à la place de celle de la sauvegarde."
+            : "« {$label} » : liaison d'avant la restauration conservée, identifiants à saisir à nouveau.";
+    }
+
+    /**
+     * @param array{id: int, type: string, label: string, config: string, secret: ?string} $current
+     * @param array<int, array{id: int, type: string, label: string, config: string, secret: ?string}> $restored
+     * @param array<string, true> $labels
+     */
+    private function putBack(array $current, array $restored, array &$labels): string
+    {
+        $label = $current['label'];
+        if (isset($labels[$label])) {
+            $label = mb_substr($current['label'], 0, 255 - mb_strlen(self::RESTORED_SUFFIX)) . self::RESTORED_SUFFIX;
+            $n = 2;
+            while (isset($labels[$label])) {
+                $label = mb_substr($current['label'], 0, 240) . self::RESTORED_SUFFIX . ' ' . $n++;
+            }
+        }
+        $labels[$label] = true;
+
+        $readable = $this->readable($current['secret']);
+        $this->repository->insert(
+            isset($restored[$current['id']]) ? null : $current['id'],
+            $current['type'],
+            $label,
+            $current['config'],
+            $readable ? $current['secret'] : null,
+            $readable ? self::NOTE_KEPT_BESIDE : self::NOTE_KEPT_BESIDE . ' ' . self::NOTE_SECRET_UNREADABLE
+        );
+
+        return "« {$label} » : absent de la sauvegarde, conservé tel qu'il était avant la restauration.";
+    }
+
+    /** Whether this ciphertext opens with the keys the site now holds. */
+    private function readable(?string $secret): bool
+    {
+        if ($secret === null) {
+            return true;
+        }
+        try {
+            $this->encryption->decrypt($secret, 'storage_locations.secret');
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+}

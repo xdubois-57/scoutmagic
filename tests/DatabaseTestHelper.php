@@ -1064,6 +1064,7 @@ class DatabaseTestHelper
             last_checked_at TEXT NULL,
             last_check_ok INTEGER NULL,
             last_check_error TEXT NULL,
+            reconciliation_note TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(label)
         )');

@@ -2389,6 +2389,13 @@ CREATE TABLE IF NOT EXISTS storage_locations (
     last_checked_at DATETIME NULL,
     last_check_ok BOOLEAN NULL,
     last_check_error TEXT NULL,
+    -- What a restore did to this row, in French, for the administrator
+    -- (#832; Core\Storage\Location\Restore\StorageBindingReconciler):
+    -- the binding of before the restore kept over the backup's, a
+    -- credential to enter again, or a target that came from the backup and
+    -- that nobody has checked. NULL once an administrator has saved the
+    -- location — the act of looking at it is what the note asks for.
+    reconciliation_note TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_storage_locations_label (label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

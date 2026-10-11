@@ -7,6 +7,12 @@
        (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with { title: location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' } only %}
 
+    {% if location and location.reconciliationNote %}
+        <div class="alert alert-warning">
+            <strong>Après la restauration :</strong> {{ location.reconciliationNote }}
+            Enregistrer cette page retire cet avertissement.
+        </div>
+    {% endif %}
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
     {% endif %}

@@ -31,7 +31,11 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Storage\DiskBudget;
+use Core\Statistics\InstallationIdentityService;
 use Core\Storage\Location\DeclaredStorageDirectories;
+use Core\Storage\Location\Restore\StorageBindingReconciler;
+use Core\Storage\Location\Restore\StorageBindingRepository;
+use Core\Storage\Location\Restore\StorageBindingSnapshot;
 
 /**
  * Background "Restaurer une sauvegarde" — scheduled by Core\Http\Controller\
@@ -182,6 +186,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         $safetyDbDump = null;
         $safetyZip = null;
+        $bindingsHold = null;
 
         try {
             $safety = $this->createSafetyBackup(
@@ -204,6 +209,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 // the current code).
                 [$restoreDbDumpPath, $restoreZipPath, $password, $extractedUploadDbDump] =
                     $this->resolveSource($payload, $pdo, $context->storagePath, $context->encryption);
+
+                // Today's storage bindings, kept on disk before the
+                // database that holds them is replaced (#832) — put back
+                // on the pass that finishes the migration.
+                $bindingsHold = $this->holdStorageBindingsAside($context);
 
                 $backupService->restoreDatabase($restoreDbDumpPath);
                 if ($restoreZipPath !== null) {
@@ -233,11 +243,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $source,
                     $requestedBy,
                     $safetyDbDump,
-                    $safetyZip
+                    $safetyZip,
+                    ['storage_bindings_hold' => $bindingsHold, 'storage_bindings_same_installation' => true]
                 );
 
                 return;
             } catch (\Throwable $restoreError) {
+                // The rollback puts back the database the bindings were
+                // read from: there is nothing left to reconcile.
+                if ($bindingsHold !== null) {
+                    @unlink($bindingsHold);
+                }
                 $this->rollbackToSafetyBackup(
                     $context,
                     $backupService,
@@ -272,6 +288,93 @@ class RestoreBackupHandler implements TaskHandlerInterface
             if ($extractedUploadDbDump !== null) {
                 @unlink($extractedUploadDbDump);
             }
+        }
+    }
+
+    /**
+     * Today's storage bindings, written aside before the database holding
+     * them is replaced (#832; {@see StorageBindingSnapshot}).
+     *
+     * Throws when they cannot be: the restore then rolls back rather than
+     * go ahead and lose them.
+     */
+    private function holdStorageBindingsAside(TaskContext $context): string
+    {
+        return StorageBindingSnapshot::capture(new StorageBindingRepository($context->connection->getPdo()))
+            ->holdAside($context->storagePath);
+    }
+
+    /**
+     * The storage half of a resume payload, carried like the portable one.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function bindingsPayload(array $payload): array
+    {
+        if (!is_string($payload['storage_bindings_hold'] ?? null)) {
+            return [];
+        }
+
+        return [
+            'storage_bindings_hold' => $payload['storage_bindings_hold'],
+            'storage_bindings_same_installation' => ($payload['storage_bindings_same_installation'] ?? false) === true,
+        ];
+    }
+
+    /**
+     * Puts today's storage bindings back over the backup's (#832), once
+     * the restored schema is current — {@see StorageBindingReconciler}.
+     *
+     * **Never a reason to undo the restore.** The database and the files
+     * have arrived; a reconciliation that fails leaves the backup's
+     * bindings in place, which is where every restore stood before #832,
+     * and the journal says so for the administrator to check the
+     * locations by hand.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function reconcileStorageBindings(array $payload, TaskContext $context, ?int $requestedBy): void
+    {
+        $hold = $payload['storage_bindings_hold'] ?? null;
+        if (!is_string($hold)) {
+            // A restore queued before #832: nothing was kept.
+            return;
+        }
+
+        try {
+            $before = StorageBindingSnapshot::readHeldAside($hold);
+            if ($before === null) {
+                throw new \RuntimeException('Le relevé des emplacements d\'avant la restauration est illisible.');
+            }
+
+            $report = (new StorageBindingReconciler(
+                new StorageBindingRepository($context->connection->getPdo()),
+                $context->encryption
+            ))->reconcile($before, ($payload['storage_bindings_same_installation'] ?? false) === true);
+
+            if ($report !== []) {
+                $context->journal->log(
+                    'storage',
+                    'storage_bindings_reconciled',
+                    'warning',
+                    'Emplacements de stockage réconciliés après la restauration',
+                    ['locations' => $report],
+                    $requestedBy
+                );
+            }
+        } catch (\Throwable $e) {
+            $context->journal->log(
+                'storage',
+                'storage_bindings_reconcile_failed',
+                'warning',
+                'Les emplacements de stockage n\'ont pas pu être réconciliés après la restauration : ils sont '
+                    . 'tels que la sauvegarde les contenait. Vérifiez-les sur Configuration › Stockage.',
+                ['error' => $e->getMessage()],
+                $requestedBy
+            );
+        } finally {
+            @unlink($hold);
         }
     }
 
@@ -437,8 +540,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // and the files back while leaving the ARCHIVE's keys in place. The
         // path travels in the payload; the key material does not.
         $secretsHold = $restore->holdSecretsAside($secretsBefore);
+        $bindingsHold = null;
 
         try {
+            // As on the ordinary path (#832) — and matched by id only when
+            // the archive is this installation's own: another
+            // installation's location 2 is not this one's.
+            $bindingsHold = $this->holdStorageBindingsAside($context);
+            $ownIdentity = $context->settings->get(InstallationIdentityService::INSTALLATION_ID_SETTING);
+            $sameInstallation = is_string($ownIdentity) && $ownIdentity !== ''
+                && $ownIdentity === $archive->originInstallationId();
+
             $restore->apply($archive, $backupService, $targetOwnedSecrets);
 
             $this->scheduleMigrationResume(
@@ -453,9 +565,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'portable_origin_installation_id' => $archive->originInstallationId(),
                     'portable_base_url' => $targetBaseUrl,
                     'portable_secrets_hold' => $secretsHold,
+                    'storage_bindings_hold' => $bindingsHold,
+                    'storage_bindings_same_installation' => $sameInstallation,
                 ]
             );
         } catch (\Throwable $restoreError) {
+            if ($bindingsHold !== null) {
+                @unlink($bindingsHold);
+            }
             // Before the rollback, not after: rollbackToSafetyBackup()
             // extracts the safety archive over the file tree, and the
             // installation it hands back must be the one that was here —
@@ -709,8 +826,9 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     // Carried forward, or a restore that needed three
                     // passes would arrive at the end having forgotten it
                     // was portable — and would leave the new site running
-                    // under the old one's identity.
-                    $this->portablePayload($payload)
+                    // under the old one's identity. The storage bindings
+                    // likewise, or they would never be put back.
+                    $this->portablePayload($payload) + $this->bindingsPayload($payload)
                 );
                 return;
             }
@@ -750,8 +868,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 }
             }
 
+            $this->reconcileStorageBindings($payload, $context, $requestedBy);
+
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
         } catch (\Throwable $migrationError) {
+            if (is_string($payload['storage_bindings_hold'] ?? null)) {
+                @unlink((string) $payload['storage_bindings_hold']);
+            }
             [$safetyDbDumpPath, $safetyZipPath] = self::resolveSafetyCopy(
                 $carriedDbDump,
                 $carriedZip,
