@@ -152,6 +152,55 @@ final class ShareHistoryTest extends TestCase
         $this->assertStringContainsString('20 septembre 2026', $answer['facebook']['line']);
     }
 
+    /**
+     * **A failed attempt is not a share** (`Claude review` on PR #868).
+     *
+     * `claim()` writes the row `pending` before Meta is called and leaves
+     * it `failed` when Meta refuses, so the table holds attempts too.
+     * « Cet album est déjà parti sur Facebook » built from one of those
+     * is false, and it would be said to the one person at that moment
+     * deciding whether to send it — turning a block meant to prevent an
+     * oversight into one that invents one. The failure's own reason and
+     * its « Réessayer » live on « Ce qui est parti », which reads the
+     * rows itself.
+     */
+    public function testAFailedAttemptIsNeitherALineNorASentence(): void
+    {
+        $this->recordAttempt('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00', published: false);
+
+        // Both answers in one assertion: PHPUnit stops at the first
+        // failure, and dropping the filter breaks them both.
+        $this->assertSame(
+            ['lines' => [], 'sentences' => []],
+            [
+                'lines' => $this->history->lines(ShareSource::KIND_ALBUM, self::ALBUM),
+                'sentences' =>
+                    $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Les photos sont en ligne'),
+            ]
+        );
+    }
+
+    /**
+     * And a destination whose last attempt failed speaks with the share
+     * that DID leave, not with the failure: the chief is owed the date
+     * recipients actually saw.
+     */
+    public function testADestinationSpeaksWithItsLastShareAndNotItsLastFailure(): void
+    {
+        $this->recordAttempt('Le texte parti', 'facebook', '2026-09-12 10:00:00', published: true);
+        $this->recordAttempt('Le texte refusé', 'facebook', '2026-09-20 10:00:00', published: false);
+
+        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Le texte refusé');
+
+        // The whole sentence at once: the date of the share that left,
+        // and « avec un autre message » — the refused text went nowhere,
+        // so it is not what this destination has.
+        $this->assertSame(
+            'Cet album est déjà parti sur Facebook le 12 septembre 2026, avec un autre message.',
+            $answer['facebook']['line']
+        );
+    }
+
     /** A destination this source never went to is simply absent. */
     public function testADestinationNeverUsedIsAbsent(): void
     {
@@ -168,6 +217,17 @@ final class ShareHistoryTest extends TestCase
      * @return int the communication's id
      */
     private function share(string $body, string $destination, string $when): int
+    {
+        return $this->recordAttempt($body, $destination, $when, published: true);
+    }
+
+    /**
+     * The same, with the outcome chosen: a published row, or one Meta
+     * refused.
+     *
+     * @return int the communication's id
+     */
+    private function recordAttempt(string $body, string $destination, string $when, bool $published): int
     {
         $at = new \DateTimeImmutable($when);
         $id = $this->communications->create(
@@ -189,14 +249,24 @@ final class ShareHistoryTest extends TestCase
             'Week-end de rentrée',
             $body
         );
-        $this->publications->markPublished(
-            ShareSource::KIND_COMMUNICATION,
-            $id,
-            $destination,
-            'remote',
-            $at,
-            $at
-        );
+        if ($published) {
+            $this->publications->markPublished(
+                ShareSource::KIND_COMMUNICATION,
+                $id,
+                $destination,
+                'remote',
+                $at,
+                $at
+            );
+        } else {
+            $this->publications->markFailed(
+                ShareSource::KIND_COMMUNICATION,
+                $id,
+                $destination,
+                'Meta a refusé la publication.',
+                $at
+            );
+        }
 
         return $id;
     }

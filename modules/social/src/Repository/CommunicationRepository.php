@@ -160,10 +160,44 @@ class CommunicationRepository
         return array_map(static fn (mixed $id): int => (int) $id, $statement->fetchAll(\PDO::FETCH_COLUMN));
     }
 
-    public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): void
+    /**
+     * The draft's text, with `body_hash` brought along (issue #706,
+     * IT-05).
+     *
+     * **The hash is of the text the row HOLDS, not of the text it was
+     * created with**, or `uq_social_communications_twin` starts naming
+     * the wrong row: a draft created as « A » and edited to « B » would
+     * answer a later `create()` for « A » — handing the caller a row
+     * whose text is « B » and publishing that instead — while a
+     * `create()` for « B » would miss the key and write a second row for
+     * the same album, same author, same text, which is the one thing the
+     * key exists to refuse. `Claude review` found this on PR #868. The
+     * `CASE` keeps the NULL rule where {@see create()} put it: a
+     * communication with no source is nobody's twin.
+     *
+     * **It can be refused**, and `false` says so: the chief typed, into
+     * this draft, the text of another communication of the same source.
+     * By the module's own rule those two ARE one communication, so the
+     * database refuses the edit and the caller says why rather than
+     * carrying on with the old text — or crashing, which is what this did
+     * before the hash moved.
+     */
+    public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): bool
     {
-        $this->pdo->prepare('UPDATE social_communications SET title = ?, body = ?, updated_at = ? WHERE id = ?')
-            ->execute([$title, $body, $now->format('Y-m-d H:i:s'), $id]);
+        try {
+            $this->pdo->prepare(
+                'UPDATE social_communications SET title = ?, body = ?, updated_at = ?,'
+                . ' body_hash = CASE WHEN source_kind IS NULL THEN NULL ELSE ? END WHERE id = ?'
+            )->execute([$title, $body, $now->format('Y-m-d H:i:s'), hash('sha256', $body), $id]);
+        } catch (\PDOException $e) {
+            if (!self::isDuplicate($e)) {
+                throw $e;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     /**

@@ -137,8 +137,24 @@ final class ShareHistory
         }
 
         $ids = $this->communications->idsForSource($sourceKind, $sourceId);
+        if ($ids === []) {
+            return [];
+        }
 
-        return $ids === [] ? [] : $this->publications->forCommunications($ids);
+        // **Published rows only.** `claim()` writes the row `pending`
+        // before Meta is called, and leaves it `failed` when Meta refuses,
+        // so the table holds attempts as well as shares. « Cet album est
+        // déjà parti sur Facebook le 12 septembre » built from a failed
+        // attempt is false, and it is said to the one person who is at
+        // that moment deciding whether to send it — the block exists to
+        // stop an oversight, not to invent one. What became of a failed
+        // attempt is « Ce qui est parti »'s subject, with its reason and
+        // its « Réessayer », and that screen reads the rows itself.
+        // `Claude review` found this on PR #868.
+        return array_values(array_filter(
+            $this->publications->forCommunications($ids),
+            static fn (Publication $publication): bool => $publication->isPublished()
+        ));
     }
 
     /** « Facebook », « Groupe Pionniers », « Lien copié ». */

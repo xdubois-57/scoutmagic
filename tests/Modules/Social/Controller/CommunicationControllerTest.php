@@ -1578,10 +1578,7 @@ final class CommunicationControllerTest extends TestCase
         $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
         $this->loginAuthor();
 
-        $this->controller()->share(
-            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'copy']),
-            ['id' => (string) $id]
-        );
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
 
         $publication = $this->publications->forSource('communication', $id)['copy'] ?? null;
         $this->assertNotNull($publication);
@@ -1601,10 +1598,7 @@ final class CommunicationControllerTest extends TestCase
     {
         $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
         $this->loginAuthor();
-        $this->controller()->share(
-            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'native']),
-            ['id' => (string) $id]
-        );
+        $this->controller()->share($this->postJson(['kind' => 'native']), ['id' => (string) $id]);
 
         $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
 
@@ -1625,10 +1619,8 @@ final class CommunicationControllerTest extends TestCase
     {
         $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
         $this->loginAuthor();
-        $body = ['_csrf_token' => $this->csrf(), 'kind' => 'copy'];
-
-        $this->controller()->share($this->post($body), ['id' => (string) $id]);
-        $second = $this->controller()->share($this->post($body), ['id' => (string) $id]);
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+        $second = $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
 
         $this->assertSame(200, $second->getStatusCode());
         $this->assertFalse(json_decode($second->getBody(), true)['recorded'] ?? true);
@@ -1646,12 +1638,104 @@ final class CommunicationControllerTest extends TestCase
         $this->loginAuthor();
 
         $response = $this->controller()->share(
-            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'carrier-pigeon']),
+            $this->postJson(['kind' => 'carrier-pigeon']),
             ['id' => (string) $id]
         );
 
-        $this->assertSame(404, $response->getStatusCode());
-        $this->assertSame([], $this->publications->forSource('communication', $id));
+        $this->assertSame(
+            ['status' => 404, 'recorded' => []],
+            ['status' => $response->getStatusCode(), 'recorded' => $this->publications->forSource('communication', $id)]
+        );
+    }
+
+    /**
+     * **An edit into another communication's text is refused with a
+     * sentence**, not with a 500 (`Claude review` on PR #868).
+     *
+     * The twin key says the same album with the same message by the same
+     * chief is ONE communication (issue #793), and it says it on the
+     * UPDATE as well as on the INSERT. So a draft typed into the text of
+     * a communication this album already has cannot be saved — and the
+     * chief is told why, with their draft left exactly as they typed it.
+     * Carrying on with the old text would publish something they did not
+     * write.
+     */
+    public function testADraftEditedIntoAnExistingCommunicationsTextIsRefused(): void
+    {
+        $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            self::ALBUM_ID
+        );
+        $draft = $this->communications->create(
+            '',
+            'Il en reste à voir !',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            self::ALBUM_ID
+        );
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['body' => 'Les photos sont en ligne', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $draft]
+        );
+
+        // One assertion for the three facts — the sentence, the draft
+        // left alone, nothing published — because PHPUnit stops at the
+        // first failure and `FlashMessage::get()` consumes, so a second
+        // read would answer nothing whatever the code did.
+        $this->assertSame(
+            ['said' => true, 'body' => 'Il en reste à voir !', 'published' => []],
+            [
+                'said' => str_contains(
+                    (string) (FlashMessage::get()['message'] ?? ''),
+                    'déjà celui d\'une autre communication'
+                ),
+                'body' => $this->communications->find($draft)?->body,
+                'published' => $this->meta->requests,
+            ]
+        );
+    }
+
+    /**
+     * **The gesture is read from the transport that carries it**, and
+     * from nowhere else (`Claude review` on PR #868).
+     *
+     * Every test above now posts the payload the way the browser does —
+     * `ScoutMagicApi.postJson()`, `Content-Type: application/json`, body
+     * stream — which is what makes them able to catch this at all. This
+     * one pins the other half: a `kind` sitting only where `$_POST` would
+     * be is not read, because no caller can put it there. That was the
+     * defect's exact shape, green in a test that built the `Request` by
+     * hand while every real share answered « Partage inconnu. ».
+     */
+    public function testAGestureThatNoTransportCouldHaveDeliveredIsRefused(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->share(
+            new \Tests\RequestWithInput(
+                'POST',
+                '/medias-sociaux/x',
+                [],
+                ['_csrf_token' => $this->csrf(), 'kind' => 'copy'],
+                [],
+                [],
+                ''
+            ),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            ['status' => 404, 'recorded' => []],
+            ['status' => $response->getStatusCode(), 'recorded' => $this->publications->forSource('communication', $id)]
+        );
     }
 
     /**
@@ -2884,7 +2968,13 @@ final class CommunicationControllerTest extends TestCase
                 '{platform}' => 'instagram',
             ]);
 
-        return $front->handle(new Request($method, $concrete, [], $body, [], []));
+        // The body travels BOTH ways: parsed, as a form POST delivers it,
+        // and in the input stream, as `ScoutMagicApi.postJson()` does. A
+        // route that reads only one of the two is then exercised through
+        // the transport it actually has (see `postJson()` below).
+        return $front->handle(
+            new \Tests\RequestWithInput($method, $concrete, [], $body, [], [], (string) json_encode($body))
+        );
     }
 
     /**
@@ -3097,6 +3187,34 @@ final class CommunicationControllerTest extends TestCase
     private function post(array $body): Request
     {
         return new Request('POST', '/medias-sociaux/x', [], $body + ['_csrf_token' => $this->csrf()], [], []);
+    }
+
+    /**
+     * A POST whose payload arrived as **JSON**, the way
+     * `ScoutMagicApi.postJson()` sends it: in the body stream, where PHP
+     * never fills `$_POST`.
+     *
+     * `post()` above hands the controller a parsed body, which is what a
+     * form delivers — and a shape no JSON transport ever produces. The
+     * share route read its `kind` from there and so answered 404 on every
+     * real request, with the test green, until `Claude review` found it on
+     * PR #868. The CSRF token stays in the parsed body because production
+     * carries it in the `X-CSRF-Token` header, which `CsrfGuard` reads
+     * from `$_SERVER` and no test can hand to a `Request` object.
+     *
+     * @param array<string, mixed> $json
+     */
+    private function postJson(array $json): Request
+    {
+        return new \Tests\RequestWithInput(
+            'POST',
+            '/medias-sociaux/x',
+            [],
+            ['_csrf_token' => $this->csrf()],
+            [],
+            [],
+            (string) json_encode($json)
+        );
     }
 
     private function get(): Request

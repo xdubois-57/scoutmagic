@@ -3490,7 +3490,10 @@ fenêtre de temps : le même album, le même message, le même animateur
 **sont** la même communication, et c'est une clé unique de la base qui le
 dit. Le même album avec un **autre** message est, lui, une communication
 nouvelle, et il peut repartir là où il est déjà allé : c'est permis, avec
-avertissement (§ 47.7). Une destination en échec se retente
+avertissement (§ 47.7). La règle vaut aussi quand on **réécrit** un
+brouillon : lui donner le texte d'une communication que cet album a déjà
+revient à en faire la même, ce que le site refuse en une phrase, sans
+toucher à ce qui est écrit. Une destination en échec se retente
 seulement si la case de confirmation est cochée, et les destinations déjà
 publiées ne sont pas touchées. Après « Publier », la page se réaffiche
 avec un message qui dit, destination par destination, ce qui est parti

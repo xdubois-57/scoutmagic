@@ -287,12 +287,21 @@ final class CommunicationController extends AbstractController
         }
 
         if (!$this->isFrozen($communication)) {
-            $this->communications->updateText(
+            $kept = $this->communications->updateText(
                 $communication->id,
                 $communication->hasSource() ? $communication->title : self::title($request),
                 self::body($request),
                 new \DateTimeImmutable()
             );
+            // **Refused: this text is already another communication of
+            // the same source** (the twin key, issue #793). Going on with
+            // the old text would publish something the chief did not
+            // write, so the draft is left as it is and the page says why.
+            if (!$kept) {
+                FlashMessage::set('error', self::twinRefusal($communication));
+
+                return $this->redirect(self::path($communication));
+            }
             $communication = $this->communications->find($communication->id) ?? $communication;
         }
 
@@ -701,7 +710,20 @@ final class CommunicationController extends AbstractController
             return $guard;
         }
         $communication = $this->mine($params);
-        $kind = DirectShare::tryFrom((string) $request->getBody('kind', ''));
+        // **Read from the body stream, not from `getBody()`.** The one
+        // caller is `ScoutMagicApi.postJson()`, which sends
+        // `Content-Type: application/json`, and PHP fills `$_POST` for a
+        // form body only — so `getBody('kind')` answered '' on every real
+        // request and this route refused every share ever made from a
+        // browser. The CSRF token came through the `X-CSRF-Token` header
+        // and hid nothing of it; the controller test passed because it
+        // built the `Request` with a parsed body, which is a shape no
+        // transport produces. `Claude review` found it on PR #868. The
+        // rest of the site decodes the raw body for the same reason
+        // (`Core\Http\Controller\PushSubscriptionController`).
+        $payload = json_decode($request->getRawBody(), true);
+        $asked = is_array($payload) ? ($payload['kind'] ?? null) : null;
+        $kind = is_string($asked) ? DirectShare::tryFrom($asked) : null;
         if ($communication === null || $kind === null) {
             return $this->json(['success' => false, 'error' => 'Partage inconnu.'], 404);
         }
@@ -743,6 +765,22 @@ final class CommunicationController extends AbstractController
     }
 
     // ————— Internals —————
+
+    /**
+     * What to say when the twin key refuses an edit: the chief typed, in
+     * this draft, the text of a communication this album or article
+     * already has.
+     */
+    private static function twinRefusal(Communication $communication): string
+    {
+        $label = $communication->sourceKind === null
+            ? null
+            : ShareSourceResolver::sourceLabel($communication->sourceKind);
+
+        return 'Ce texte est déjà celui d\'une autre communication de '
+            . ($label ?? 'la même source')
+            . '. Modifiez-le, ou repartez de celle qui existe.';
+    }
 
     /**
      * What a form's button asked: go and choose a gallery photo, take the

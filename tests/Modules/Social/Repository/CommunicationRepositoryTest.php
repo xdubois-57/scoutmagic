@@ -200,6 +200,84 @@ final class CommunicationRepositoryTest extends TestCase
         $this->assertSame(2, $this->rows());
     }
 
+    /**
+     * **The key must name the text the row HOLDS**, not the one it was
+     * born with (`Claude review` on PR #868).
+     *
+     * A draft stays editable until a destination claims it, so « created
+     * as A, edited to B » is an ordinary path — the caption refused by
+     * Instagram, the expired token, the chief who simply rewrote their
+     * sentence. With a stale hash, a later share of A answered THIS row
+     * and published B in its place, which is the worst of the two: the
+     * chief typed one text and another one left.
+     */
+    public function testAnEditedDraftIsTheTwinOfItsNewTextAndNotOfItsOld(): void
+    {
+        $id = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+
+        $this->assertTrue($this->repository->updateText($id, '', 'Il en reste à voir !', $this->now));
+
+        // **One assertion for the three facts**, because PHPUnit stops at
+        // the first failure and a stale hash breaks them one at a time:
+        // the new text finds this row, the old one — which no row holds
+        // any more — makes its own, and there are two rows and not three.
+        $this->assertSame(
+            ['the new text finds it' => true, 'the old text does not' => true, 'rows' => 2],
+            [
+                'the new text finds it' =>
+                    $this->repository->create('', 'Il en reste à voir !', 7, $this->now, 'album', 3) === $id,
+                'the old text does not' =>
+                    $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3) !== $id,
+                'rows' => $this->rows(),
+            ]
+        );
+    }
+
+    /**
+     * **And an edit into an existing twin is refused, not crashed.** By
+     * the module's own rule those two ARE one communication, so the
+     * database says no; the caller turns that `false` into a sentence and
+     * leaves the draft alone.
+     */
+    public function testAnEditIntoAnotherCommunicationsTextIsRefused(): void
+    {
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+        $draft = $this->repository->create('', 'Il en reste à voir !', 7, $this->now, 'album', 3);
+
+        // Refusal and « changes nothing » in one assertion: either half
+        // alone would leave the other unproved on a mutation.
+        $this->assertSame(
+            ['refused' => true, 'body' => 'Il en reste à voir !'],
+            [
+                'refused' => !$this->repository->updateText($draft, '', 'Les photos sont en ligne', $this->now),
+                'body' => $this->repository->find($draft)?->body,
+            ]
+        );
+    }
+
+    /**
+     * A communication with no source stays nobody's twin after an edit
+     * too: the hash is NULL on the way in {@see
+     * \Modules\Social\Repository\CommunicationRepository::create()} and
+     * the UPDATE keeps it so, from the row's own `source_kind`.
+     */
+    public function testAnEditedFreeCommunicationStaysNobodysTwin(): void
+    {
+        $id = $this->create();
+
+        $this->assertTrue($this->repository->updateText($id, 'Bonne année', 'Meilleurs vœux', $this->now));
+
+        $this->assertSame(
+            ['hash' => null, 'a second one is its own row' => true],
+            [
+                'hash' => $this->pdo->query('SELECT body_hash FROM social_communications WHERE id = ' . $id)
+                    ->fetchColumn() ?: null,
+                'a second one is its own row' =>
+                    $this->repository->create('Bonne année', 'Meilleurs vœux', 7, $this->now) !== $id,
+            ]
+        );
+    }
+
     private function rows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();
