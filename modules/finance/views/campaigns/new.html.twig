@@ -100,6 +100,16 @@
                 </div>
                 <div class="col-12 col-md-6">
                     {% include 'partials/form_field.html.twig' with {
+                        field_id: 'campaign-category', field_name: 'category_id',
+                        label: 'Catégorie', type: 'select', required: true, wrapper_class: '',
+                        help: 'Les paiements de cette campagne seront classés dans cette catégorie.',
+                        options: [{ value: '', label: 'Choisir une catégorie' }]|merge(categories|map(category => {
+                            value: category.id, label: category.name,
+                        })),
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include 'partials/form_field.html.twig' with {
                         field_id: 'campaign-year', field_name: 'scout_year_id',
                         label: 'Année scoute', type: 'select', required: true, wrapper_class: '',
                         options: scout_years|map(year => {

@@ -42,18 +42,19 @@ class FormRepository
         ?int $financeAccountId,
         bool $issuesTicket = false,
         ?string $eventDate = null,
-        ?string $eventLocation = null
+        ?string $eventLocation = null,
+        ?int $financeCategoryId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO news_forms (news_article_id, access, response_limit, opens_at, closes_at, is_force_closed, '
                 . 'response_role_min, digest_email, finance_account_id, issues_ticket, event_date, '
-                . 'event_location)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'event_location, finance_category_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $articleId, $access, $responseLimit, $opensAt, $closesAt,
             $isForceClosed ? 1 : 0, $responseRoleMin, $digestEmail, $financeAccountId,
-            $issuesTicket ? 1 : 0, $eventDate, $eventLocation,
+            $issuesTicket ? 1 : 0, $eventDate, $eventLocation, $financeCategoryId,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -70,17 +71,18 @@ class FormRepository
         ?int $financeAccountId,
         bool $issuesTicket = false,
         ?string $eventDate = null,
-        ?string $eventLocation = null
+        ?string $eventLocation = null,
+        ?int $financeCategoryId = null
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE news_forms SET access = ?, response_limit = ?, opens_at = ?, closes_at = ?, is_force_closed = ?, '
                 . 'response_role_min = ?, digest_email = ?, finance_account_id = ?, issues_ticket = ?, '
-                . 'event_date = ?, event_location = ? WHERE id = ?'
+                . 'event_date = ?, event_location = ?, finance_category_id = ? WHERE id = ?'
         );
         $stmt->execute([
             $access, $responseLimit, $opensAt, $closesAt,
             $isForceClosed ? 1 : 0, $responseRoleMin, $digestEmail, $financeAccountId,
-            $issuesTicket ? 1 : 0, $eventDate, $eventLocation, $id,
+            $issuesTicket ? 1 : 0, $eventDate, $eventLocation, $financeCategoryId, $id,
         ]);
     }
 
@@ -159,7 +161,8 @@ class FormRepository
             eventLocation: ($row['event_location'] ?? null) !== null ? (string) $row['event_location'] : null,
             lastDigestSentAt: $row['last_digest_sent_at'] !== null ? (string) $row['last_digest_sent_at'] : null,
             financeAccountId: $row['finance_account_id'] !== null ? (int) $row['finance_account_id'] : null,
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            financeCategoryId: isset($row['finance_category_id']) ? (int) $row['finance_category_id'] : null
         );
     }
 }

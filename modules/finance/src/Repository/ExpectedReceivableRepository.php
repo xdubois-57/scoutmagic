@@ -65,12 +65,13 @@ class ExpectedReceivableRepository
         int $amountDueCents,
         string $communication,
         ?string $label,
-        ?int $memberId = null
+        ?int $memberId = null,
+        ?int $categoryId = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_expected_receivables (source_module, source_reference_id, account_id, '
-                . 'amount_due_cents, communication, label_encrypted, member_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+                . 'amount_due_cents, communication, label_encrypted, member_id, category_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $sourceModule,
@@ -80,6 +81,7 @@ class ExpectedReceivableRepository
             $communication,
             $label !== null ? $this->encryption->encrypt($label, 'finance_expected_receivables.label') : null,
             $memberId,
+            $categoryId,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -294,7 +296,8 @@ class ExpectedReceivableRepository
             waivedAt: isset($row['waived_at']) ? (string) $row['waived_at'] : null,
             waivedBy: isset($row['waived_by']) ? (int) $row['waived_by'] : null,
             refundRequestedAt: isset($row['refund_requested_at']) ? (string) $row['refund_requested_at'] : null,
-            refundRequestedBy: isset($row['refund_requested_by']) ? (int) $row['refund_requested_by'] : null
+            refundRequestedBy: isset($row['refund_requested_by']) ? (int) $row['refund_requested_by'] : null,
+            categoryId: isset($row['category_id']) ? (int) $row['category_id'] : null
         );
     }
 }

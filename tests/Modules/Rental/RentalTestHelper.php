@@ -45,6 +45,7 @@ class RentalTestHelper
             buffer_nights INTEGER NOT NULL DEFAULT 0,
             payments_enabled INTEGER NOT NULL DEFAULT 0,
             finance_account_id INTEGER,
+            finance_category_id INTEGER,
             deposit_mode TEXT NOT NULL DEFAULT "none",
             deposit_amount_cents INTEGER,
             deposit_percentage INTEGER,

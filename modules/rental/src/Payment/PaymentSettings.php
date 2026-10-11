@@ -28,7 +28,13 @@ final class PaymentSettings
         public readonly ?int $balanceDueDays = null,
         public readonly bool $securityDepositEnabled = false,
         public readonly ?int $securityDepositAmountCents = null,
-        public readonly ?int $securityDepositDueDays = null
+        public readonly ?int $securityDepositDueDays = null,
+        /**
+         * The Finance category the rental's payments — and the security
+         * deposit's — are booked under (issue #838). Pinned by unit staff
+         * with the account, the same half of the row.
+         */
+        public readonly ?int $financeCategoryId = null
     ) {
     }
 
@@ -42,7 +48,7 @@ final class PaymentSettings
      * it never displayed — see Service\RentalPaymentService::
      * saveFinanceAccount() and ::saveManagedSettings().
      */
-    public function withFinanceAccount(?int $financeAccountId): self
+    public function withFinanceAccount(?int $financeAccountId, ?int $financeCategoryId): self
     {
         return new self(
             enabled: $this->enabled,
@@ -54,13 +60,14 @@ final class PaymentSettings
             balanceDueDays: $this->balanceDueDays,
             securityDepositEnabled: $this->securityDepositEnabled,
             securityDepositAmountCents: $this->securityDepositAmountCents,
-            securityDepositDueDays: $this->securityDepositDueDays
+            securityDepositDueDays: $this->securityDepositDueDays,
+            financeCategoryId: $financeCategoryId
         );
     }
 
     /**
      * Whether a receivable can actually be raised: switched on **and**
-     * pointed at an account.
+     * pointed at an account and a category (issue #838).
      *
      * Both halves matter. "Payments on" with no account is a
      * half-configured asset, and raising a receivable against no account is
@@ -69,7 +76,7 @@ final class PaymentSettings
      */
     public function canRaiseReceivables(): bool
     {
-        return $this->enabled && $this->financeAccountId !== null;
+        return $this->enabled && $this->financeAccountId !== null && $this->financeCategoryId !== null;
     }
 
     /** The deposit threshold for a rental totalling $totalCents, or null. */

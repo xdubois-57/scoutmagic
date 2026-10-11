@@ -59,6 +59,7 @@ class RentalPaymentServiceTest extends TestCase
     private RentalPaymentService $service;
     private int $assetId;
     private int $accountId;
+    private int $categoryId;
     private int $fiscalYearId;
 
     protected function setUp(): void
@@ -84,6 +85,7 @@ class RentalPaymentServiceTest extends TestCase
             'intendant'
         );
         $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo, 'Locations');
         $this->fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
 
         $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
@@ -136,6 +138,7 @@ class RentalPaymentServiceTest extends TestCase
         return new PaymentSettings(
             enabled: $enabled,
             financeAccountId: $enabled ? $this->accountId : null,
+            financeCategoryId: $enabled ? $this->categoryId : null,
             depositMode: $depositMode,
             depositAmountCents: $depositCents,
             depositPercentage: $depositPercentage,
@@ -291,6 +294,7 @@ class RentalPaymentServiceTest extends TestCase
         $this->service->saveSettings($this->assetId, new PaymentSettings(
             enabled: true,
             financeAccountId: $this->accountId,
+            financeCategoryId: $this->categoryId,
             depositMode: DepositMode::PERCENTAGE,
             depositPercentage: 150
         ));
@@ -881,7 +885,7 @@ class RentalPaymentServiceTest extends TestCase
             securityDepositAmountCents: 50000
         ));
 
-        $this->service->saveFinanceAccount($this->assetId, $this->accountId);
+        $this->service->saveFinanceAccount($this->assetId, $this->accountId, $this->categoryId);
 
         $settings = $this->service->settingsFor($this->assetId);
         $this->assertSame($this->accountId, $settings->financeAccountId);
@@ -892,12 +896,39 @@ class RentalPaymentServiceTest extends TestCase
         $this->assertSame(50000, $settings->securityDepositAmountCents);
     }
 
+    /**
+     * Every receivable names its category (issue #838): pinning an account
+     * without one is refused while unit staff can still fix it, not when a
+     * renter is confirmed.
+     */
+    public function testAnAccountWithoutACategoryIsRefused(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/catégorie Finances/');
+
+        $this->service->saveFinanceAccount($this->assetId, $this->accountId, null);
+    }
+
+    public function testTheRentalReceivableIsBookedUnderTheAssetsCategory(): void
+    {
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings(securityDeposit: true, securityDepositCents: 20000);
+
+        $this->service->ensureReceivables($booking, $settings, $this->now());
+
+        // The rental and its security deposit alike.
+        $categories = $this->pdo->query('SELECT category_id FROM finance_expected_receivables')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(2, $categories);
+        $this->assertSame([$this->categoryId, $this->categoryId], array_map('intval', $categories));
+    }
+
     public function testAManagerSavingThePaymentsBlockCannotClearTheAccount(): void
     {
         // The manager's form has no account field at all — it is never
         // rendered for them, because the picker carries the unit's IBANs.
         // What matters here is that its absence cannot silently unset it.
-        $this->service->saveFinanceAccount($this->assetId, $this->accountId);
+        $this->service->saveFinanceAccount($this->assetId, $this->accountId, $this->categoryId);
 
         $this->service->saveManagedSettings($this->assetId, new PaymentSettings(
             enabled: true,
@@ -935,9 +966,10 @@ class RentalPaymentServiceTest extends TestCase
             securityDepositDueDays: 3
         );
 
-        $moved = $settings->withFinanceAccount(9);
+        $moved = $settings->withFinanceAccount(9, 4);
 
         $this->assertSame(9, $moved->financeAccountId);
+        $this->assertSame(4, $moved->financeCategoryId);
         $this->assertSame(1, $settings->financeAccountId, 'The original value object is immutable.');
         foreach ([
             'enabled', 'depositMode', 'depositAmountCents', 'depositPercentage',

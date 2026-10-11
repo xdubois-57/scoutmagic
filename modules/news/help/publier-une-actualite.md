@@ -41,8 +41,9 @@ restantes et ferme l'option une fois pleine), et un **prix unitaire**
 pour un champ payant. Les « Paramètres du formulaire » règlent les
 dates d'ouverture et de fermeture, la limite de réponses par personne,
 le compte bancaire destinataire (module Finances — la communication
-structurée se génère alors toute seule) et qui peut consulter les
-réponses.
+structurée se génère alors toute seule), la catégorie des Finances dans
+laquelle classer ces paiements — obligatoire dès qu'un compte est
+choisi — et qui peut consulter les réponses.
 
 > Sur un article Public ou en lien direct, les répondants ne sont pas
 > connectés : impossible de limiter les réponses par personne, et les

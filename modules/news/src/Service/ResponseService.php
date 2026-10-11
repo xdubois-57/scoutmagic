@@ -17,6 +17,7 @@ use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Url\ShortUrlService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Api\FinanceAccountInterface;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
@@ -373,16 +374,32 @@ class ResponseService
             $structuredCommunication = null;
             $receivableId = null;
 
-            if ($total > 0.0 && $form->financeAccountId !== null && $this->isPaymentAvailable()) {
+            if ($total > 0.0 && $form->hasPaymentDestination() && $this->isPaymentAvailable()) {
+                \assert($form->financeAccountId !== null && $form->financeCategoryId !== null);
                 $structuredCommunication = $this->structuredCommunication->generate();
-                $receivableId = $this->expectedReceivable->createReceivable(
-                    'news',
-                    $form->id,
-                    $form->financeAccountId,
-                    (int) round($total * 100),
-                    $structuredCommunication,
-                    $contactEmail
-                );
+                try {
+                    $receivableId = $this->expectedReceivable->createReceivable(
+                        'news',
+                        $form->id,
+                        $form->financeAccountId,
+                        (int) round($total * 100),
+                        $structuredCommunication,
+                        $contactEmail,
+                        $form->financeCategoryId
+                    );
+                } catch (FinanceException $e) {
+                    // The form's payment settings no longer hold — its
+                    // Finances category was archived or deleted since it
+                    // was chosen (issue #838). Finance's own wording is
+                    // meant for whoever configures the form; the person
+                    // signing up is told what happened to their answer.
+                    throw new NewsException(
+                        'Ce formulaire ne peut pas recevoir de paiement pour le moment : prévenez son responsable. '
+                        . "Votre réponse n'a pas été enregistrée.",
+                        0,
+                        $e
+                    );
+                }
             }
 
             $responseId = $this->responseRepository->create(

@@ -40,6 +40,7 @@ class NewsTestHelper
             event_location TEXT NULL,
             last_digest_sent_at TEXT NULL,
             finance_account_id INTEGER NULL,
+            finance_category_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (news_article_id) REFERENCES news_articles(id)
         )');

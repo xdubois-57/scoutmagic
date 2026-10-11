@@ -33,6 +33,14 @@ interface ExpectedReceivableInterface
      * Modules\Finance\Api\FinanceException, and what is stored is the
      * canonical `+++NNN/NNNN/NNNNN+++` spelling.
      *
+     * **Every receivable names a category** — an active
+     * `finance_categories.id` — under which its payments are booked
+     * (issue #838): a movement allocated to it takes that category, before
+     * any categorisation rule or the AI is asked. A consuming module asks
+     * its user for it next to the account (FinanceAccountInterface::
+     * getCategories()); an unknown or archived one is rejected with a
+     * FinanceException.
+     *
      * $memberId names the debtor when the debtor is a member of the unit
      * — `members.id`, the persistent identity, so the link survives the
      * scout year. It is **optional on purpose**: a module invoicing
@@ -46,6 +54,7 @@ interface ExpectedReceivableInterface
         int $amountCents,
         string $communication,
         ?string $label,
+        int $categoryId,
         ?int $memberId = null
     ): int;
 

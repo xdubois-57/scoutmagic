@@ -291,6 +291,7 @@ test('with money due and unread group activity at once, the home page shows one 
     await page.goto('/finance/campaigns/new', { waitUntil: 'load' });
     await page.getByLabel(/^Nom de la campagne/).fill(CAMPAIGN_LABEL);
     await page.getByLabel(/^Compte destinataire/).selectOption({ label: ACCOUNT_NAME });
+    await page.getByLabel(/^Catégorie/).selectOption({ label: 'Cotisations' });
     // "Identifiant Desk" is one of the two identifier columns the importer
     // accepts, and 'E2E-ADMIN' is the desk id scripts/e2e-support.php gives
     // the administrator's member. There is deliberately no matching on a

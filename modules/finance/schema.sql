@@ -157,7 +157,9 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     label BLOB NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
     category_id INT UNSIGNED NULL,
-    category_source ENUM('manual', 'auto') NULL,
+    -- 'receivable' (issue #838): taken from the receivable the movement
+    -- pays, which outranks a rule and the AI.
+    category_source ENUM('manual', 'auto', 'receivable') NULL,
     comment BLOB NULL,
     counterparty_name BLOB NULL,
     counterparty_account BLOB NULL,
@@ -369,6 +371,11 @@ CREATE TABLE IF NOT EXISTS finance_expected_receivables (
     communication VARCHAR(24) NOT NULL,
     label_encrypted BLOB NULL,
     member_id INT UNSIGNED NULL,
+    -- The category the payments of this receivable are booked under
+    -- (issue #838): a movement allocated to it takes this category.
+    -- Mandatory for every receivable raised since; NULL only on the ones
+    -- raised before, which nobody is going to guess back.
+    category_id INT UNSIGNED NULL,
     waived_at DATETIME NULL,
     waived_by INT UNSIGNED NULL,
     refund_requested_at DATETIME NULL,
@@ -378,7 +385,8 @@ CREATE TABLE IF NOT EXISTS finance_expected_receivables (
     INDEX idx_fer_communication (communication),
     INDEX idx_fer_member (member_id),
     CONSTRAINT fk_fer_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
-    CONSTRAINT fk_fer_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE SET NULL
+    CONSTRAINT fk_fer_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE SET NULL,
+    CONSTRAINT fk_fer_category FOREIGN KEY (category_id) REFERENCES finance_categories(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- finance_receivable_allocations: "this much of that bank movement pays

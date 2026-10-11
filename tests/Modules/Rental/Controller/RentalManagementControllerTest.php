@@ -114,6 +114,7 @@ class RentalManagementControllerTest extends TestCase
     private \Modules\Rental\Service\RentalStayService $stayService;
     private RentalPaymentService $paymentService;
     private int $financeAccountId;
+    private int $financeCategoryId;
     /** Every decision email the controller asked for, in order. */
     /** @var list<array{decision: string, token: ?string, word: ?string, booking_id: int}> */
     private array $renterEmails = [];
@@ -185,6 +186,7 @@ class RentalManagementControllerTest extends TestCase
             'Compte unité', 'bank', null, 'BE68539007547034', 'Unité Test', 'intendant'
         );
         $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
+        $this->financeCategoryId = FinanceTestHelper::createCategory($this->pdo, 'Locations');
         $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $this->paymentService = new RentalPaymentService(
             new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
@@ -1746,7 +1748,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
             enabled: true,
-            financeAccountId: $this->financeAccountId
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
         ));
         $booking = $this->createBooking();
         $this->bookingRepository->setAgreedPrice($booking->id, new \Modules\Rental\Pricing\PriceQuote(

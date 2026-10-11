@@ -49,7 +49,8 @@ class RentalPaymentRepository
         $stmt = $this->pdo->prepare(
             'SELECT payments_enabled, finance_account_id, deposit_mode, deposit_amount_cents,
                     deposit_percentage, deposit_due_days, balance_due_days,
-                    security_deposit_mode, security_deposit_amount_cents, security_deposit_due_days
+                    security_deposit_mode, security_deposit_amount_cents, security_deposit_due_days,
+                    finance_category_id
              FROM rental_assets WHERE id = ?'
         );
         $stmt->execute([$assetId]);
@@ -73,7 +74,8 @@ class RentalPaymentRepository
                 : null,
             securityDepositDueDays: $row['security_deposit_due_days'] !== null
                 ? (int) $row['security_deposit_due_days']
-                : null
+                : null,
+            financeCategoryId: $row['finance_category_id'] !== null ? (int) $row['finance_category_id'] : null
         );
     }
 
@@ -84,7 +86,8 @@ class RentalPaymentRepository
                 payments_enabled = ?, finance_account_id = ?, deposit_mode = ?,
                 deposit_amount_cents = ?, deposit_percentage = ?, deposit_due_days = ?,
                 balance_due_days = ?, security_deposit_mode = ?,
-                security_deposit_amount_cents = ?, security_deposit_due_days = ?, updated_at = ?
+                security_deposit_amount_cents = ?, security_deposit_due_days = ?, finance_category_id = ?,
+                updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([
@@ -98,6 +101,7 @@ class RentalPaymentRepository
             $settings->securityDepositEnabled ? 'fixed' : 'none',
             $settings->securityDepositAmountCents,
             $settings->securityDepositDueDays,
+            $settings->financeCategoryId,
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $assetId,
         ]);

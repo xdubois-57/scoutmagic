@@ -170,10 +170,66 @@ class FormServiceTest extends TestCase
 
     // --- IT-01: the « Finance » tab's link ---
 
+    /**
+     * A form that names an account raises receivables, and every
+     * receivable names its category (issue #838): saving it without one is
+     * refused, rather than taking money it would have nowhere to book.
+     */
+    public function testAFormWithAnAccountButNoCategoryIsRefused(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+
+        $this->expectException(\Modules\News\Service\NewsException::class);
+        $this->expectExceptionMessageMatches('/catégorie Finances/');
+        $this->service->save($this->articleId, $settings, [self::pricedField()]);
+    }
+
+    /**
+     * A new article's account picker arrives pre-filled with the section's
+     * default account, hidden until a priced field is added: a plain
+     * article that never asks for money saves without a category.
+     */
+    public function testAFormWithoutAPricedFieldSavesWithoutACategory(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+
+        $form = $this->service->save($this->articleId, $settings, []);
+
+        $this->assertNull($form->financeCategoryId);
+        $this->assertFalse($form->hasPaymentDestination());
+    }
+
+    /**
+     * @return array{id: null, field_type: string, label: string, is_required: bool, options_source: null,
+     *     options_manual: null, capacity_max: null, price_per_unit: float, confirmation_text: null}
+     */
+    private static function pricedField(): array
+    {
+        return [
+            'id' => null, 'field_type' => FormField::TYPE_NUMBER, 'label' => 'Repas', 'is_required' => false,
+            'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => 5.0,
+            'confirmation_text' => null,
+        ];
+    }
+
+    public function testTheCategoryIsStoredWithTheAccountAndDroppedWithoutOne(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+        $settings['finance_category_id'] = 4;
+        $this->assertSame(4, $this->service->save($this->articleId, $settings, [])->financeCategoryId);
+
+        $settings['finance_account_id'] = null;
+        $this->assertNull($this->service->save($this->articleId, $settings, [])->financeCategoryId);
+    }
+
     public function testTheReceivablesLinkCarriesTheFormId(): void
     {
         $settings = $this->baseSettings();
         $settings['finance_account_id'] = 3;
+        $settings['finance_category_id'] = 4;
         $form = $this->service->save($this->articleId, $settings, []);
 
         // ResponseService registers its receivables as ('news', $form->id),
@@ -314,6 +370,7 @@ class FormServiceTest extends TestCase
     {
         $settings = $this->baseSettings();
         $settings['finance_account_id'] = 3;
+        $settings['finance_category_id'] = 4;
         $form = $this->service->save($this->articleId, $settings, []);
 
         $this->assertNull($this->service->receivablesLinkFor($form, false, Role::CHIEF));
@@ -330,6 +387,7 @@ class FormServiceTest extends TestCase
     {
         $settings = $this->baseSettings();
         $settings['finance_account_id'] = 3;
+        $settings['finance_category_id'] = 4;
         $form = $this->service->save($this->articleId, $settings, []);
 
         // The page it opens is role_min: intendant. A tab pointing at a 403

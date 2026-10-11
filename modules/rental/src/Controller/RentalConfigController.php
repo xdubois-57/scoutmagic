@@ -218,6 +218,7 @@ class RentalConfigController extends AbstractController
             // says so rather than rendering a broken account picker.
             'finance_available' => $this->paymentService?->isAvailable() ?? false,
             'finance_accounts' => $this->paymentService?->availableAccounts() ?? [],
+            'finance_categories' => $this->paymentService?->availableCategories() ?? [],
             'payment_settings' => $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings(),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
@@ -253,12 +254,22 @@ class RentalConfigController extends AbstractController
         }
 
         $accountId = (int) $request->getBody('finance_account_id', 0);
+        $categoryId = (int) $request->getBody('finance_category_id', 0);
+        $knownCategory = in_array(
+            $categoryId,
+            array_column($this->paymentService->availableCategories(), 'id'),
+            true
+        );
 
         try {
-            // Only this field: everything else is read back from storage, so
-            // pinning an account can never blank a deposit rule a manager
-            // set on the other screen.
-            $this->paymentService->saveFinanceAccount($assetId, $accountId > 0 ? $accountId : null);
+            // Only these fields: everything else is read back from storage,
+            // so pinning an account can never blank a deposit rule a
+            // manager set on the other screen.
+            $this->paymentService->saveFinanceAccount(
+                $assetId,
+                $accountId > 0 ? $accountId : null,
+                $knownCategory ? $categoryId : null
+            );
 
             FlashMessage::set('success', 'Le compte de ce bien a été enregistré.');
         } catch (RentalException $e) {

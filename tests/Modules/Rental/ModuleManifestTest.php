@@ -150,10 +150,13 @@ class ModuleManifestTest extends TestCase
      * 1.45.0 remembers which message taught a booking one of its « Autres
      * adresses du locataire » (`rental_booking_emails.learned_from_message_id`),
      * so « Détacher » takes it back (#720, step 5).
+     *
+     * 1.46.0 names the Finances category a rental's receivables carry
+     * (`rental_assets.finance_category_id`) (#838).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.45.0', $this->manifest->version);
+        $this->assertSame('1.46.0', $this->manifest->version);
     }
 
     /**
