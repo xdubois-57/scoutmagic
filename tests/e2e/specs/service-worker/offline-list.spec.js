@@ -22,6 +22,7 @@
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin } from '../../support/admin-login.js';
+import { answerConfirmation, waitForConfirmReady } from '../../support/confirm-dialog.js';
 import { answerCookieBanner } from '../../support/cookie-banner.js';
 import { openModal } from '../../support/modal.js';
 import { pngBuffer } from '../../support/png.js';
@@ -119,7 +120,11 @@ test('the list is held offline without being opened, with its images, and nothin
     await page.getByLabel('Résumé en une phrase').fill('Lu dans le train.');
     await page.locator('#image').setInputFiles({ name: 'affiche.png', mimeType: 'image/png', buffer: pngBuffer(40, 40) });
     await page.getByRole('radio', { name: 'Public', exact: true }).check();
-    await page.getByRole('button', { name: 'Enregistrer' }).click();
+    // Published straight away (#845): a draft is on no list, so nothing
+    // would hold it.
+    await waitForConfirmReady(page);
+    await page.getByRole('button', { name: 'Publier', exact: true }).click();
+    await answerConfirmation(page);
     await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
     const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
@@ -180,7 +185,12 @@ test('the list is held offline without being opened, with its images, and nothin
     } finally {
         await context.unrouteAll({ behavior: 'ignoreErrors' });
         await context.setOffline(false);
+        // Only a draft is deleted (#845): back to draft first.
         await page.goto(`${articleUrl}/gerer`, { waitUntil: 'load' });
+        await waitForConfirmReady(page);
+        await page.getByRole('button', { name: 'Repasser en brouillon' }).click();
+        await answerConfirmation(page);
+        await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'load' });
         const deleteModal = await openModal(page, 'news-delete-modal', () =>
             page.getByRole('button', { name: 'Supprimer', exact: true }).first().click());
         await deleteModal.locator('#news-delete-confirm-btn').click();

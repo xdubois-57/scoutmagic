@@ -54,10 +54,43 @@ final class NewsOfflinePagesTest extends TestCase
         ));
     }
 
+    /**
+     * An article as the public list shows it: published, and dated a minute
+     * ago. Articles are born drafts (#845), and a draft is listed nowhere.
+     */
+    private function published(
+        string $title,
+        string $visibility,
+        bool $isIndexed,
+        ?string $seoKeywords,
+        ?string $seoStopDate,
+        int $createdBy
+    ): int {
+        $id = $this->articles->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy);
+        $this->articles->setPublication($id, Article::STATUS_PUBLISHED, (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'));
+
+        return $id;
+    }
+
+    // Not yet on /news for anyone (#845): a draft, and an article scheduled
+    // for later, are not held either.
+    public function testADraftAndAScheduledArticleAreNotHeld(): void
+    {
+        $draft = $this->articles->create('Brouillon', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $scheduled = $this->articles->create('Programmé', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $this->articles->setPublication($scheduled, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+
+        $pages = $this->provider->pagesFor(Role::PUBLIC, null);
+
+        $this->assertNotContains('/news/' . $draft, $pages);
+        $this->assertNotContains('/news/' . $scheduled, $pages);
+        $this->assertSame(['/news'], $pages);
+    }
+
     public function testTheListAndTheArticlesOfItsFirstPageAreHeld(): void
     {
-        $older = $this->articles->create('Ancien', Article::VISIBILITY_PUBLIC, false, null, null, 1);
-        $recent = $this->articles->create('Récent', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $older = $this->published('Ancien', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $recent = $this->published('Récent', Article::VISIBILITY_PUBLIC, false, null, null, 1);
 
         $pages = $this->provider->pagesFor(Role::PUBLIC, null);
 
@@ -67,9 +100,9 @@ final class NewsOfflinePagesTest extends TestCase
 
     public function testOnlyWhatThisRoleSeesListedIsHeld(): void
     {
-        $public = $this->articles->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, 1);
-        $members = $this->articles->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, 1);
-        $chiefs = $this->articles->create('Chefs', Article::VISIBILITY_CHIEF, false, null, null, 1);
+        $public = $this->published('Public', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $members = $this->published('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, 1);
+        $chiefs = $this->published('Chefs', Article::VISIBILITY_CHIEF, false, null, null, 1);
 
         $this->assertNotContains('/news/' . $members, $this->provider->pagesFor(Role::PUBLIC, null));
         $forMember = $this->provider->pagesFor(Role::IDENTIFIED, 'parent@test.example');
@@ -81,12 +114,12 @@ final class NewsOfflinePagesTest extends TestCase
 
     public function testAnArticleBeyondTheFirstPageIsNotHeld(): void
     {
-        $first = $this->articles->create('Le tout premier', Article::VISIBILITY_PUBLIC, false, null, null, 1);
-        // Created in the same second as the others: dated a year back, so
+        $first = $this->published('Le tout premier', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        // Published in the same second as the others: dated years back, so
         // « the oldest » is not left to the order of a tie.
-        $this->pdo->exec("UPDATE news_articles SET created_at = '2020-01-01 00:00:00' WHERE id = {$first}");
+        $this->articles->setPublication($first, Article::STATUS_PUBLISHED, '2020-01-01 00:00:00');
         for ($i = 0; $i < NewsController::LIST_PER_PAGE; $i++) {
-            $this->articles->create('Article ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, 1);
+            $this->published('Article ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, 1);
         }
 
         $pages = $this->provider->pagesFor(Role::PUBLIC, null);
@@ -97,7 +130,7 @@ final class NewsOfflinePagesTest extends TestCase
 
     public function testTheManagementPagesAreNeverHeld(): void
     {
-        $this->articles->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, 1);
+        $this->published('Public', Article::VISIBILITY_PUBLIC, false, null, null, 1);
 
         $pages = $this->provider->pagesFor(Role::ADMIN, 'admin@test.example');
 
