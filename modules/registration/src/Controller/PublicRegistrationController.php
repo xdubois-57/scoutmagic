@@ -300,12 +300,11 @@ class PublicRegistrationController extends AbstractController
         $target = $availability['target'];
         $targetLabel = (string) $target['label'];
 
-        // Same key, same fallback and same comparison as Controller\
-        // RegistrationConfigController, which is where a chief now flips
-        // it: two different defaults for one switch would let the chief's
-        // page and the family's page disagree about whether waitlists are
-        // being managed at all. module.json declares it on ('1').
-        $waitlistEnabled = $this->settingService->get('registration_waitlist_enabled', 'registration', '1') === '1';
+        // The one reading of the switch (SlotService::waitlistEnabled()),
+        // shared with the chief's page and the recommendation: two
+        // different defaults for one switch would let them disagree about
+        // whether waitlists are being managed at all.
+        $waitlistEnabled = $this->slotService->waitlistEnabled();
 
         $sections = $this->sectionService->getAllWithBranches();
 

@@ -777,8 +777,14 @@ sous-section.
 actif, conserve-la intégralement — le contenu de référence l'explique déjà correctement, il n'y a rien à personnaliser
 au-delà de la présence ou non du module. Conserve en particulier, sans les édulcorer : (a) que les index de recherche
 chiffrés (email, nom+prénom+date de naissance de l'enfant, adresse postale normalisée) ne servent jamais à bloquer ou
-refuser une demande, uniquement à la retrouver, à la rapprocher automatiquement d'un membre importé de Desk, ou à
-suggérer une catégorie de cotisation ; (b) qu'une adresse email secondaire de suivi confirmée par son propriétaire
+refuser une demande, uniquement à la retrouver, à la rapprocher automatiquement d'un membre importé de Desk, à
+suggérer une catégorie de cotisation, ou — pour l'index nom+prénom+date de naissance — à signaler au staff un doublon
+possible et à reconnaître une demande d'une année précédente refusée faute de place ; (a bis) que la « Recommandation
+au staff » (Oui / Peut-être / Non et son explication, calculée seulement quand les listes d'attente sont gérées) est
+une aide à la décision réservée au staff, recalculée à chaque consultation et jamais conservée, qu'elle n'accepte ni
+ne refuse rien d'elle-même, et qu'elle n'est jamais montrée à la famille — pas plus que le motif d'un refus (« Pas de
+place » ou « Autre »), conservé avec la demande et supprimé avec elle ; (b) qu'une adresse email secondaire de suivi
+confirmée par son propriétaire
 donne accès au suivi complet de la demande SANS validation par le staff — c'est une exposition volontaire, jamais un
 contrôle d'accès délégué à l'unité ; (c) que la page de suivi de la famille n'affiche une acceptation ou un refus
 qu'une fois l'email correspondant réellement envoyé, jamais au moment de la décision elle-même ; (d) que le

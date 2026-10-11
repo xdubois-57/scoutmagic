@@ -51,9 +51,26 @@ class RequestStatusService
         $this->transition($request, RegistrationRequest::STATUS_ACCEPTED);
     }
 
-    public function refuse(RegistrationRequest $request): void
+    /**
+     * $reason is « Pas de place » or « Autre » (RegistrationRequest::
+     * REFUSAL_*, issue #843 D6), stored with the status: « Pas de place »
+     * is what makes the same child's request of a later year an
+     * « Ancienne demande restée sans place » (Service\RecommendationService).
+     * Null records a refusal with no known reason — what every caller that
+     * does not ask for one yet still produces, and what never counts as
+     * « Pas de place ». Any other value is refused before anything is
+     * written.
+     *
+     * @throws RegistrationException on an unknown reason, or a status that
+     *         cannot be refused
+     */
+    public function refuse(RegistrationRequest $request, ?string $reason = null): void
     {
-        $this->transition($request, RegistrationRequest::STATUS_REFUSED);
+        if ($reason !== null && !isset(RegistrationRequest::REFUSAL_REASON_LABELS[$reason])) {
+            throw new RegistrationException('Motif de refus invalide : choisissez « Pas de place » ou « Autre ».');
+        }
+
+        $this->transition($request, RegistrationRequest::STATUS_REFUSED, $reason);
     }
 
     public function withdraw(RegistrationRequest $request): void
@@ -70,7 +87,7 @@ class RequestStatusService
      * @throws RegistrationException when $request's current status cannot
      *         reach $newStatus manually
      */
-    private function transition(RegistrationRequest $request, string $newStatus): void
+    private function transition(RegistrationRequest $request, string $newStatus, ?string $refusalReason = null): void
     {
         $allowed = self::ALLOWED_TRANSITIONS[$request->status] ?? [];
         if (!in_array($newStatus, $allowed, true)) {
@@ -78,14 +95,20 @@ class RequestStatusService
         }
 
         $finalAt = in_array($newStatus, RegistrationRequest::FINAL_STATUSES, true) ? new \DateTimeImmutable() : null;
-        $this->repository->updateStatus($request->id, $newStatus, $finalAt);
+        $this->repository->updateStatus($request->id, $newStatus, $finalAt, $refusalReason);
 
+        // The reason is a code ('no_room' / 'other'), never the child: it
+        // says why the unit refused, which is what an audit asks.
+        $context = ['request_id' => $request->id];
+        if ($refusalReason !== null) {
+            $context['refusal_reason'] = $refusalReason;
+        }
         $this->journalService->log(
             'registration',
             'registration_request_status_changed',
             'info',
             "Statut de la demande d'inscription changé : « {$request->status} » vers « {$newStatus} »",
-            ['request_id' => $request->id]
+            $context
         );
     }
 

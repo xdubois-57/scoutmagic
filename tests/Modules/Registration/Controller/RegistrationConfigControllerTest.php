@@ -29,6 +29,7 @@ use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\RequestWithInput;
 use Tests\Modules\Registration\RegistrationTestHelper;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
@@ -86,6 +87,17 @@ class RegistrationConfigControllerTest extends TestCase
             'registration'
         );
         $settingService->register('registration_waitlist_enabled', '1', 'boolean', 'Gérer les listes d\'attente', 'desc', 'registration');
+        $settingService->register(
+            'registration_priority_order',
+            '',
+            'text',
+            'Priorités',
+            'desc',
+            'registration',
+            null,
+            null,
+            false
+        );
         $settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $settingService->register('registration_scheduled_open_at', '09-30', 'text', 'Ouverture', 'desc', 'registration');
         $settingService->register('registration_scheduled_close_at', '08-31', 'text', 'Fermeture', 'desc', 'registration');
@@ -132,7 +144,8 @@ class RegistrationConfigControllerTest extends TestCase
             $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
             $scoutYearResolver, $this->scoutYearService, $this->requestRepository, $slotService, $sectionService,
             $editableContentService, $statusService, $journalService, $settingService,
-            new \Modules\Registration\Service\RequestExportService()
+            new \Modules\Registration\Service\RequestExportService(),
+            new \Modules\Registration\Service\PriorityOrderService($settingService)
         );
         $this->journalRepository = new JournalRepository($this->pdo);
 
@@ -382,7 +395,14 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->assertStringNotContainsString('data-bs-toggle="collapse"', $body, "« {$tab} »");
         $this->assertDoesNotMatchRegularExpression('/class="collapse[ "]/', $body, "« {$tab} »");
-        $this->assertStringNotContainsString('bi-chevron-down', $body, "« {$tab} »");
+        // The list editor's « Descendre » arrows (the « Priorités » box)
+        // move a row; they fold nothing, so they are left out of this.
+        $withoutMoveArrows = (string) preg_replace(
+            '#<button[^>]*list-editor-move-down[^>]*>.*?</button>#s',
+            '',
+            $body
+        );
+        $this->assertStringNotContainsString('bi-chevron-down', $withoutMoveArrows, "« {$tab} »");
     }
 
     /**
@@ -503,20 +523,28 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * One « Enregistrer » per box (issue #843): the schedule form and the
-     * capacity form each carry exactly one submit button, and no other form
-     * of the page saves anything.
+     * One « Enregistrer » per box, and per bordered sub-box where a box
+     * groups several (issue #843, D11): the schedule, the thresholds, the
+     * capacity grid and the priorities each carry exactly one submit
+     * button, and nothing else on the page saves with one — the waitlist
+     * switch saves on change.
      */
     public function testEachSettingsBoxHasExactlyOneSaveButton(): void
     {
         $body = $this->renderPage('settings');
 
-        foreach (['/config/inscriptions/schedule', '/config/inscriptions'] as $action) {
+        $forms = [
+            '/config/inscriptions/schedule',
+            '/config/inscriptions/seuils',
+            '/config/inscriptions',
+            '/config/inscriptions/priorites',
+        ];
+        foreach ($forms as $action) {
             $form = $this->formHtml($body, $action);
             $this->assertSame(1, substr_count($form, 'type="submit"'), $action);
             $this->assertMatchesRegularExpression('/type="submit"[^>]*>\s*Enregistrer\s*</', $form, $action);
         }
-        $this->assertSame(2, preg_match_all('/>\s*Enregistrer\s*</', $body));
+        $this->assertSame(4, preg_match_all('/>\s*Enregistrer\s*</', $body));
     }
 
     /**
@@ -726,8 +754,8 @@ class RegistrationConfigControllerTest extends TestCase
         $dashboard = $this->renderPage('index');
 
         $this->assertNull($this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
-        $this->assertStringContainsString(
-            'name="capacity[' . $this->baladinsId . '][1]" value=""',
+        $this->assertMatchesRegularExpression(
+            '/name="capacity\[' . $this->baladinsId . '\]\[1\]"\s+value=""/',
             $settings
         );
         $this->assertStringContainsString('Sans limite', $dashboard);
@@ -788,23 +816,69 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString('encodées dans Desk ou non', $body);
     }
 
-    public function testTheWaitlistSwitchLivesInTheCapacityBoxAndSaves(): void
+    /**
+     * « Gérer les listes d'attente » is one independent control, so it
+     * saves on change through its own JSON endpoint (design.md §7.13) — it
+     * sits in the capacity box, in no form of its own.
+     */
+    public function testTheWaitlistSwitchSavesOnChangeFromTheCapacityBox(): void
     {
         $body = $this->renderPage('settings');
-        $this->assertStringContainsString('name="waitlist_enabled"', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="waitlist_enabled"[^>]*data-waitlist-switch/', $body);
         $this->assertStringContainsString("Gérer les listes d'attente", $body);
+        foreach (['/config/inscriptions', '/config/inscriptions/seuils'] as $action) {
+            $this->assertStringNotContainsString('id="waitlist_enabled"', $this->formHtml($body, $action), $action);
+        }
 
-        $this->postCapacities([1 => '10', 2 => '10'], ['waitlist_enabled' => null]);
+        $off = $this->postWaitlist(['enabled' => false]);
+        $this->assertSame(200, $off->getStatusCode());
+        $this->assertSame(true, json_decode((string) $off->getBody(), true)['success'] ?? null);
         $this->assertSame('0', $this->settingService->get('registration_waitlist_enabled', 'registration', '1'));
 
-        $this->postCapacities([1 => '10', 2 => '10']);
+        $on = $this->postWaitlist(['enabled' => true]);
+        $this->assertSame(200, $on->getStatusCode());
         $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', '0'));
+        $this->assertSame(
+            ['registration_waitlist_toggled', 'registration_waitlist_toggled'],
+            array_column($this->journalEntries('registration_waitlist_toggled'), 'action')
+        );
+    }
+
+    /**
+     * A refused token, a body that is not JSON, or an `enabled` that is not
+     * a boolean changes nothing.
+     *
+     * @return array<string, array{string|false, int}>
+     */
+    public static function refusedWaitlistBodies(): array
+    {
+        return [
+            'no token' => [json_encode(['enabled' => false]), 403],
+            'not JSON' => ['enabled=0', 400],
+            'a string' => [json_encode(['enabled' => '0', '_csrf_token' => '{token}']), 400],
+            'missing' => [json_encode(['_csrf_token' => '{token}']), 400],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedWaitlistBodies')]
+    public function testARefusedWaitlistSaveChangesNothing(string|false $raw, int $status): void
+    {
+        $raw = str_replace('{token}', CsrfGuard::generateToken(), (string) $raw);
+
+        $response = $this->controller->saveWaitlist(
+            new RequestWithInput('POST', '/config/inscriptions/listes-attente', [], [], [], [], $raw),
+            []
+        );
+
+        $this->assertSame($status, $response->getStatusCode());
+        $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', ''));
     }
 
     /**
      * With the waitlist off, the capacity table drops the columns that
-     * describe it, and the two thresholds stay on the page — greyed and
-     * disabled, their stored values shown and kept (chantier #843, D3).
+     * describe it, and the thresholds sub-box stays on the page — greyed,
+     * its fieldset disabled, the stored values shown and kept (chantier
+     * #843, D3); the « Priorités » box says it has no effect.
      */
     public function testTheThresholdsStayVisibleButDisabledWhileTheSwitchIsOff(): void
     {
@@ -815,33 +889,41 @@ class RegistrationConfigControllerTest extends TestCase
         $settings = $this->renderPage('settings');
         $dashboard = $this->renderPage('index');
 
-        $yes = $this->inputTag($settings, 'threshold_yes_percent');
-        $maybe = $this->inputTag($settings, 'threshold_maybe_percent');
-        $this->assertMatchesRegularExpression('/\sdisabled[\s>]/', $yes);
-        $this->assertMatchesRegularExpression('/\sdisabled[\s>]/', $maybe);
-        $this->assertStringContainsString('value="60"', $yes);
-        $this->assertStringContainsString('value="90"', $maybe);
-        $this->assertStringContainsString('Oui jusqu&#039;à … % de places occupées', $settings);
-        $this->assertStringContainsString('Peut-être jusqu&#039;à … % de places occupées', $settings);
-        $this->assertStringContainsString('Les valeurs enregistrées', $settings);
+        $thresholds = $this->formHtml($settings, '/config/inscriptions/seuils');
+        $this->assertMatchesRegularExpression('/<fieldset class="opacity-50" disabled>/', $thresholds);
+        $this->assertStringContainsString('value="60"', $this->inputTag($settings, 'threshold_yes_percent'));
+        $this->assertStringContainsString('value="90"', $this->inputTag($settings, 'threshold_maybe_percent'));
+        $this->assertMatchesRegularExpression(
+            '/<p class="small text-body-secondary mb-2" data-threshold-disabled-note>\s*Désactivés tant que/',
+            $thresholds
+        );
+        $this->assertMatchesRegularExpression(
+            '/<span data-waitlist-off-mention class="">\s*\(sans effet tant que les listes d\'attente ne sont '
+            . 'pas gérées\)<\/span>/',
+            $settings
+        );
         $this->assertStringNotContainsString('<th>Restant</th>', $dashboard);
         $this->assertStringNotContainsString('<th>Niveau public</th>', $dashboard);
 
         $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
         $backOn = $this->renderPage('settings');
-        $this->assertDoesNotMatchRegularExpression(
-            '/\sdisabled[\s>]/',
-            $this->inputTag($backOn, 'threshold_yes_percent')
+        $this->assertMatchesRegularExpression(
+            '/<fieldset class="" >/',
+            $this->formHtml($backOn, '/config/inscriptions/seuils')
         );
         $this->assertStringContainsString('value="60"', $this->inputTag($backOn, 'threshold_yes_percent'));
+        $this->assertStringContainsString('data-threshold-disabled-note>', $backOn);
+        $this->assertMatchesRegularExpression('/mb-2 d-none" data-threshold-disabled-note>/', $backOn);
+        $this->assertStringContainsString('<span data-waitlist-off-mention class="d-none">', $backOn);
         $this->assertStringContainsString('<th>Niveau public</th>', $this->renderPage('index'));
     }
 
     /**
      * The fields are whole percentages between 1 and 120, as the browser
-     * is told too.
+     * is told too — and so are the slider's two handles, set to the same
+     * two values.
      */
-    public function testTheThresholdFieldsAreWholePercentagesFromOneToOneHundredTwenty(): void
+    public function testTheThresholdFieldsAndTheSliderAreWholePercentagesFromOneToOneHundredTwenty(): void
     {
         $body = $this->renderPage('settings');
 
@@ -854,6 +936,44 @@ class RegistrationConfigControllerTest extends TestCase
         }
         $this->assertStringContainsString('value="70"', $this->inputTag($body, 'threshold_yes_percent'));
         $this->assertStringContainsString('value="100"', $this->inputTag($body, 'threshold_maybe_percent'));
+
+        $this->assertMatchesRegularExpression(
+            '/<input type="range"[^>]*data-slider-handle="yes"[^>]*min="1" max="120" step="1"\s+value="70"\s+'
+            . 'aria-label="Oui jusqu\'à ce pourcentage de places occupées">/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<input type="range"[^>]*data-slider-handle="maybe"[^>]*min="1" max="120" step="1"\s+value="100"\s+'
+            . 'aria-label="Peut-être jusqu\'à ce pourcentage de places occupées">/',
+            $body
+        );
+        $this->assertStringContainsString('100 % · toutes les places', $body);
+        // The « Oui » zone ends where a native thumb at 70 sits on a 1–120
+        // track: half a thumb, plus 69/119 of the rest.
+        $this->assertMatchesRegularExpression(
+            '/data-slider-zone="yes"\s+style="width: calc\(0\.75rem \+ 0\.57983 \* \(100% - 1\.5rem\)\)"/',
+            $body
+        );
+        $this->assertStringContainsString('Exemple avec une capacité de', $body);
+        $this->assertMatchesRegularExpression('/id="threshold_example_capacity"[^>]*value="15"/', $body);
+    }
+
+    /**
+     * The sentence about going beyond 100 % is there only when the
+     * « Peut-être » threshold goes beyond it.
+     */
+    public function testTheSentenceBeyondOneHundredPercentFollowsThePeutEtreThreshold(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/mb-0 d-none" data-threshold-over-full>/',
+            $this->renderPage('settings')
+        );
+
+        $this->settingService->set('registration_threshold_maybe_percent', '110', 'registration');
+
+        $body = $this->renderPage('settings');
+        $this->assertMatchesRegularExpression('/mt-2 mb-0" data-threshold-over-full>/', $body);
+        $this->assertStringContainsString('Au-delà de 100 %, vous acceptez plus de monde que de places', $body);
     }
 
     /**
@@ -876,61 +996,38 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString('value="100"', $this->inputTag($body, 'threshold_maybe_percent'));
     }
 
-    /**
-     * A save made while the waitlist is off leaves the thresholds exactly
-     * as stored — even if a submission carried them — so they come back
-     * unchanged the day it is switched on again.
-     */
-    public function testSavingWithTheWaitlistOffKeepsTheStoredThresholds(): void
+    public function testThresholdsAreSavedFromTheirOwnSubBox(): void
     {
-        $this->settingService->set('registration_threshold_yes_percent', '60', 'registration');
-        $this->settingService->set('registration_threshold_maybe_percent', '90', 'registration');
-
-        $this->postCapacities([1 => '10', 2 => '10'], ['waitlist_enabled' => null]);
-
-        $this->assertSame('60', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
-        $this->assertSame('90', $this->settingService->get('registration_threshold_maybe_percent', 'registration', ''));
-    }
-
-    /**
-     * The switch is turned back ON from a page where the threshold fields
-     * were disabled — so the submission carries neither. An absent field
-     * is not an emptied one: the stored values come back exactly as they
-     * were, and the save succeeds.
-     */
-    public function testTurningTheWaitlistBackOnWithoutThresholdFieldsKeepsThem(): void
-    {
-        $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
-        $this->settingService->set('registration_threshold_yes_percent', '80', 'registration');
-        $this->settingService->set('registration_threshold_maybe_percent', '110', 'registration');
-
-        $this->postCapacities([1 => '12', 2 => '12'], [
-            'threshold_yes_percent' => null,
-            'threshold_maybe_percent' => null,
-        ]);
-
-        $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', '0'));
-        $this->assertSame('80', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
-        $this->assertSame(
-            '110',
-            $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
-        );
-        $this->assertSame(12, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
-    }
-
-    public function testThresholdsAreSavedFromTheCapacityBoxWhenTheWaitlistIsOn(): void
-    {
-        $this->postCapacities([1 => '10', 2 => '10'], [
-            'threshold_yes_percent' => ' 75 ',
-            'threshold_maybe_percent' => '120',
-        ]);
+        $this->postThresholds(' 75 ', '120');
 
         $this->assertSame('75', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
         $this->assertSame(
             '120',
             $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
         );
-        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertSame(['type' => 'success', 'message' => 'Seuils enregistrés.'], FlashMessage::get());
+        $this->assertCount(1, $this->journalEntries('registration_thresholds_saved'));
+        // The capacity grid is another sub-box, untouched.
+        $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
+    }
+
+    /**
+     * While waitlists are not managed the sub-box is greyed out, and a
+     * submission that reaches the server anyway changes nothing: the
+     * values a chief cannot see take effect must not move behind the grey.
+     */
+    public function testThresholdsAreNotSavedWhileTheWaitlistIsOff(): void
+    {
+        $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
+
+        $this->postThresholds('60', '90');
+
+        $this->assertSame('70', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame(
+            '100',
+            $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
+        );
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
     }
 
     /**
@@ -950,19 +1047,14 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * An invalid pair changes nothing at all — not the thresholds, and not
-     * the capacities either: a half-applied form is worse than a refused
-     * one.
+     * An invalid pair changes nothing at all: neither threshold is written
+     * alone.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('invalidThresholdPairs')]
     public function testAnInvalidThresholdPairSavesNothing(string $yes, string $maybe): void
     {
-        $this->postCapacities([1 => '99', 2 => '99'], [
-            'threshold_yes_percent' => $yes,
-            'threshold_maybe_percent' => $maybe,
-        ]);
+        $this->postThresholds($yes, $maybe);
 
-        $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
         $this->assertSame('70', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
         $this->assertSame(
             '100',
@@ -971,6 +1063,267 @@ class RegistrationConfigControllerTest extends TestCase
         $flash = FlashMessage::get();
         $this->assertSame('error', $flash['type'] ?? null);
         $this->assertStringContainsString('Seuils invalides', (string) ($flash['message'] ?? ''));
+        $this->assertSame([], $this->journalEntries('registration_thresholds_saved'));
+    }
+
+    /**
+     * The capacity grid is one row per slot, named as the recommendation
+     * names it, with its own « Enregistrer »; saving it touches neither
+     * the switch nor the thresholds.
+     */
+    public function testTheCapacityGridIsOneRowPerSlotAndSavesOnItsOwn(): void
+    {
+        $this->settingService->set('registration_threshold_yes_percent', '60', 'registration');
+
+        $grid = $this->formHtml($this->renderPage('settings'), '/config/inscriptions');
+        $this->assertStringContainsString('<th>Branche · année</th>', $grid);
+        $this->assertStringContainsString('<td>Baladins · 1re année</td>', $grid);
+        $this->assertStringContainsString('<td>Baladins · 2e année</td>', $grid);
+        $this->assertStringContainsString('placeholder="sans limite"', $grid);
+        $this->assertStringContainsString('aria-label="Capacité — Baladins · 2e année"', $grid);
+
+        $this->postCapacities([1 => '12', 2 => '']);
+
+        $this->assertSame(12, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
+        $this->assertNull($this->slotCapacityRepository->capacityFor($this->baladinsId, 2));
+        $this->assertSame(['type' => 'success', 'message' => 'Capacités enregistrées.'], FlashMessage::get());
+        $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', ''));
+        $this->assertSame('60', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function invalidCapacities(): array
+    {
+        return [
+            'a word' => ['douze'],
+            'negative' => ['-1'],
+            'a decimal' => ['2.5'],
+        ];
+    }
+
+    /**
+     * A box that is neither empty nor a whole number refuses the whole
+     * grid: it used to be read as « pas de limite », opening a branch
+     * nobody meant to open.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidCapacities')]
+    public function testAnInvalidCapacitySavesNothing(string $raw): void
+    {
+        $this->postCapacities([1 => '12', 2 => $raw]);
+
+        $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
+        $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 2));
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Capacités invalides', (string) ($flash['message'] ?? ''));
+    }
+
+    /**
+     * « Priorités »: three connected lists of the shared list editor, in
+     * the default order, the locked « Limite » line AFTER « Classement »,
+     * with the mock-up's titles and help lines — and no activation switch,
+     * no delete, no add.
+     */
+    public function testThePrioritiesBoxShowsTheThreeConnectedZonesInTheirDefaultOrder(): void
+    {
+        $body = $this->renderPage('settings');
+        $box = $this->formHtml($body, '/config/inscriptions/priorites');
+
+        $this->assertSame(
+            [['always', 'sibling'], ['rank', 'previous_no_room'], ['rank', 'arrival']],
+            $this->priorityFields($box)
+        );
+        foreach (['always', 'rank', 'off'] as $zone) {
+            $this->assertStringContainsString(
+                'data-sortable-group="registration-priorities" data-group-key="' . $zone . '"',
+                $box
+            );
+        }
+        $always = strpos($box, '>Toujours Oui</h3>');
+        $rank = strpos($box, '>Classement</h3>');
+        $limit = strpos($box, "Limite : le nombre de places de l'année de parcours");
+        $off = strpos($box, '>Désactivés</h3>');
+        $this->assertNotFalse($always);
+        $this->assertTrue($always < $rank && $rank < $limit && $limit < $off, 'zones, then the limit after Classement');
+
+        $this->assertStringContainsString('Toujours appliquée, en fin de classement.', $box);
+        $this->assertStringContainsString("Fratrie déjà dans l&#039;unité", $box);
+        $this->assertStringContainsString('Ancienne demande restée sans place', $box);
+        $this->assertStringContainsString("Ordre d&#039;arrivée de la demande", $box);
+        $this->assertStringContainsString('La demande déposée en premier passe en premier.', $box);
+        $this->assertStringContainsString('Glissez un critère ici pour le désactiver.', $box);
+        $this->assertStringContainsString('aria-label="Déplacer — Fratrie déjà dans l&#039;unité"', $box);
+        $this->assertStringNotContainsString('list-editor-active-toggle', $box);
+        $this->assertStringNotContainsString('list-editor-delete-btn', $box);
+        $this->assertStringNotContainsString('list-editor-add-btn', $box);
+        $this->assertMatchesRegularExpression('/data-reorder-url=""/', $box);
+        $this->assertStringContainsString('data-can-always="0"', $box);
+        $this->assertStringContainsString('<span data-waitlist-off-mention class="d-none">', $box);
+    }
+
+    public function testThePrioritiesAreSavedAndShownInTheOrderChosen(): void
+    {
+        $this->postPriorities(['rank' => ['arrival', 'sibling'], 'off' => ['previous_no_room']]);
+
+        $this->assertSame(['type' => 'success', 'message' => 'Priorités enregistrées.'], FlashMessage::get());
+        $this->assertSame(
+            '{"always":[],"rank":["arrival","sibling"],"off":["previous_no_room"]}',
+            $this->settingService->get('registration_priority_order', 'registration', '')
+        );
+        $this->assertCount(1, $this->journalEntries('registration_priorities_saved'));
+
+        $box = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/priorites');
+        $this->assertSame(
+            [['rank', 'arrival'], ['rank', 'sibling'], ['off', 'previous_no_room']],
+            $this->priorityFields($box)
+        );
+        $this->assertStringContainsString('Aucune règle : toutes les demandes sont classées.', $box);
+    }
+
+    /**
+     * « Ordre d'arrivée » ranks requests and cannot make one of them a
+     * « Oui »: the server refuses it with the mock-up's sentence, whatever
+     * the browser let through.
+     */
+    public function testOrdreDArriveeCannotBeToujoursOui(): void
+    {
+        $this->postPriorities(['always' => ['sibling', 'arrival'], 'rank' => ['previous_no_room']]);
+
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "« Ordre d'arrivée de la demande » ne peut pas être « Toujours Oui » : elle ne sert "
+                    . "qu'à classer. Rien n'a été enregistré.",
+            ],
+            FlashMessage::get()
+        );
+        $this->assertSame('', $this->settingService->get('registration_priority_order', 'registration', ''));
+    }
+
+    /**
+     * @return array<string, array{mixed}>
+     */
+    public static function malformedPriorities(): array
+    {
+        return [
+            'a criterion missing' => [['always' => ['sibling'], 'rank' => ['arrival']]],
+            'a criterion twice' => [['always' => ['sibling'], 'rank' => ['previous_no_room', 'arrival', 'sibling']]],
+            'an unknown criterion' => [[
+                'always' => ['sibling'],
+                'rank' => ['previous_no_room', 'arrival', 'transfer'],
+            ]],
+            'an unknown zone' => [['always' => ['sibling'], 'rank' => ['previous_no_room'], 'later' => ['arrival']]],
+            'not a list' => ['sibling'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedPriorities')]
+    public function testAMalformedOrderSavesNothing(mixed $priority): void
+    {
+        $this->controller->savePriorities(new Request('POST', '/config/inscriptions/priorites', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'priority' => $priority,
+        ], [], []), []);
+
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Priorités invalides', (string) ($flash['message'] ?? ''));
+        $this->assertSame('', $this->settingService->get('registration_priority_order', 'registration', ''));
+    }
+
+    /**
+     * The priorities stay editable while waitlists are not managed, and the
+     * box says they have no effect yet (D3).
+     */
+    public function testThePrioritiesStayEditableWhileTheWaitlistIsOff(): void
+    {
+        $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
+
+        $box = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/priorites');
+        $this->assertStringContainsString('<span data-waitlist-off-mention class="">', $box);
+        $this->assertStringNotContainsString('<fieldset', $box);
+
+        $this->postPriorities(['always' => ['previous_no_room'], 'rank' => ['sibling', 'arrival']]);
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * A stored order this version cannot read is shown as the defaults,
+     * and the box says so.
+     */
+    public function testAnUnusableStoredOrderIsAnnounced(): void
+    {
+        $this->settingService->setInternal('registration_priority_order', '{"always":["arrival"]}', 'registration');
+
+        $box = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/priorites');
+
+        $this->assertStringContainsString('Les priorités enregistrées ne sont pas utilisables', $box);
+        $this->assertSame(
+            [['always', 'sibling'], ['rank', 'previous_no_room'], ['rank', 'arrival']],
+            $this->priorityFields($box)
+        );
+    }
+
+    /**
+     * The zone and criterion of every hidden field of the « Priorités »
+     * box, in document order — the order the form sends.
+     *
+     * @return array<int, array{string, string}>
+     */
+    private function priorityFields(string $box): array
+    {
+        preg_match_all('/name="priority\[(\w+)\]\[\]" value="(\w+)"/', $box, $matches, PREG_SET_ORDER);
+
+        return array_map(static fn(array $m): array => [$m[1], $m[2]], $matches);
+    }
+
+    /**
+     * @param array<string, array<int, string>> $zones
+     */
+    private function postPriorities(array $zones): void
+    {
+        $this->controller->savePriorities(new Request('POST', '/config/inscriptions/priorites', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'priority' => $zones,
+        ], [], []), []);
+    }
+
+    private function postThresholds(string $yes, string $maybe): void
+    {
+        $this->controller->saveThresholds(new Request('POST', '/config/inscriptions/seuils', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'threshold_yes_percent' => $yes,
+            'threshold_maybe_percent' => $maybe,
+        ], [], []), []);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function postWaitlist(array $payload): \Core\Http\Response
+    {
+        return $this->controller->saveWaitlist(new RequestWithInput(
+            'POST',
+            '/config/inscriptions/listes-attente',
+            [],
+            [],
+            [],
+            [],
+            json_encode($payload + ['_csrf_token' => CsrfGuard::generateToken()])
+        ), []);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function journalEntries(string $action): array
+    {
+        $stmt = $this->pdo->prepare('SELECT event_type AS action FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$action]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     /**
@@ -987,28 +1340,16 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * POSTs the capacity box for the Baladins branch. $extra replaces the
-     * default waitlist fields; a null value drops the field entirely,
-     * which is what an unchecked switch does in a real submission.
+     * POSTs the capacity grid for the Baladins branch.
      *
      * @param array<int, string> $capacities year-in-branch => raw field value
-     * @param array<string, ?string> $extra
      */
-    private function postCapacities(array $capacities, array $extra = []): void
+    private function postCapacities(array $capacities): void
     {
-        $fields = array_merge([
-            'waitlist_enabled' => '1',
-            'threshold_yes_percent' => '70',
-            'threshold_maybe_percent' => '100',
-        ], $extra);
-
-        $body = ['capacity' => [$this->baladinsId => $capacities]];
-        foreach ($fields as $key => $value) {
-            if ($value !== null) {
-                $body[$key] = $value;
-            }
-        }
-        $body['_csrf_token'] = CsrfGuard::generateToken();
+        $body = [
+            'capacity' => [$this->baladinsId => $capacities],
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ];
 
         $this->controller->save(new Request('POST', '/config/inscriptions', [], $body, [], []), []);
     }

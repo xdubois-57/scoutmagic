@@ -1,0 +1,82 @@
+{# « Priorités » (issue #843, D5): the three connected lists « Toujours
+   Oui », « Classement » and « Désactivés », built on the shared list editor
+   (`sortable_group` / `group_key`, issue #752) without a save endpoint of
+   their own — a move is shown at once and saved by this box's one
+   « Enregistrer », where the server validates the whole order. The locked
+   line « Limite : … » closes the « Classement » zone: the number of places
+   is what bites at the end of the ranking. Requires `priority_zones`,
+   `priority_order_unusable`, `priority_rank_only_message` and
+   `waitlist_enabled`; behaviour in public/assets/js/
+   registration-capacity-settings.js. #}
+<form method="post" action="/config/inscriptions/priorites" class="card mb-4" id="registration-priorities"
+      data-priority-form data-rank-only-message="{{ priority_rank_only_message }}">
+    <div class="card-body">
+        {{ csrf_field()|raw }}
+        <h2 class="h5 mb-2">Priorités</h2>
+        <p class="small text-body-secondary mb-1">
+            Quand plusieurs demandes se disputent les places d'une année de parcours, elles sont acceptées dans cet
+            ordre : d'abord celles de « Toujours Oui », puis les autres selon le classement, jusqu'au nombre de
+            places<span data-waitlist-off-mention class="{{ waitlist_enabled ? 'd-none' : '' }}"> (sans effet tant que les listes d'attente ne sont pas gérées)</span>.
+        </p>
+        {% if priority_order_unusable %}
+            <div class="alert alert-warning small mt-2 mb-0">
+                Les priorités enregistrées ne sont pas utilisables : l'ordre par défaut ci-dessous s'applique jusqu'à
+                ce que vous l'enregistriez.
+            </div>
+        {% endif %}
+
+        {% for zone in priority_zones %}
+            {% if zone.key == 'off' %}
+                <div class="d-flex align-items-start gap-2 border rounded-3 bg-body-tertiary px-3 py-2 mt-3"
+                     data-priority-limit>
+                    <i class="bi bi-lock text-body-secondary" aria-hidden="true"></i>
+                    <div>
+                        <div class="small fw-semibold">Limite : le nombre de places de l'année de parcours</div>
+                        <div class="small text-body-secondary">
+                            Toujours appliquée, en fin de classement. Les demandes classées au-delà de la limite du
+                            « Peut-être » sont recommandées « Non » ; accepter une demande alors que les places sont
+                            déjà occupées dépasse la capacité, et l'explication le signale. Deux demandes à égalité
+                            sont départagées par leur date de dépôt.
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+            <div class="mt-3" data-priority-zone="{{ zone.key }}"
+                 {%- if zone.key == 'off' %} data-touch-empty-label="Choisissez « Désactivé » dans le menu d'un critère pour le désactiver."{% endif %}>
+                <h3 class="h6 small fw-semibold text-uppercase mb-1{{ zone.key == 'off' ? ' text-body-secondary' : '' }}">{{ zone.title }}</h3>
+                {% if zone.help %}
+                    <p class="small text-body-secondary mb-2">{{ zone.help }}</p>
+                {% endif %}
+                {% embed 'partials/list_editor.html.twig' with {
+                    list_id: 'priority-' ~ zone.key,
+                    items: zone.items,
+                    reorder_url: '',
+                    sortable_group: 'registration-priorities',
+                    group_key: zone.key,
+                    empty_label: zone.empty_label,
+                } %}
+                    {% block item_content %}
+                        <div class="fw-semibold small">{{ item.label }}</div>
+                        <div class="small text-body-secondary">{{ item.help }}</div>
+                        {# Renamed after the list the row sits in when the
+                           form is sent; as rendered, it re-saves the order
+                           shown. #}
+                        <input type="hidden" name="priority[{{ zone.key }}][]" value="{{ item.id }}"
+                               data-priority-input data-can-always="{{ item.can_always ? '1' : '0' }}">
+                    {% endblock %}
+                    {% block item_edit %}
+                        <select class="form-select form-select-sm d-lg-none" data-priority-move
+                                aria-label="Déplacer — {{ item.label }}">
+                            <option value="always"{{ zone.key == 'always' ? ' selected' : '' }}>Toujours Oui</option>
+                            <option value="rank"{{ zone.key == 'rank' ? ' selected' : '' }}>Classement</option>
+                            <option value="off"{{ zone.key == 'off' ? ' selected' : '' }}>Désactivé</option>
+                        </select>
+                    {% endblock %}
+                {% endembed %}
+            </div>
+        {% endfor %}
+
+        <div class="alert alert-warning small mt-3 mb-0 d-none" role="status" data-priority-notice></div>
+        <button type="submit" class="btn btn-primary mt-3">Enregistrer</button>
+    </div>
+</form>

@@ -1,5 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}Réglages — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
 {% block content %}
     <div class="page-wide">
         {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
@@ -11,5 +12,12 @@
         {% include '@registration/config/_settings_form.html.twig' %}
         {% include '@registration/config/_settings_code.html.twig' %}
         {% include '@registration/config/_settings_capacities.html.twig' %}
+        {% include '@registration/config/_settings_priorities.html.twig' %}
     </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+<script src="{{ asset('/assets/js/registration-capacity-settings.js') }}" defer></script>
 {% endblock %}

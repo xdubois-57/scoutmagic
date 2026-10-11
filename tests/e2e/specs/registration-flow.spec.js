@@ -84,8 +84,9 @@ async function submitOnSettings(page, button, flash) {
 }
 
 /**
- * Submits the « Capacités par branche » form. Its button is scoped to the
- * form: the page has another « Enregistrer », the schedule's.
+ * Submits the « Capacités » sub-box of « Capacités par branche ». Its
+ * button is scoped to the form: the page has three other « Enregistrer »
+ * — the schedule's, the thresholds' and the priorities'.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -94,7 +95,7 @@ async function saveCapacities(page) {
     await submitOnSettings(
         page,
         capacities.getByRole('button', { name: 'Enregistrer', exact: true }),
-        'Configuration enregistrée.',
+        'Capacités enregistrées.',
     );
 }
 

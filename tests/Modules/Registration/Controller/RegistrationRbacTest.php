@@ -60,6 +60,7 @@ class RegistrationRbacTest extends TestCase
     private Environment $twig;
     private RegistrationConfigController $configController;
     private RegistrationRequestController $requestController;
+    private SettingService $settingService;
     private int $requestId;
 
     protected function setUp(): void
@@ -84,6 +85,19 @@ class RegistrationRbacTest extends TestCase
         );
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
+        $settingService->register('registration_waitlist_enabled', '1', 'boolean', 'Listes', 'desc', 'registration');
+        $settingService->register(
+            'registration_priority_order',
+            '',
+            'text',
+            'Priorités',
+            'desc',
+            'registration',
+            null,
+            null,
+            false
+        );
+        $this->settingService = $settingService;
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $currentYearId = $scoutYearService->ensureYear('2026-2027');
@@ -129,7 +143,8 @@ class RegistrationRbacTest extends TestCase
             $twig, $ageBracketRepository, $slotCapacityRepository, new RegistrationYearCodeRepository($this->pdo),
             $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
             $sectionService, $editableContentService, $statusService, $journalService, $settingService,
-            new \Modules\Registration\Service\RequestExportService()
+            new \Modules\Registration\Service\RequestExportService(),
+            new \Modules\Registration\Service\PriorityOrderService($settingService)
         );
         $this->requestController = new RegistrationRequestController(
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
@@ -194,6 +209,61 @@ class RegistrationRbacTest extends TestCase
         $response = $this->dispatch($path, $controllerName, $action);
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * The three saves issue #843 (IT-03) added to the « Réglages » sub-page:
+     * the waitlist switch (JSON, saved on change), the thresholds and the
+     * priorities. Each carries a valid CSRF token, so what answers is the
+     * role check and nothing else.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function settingsPostProvider(): array
+    {
+        return [
+            'waitlist' => ['/config/inscriptions/listes-attente', 'saveWaitlist'],
+            'thresholds' => ['/config/inscriptions/seuils', 'saveThresholds'],
+            'priorities' => ['/config/inscriptions/priorites', 'savePriorities'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('settingsPostProvider')]
+    public function testAdminMaySaveTheSettings(string $path, string $action): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $response = $this->dispatchSettingsPost($path, $action);
+
+        $this->assertContains($response->getStatusCode(), [200, 302], (string) $response->getBody());
+        // The save went through, which a redirect alone would not prove: a
+        // refused token redirects too.
+        match ($action) {
+            'saveWaitlist' => $this->assertSame(
+                '0',
+                $this->settingService->get('registration_waitlist_enabled', 'registration', '')
+            ),
+            'saveThresholds' => $this->assertSame(
+                '60',
+                $this->settingService->get('registration_threshold_yes_percent', 'registration', '')
+            ),
+            default => $this->assertSame(
+                '{"always":[],"rank":["arrival","previous_no_room"],"off":["sibling"]}',
+                $this->settingService->get('registration_priority_order', 'registration', '')
+            ),
+        };
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('settingsPostProvider')]
+    public function testOneRoleBelowMayNotSaveTheSettings(string $path, string $action): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $response = $this->dispatchSettingsPost($path, $action);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', ''));
+        $this->assertSame('', $this->settingService->get('registration_priority_order', 'registration', ''));
     }
 
     /**
@@ -274,6 +344,45 @@ class RegistrationRbacTest extends TestCase
         }
 
         return $router;
+    }
+
+    /**
+     * POSTs one of the settings saves through the manifest's router and the
+     * real front controller, with a valid token and a body that would be
+     * accepted: switching waitlists off, a valid threshold pair, the
+     * default priorities moved around.
+     */
+    private function dispatchSettingsPost(string $path, string $action): \Core\Http\Response
+    {
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $body = [
+            '_csrf_token' => $token,
+            'threshold_yes_percent' => '60',
+            'threshold_maybe_percent' => '90',
+            'priority' => ['always' => [], 'rank' => ['arrival', 'previous_no_room'], 'off' => ['sibling']],
+        ];
+        $request = new \Tests\RequestWithInput(
+            'POST',
+            $path,
+            [],
+            $body,
+            [],
+            [],
+            json_encode(['_csrf_token' => $token, 'enabled' => false])
+        );
+
+        $router = $this->manifestRouter();
+        $resolved = $router->resolve($request);
+        $this->assertNotNull($resolved, "the manifest declares POST {$path}");
+        $this->assertSame(RegistrationConfigController::class, $resolved->controllerClass);
+        $this->assertSame($action, $resolved->action);
+
+        $configFile = sys_get_temp_dir() . '/test_registration_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $fc = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $fc->registerController(RegistrationConfigController::class, $this->configController);
+
+        return $fc->handle($request);
     }
 
     private function dispatch(string $path, string $controllerName, string $action): \Core\Http\Response
