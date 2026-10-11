@@ -151,6 +151,42 @@ final class CardGeometryAgreementTest extends TestCase
     }
 
     /**
+     * **Both renderers shorten a title by one CODE POINT, not by one
+     * code unit or one byte.**
+     *
+     * A ratchet on the sources rather than on a rendering, because
+     * neither runtime can check the other and the difference is
+     * invisible in the pixels until a title happens to be cut at an
+     * emoji. The browser used `slice(0, -1)`, one UTF-16 code unit,
+     * against PHP's `mb_substr($base, 0, -1)`: a cut inside a surrogate
+     * pair left the high half orphaned, drawing as U+FFFD — and
+     * narrower than the emoji, so the loop stopped there and published
+     * it. Found in the review of #850.
+     *
+     * `substr()` on the PHP side would be the mirror defect, cutting one
+     * BYTE and leaving a broken UTF-8 sequence, so both halves are
+     * pinned here.
+     */
+    public function testBothRenderersShortenATitleByOneCodePoint(): void
+    {
+        self::assertMatchesRegularExpression(
+            '/Array\.from\(base\)\.slice\(0, -1\)/',
+            $this->script,
+            'the browser shortens a title by UTF-16 code unit again, so a cut at an emoji leaves half of it'
+        );
+        self::assertStringNotContainsString(
+            'base.slice(0, -1).trimEnd()',
+            $this->script,
+            'the browser shortens a title by UTF-16 code unit again, so a cut at an emoji leaves half of it'
+        );
+        self::assertMatchesRegularExpression(
+            '/mb_substr\(\$base, 0, -1\)/',
+            (string) file_get_contents(\dirname(__DIR__, 4) . '/modules/social/src/Card/CardRenderer.php'),
+            'CardRenderer no longer shortens a title by code point, so the browser now disagrees with it'
+        );
+    }
+
+    /**
      * **The point size GD is handed is not the pixel size it draws**, and
      * this is the factor between them, measured in GD's own terms.
      *

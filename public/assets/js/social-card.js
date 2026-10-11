@@ -140,7 +140,19 @@
         let base = line.endsWith('…') ? line.slice(0, -1) : line;
         base = base.trimEnd();
         while (base !== '' && measure(base + '…') > maxWidth) {
-            base = base.slice(0, -1).trimEnd();
+            // **One CODE POINT at a time, as `mb_substr($base, 0, -1)`
+            // does on the PHP side.** `slice(0, -1)` walks back one
+            // UTF-16 code unit, so a cut landing inside a surrogate pair
+            // — every emoji — dropped the low half and left the high one
+            // orphaned. A lone surrogate measures and draws as U+FFFD,
+            // and narrower than the emoji it came from, so the loop then
+            // EXITED with it in place and the tofu was baked into the
+            // published JPEG where GD had cleanly dropped the whole
+            // character. Found in the review of #850; the pair of
+            // renderers agreeing is what `CardGeometryAgreementTest` is
+            // for, and a literal-for-literal comparison cannot see a
+            // difference of unit.
+            base = Array.from(base).slice(0, -1).join('').trimEnd();
         }
 
         return base + '…';

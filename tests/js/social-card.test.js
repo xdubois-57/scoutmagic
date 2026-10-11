@@ -29,6 +29,29 @@ function evenMeasure(perChar) {
 }
 
 /**
+ * A measure that tells an emoji, a plain character and a LONE SURROGATE
+ * apart — which is what it takes to see the truncation bug the review of
+ * #850 found.
+ *
+ * A real engine draws an unpaired surrogate as U+FFFD, and that glyph is
+ * narrower than the emoji the surrogate came from. So a loop that cuts
+ * by UTF-16 code unit does not merely leave a broken character behind:
+ * the line it leaves measures SHORTER, so the loop stops there and ships
+ * it. `String.length` cannot show that, and neither can a measure that
+ * charges every code point the same.
+ */
+function glyphMeasure(text) {
+    return Array.from(String(text)).reduce((width, point) => {
+        const code = point.codePointAt(0) ?? 0;
+        if (code >= 0xD800 && code <= 0xDFFF) {
+            return width + 5;   // tofu, narrower than what it replaced
+        }
+
+        return width + (code > 0xFFFF ? 20 : 10);
+    }, 0);
+}
+
+/**
  * A context double that records what was drawn, in order. `measureText`
  * follows the font size the caller set, so the wrapping assertions below
  * exercise the same path a browser would.
@@ -257,6 +280,25 @@ describe('fitLine', () => {
 
     it('answers a bare ellipsis when there is room for nothing else', () => {
         expect(card().fitLine('abcdef', evenMeasure(10), 5, false)).toBe('…');
+    });
+
+    it('drops a whole emoji rather than half of its surrogate pair', () => {
+        // `CardRenderer::fit()` uses `mb_substr($base, 0, -1)`, one code
+        // POINT; this loop used `slice(0, -1)`, one UTF-16 code unit. On
+        // « abc😀def » cut at the emoji it left « abc\uD83D… », whose
+        // orphaned high surrogate draws as U+FFFD — baked into the
+        // published JPEG, since this canvas is what ships from IT-02.
+        const fitted = card().fitLine('abc\u{1F600}def', glyphMeasure, 50, false);
+
+        // No high surrogate without its low half.
+        expect(fitted).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u);
+        expect(fitted).toBe('abc…');
+    });
+
+    it('keeps an emoji that fits whole', () => {
+        // The guard above must not cost a title its emoji when there is
+        // room: « ab😀 » plus the ellipsis measures 10+10+20+10 = 50.
+        expect(card().fitLine('ab\u{1F600}cd', glyphMeasure, 50, false)).toBe('ab\u{1F600}…');
     });
 });
 
