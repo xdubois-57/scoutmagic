@@ -590,6 +590,7 @@ export default function MaquetteFormulaireInscription() {
   const [mobile, setMobile] = useState(false);
   const [deciding, setDeciding] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [bulkReason, setBulkReason] = useState("");
   const [toast, setToast] = useState(null);
 
   const [cfg, setCfg] = useState({
@@ -1218,7 +1219,11 @@ export default function MaquetteFormulaireInscription() {
       footer={
         <>
           <Btn onClick={() => setConfirm(null)}>Annuler</Btn>
-          <Btn kind="primary" onClick={() => { const ok = confirm.onOk; setConfirm(null); ok ? ok() : flash("Fait."); }}>
+          <Btn
+            kind="primary"
+            disabled={confirm.bulk && !bulkReason}
+            onClick={() => { const ok = confirm.onOk; setConfirm(null); setBulkReason(""); ok ? ok() : flash("Fait."); }}
+          >
             Confirmer
           </Btn>
         </>
@@ -1232,7 +1237,7 @@ export default function MaquetteFormulaireInscription() {
       {confirm.bulk && (
         <label className="mt-3 block text-sm">
           <span className="mb-1 block text-slate-600">Motif du refus</span>
-          <select className="min-h-[44px] w-full rounded border px-2" defaultValue="">
+          <select className="min-h-[44px] w-full rounded border px-2" value={bulkReason} onChange={(e) => setBulkReason(e.target.value)}>
             <option value="">Choisir…</option>
             <option>Pas de place</option>
             <option>Autre</option>

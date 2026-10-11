@@ -72,6 +72,13 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   désormais écrite dans IT-10 et la définition de terminé : une demande
   « Oui » qui ferait dépasser la capacité n'est pas acceptée
   automatiquement, elle reste à décider à la main.
+- **R1 et la phrase de la maquette sur les demandes encodées.** Sous la
+  Vérification des capacités, la maquette dit que « les demandes acceptées
+  comptent tant qu'elles occupent une place, qu'elles soient déjà encodées
+  dans Desk ou non ». Ce n'est pas un arbitrage de R1, c'est le résultat
+  attendu : une demande acceptée occupe **une** place, jamais deux (projetée
+  et acceptée) et jamais zéro. R1 reste à trancher dans IT-02 par un test
+  qui échoue avant le correctif : il vérifie que le code produit ce résultat.
 - Corrections dans la maquette elle-même : les identifiants de la page
   « fiche » passent en anglais (`detailId`, `RequestDetail`) ; une phrase de
   confirmation qui disait « Les 1 décision déjà prise » est accordée ; vider un
@@ -81,7 +88,8 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   ligne « Limite » décrit ce que fait vraiment la borne incluse (à 100 %
   d'occupation, « Peut-être » et non « Non ») ; le bouton de simulation de la
   maquette coupe les deux interrupteurs quand il repasse les gabarits « À
-  rédiger ».
+  rédiger » ; le refus groupé exige son motif avant « Confirmer », comme le
+  dialogue rapide.
 
 **Faits à trancher en cours de route** (section « Faits vérifiés et pièges »
 du document) : R1 dans IT-02, R2 dans IT-02, R3 dans IT-05, R4 dans IT-03, R5
