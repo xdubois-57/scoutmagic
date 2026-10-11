@@ -118,7 +118,8 @@ qui fait foi : vérifie chaque fait cité avant de t'appuyer dessus et note tout
 - **Ne jamais mentionner « Desk »** dans un écran destiné aux parents ou aux membres.
 - Cibles tactiles ≥ 44 px ; sous-pages par `partials/page_picker.html.twig` (onglets soulignés,
   `nav_rail`) ; **fil d'Ariane complet** sur chaque sous-page de Configuration ; un seul bouton
-  « Enregistrer » par boîte ; sélecteurs de date **natifs** ; icônes pour les actions de ligne.
+  « Enregistrer » par boîte (par sous-boîte bordée quand une boîte en regroupe plusieurs, comme
+  « Capacités par branche ») ; sélecteurs de date **natifs** ; icônes pour les actions de ligne.
 - Listes ordonnables : `list_editor` avec listes connectées. **Pas de case d'activation, pas de
   nouveau moteur de glisser-déposer.** Poignée sur grand écran, chevrons sur petit écran, jamais les deux.
 - Les actions sensibles passent par `JournalService`. Aucune donnée personnelle dans les journaux
@@ -143,7 +144,7 @@ d'Ariane complet (Espace chefs d'U › Formulaire d'inscription › Demandes ›
 
 ### D2. Tableau de bord
 Quatre cartes (Formulaire ouvert / fermé ; Demandes en attente ; E-mails de décision à envoyer ;
-Acceptées pas encore dans Desk), en grille 4 par ligne sur grand écran, 2 sur petit. Puis la
+Acceptées, pas encore dans Desk), en grille 4 par ligne sur grand écran, 2 sur petit. Puis la
 « Vérification des capacités ». **Ni bannière d'année, ni bouton « Changer d'année », ni liste
 « Demandes acceptées non rapprochées »** (nulle part). Le mot « rapprochée » disparaît de cette UI
 au profit de « encodée dans Desk » et « Lier à un membre Desk ».
@@ -160,8 +161,10 @@ Les seuils sont des **pourcentages d'occupation** de l'année de parcours :
 formulaire (Oui = Disponible, Peut-être = Limitée, Non = Complet) utilise **exactement les mêmes
 seuils** que la recommandation. Les deux anciens réglages
 (`registration_waitlist_threshold_available` / `_limited`) sont **remplacés** par deux entiers
-(pas de migration). La recommandation et le curseur ne sont visibles que si **« Gérer les listes
-d'attente »** est coché ; décochée, les contrôles sont grisés et les valeurs conservées.
+(pas de migration). Quand **« Gérer les listes d'attente »** est décochée, aucune recommandation
+n'est calculée ni affichée, et les familles ne voient plus de niveau ; les seuils (glissière, champs,
+exemple chiffré) restent affichés mais **grisés et désactivés, valeurs conservées** ; les Priorités
+restent modifiables, avec la mention « sans effet tant que les listes d'attente ne sont pas gérées ».
 
 Occupation = acceptées (`status = 'accepted'` seulement, voir R1) + effectif projeté de l'année
 suivante (voir D4).
@@ -201,7 +204,9 @@ Tout refus (dialogue rapide, fiche, refus groupé) demande un motif : **« Pas d
 **« Autre »**. Stocké sur la demande ; il alimente la règle « Ancienne demande restée sans place ».
 
 ### D7. Deux interrupteurs, désactivés par défaut, sous la case « Gérer les listes d'attente »
-1. **Envoyer automatiquement les e-mails d'acceptation et de refus**, avec un **délai en heures**
+Ils forment la sous-boîte « Décisions automatiques » de la boîte « Capacités par branche », avec son
+propre bouton « Enregistrer ».
+1. **Envoyer automatiquement les e-mails de décision** (acceptation et refus), avec un **délai en heures**
    (défaut 24). Impossible à activer tant que le gabarit d'acceptation ou de refus est « À rédiger ».
    Les décisions prises **avant** l'activation ne sont pas planifiées.
 2. **Accepter automatiquement les demandes « Oui »**, avec une **date de prise d'effet** (rien avant
@@ -241,8 +246,11 @@ Ouverture / fermeture et programmation annuelle avec **sélecteurs de date natif
 stocke `MM-DD`, on affiche la prochaine occurrence) ; boîte du code d'inscription avec « Ce code
 permet à une famille d'accéder au formulaire même lorsque les inscriptions sont fermées. » ; la phrase
 sur la fenêtre de rattrapage disparaît **de l'interface seulement** (le réglage
-`registration_scheduled_catch_up_days` reste) ; capacités par branche (case d'attente, curseurs,
-grille) ; priorités ; e-mails (automatique, délai, copie).
+`registration_scheduled_catch_up_days` reste) ; boîte « Capacités par branche » : la case « Gérer
+les listes d'attente », puis trois sous-boîtes bordées ayant chacune son bouton « Enregistrer » —
+« Décisions automatiques » (envoi automatique des e-mails de décision et son délai, acceptation
+automatique et sa date), seuils (glissière, champs, exemple chiffré), grille des capacités ; boîte
+« Priorités » ; boîte « Copie des e-mails d'inscription ».
 
 ---
 
@@ -307,8 +315,8 @@ Branche `claude/issue-843` (la réclamation), PR « Partie de #843 (IT-00) ».
 - **Tableau de bord** : quatre cartes (D2), puis la « Vérification des capacités » reprise telle quelle.
   Supprime la bannière d'année, le bouton « Changer d'année » et la liste des acceptées non
   rapprochées. Le compteur « acceptées pas encore dans Desk » = demandes `accepted` non encodées.
-  « E-mails de décision à envoyer » = acceptées / refusées dont l'e-mail n'est pas parti (la
-  définition se précisera en IT-05, qui la reprend).
+  « E-mails de décision à envoyer » = acceptées / refusées dont l'e-mail n'est pas parti — prévu, en
+  échec ou jamais planifié (la définition se précisera en IT-05, qui la reprend).
 - **Réglages**, ce que la maquette montre déjà et qui ne dépend de rien : sélecteurs de date natifs
   récurrents (stockage `MM-DD`), explication du code, retrait de la phrase de rattrapage.
 - Fil d'Ariane de la fiche : Espace chefs d'U › Formulaire d'inscription › **Demandes** › Demande #….
@@ -353,18 +361,38 @@ de `SlotMath`, `PublicRegistrationControllerTest` (niveau public), tests de proj
   critères réellement évalués**, sur le modèle de `recommend()` dans la maquette (« Oui — règle
   « Toujours Oui » : fratrie déjà présente dans l'unité. », « Oui — 1re demande classée sur 4 pour
   Louveteaux · 1re année. Avant elle, 7 places sur 15 seraient occupées (47 %), dans la limite du
-  « Oui » (70 %). »).
+  « Oui » (70 %). Classement favorisé par : ancienne demande restée sans place (2025-2026). »).
 - Réglage de l'ordre des critères : stockage d'une structure (zone + rang) dans les settings.
   Défauts : *Fratrie* en « Toujours Oui » ; *Ancienne demande restée sans place* et *Ordre d'arrivée*
   en classement. La ligne « Limite : … » est verrouillée après la zone « Classement ».
-- **Réglages › Capacités** : case « Gérer les listes d'attente » ; glissière à deux poignées
-  (1–120 %, vert à gauche) + deux champs numériques synchronisés + exemple chiffré sur une capacité
-  (« places déjà occupées ») ; tout grisé / désactivé si la case est décochée, **valeurs conservées**.
+- **Réglages › Capacités par branche** : case « Gérer les listes d'attente » ; sous-boîte des seuils :
+  glissière à deux poignées (1–120 %, vert à gauche) + deux champs numériques synchronisés (validés à
+  la sortie du champ ; une saisie vide est ignorée) + exemple chiffré sur une capacité (« places déjà
+  occupées ») ; sous-boîte de la grille des capacités ; chacune son bouton « Enregistrer ».
 - **Réglages › Priorités** : trois zones connectées (`list_editor`, `sortable_group`, `group_key`).
-- Visible seulement si la gestion des listes d'attente est active.
+- Case décochée : la recommandation n'est ni calculée ni affichée ; les seuils restent visibles mais
+  grisés et désactivés, **valeurs conservées** ; les Priorités restent modifiables, avec la mention
+  « (sans effet tant que les listes d'attente ne sont pas gérées) ».
 
-**Critères d'acceptation.** Les deux exemples de la maquette (#409/#414 doublon, #398…) donnent les
-mêmes résultats ; la fratrie dépasse la capacité mais pas les autres ; un classement change l'ordre
+**Critères d'acceptation.** Avec les réglages par défaut (70 / 100 ; *Fratrie* en « Toujours Oui » ;
+*Ancienne demande restée sans place* puis *Ordre d'arrivée* en classement), les cas de la maquette
+donnent exactement ces explications :
+
+- #416 (Louveteaux · 1re année, fratrie) : « Oui — règle « Toujours Oui » : fratrie déjà présente
+  dans l'unité. » ;
+- #417 : « Oui — 1re demande classée sur 4 pour Louveteaux · 1re année. Avant elle, 7 places sur 15
+  seraient occupées (47 %), dans la limite du « Oui » (70 %). Classement favorisé par : ancienne
+  demande restée sans place (2025-2026). » ;
+- #414, doublon de #409 : « Pas de recommandation tant que le doublon possible de la demande #409
+  n'est pas réglé. » — #409, la plus ancienne, reste dans la file : « Oui — 2e demande classée sur 4
+  pour Louveteaux · 1re année. Avant elle, 8 places sur 15 seraient occupées (53 %), dans la limite
+  du « Oui » (70 %). » ;
+- #398 (Louveteaux · 2e année, fratrie) : « Oui — règle « Toujours Oui » : fratrie déjà présente dans
+  l'unité. » ;
+- #401 (hors tranches) : « Pas de recommandation : l'année de naissance est hors des tranches d'âge
+  de l'unité. ».
+
+En outre, la fratrie dépasse la capacité mais pas les autres ; un classement change l'ordre
 sans toucher aux « Toujours Oui » ; case décochée → aucune recommandation calculée ni affichée ;
 la recommandation **n'apparaît dans aucune vue publique** (test de régression ci-dessous).
 **Tests** : nouveaux tests du service (par année de parcours, critères, doublon, hors tranche,
@@ -408,8 +436,9 @@ après), concurrence (deux réclamations simultanées → un seul envoi).
 
 - `core/Mail/MailService` : paramètre `cc` (validation, en-tête, DKIM, multipart), file différée
   comprise ; documentation (`ARCHITECTURE.md`) et tests du cœur.
-- Réglages › E-mails : option « Copie des e-mails d'inscription » (activée par défaut), champ adresse
-  (défaut = adresse par défaut de l'unité), activation refusée si l'adresse est invalide ou introuvable.
+- Réglages, boîte « Copie des e-mails d'inscription » : interrupteur « Mettre une adresse en copie »
+  (activé par défaut), champ adresse (vide = adresse par défaut de l'unité), enregistrement refusé si
+  l'adresse est invalide ou introuvable.
 - Appliquée aux **trois e-mails à la famille** (accusé, acceptation, refus), **renvois compris**.
   Audite tous les chemins d'envoi du module, et note au journal ceux qui n'en reçoivent volontairement
   pas (alerte à l'unité, réinscription).
@@ -441,8 +470,8 @@ envoi), états du bloc, journal.
 
 ## IT-09 — Envoi automatique des e-mails de décision
 
-- Réglages › E-mails : interrupteur « Envoyer automatiquement les e-mails d'acceptation et de refus »
-  (défaut off) et délai en heures (défaut 24). Désactivé tant qu'un gabarit de décision est « À rédiger ».
+- Réglages › Capacités par branche, sous-boîte « Décisions automatiques » : interrupteur « Envoyer
+  automatiquement les e-mails de décision » (défaut off) et délai en heures (défaut 24). Désactivé tant qu'un gabarit de décision est « À rédiger ».
 - Les décisions prises **avant** l'activation ne sont pas planifiées.
 - Tâche planifiée (`module.json`, modèle `SendReenrollmentEmailsHandler`) qui consomme les envois
   arrivés à échéance : réclame, envoie, journalise ; **reprend après une interruption sans envoyer
@@ -455,7 +484,8 @@ absent), réglages (activation refusée sans gabarit).
 
 ## IT-10 — Acceptation automatique
 
-- Réglages : interrupteur « Accepter automatiquement les demandes « Oui » » (défaut off), activable
+- Réglages, même sous-boîte « Décisions automatiques » : interrupteur « Accepter automatiquement les
+  demandes « Oui » » (défaut off), activable
   seulement avec la gestion des listes d'attente **et** l'envoi automatique ; date de prise d'effet
   (rien avant elle).
 - Tâche planifiée : par année de parcours, **dans l'ordre de la file, une demande à la fois, avec

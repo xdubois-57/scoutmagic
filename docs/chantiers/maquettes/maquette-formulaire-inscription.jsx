@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 /**
  * ScoutMagic — maquette : Formulaire d'inscription en quatre sous-pages
@@ -34,7 +34,8 @@ import React, { useState } from "react";
 
 const TODAY = "11/10/2026";
 
-// Capacité par « branche × année de parcours ». cap null = pas de limite.
+// Capacité par « branche × année de parcours » (valeurs initiales, modifiables dans Réglages).
+// cap null = pas de limite, cap 0 = fermé.
 // proj = animés qui montent dans ce créneau ; silent = parmi eux, ceux dont la famille n'a pas encore
 // répondu à la réinscription (comptés comme restants).
 const SLOTS = [
@@ -138,12 +139,18 @@ function maxOccupiedFor(cap, pct) {
   return -1;
 }
 
+// Une demande « Oui » que l'acceptation automatique peut prendre : « Toujours Oui », ou une
+// demande classée qui ne fait pas dépasser la capacité (même si le seuil « Oui » dépasse 100 %).
+const autoAcceptable = (e, slot) => e.level === "yes" && (e.kind === "always" || slot.cap === null || e.occBefore < slot.cap);
+
+const placesOccupied = (n) => `${n} place${n > 1 ? "s" : ""} déjà occupée${n > 1 ? "s" : ""}`;
+
 // La file d'un créneau : « Toujours Oui » d'abord (par date de dépôt), puis les autres
 // classées par les critères actifs. Chaque demande est jugée sur l'occupation AVANT elle,
 // comme si toutes celles qui la précèdent étaient acceptées. Les doublons et les demandes
 // hors des tranches d'âge n'y figurent pas.
-function queueFor(slotId, cfg, order) {
-  const slot = SLOTS.find((s) => s.id === slotId);
+function queueFor(slotId, cfg, order, slots) {
+  const slot = slots.find((s) => s.id === slotId);
   if (!slot) return null;
   const pend = REQUESTS.filter((r) => r.status === "pending" && r.slot === slotId && !r.dupOf);
   const isAlways = (r) => order.always.some((id) => RULES[id].test(r));
@@ -173,15 +180,15 @@ function queueFor(slotId, cfg, order) {
   return { slot, out, base: occupied(slot) };
 }
 
-function recommend(req, cfg, order) {
-  const slot = SLOTS.find((s) => s.id === req.slot);
+function recommend(req, cfg, order, slots) {
+  const slot = slots.find((s) => s.id === req.slot);
   if (!slot) {
     return { level: null, text: "Pas de recommandation : l'année de naissance est hors des tranches d'âge de l'unité." };
   }
   if (req.dupOf) {
     return { level: null, text: `Pas de recommandation tant que le doublon possible de la demande #${req.dupOf} n'est pas réglé.` };
   }
-  const q = queueFor(req.slot, cfg, order);
+  const q = queueFor(req.slot, cfg, order, slots);
   const e = q.out.find((x) => x.r.id === req.id);
   if (!e) return { level: null, text: "Cette demande n'est plus en attente." };
   const pct = slot.cap ? Math.round((e.occBefore / slot.cap) * 100) : null;
@@ -191,10 +198,14 @@ function recommend(req, cfg, order) {
   let text;
   if (e.kind === "always") {
     text = `Oui — règle « Toujours Oui » : ${matched.join(", ")}.`;
-    if (slot.cap !== null && e.occBefore >= slot.cap)
+    if (slot.cap === 0)
+      text += ` Attention : ${slot.label} est fermée aux inscriptions (capacité 0), cette acceptation dépasse la capacité.`;
+    else if (slot.cap !== null && e.occBefore >= slot.cap)
       text += ` Attention : ${slot.label} est déjà complète, cette acceptation dépasse la capacité.`;
   } else if (slot.cap === null) {
     text = `Oui — aucune limite n'est fixée pour ${slot.label}.`;
+  } else if (slot.cap === 0) {
+    text = `Non — ${slot.label} est fermée aux inscriptions (capacité 0).`;
   } else {
     const lead = `${e.rank}${e.rank === 1 ? "re" : "e"} demande classée sur ${e.of} pour ${slot.label}. Avant elle, ${e.occBefore} place${e.occBefore > 1 ? "s" : ""} sur ${slot.cap} seraient occupées (${pct} %)`;
     if (e.level === "yes") text = `Oui — ${lead}, dans la limite du « Oui » (${cfg.yesTo} %).`;
@@ -306,6 +317,40 @@ function Modal({ title, children, onClose, footer }) {
   );
 }
 
+// Champ numérique : la saisie reste un brouillon et n'est validée (arrondie, bornée) qu'à la
+// sortie du champ ou sur Entrée. Une saisie vide ou invalide rend la valeur enregistrée.
+function NumberField({ value, min, max, onCommit, disabled, className }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const v = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(v)) {
+      setDraft(String(value));
+      return;
+    }
+    let n = Math.round(v);
+    if (min !== undefined) n = Math.max(min, n);
+    if (max !== undefined) n = Math.min(max, n);
+    setDraft(String(n));
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <input
+      type="number"
+      disabled={disabled}
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+      }}
+      className={className}
+    />
+  );
+}
+
 /* ---------------------------------------------------- slider à deux curseurs */
 
 const SLIDER_MAX = 120;
@@ -410,6 +455,11 @@ function PriorityLists({ order, setOrder, mobile }) {
   };
   const drop = (toList, beforeId) => {
     if (!drag) return;
+    if (drag === beforeId) {
+      // Lâcher une ligne sur elle-même ne change rien.
+      setDrag(null);
+      return;
+    }
     put(drag, toList, beforeId);
     setDrag(null);
   };
@@ -490,20 +540,30 @@ function PriorityLists({ order, setOrder, mobile }) {
           </div>
         </div>
       </div>
-      {zone("off", "border-dashed bg-slate-50", "Glissez un critère ici pour le désactiver.")}
+      {zone(
+        "off",
+        "border-dashed bg-slate-50",
+        mobile ? "Choisissez « Désactivé » dans le menu d'un critère pour le désactiver." : "Glissez un critère ici pour le désactiver."
+      )}
       {notice && <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">{notice}</div>}
     </div>
   );
 }
 
-function DecideDialog({ r, cfg, order, onClose, flash }) {
-    const rec = recommend(r, cfg, order);
-    const [note, setNote] = useState("");
+function DecideDialog({ r, cfg, order, slots, tplReady, initialNote, onSaveNote, onClose, flash }) {
+    const rec = recommend(r, cfg, order, slots);
+    const [note, setNote] = useState(initialNote);
     const [refusing, setRefusing] = useState(false);
-    const [reason, setReason] = useState(rec.level === "no" ? "room" : "");
-    const slot = SLOTS.find((s) => s.id === r.slot);
+    // Motif proposé d'après la recommandation, seulement quand elle existe (listes d'attente gérées).
+    const [reason, setReason] = useState(cfg.waitlist && rec.level === "no" ? "room" : "");
+    const slot = slots.find((s) => s.id === r.slot);
     const inAuto =
-      cfg.autoAccept && cfg.waitlist && rec.level === "yes" && !r.dupOf && slot;
+      cfg.autoAccept && cfg.waitlist && !r.dupOf && slot && rec.entry && autoAcceptable(rec.entry, slot);
+    const decide = (message) => {
+      onSaveNote(note);
+      onClose();
+      flash(message);
+    };
     const mailIfAccept = cfg.autoEmails
       ? `Si vous acceptez : l'e-mail d'acceptation partira le ${plusHours(cfg.delay)}. D'ici là, vous pouvez changer d'avis sans que rien ne soit envoyé.`
       : "Si vous acceptez : aucun e-mail ne part tout seul, vous l'envoyez depuis la fiche.";
@@ -521,13 +581,13 @@ function DecideDialog({ r, cfg, order, onClose, flash }) {
               kind="danger"
               onClick={() => {
                 if (!refusing) setRefusing(true);
-                else if (reason) { onClose(); flash("Demande refusée."); }
+                else if (reason) decide("Demande refusée.");
               }}
               disabled={refusing && !reason}
             >
               {refusing ? "Confirmer le refus" : "Refuser"}
             </Btn>
-            <Btn kind="success" onClick={() => { onClose(); flash("Demande acceptée."); }}>
+            <Btn kind="success" onClick={() => decide("Demande acceptée.")}>
               Accepter
             </Btn>
           </>
@@ -545,7 +605,8 @@ function DecideDialog({ r, cfg, order, onClose, flash }) {
         )}
         {cfg.waitlist && r.dupOf && (
           <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            Doublon possible de la demande #{r.dupOf} : même enfant, même date de naissance. Le traitement automatique ne la prendra pas.
+            Doublon possible de la demande #{r.dupOf} : même enfant, même date de naissance.
+            {cfg.autoAccept && " Le traitement automatique ne la prendra pas."}
           </div>
         )}
         {cfg.waitlist && !r.dupOf && !slot && cfg.autoAccept && (
@@ -575,8 +636,17 @@ function DecideDialog({ r, cfg, order, onClose, flash }) {
         )}
 
         <div className="rounded bg-slate-50 p-3 text-xs text-slate-600">
-          <div>{mailIfAccept}</div>
-          <div className="mt-1">{mailIfRefuse}</div>
+          {tplReady ? (
+            <>
+              <div>{mailIfAccept}</div>
+              <div className="mt-1">{mailIfRefuse}</div>
+            </>
+          ) : (
+            <div>
+              Aucun e-mail de décision ne peut partir tant que les gabarits d'acceptation et de refus ne sont pas rédigés (voir
+              Gabarits). D'ici là, la famille voit toujours « en attente ».
+            </div>
+          )}
         </div>
       </Modal>
     );
@@ -584,7 +654,7 @@ function DecideDialog({ r, cfg, order, onClose, flash }) {
 
 /* =================================================================== app */
 
-export default function MaquetteFormulaireInscription() {
+export default function RegistrationFormMockup() {
   const [page, setPage] = useState("dashboard");
   const [detailId, setDetailId] = useState(null);
   const [mobile, setMobile] = useState(false);
@@ -592,6 +662,15 @@ export default function MaquetteFormulaireInscription() {
   const [confirm, setConfirm] = useState(null);
   const [bulkReason, setBulkReason] = useState("");
   const [toast, setToast] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [notes, setNotes] = useState({ 398: "Appeler les parents avant d'accepter." });
+
+  // Capacités enregistrées, et la grille en cours de saisie (chaînes : vide = sans limite).
+  const [caps, setCaps] = useState(() => Object.fromEntries(SLOTS.map((s) => [s.id, s.cap])));
+  const [capDraft, setCapDraft] = useState(() => Object.fromEntries(SLOTS.map((s) => [s.id, s.cap === null ? "" : String(s.cap)])));
+  const slots = SLOTS.map((s) => ({ ...s, cap: caps[s.id] }));
+  const capInvalid = (v) => !/^\d*$/.test(v.trim());
+  const capsHaveError = Object.values(capDraft).some(capInvalid);
 
   const [cfg, setCfg] = useState({
     formOpen: true,
@@ -612,6 +691,15 @@ export default function MaquetteFormulaireInscription() {
   const [tpl, setTpl] = useState({ receipt: "default", alert: "default", accepted: "missing", refused: "missing" });
   const decisionTplReady = tpl.accepted !== "missing" && tpl.refused !== "missing";
 
+  // Situation du bloc « E-mail de décision » à l'ouverture d'une fiche : celle de la demande.
+  // Le sélecteur « Situation à visualiser » permet ensuite de parcourir les six états.
+  const [mailScenario, setMailScenario] = useState("none");
+  const scenarioFor = (r) => {
+    if (r.email && r.email.kind === "sent") return "sent";
+    if (!decisionTplReady) return "missing";
+    return r.email ? r.email.kind : "none";
+  };
+
   const [order, setOrder] = useState({ always: ["sib"], rank: ["prev", "arrival"], off: [] });
   const [exampleCap, setExampleCap] = useState(15);
 
@@ -621,7 +709,18 @@ export default function MaquetteFormulaireInscription() {
   };
 
   const pending = REQUESTS.filter((r) => r.status === "pending");
-  const toSend = REQUESTS.filter((r) => r.email && r.email.kind === "planned").length;
+  // Décisions dont l'e-mail n'est pas parti : prévu, en échec ou jamais planifié.
+  const toSend = REQUESTS.filter((r) => (r.status === "accepted" || r.status === "refused") && (!r.email || r.email.kind !== "sent")).length;
+  const plannedSends = REQUESTS.filter((r) => r.email && r.email.kind === "planned").length;
+
+  const closeConfirm = () => {
+    setConfirm(null);
+    setBulkReason("");
+  };
+  const openRefusal = (title, lines, onOk) => {
+    setBulkReason("");
+    setConfirm({ title, lines: [...lines, "Un motif de refus est demandé : « pas de place » ou « autre »."], needsReason: true, onOk });
+  };
   const notInDesk = REQUESTS.filter((r) => r.status === "accepted").length;
 
   const pages = [
@@ -668,7 +767,7 @@ export default function MaquetteFormulaireInscription() {
               </tr>
             </thead>
             <tbody>
-              {SLOTS.map((s) => {
+              {slots.map((s) => {
                 const lv = publicLevel(s, cfg);
                 const rem = remaining(s);
                 return (
@@ -776,12 +875,12 @@ export default function MaquetteFormulaireInscription() {
             </thead>
             <tbody>
               {REQUESTS.map((r) => {
-                const slot = SLOTS.find((s) => s.id === r.slot);
+                const slot = slots.find((s) => s.id === r.slot);
                 return (
                   <tr key={r.id} className="border-t align-top">
                     <td className="py-2">{r.date}</td>
                     <td>
-                      <button className="text-blue-700 underline" onClick={() => { setDetailId(r.id); setPage("detail"); }}>
+                      <button className="text-blue-700 underline" onClick={() => { setDetailId(r.id); setMailScenario(scenarioFor(r)); setPage("detail"); }}>
                         {r.child}
                       </button>
                       {r.dupOf && (
@@ -824,7 +923,11 @@ export default function MaquetteFormulaireInscription() {
             ["2026-2027", "Lola Vandenberghe", "En attente"],
           ].map(([y, n, s]) => (
             <label key={n} className="flex min-h-[44px] items-center gap-3 px-3">
-              <input type="checkbox" />
+              <input
+                type="checkbox"
+                checked={selected.includes(n)}
+                onChange={(e) => setSelected(e.target.checked ? [...selected, n] : selected.filter((x) => x !== n))}
+              />
               <span className="flex-1">
                 {n} <span className="text-slate-500">· {y}</span>
               </span>
@@ -833,10 +936,20 @@ export default function MaquetteFormulaireInscription() {
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Btn kind="danger" onClick={() => setConfirm({ title: "Refuser la sélection", lines: ["Un motif de refus est demandé : « pas de place » ou « autre »."], bulk: true })}>
+          <Btn
+            kind="danger"
+            disabled={selected.length === 0}
+            onClick={() =>
+              openRefusal(
+                "Refuser la sélection",
+                [`${selected.length} demande${selected.length > 1 ? "s" : ""} sélectionnée${selected.length > 1 ? "s" : ""}.`],
+                () => { setSelected([]); flash("Sélection refusée."); }
+              )
+            }
+          >
             Refuser la sélection
           </Btn>
-          <Btn>Retirer la sélection</Btn>
+          <Btn disabled={selected.length === 0}>Retirer la sélection</Btn>
         </div>
       </Card>
     </>
@@ -899,13 +1012,23 @@ export default function MaquetteFormulaireInscription() {
         `Les e-mails d'acceptation et de refus partiront ${cfg.delay} h après chaque décision. Tant qu'ils ne sont pas partis, vous pouvez changer la décision et rien n'est envoyé.`
       );
       lines.push("Oui, des e-mails vont partir : uniquement pour les décisions prises à partir de maintenant. La décision déjà prise sans envoi reste à envoyer à la main depuis sa fiche.");
+    } else if (plannedSends > 0) {
+      lines.push("Aucune nouvelle décision n'enverra d'e-mail toute seule : chaque envoi se fait depuis la fiche de la demande.");
+      const many = plannedSends > 1;
+      lines.push(
+        !decisionTplReady
+          ? `Attention : ${many ? `les ${plannedSends} e-mails déjà planifiés restent prévus` : "l'e-mail déjà planifié reste prévu"}, mais ${many ? "leur" : "son"} envoi échouera tant que les gabarits d'acceptation et de refus ne sont pas rédigés (voir Gabarits).`
+          : many
+          ? `Attention : les ${plannedSends} e-mails déjà planifiés partiront quand même à leur échéance ; « Envoyer maintenant », sur leur fiche, les fait partir tout de suite.`
+          : "Attention : l'e-mail déjà planifié partira quand même à son échéance ; « Envoyer maintenant », sur sa fiche, le fait partir tout de suite."
+      );
     } else {
       lines.push("Non, aucun e-mail ne partira tout seul : chaque envoi se fait depuis la fiche de la demande.");
     }
     if (cfg.autoAccept) {
-      const n = ["bal1", "bal2", "lou1", "lou2", "ecl1", "ecl2", "pio1"]
-        .map((id) => queueFor(id, cfg, order))
-        .reduce((t, q) => t + q.out.filter((e) => e.level === "yes").length, 0);
+      const n = slots
+        .map((s) => queueFor(s.id, cfg, order, slots))
+        .reduce((t, q) => t + q.out.filter((e) => autoAcceptable(e, q.slot)).length, 0);
       lines.push(
         `À partir du ${cfg.acceptFrom.split("-").reverse().join("/")}, les demandes recommandées « Oui » seront acceptées par le site : ${n} demande${n > 1 ? "s" : ""} en attente concerné${n > 1 ? "es" : "e"} aujourd'hui.`
       );
@@ -913,6 +1036,8 @@ export default function MaquetteFormulaireInscription() {
     }
     setConfirm({ title: "Enregistrer les décisions automatiques ?", lines, onOk: () => flash("Réglages enregistrés.") });
   };
+
+  const ccInvalid = cfg.ccOn && cfg.ccAddr !== "" && !/^\S+@\S+\.\S+$/.test(cfg.ccAddr);
 
   const Settings = () => (
     <>
@@ -962,6 +1087,7 @@ export default function MaquetteFormulaireInscription() {
         />
 
         <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-1 text-sm font-medium">Décisions automatiques</div>
           <Switch
             id="autoEmails"
             checked={cfg.autoEmails}
@@ -977,7 +1103,7 @@ export default function MaquetteFormulaireInscription() {
           {cfg.autoEmails && (
             <label className="mb-3 ml-12 flex items-center gap-2 text-sm">
               <span>Délai avant envoi</span>
-              <input type="number" min={0} value={cfg.delay} onChange={(e) => set({ delay: Number(e.target.value) })} className="min-h-[44px] w-24 rounded border px-3" />
+              <NumberField min={0} value={cfg.delay} onCommit={(v) => set({ delay: v })} className="min-h-[44px] w-24 rounded border px-3" />
               <span>heures</span>
             </label>
           )}
@@ -993,7 +1119,7 @@ export default function MaquetteFormulaireInscription() {
                 ? "Indisponible : activez d'abord la gestion des listes d'attente, la recommandation en dépend."
                 : !cfg.autoEmails
                 ? "Indisponible : activez d'abord l'envoi automatique des e-mails de décision, sans quoi la famille resterait sans réponse."
-                : "Seules les demandes recommandées « Oui » sont acceptées, dans l'ordre de priorité. « Peut-être » et « Non » restent à décider à la main. Les doublons possibles (sauf la plus ancienne demande d'un même enfant) et les demandes hors des tranches d'âge sont laissés de côté."
+                : "Seules les demandes recommandées « Oui » sont acceptées, dans l'ordre de priorité. « Peut-être » et « Non » restent à décider à la main, comme une demande classée « Oui » qui ferait dépasser le nombre de places (seules les « Toujours Oui » le peuvent). Les doublons possibles (sauf la plus ancienne demande d'un même enfant) et les demandes hors des tranches d'âge sont laissés de côté."
             }
           />
           {cfg.autoAccept && (
@@ -1006,18 +1132,18 @@ export default function MaquetteFormulaireInscription() {
           <Btn kind="primary" onClick={saveAutomation}>Enregistrer</Btn>
         </div>
 
-        <div className={`mt-4 ${wl ? "" : "opacity-50"}`} aria-disabled={!wl}>
+        <div className={`mt-4 rounded border border-slate-200 bg-slate-50 p-3 ${wl ? "" : "opacity-50"}`} aria-disabled={!wl}>
           <div className="mb-1 text-sm font-medium">Seuils de la recommandation et du niveau public</div>
           {!wl && <div className="mb-2 text-xs text-slate-500">Désactivés tant que la gestion des listes d'attente est coupée. Les valeurs enregistrées sont conservées.</div>}
           <DualSlider yesTo={cfg.yesTo} maybeTo={cfg.maybeTo} disabled={!wl} onChange={(p) => set(p)} />
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-slate-600">Oui jusqu'à … % de places occupées</span>
-              <input type="number" disabled={!wl} min={1} max={cfg.maybeTo - 1} value={cfg.yesTo} onChange={(e) => { const v = e.target.valueAsNumber; if (Number.isNaN(v)) return; set({ yesTo: Math.max(1, Math.min(v, cfg.maybeTo - 1)) }); }} className="min-h-[44px] w-full rounded border px-3" />
+              <NumberField disabled={!wl} min={1} max={cfg.maybeTo - 1} value={cfg.yesTo} onCommit={(v) => set({ yesTo: v })} className="min-h-[44px] w-full rounded border px-3" />
             </label>
             <label className="text-sm">
               <span className="mb-1 block text-slate-600">Peut-être jusqu'à … % de places occupées</span>
-              <input type="number" disabled={!wl} min={cfg.yesTo + 1} max={SLIDER_MAX} value={cfg.maybeTo} onChange={(e) => { const v = e.target.valueAsNumber; if (Number.isNaN(v)) return; set({ maybeTo: Math.min(SLIDER_MAX, Math.max(v, cfg.yesTo + 1)) }); }} className="min-h-[44px] w-full rounded border px-3" />
+              <NumberField disabled={!wl} min={cfg.yesTo + 1} max={SLIDER_MAX} value={cfg.maybeTo} onCommit={(v) => set({ maybeTo: v })} className="min-h-[44px] w-full rounded border px-3" />
             </label>
           </div>
           {cfg.maybeTo > 100 && (
@@ -1029,23 +1155,23 @@ export default function MaquetteFormulaireInscription() {
           <div className="mt-3 rounded border bg-white p-3 text-sm">
             <label className="mb-2 flex items-center gap-2">
               Exemple avec une capacité de
-              <input type="number" disabled={!wl} min={1} max={99} value={exampleCap} onChange={(e) => setExampleCap(Math.max(1, Number(e.target.value)))} className="min-h-[44px] w-20 rounded border px-2" />
+              <NumberField disabled={!wl} min={1} max={99} value={exampleCap} onCommit={setExampleCap} className="min-h-[44px] w-20 rounded border px-2" />
               places
             </label>
             <ul className="space-y-1">
               <li>
-                <Pill cls={LEVEL.yes.cls}>Oui</Pill> tant qu'il y a <b>{exYes <= 0 ? "0 place déjà occupée" : `au plus ${exYes} places déjà occupées`}</b>
+                <Pill cls={LEVEL.yes.cls}>Oui</Pill> tant qu'il y a <b>{exYes <= 0 ? placesOccupied(0) : `au plus ${placesOccupied(exYes)}`}</b>
               </li>
               <li>
                 <Pill cls={LEVEL.maybe.cls}>Peut-être</Pill>{" "}
                 {exMaybe <= exYes ? (
                   <b>jamais avec cette capacité : les deux limites tombent sur le même nombre de places</b>
                 ) : (
-                  <>quand il y a <b>{exMaybe === exYes + 1 ? `${exMaybe} places déjà occupées` : `de ${exYes + 1} à ${exMaybe} places déjà occupées`}</b></>
+                  <>quand il y a <b>{exMaybe === exYes + 1 ? placesOccupied(exMaybe) : `de ${exYes + 1} à ${exMaybe} places déjà occupées`}</b></>
                 )}
               </li>
               <li>
-                <Pill cls={LEVEL.no.cls}>Non</Pill> à partir de <b>{exMaybe + 1} places déjà occupées</b>
+                <Pill cls={LEVEL.no.cls}>Non</Pill> à partir de <b>{placesOccupied(exMaybe + 1)}</b>
                 {exampleCap - exMaybe - 1 > 0
                   ? ` (${exampleCap - exMaybe - 1} place${exampleCap - exMaybe - 1 > 1 ? "s" : ""} libre${exampleCap - exMaybe - 1 > 1 ? "s" : ""} ou moins)`
                   : exampleCap - exMaybe - 1 === 0
@@ -1060,7 +1186,7 @@ export default function MaquetteFormulaireInscription() {
           <div className="mt-3"><Btn kind="primary" disabled={!wl} onClick={() => flash("Seuils enregistrés.")}>Enregistrer</Btn></div>
         </div>
 
-        <div className="mt-5">
+        <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
           <div className="mb-1 text-sm font-medium">Capacités</div>
           <p className="mb-2 text-xs text-slate-500">
             Une case vide veut dire <b>pas de limite</b> ; pour fermer une branche aux inscriptions, indiquez <b>0</b>.
@@ -1078,14 +1204,33 @@ export default function MaquetteFormulaireInscription() {
                   <tr key={s.id} className="border-t">
                     <td className="py-1">{s.label}</td>
                     <td>
-                      <input defaultValue={s.cap ?? ""} placeholder="sans limite" className="min-h-[44px] w-28 rounded border px-3" />
+                      <input
+                        inputMode="numeric"
+                        value={capDraft[s.id]}
+                        onChange={(e) => setCapDraft({ ...capDraft, [s.id]: e.target.value })}
+                        placeholder="sans limite"
+                        aria-invalid={capInvalid(capDraft[s.id])}
+                        className={`min-h-[44px] w-28 rounded border px-3 ${capInvalid(capDraft[s.id]) ? "border-red-500" : ""}`}
+                      />
+                      {capInvalid(capDraft[s.id]) && <span className="ml-2 text-xs text-red-700">Un nombre entier, ou vide.</span>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="mt-3"><Btn kind="primary" onClick={() => flash("Capacités enregistrées.")}>Enregistrer</Btn></div>
+          <div className="mt-3">
+            <Btn
+              kind="primary"
+              disabled={capsHaveError}
+              onClick={() => {
+                setCaps(Object.fromEntries(SLOTS.map((s) => [s.id, capDraft[s.id].trim() === "" ? null : Number(capDraft[s.id])])));
+                flash("Capacités enregistrées.");
+              }}
+            >
+              Enregistrer
+            </Btn>
+          </div>
         </div>
       </Card>
 
@@ -1113,34 +1258,34 @@ export default function MaquetteFormulaireInscription() {
             value={cfg.ccAddr}
             placeholder="info@exemple.be (adresse de l'unité)"
             onChange={(e) => set({ ccAddr: e.target.value })}
-            className={`min-h-[44px] w-full rounded border px-3 ${cfg.ccOn && cfg.ccAddr && !/^\S+@\S+\.\S+$/.test(cfg.ccAddr) ? "border-red-500" : ""}`}
+            className={`min-h-[44px] w-full rounded border px-3 ${ccInvalid ? "border-red-500" : ""}`}
           />
-          {cfg.ccOn && cfg.ccAddr && !/^\S+@\S+\.\S+$/.test(cfg.ccAddr) && (
+          {ccInvalid && (
             <span className="mt-1 block text-xs text-red-700">Cette adresse n'est pas valide.</span>
           )}
           <span className="mt-1 block text-xs text-slate-500">Laissée vide, c'est l'adresse par défaut de l'unité qui est utilisée.</span>
         </label>
-        <div className="mt-3"><Btn kind="primary" onClick={() => flash("Réglages enregistrés.")}>Enregistrer</Btn></div>
+        <div className="mt-3"><Btn kind="primary" disabled={ccInvalid} onClick={() => flash("Réglages enregistrés.")}>Enregistrer</Btn></div>
       </Card>
     </>
   );
 
   /* ------------------------------------------------------- request detail */
 
-  const [mailScenario, setMailScenario] = useState("planned");
   const RequestDetail = () => {
     const r = REQUESTS.find((x) => x.id === detailId);
-    const slot = SLOTS.find((s) => s.id === r.slot);
+    const slot = slots.find((s) => s.id === r.slot);
     const decision = r.status === "refused" ? "refus" : "acceptation";
     const scenarios = {
       none: { head: "Non planifié", tone: "bg-slate-100 text-slate-700", note: "L'envoi automatique est désactivé : l'e-mail s'envoie à la main.", actions: ["now"], history: [] },
-      planned: { head: `Prévu le ${plusHours(cfg.delay)}`, tone: "bg-sky-100 text-sky-800", note: "La famille voit encore « en attente ». Changer la décision d'ici là annule cet envoi.", actions: ["now"], history: [[TODAY + " 15:00", "Planifié", "Décision prise par Marie Dupont"]] },
+      planned: { head: `Prévu le ${r.email && r.email.kind === "planned" ? r.email.at : plusHours(cfg.delay)}`, tone: "bg-sky-100 text-sky-800", note: "La famille voit encore « en attente ». Changer la décision d'ici là annule cet envoi.", actions: ["now"], history: [[TODAY + " 15:00", "Planifié", "Décision prise par Marie Dupont"]] },
       sent: { head: "Envoyé le 09/10 à 14:32", tone: "bg-emerald-100 text-emerald-800", note: "La famille voit la décision.", actions: ["again"], history: [["09/10 14:32", "Envoyé", "Planifié le 08/10 à 14:30"], ["08/10 14:30", "Planifié", ""]] },
       failed: { head: "Échec le 08/10 à 14:32", tone: "bg-red-100 text-red-800", note: "L'e-mail n'a pas pu être envoyé. La famille voit toujours « en attente ».", actions: ["retry"], history: [["08/10 14:32", "Échec", "Réessai possible"], ["07/10 14:30", "Planifié", ""]] },
       cancelled: { head: "Annulé suite à un changement de décision", tone: "bg-amber-100 text-amber-800", note: "Un nouvel e-mail sera planifié pour la nouvelle décision.", actions: [], history: [["10/10 09:12", "Annulé", "Décision changée avant l'envoi"], ["09/10 14:30", "Planifié", ""]] },
       missing: { head: "Gabarit à rédiger", tone: "bg-red-100 text-red-800", note: "Le corps de l'e-mail n'a pas encore été rédigé : rien ne peut partir.", actions: [], history: [] },
     };
     const sc = scenarios[mailScenario];
+    const refuseThis = () => openRefusal(`Refuser la demande de ${r.child}`, [], () => flash("Demande refusée."));
     return (
       <>
         <Card
@@ -1154,20 +1299,26 @@ export default function MaquetteFormulaireInscription() {
             <div><span className="text-slate-500">Fratrie dans l'unité</span><br />{r.sib ? "Oui" : "Non"}</div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {r.status === "pending" && (<><Btn kind="success">Accepter</Btn><Btn kind="danger">Refuser</Btn><Btn>Retirer</Btn></>)}
-            {r.status === "accepted" && (<><Btn kind="danger">Refuser</Btn><Btn>Revenir en attente</Btn></>)}
+            {r.status === "pending" && (<><Btn kind="success">Accepter</Btn><Btn kind="danger" onClick={refuseThis}>Refuser</Btn><Btn>Retirer</Btn></>)}
+            {r.status === "accepted" && (<><Btn kind="danger" onClick={refuseThis}>Refuser</Btn><Btn>Revenir en attente</Btn></>)}
             {r.status === "refused" && <Btn>Revenir en attente</Btn>}
           </div>
         </Card>
 
         <Card title="Note interne">
-          <textarea defaultValue="Appeler les parents avant d'accepter." className="min-h-[88px] w-full rounded border p-3 text-sm" />
+          <textarea
+            value={notes[r.id] ?? ""}
+            onChange={(e) => setNotes({ ...notes, [r.id]: e.target.value })}
+            placeholder="Visible par le Staff d'U seulement"
+            className="min-h-[88px] w-full rounded border p-3 text-sm"
+          />
           <div className="mt-2 flex items-center gap-3">
             <Btn kind="primary" onClick={() => flash("Note enregistrée.")}>Enregistrer la note</Btn>
             <span className="text-xs text-slate-500">Enregistrer la note n'envoie jamais d'e-mail.</span>
           </div>
         </Card>
 
+        {r.status !== "pending" && (
         <Card
           title="E-mail de décision"
           right={
@@ -1204,6 +1355,7 @@ export default function MaquetteFormulaireInscription() {
             </>
           )}
         </Card>
+        )}
       </>
     );
   };
@@ -1215,14 +1367,14 @@ export default function MaquetteFormulaireInscription() {
   const ConfirmModal = () => (
     <Modal
       title={confirm.title}
-      onClose={() => setConfirm(null)}
+      onClose={closeConfirm}
       footer={
         <>
-          <Btn onClick={() => setConfirm(null)}>Annuler</Btn>
+          <Btn onClick={closeConfirm}>Annuler</Btn>
           <Btn
             kind="primary"
-            disabled={confirm.bulk && !bulkReason}
-            onClick={() => { const ok = confirm.onOk; setConfirm(null); setBulkReason(""); ok ? ok() : flash("Fait."); }}
+            disabled={confirm.needsReason && !bulkReason}
+            onClick={() => { const ok = confirm.onOk; closeConfirm(); ok ? ok() : flash("Fait."); }}
           >
             Confirmer
           </Btn>
@@ -1234,7 +1386,7 @@ export default function MaquetteFormulaireInscription() {
           <li key={l}>{l}</li>
         ))}
       </ul>
-      {confirm.bulk && (
+      {confirm.needsReason && (
         <label className="mt-3 block text-sm">
           <span className="mb-1 block text-slate-600">Motif du refus</span>
           <select className="min-h-[44px] w-full rounded border px-2" value={bulkReason} onChange={(e) => setBulkReason(e.target.value)}>
@@ -1298,7 +1450,19 @@ export default function MaquetteFormulaireInscription() {
         {page === "settings" && Settings()}
         {page === "detail" && RequestDetail()}
 
-        {deciding && <DecideDialog r={deciding} cfg={cfg} order={order} onClose={() => setDeciding(null)} flash={flash} />}
+        {deciding && (
+          <DecideDialog
+            r={deciding}
+            cfg={cfg}
+            order={order}
+            slots={slots}
+            tplReady={decisionTplReady}
+            initialNote={notes[deciding.id] ?? ""}
+            onSaveNote={(text) => setNotes((n) => ({ ...n, [deciding.id]: text }))}
+            onClose={() => setDeciding(null)}
+            flash={flash}
+          />
+        )}
         {confirm && ConfirmModal()}
         {toast && (
           <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded bg-slate-800 px-4 py-2 text-sm text-white">{toast}</div>

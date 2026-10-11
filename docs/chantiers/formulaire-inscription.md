@@ -58,7 +58,7 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   qu'une demande « Toujours Oui » ne cite aucun chiffre de capacité. Les
   explications suivent celles que construit `recommend()` dans la maquette
   (« Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité. »,
-  « 1re demande classée sur 3 pour … Avant elle, N places sur C seraient
+  « 1re demande classée sur 4 pour … Avant elle, N places sur C seraient
   occupées (P %) … »). L'exemple du document est remplacé par deux exemples
   construits comme ceux de la maquette, chiffres recalculés sur ses données
   (Louveteaux · 1re année : la fratrie #416 passe d'abord, puis 4 demandes
@@ -79,6 +79,35 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   attendu : une demande acceptée occupe **une** place, jamais deux (projetée
   et acceptée) et jamais zéro. R1 reste à trancher dans IT-02 par un test
   qui échoue avant le correctif : il vérifie que le code produit ce résultat.
+- **Où vivent les réglages d'envoi, et leur libellé.** D11, IT-06 et IT-09
+  parlaient d'une boîte « Réglages › E-mails » et D7 / IT-09 citaient
+  l'interrupteur « Envoyer automatiquement les e-mails d'acceptation et de
+  refus ». La maquette n'a pas de boîte « E-mails » : l'envoi automatique, son
+  délai et l'acceptation automatique forment la sous-boîte « Décisions
+  automatiques » de « Capacités par branche », la copie est la boîte « Copie
+  des e-mails d'inscription », et le libellé est « Envoyer automatiquement les
+  e-mails de décision ». Le document suit la maquette.
+- **Grisé, pas masqué.** D3 disait la recommandation et le curseur « visibles
+  seulement » si les listes d'attente sont gérées, puis « grisés » quand la
+  case est décochée ; IT-03 ajoutait « Visible seulement si … ». La maquette
+  garde les seuils affichés, grisés et désactivés (valeurs conservées), et
+  laisse les Priorités modifiables avec « sans effet tant que … » ; seule la
+  recommandation disparaît (ni calculée ni affichée). D3 et IT-03 le disent.
+- **Un seul « Enregistrer » par sous-boîte.** La boîte « Capacités par
+  branche » portait trois boutons « Enregistrer », contre la convention d'un
+  seul par boîte. Dans la maquette, décisions automatiques, seuils et grille
+  des capacités sont désormais trois sous-boîtes bordées, chacune avec son
+  bouton ; la convention et D11 le précisent.
+- **Le compteur « E-mails de décision à envoyer ».** La maquette ne comptait
+  que les envois prévus (1) ; IT-01 le définit comme les acceptées / refusées
+  dont l'e-mail n'est pas parti — prévu, en échec ou jamais planifié (2 sur
+  les données de la maquette : #390 prévu, #380 en échec). La maquette suit
+  IT-01.
+- **À trancher dans IT-01 : une date récurrente au 29 février.** On stocke
+  `MM-DD` et on affiche la prochaine occurrence ; « 02-29 » n'a pas de
+  prochaine occurrence les années non bissextiles (la maquette affiche alors
+  un champ vide et « 29/02/2027 »). IT-01 refuse cette date ou la traite
+  explicitement, en partant de la validation existante, et note son choix ici.
 - Corrections dans la maquette elle-même : les identifiants de la page
   « fiche » passent en anglais (`detailId`, `RequestDetail`) ; une phrase de
   confirmation qui disait « Les 1 décision déjà prise » est accordée ; vider un
@@ -89,7 +118,36 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   d'occupation, « Peut-être » et non « Non ») ; le bouton de simulation de la
   maquette coupe les deux interrupteurs quand il repasse les gabarits « À
   rédiger » ; le refus groupé exige son motif avant « Confirmer », comme le
-  dialogue rapide.
+  dialogue rapide. Puis, à la revue suivante :
+  - les champs numériques (seuils, capacité de l'exemple, délai) gardent la
+    saisie en brouillon et ne la valident, arrondie et bornée, qu'à la sortie
+    du champ ou sur Entrée — on pouvait ne taper que 71 ou 120 dans
+    « Peut-être jusqu'à » ; un délai négatif n'est plus accepté ;
+  - les capacités sont un état réel, branché sur le tableau de bord et la
+    recommandation ; une capacité 0 dit « fermée aux inscriptions » au lieu
+    d'un pourcentage vide ; l'acceptation automatique (phrase du dialogue,
+    décompte de la confirmation, aide de l'interrupteur) exclut une demande
+    classée « Oui » qui ferait dépasser le nombre de places ;
+  - le bloc « E-mail de décision » de la fiche part de l'état réel de la
+    demande (gabarits à rédiger, prévu à sa vraie date, envoyé, aucun), est
+    absent pour une demande en attente, et garde le sélecteur des six
+    situations ;
+  - le dialogue de décision dit qu'aucun e-mail ne peut partir tant que les
+    gabarits ne sont pas rédigés ; sa note est conservée et apparaît sur la
+    fiche ; le motif n'est proposé d'après la recommandation que si elle
+    existe ; la phrase « le traitement automatique ne la prendra pas » d'un
+    doublon ne s'affiche qu'avec l'acceptation automatique ;
+  - « Refuser » sur la fiche ouvre la même confirmation avec motif que le
+    refus groupé ; le refus groupé repart sans motif à chaque ouverture, et
+    ses deux boutons attendent une sélection ;
+  - la confirmation des décisions automatiques signale l'e-mail déjà planifié
+    qui partira quand même (ou échouera sans gabarit) ;
+  - la copie refuse l'enregistrement d'une adresse invalide ;
+  - accords « 1 place déjà occupée » dans l'exemple chiffré ; lâcher une
+    priorité sur elle-même ne la déplace plus ; sur mobile, la zone
+    « Désactivés » vide renvoie au menu plutôt qu'au glisser ;
+  - le composant exporté s'appelle `RegistrationFormMockup` (identifiants en
+    anglais).
 
 **Faits à trancher en cours de route** (section « Faits vérifiés et pièges »
 du document) : R1 dans IT-02, R2 dans IT-02, R3 dans IT-05, R4 dans IT-03, R5
