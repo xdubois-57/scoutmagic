@@ -8,6 +8,7 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -763,6 +764,87 @@ class RentalConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('action="/admin/locations/compte"', $body);
         $this->assertStringContainsString('Compte locations', $body);
+    }
+
+    /**
+     * The category beside the account (issue #838) is checked against
+     * Finance's active list: an id it does not offer is never stored, and
+     * the account is refused with it rather than saved without one.
+     */
+    public function testAnUnavailableFinanceCategoryIsNotStored(): void
+    {
+        $assetId = $this->createAsset();
+        [$controller, $payments] = $this->controllerWithFinance();
+
+        $response = $this->postFinanceAccount($controller, $assetId, '3', '99');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($payments->settingsFor($assetId)->financeCategoryId);
+        $this->assertNull($payments->settingsFor($assetId)->financeAccountId);
+        $this->assertStringContainsString('catégorie Finances', (string) (FlashMessage::get()['message'] ?? ''));
+    }
+
+    public function testAnAvailableFinanceCategoryIsStoredWithTheAccount(): void
+    {
+        $assetId = $this->createAsset();
+        [$controller, $payments] = $this->controllerWithFinance();
+
+        $this->postFinanceAccount($controller, $assetId, '3', '4');
+
+        $this->assertSame(3, $payments->settingsFor($assetId)->financeAccountId);
+        $this->assertSame(4, $payments->settingsFor($assetId)->financeCategoryId);
+    }
+
+    /**
+     * @return array{0: RentalConfigController, 1: \Modules\Rental\Service\RentalPaymentService}
+     */
+    private function controllerWithFinance(): array
+    {
+        $accounts = $this->createStub(\Modules\Finance\Api\FinanceAccountInterface::class);
+        $accounts->method('getConfiguredAccounts')->willReturn([
+            ['id' => 3, 'name' => 'Compte locations', 'iban' => 'BE68539007547034', 'holder_name' => null, 'section_id' => null],
+        ]);
+        $accounts->method('getCategories')->willReturn([['id' => 4, 'name' => 'Locations']]);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $payments = new \Modules\Rental\Service\RentalPaymentService(
+            new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
+            RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+            $journal,
+            $this->createStub(\Modules\Finance\Api\ExpectedReceivableInterface::class),
+            $this->createStub(\Modules\Finance\Api\StructuredCommunicationInterface::class),
+            null,
+            $accounts
+        );
+
+        return [
+            new RentalConfigController(
+                $this->twig,
+                $this->assetRepository,
+                new RentalAssetService($this->assetRepository, new RentalSlugGenerator($this->assetRepository), $journal),
+                $this->managerService,
+                new ScoutYearService($this->pdo),
+                $this->settingService,
+                $payments
+            ),
+            $payments,
+        ];
+    }
+
+    private function postFinanceAccount(
+        RentalConfigController $controller,
+        int $assetId,
+        string $accountId,
+        string $categoryId
+    ): \Core\Http\Response {
+        $body = [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'asset_id' => (string) $assetId,
+            'finance_account_id' => $accountId,
+            'finance_category_id' => $categoryId,
+        ];
+        $_POST = $body;
+
+        return $controller->saveFinanceAccount(new Request('POST', '/admin/locations/compte', [], $body, [], []), []);
     }
 
     /**

@@ -182,7 +182,36 @@ class FormServiceTest extends TestCase
 
         $this->expectException(\Modules\News\Service\NewsException::class);
         $this->expectExceptionMessageMatches('/catégorie Finances/');
-        $this->service->save($this->articleId, $settings, []);
+        $this->service->save($this->articleId, $settings, [self::pricedField()]);
+    }
+
+    /**
+     * A new article's account picker arrives pre-filled with the section's
+     * default account, hidden until a priced field is added: a plain
+     * article that never asks for money saves without a category.
+     */
+    public function testAFormWithoutAPricedFieldSavesWithoutACategory(): void
+    {
+        $settings = $this->baseSettings();
+        $settings['finance_account_id'] = 3;
+
+        $form = $this->service->save($this->articleId, $settings, []);
+
+        $this->assertNull($form->financeCategoryId);
+        $this->assertFalse($form->hasPaymentDestination());
+    }
+
+    /**
+     * @return array{id: null, field_type: string, label: string, is_required: bool, options_source: null,
+     *     options_manual: null, capacity_max: null, price_per_unit: float, confirmation_text: null}
+     */
+    private static function pricedField(): array
+    {
+        return [
+            'id' => null, 'field_type' => FormField::TYPE_NUMBER, 'label' => 'Repas', 'is_required' => false,
+            'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => 5.0,
+            'confirmation_text' => null,
+        ];
     }
 
     public function testTheCategoryIsStoredWithTheAccountAndDroppedWithoutOne(): void

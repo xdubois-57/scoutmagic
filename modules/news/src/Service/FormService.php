@@ -135,11 +135,18 @@ class FormService
 
         // A form that raises receivables names where their payments are
         // booked (issue #838): an account without a category could take
-        // money it then has nowhere to put.
+        // money it then has nowhere to put. Only a form with a priced field
+        // raises any — the account picker arrives pre-filled with the
+        // section's default account even on a plain article, and that
+        // alone must never stop the article from being saved.
         $financeCategoryId = $settings['finance_account_id'] !== null
             ? ($settings['finance_category_id'] ?? null)
             : null;
-        if ($settings['finance_account_id'] !== null && $financeCategoryId === null) {
+        $hasPricedField = array_filter(
+            $fields,
+            static fn(array $field): bool => ($field['price_per_unit'] ?? 0.0) > 0.0
+        ) !== [];
+        if ($hasPricedField && $settings['finance_account_id'] !== null && $financeCategoryId === null) {
             throw new NewsException(
                 'Choisissez la catégorie Finances dans laquelle classer les paiements de ce formulaire.'
             );
