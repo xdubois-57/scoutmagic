@@ -136,7 +136,25 @@ class StorageLocationService
         $outcome = RootFolderOutcome::nothingToDo();
         $renamed = null;
         if ($before !== null && $before->label !== $label) {
-            $backend = $this->managedBackendOf($before);
+            // Reached with what is being saved, not with the row as it
+            // was: a client secret corrected in the same submission is the
+            // one that can reach Google, and the stale one would refuse
+            // the rename — and with it the correction.
+            $backend = $this->managedBackendOf(
+                new StorageLocation(
+                    $before->id,
+                    $before->type,
+                    $before->label,
+                    $before->isDefault,
+                    $config,
+                    $before->secretConfigured,
+                    $before->lastCheckedAt,
+                    $before->lastCheckOk,
+                    $before->lastCheckError,
+                    $before->createdAt
+                ),
+                $secret
+            );
             if ($backend instanceof ManagedRootFolderBackend) {
                 try {
                     $backend->renameRootFolder($label);
@@ -364,8 +382,10 @@ class StorageLocationService
      * to report instead: nothing to do for every other kind, a failure
      * when the backend cannot even be built (an unreadable secret).
      */
-    private function managedBackendOf(StorageLocation $location): ManagedRootFolderBackend|RootFolderOutcome
-    {
+    private function managedBackendOf(
+        StorageLocation $location,
+        ?string $secret = null
+    ): ManagedRootFolderBackend|RootFolderOutcome {
         if ($location->type !== StorageLocationType::GoogleDrive) {
             // Asked of the type first: building a local backend creates
             // its directory, and an S3 one a client, for nothing.
@@ -392,7 +412,9 @@ class StorageLocationService
         }
 
         try {
-            $backend = $this->backendFactory->create($location);
+            // Built afresh, never from the factory's per-location cache: on
+            // an update, $location carries what is being saved.
+            $backend = $this->backendFactory->probe($location, $secret);
         } catch (\Throwable $e) {
             return self::failure($e);
         }

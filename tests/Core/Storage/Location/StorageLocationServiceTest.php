@@ -411,6 +411,39 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame($before, $drive->requests, 'nothing is asked of Google without a grant');
     }
 
+    /**
+     * A client secret corrected in the same submission as a new label is
+     * the one the rename uses — so it goes through, and the correction is
+     * saved with it rather than lost to a refusal the stale one caused.
+     */
+    public function testARenameUsesTheClientSecretBeingSaved(): void
+    {
+        $drive = new FakeDrive();
+        $drive->acceptedClientSecret = 'secret-corrige';
+        $service = $this->serviceOn($drive);
+        $stale = new GoogleDriveSecret('secret-perime', 'refresh-1', 'unite@example.org');
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) $stale->toStorage()
+        );
+
+        $service->update(
+            $id,
+            'Galeries du groupe',
+            $this->driveConfig($drive),
+            (string) $stale->withClientSecret('secret-corrige')->toStorage()
+        );
+
+        $this->assertSame('Galeries du groupe', $drive->files['folder-1']['name']);
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame(
+            'secret-corrige',
+            GoogleDriveSecret::fromStorage($this->repository->getSecret($id))->clientSecret
+        );
+    }
+
     /** A Drive location never connected has no folder: its label is free to change. */
     public function testANeverConnectedDriveLocationIsRenamedWithoutAskingGoogle(): void
     {
