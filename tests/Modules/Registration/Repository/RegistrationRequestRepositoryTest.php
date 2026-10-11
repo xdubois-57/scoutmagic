@@ -301,4 +301,123 @@ class RegistrationRequestRepositoryTest extends TestCase
 
         $this->assertSame($normalizedA, $normalizedB);
     }
+
+    // ------------------------------------------------------------------
+    // The three figures of the management dashboard (issue #843, IT-01)
+    // ------------------------------------------------------------------
+
+    /**
+     * One request per interesting state, in the year under test, plus the
+     * same set in another year that must never leak into the counts.
+     *
+     * @return array<string, int> label => request id, for the year under test
+     */
+    private function seedDashboardStates(int $scoutYearId): array
+    {
+        $ids = [];
+        foreach ([
+            'pending', 'accepted_unsent', 'accepted_sent', 'encoded_unsent', 'encoded_sent',
+            'refused_unsent', 'refused_sent', 'withdrawn',
+        ] as $label) {
+            $ids[$label] = $this->repository->create(
+                $scoutYearId,
+                $this->sampleFields(['child_first_name' => ucfirst($label), 'email' => $label . '@example.com']),
+                null,
+                []
+            )['id'];
+        }
+
+        $this->repository->updateStatus($ids['accepted_unsent'], 'accepted', null);
+        $this->repository->updateStatus($ids['accepted_sent'], 'accepted', null);
+        $this->repository->markAcceptedEmailSent($ids['accepted_sent']);
+        $this->repository->updateStatus($ids['encoded_unsent'], 'encoded', new \DateTimeImmutable());
+        $this->repository->updateStatus($ids['encoded_sent'], 'encoded', new \DateTimeImmutable());
+        $this->repository->markAcceptedEmailSent($ids['encoded_sent']);
+        $this->repository->updateStatus($ids['refused_unsent'], 'refused', new \DateTimeImmutable());
+        $this->repository->updateStatus($ids['refused_sent'], 'refused', new \DateTimeImmutable());
+        $this->repository->markRefusedEmailSent($ids['refused_sent']);
+        $this->repository->updateStatus($ids['withdrawn'], 'withdrawn', new \DateTimeImmutable());
+
+        return $ids;
+    }
+
+    public function testCountPendingForYearsCountsOnlyUndecidedRequestsOfThoseYears(): void
+    {
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $this->seedDashboardStates($this->scoutYearId);
+        $this->seedDashboardStates($otherYearId);
+
+        $this->assertSame(1, $this->repository->countPendingForYears([$this->scoutYearId]));
+        $this->assertSame(2, $this->repository->countPendingForYears([$this->scoutYearId, $otherYearId]));
+    }
+
+    /**
+     * The definition the family's own page applies: an acceptance — still
+     * `accepted` or already `encoded` — and a refusal whose e-mail has not
+     * left. A sent one, a withdrawal and a pending request send nothing
+     * more.
+     */
+    public function testCountDecisionEmailsToSendCountsEveryDecisionTheFamilyCannotSeeYet(): void
+    {
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $ids = $this->seedDashboardStates($this->scoutYearId);
+        $this->seedDashboardStates($otherYearId);
+
+        // accepted_unsent, encoded_unsent, refused_unsent.
+        $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+
+        // Sending the refusal takes it out of the count, and only it.
+        $this->repository->markRefusedEmailSent($ids['refused_unsent']);
+        $this->assertSame(2, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+
+        // A refused request whose ACCEPTANCE e-mail went out earlier (the
+        // decision changed) still owes its refusal e-mail.
+        $this->repository->updateStatus($ids['accepted_sent'], 'refused', new \DateTimeImmutable());
+        $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+    }
+
+    /**
+     * The count and the family's own page are two readings of one rule,
+     * and must never drift apart: a decision whose e-mail is owed is
+     * exactly a request the family still sees « en attente » although it
+     * is not pending (Service\RequestStatusService::visibleStatus()).
+     */
+    public function testTheDecisionEmailCountIsExactlyWhatTheFamilyCannotSeeYet(): void
+    {
+        $this->seedDashboardStates($this->scoutYearId);
+        $statusService = new \Modules\Registration\Service\RequestStatusService(
+            $this->repository,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+
+        $hidden = array_filter(
+            $this->repository->findAllForYear($this->scoutYearId),
+            static fn(RegistrationRequest $request) => $request->status !== RegistrationRequest::STATUS_PENDING
+                && $statusService->visibleStatus($request) === RegistrationRequest::STATUS_PENDING
+        );
+
+        $this->assertNotEmpty($hidden);
+        $this->assertSame(count($hidden), $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+    }
+
+    public function testCountAcceptedNotEncodedCountsOnlyAcceptedRequestsOfThoseYears(): void
+    {
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $this->seedDashboardStates($this->scoutYearId);
+        $this->seedDashboardStates($otherYearId);
+
+        // accepted_unsent and accepted_sent — the encoded ones are in Desk.
+        $this->assertSame(2, $this->repository->countAcceptedNotEncodedForYears([$this->scoutYearId]));
+        $this->assertSame(4, $this->repository->countAcceptedNotEncodedForYears([$this->scoutYearId, $otherYearId]));
+    }
+
+    public function testTheDashboardCountsAreZeroForNoYearAndIgnoreARepeatedYear(): void
+    {
+        $this->seedDashboardStates($this->scoutYearId);
+
+        $this->assertSame(0, $this->repository->countPendingForYears([]));
+        $this->assertSame(0, $this->repository->countDecisionEmailsToSendForYears([]));
+        $this->assertSame(0, $this->repository->countAcceptedNotEncodedForYears([]));
+        $this->assertSame(1, $this->repository->countPendingForYears([$this->scoutYearId, $this->scoutYearId]));
+    }
 }

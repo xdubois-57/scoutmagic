@@ -36,11 +36,13 @@
 //      needs a browser because the two states have to be compared on the
 //      SAME rendered page, chief side and family side, after a real
 //      round trip through the form that stores them.
-//   6. The page's three configuration boxes (formulaire, états d'une
-//      demande, capacités) open on demand. A collapsed panel is not
-//      cosmetics for a test: every control inside one is unreachable
-//      until it is opened, which is precisely what a browser checks and
-//      a PHPUnit assertion on the rendered HTML cannot.
+//   6. The management page is four sub-pages joined by one rail, and
+//      nothing on them folds away (issue #843): the controls live on
+//      « Réglages », the figures and the capacity table on the dashboard,
+//      the list on « Demandes ». Every control used below is reached
+//      without opening anything, and every POST lands back on the
+//      sub-page its form lives on — which only a browser following the
+//      real redirect can show.
 //
 // ORDERING
 // ----------------------------------------------------------------------------
@@ -55,67 +57,45 @@ import { expect, test } from '@playwright/test';
 import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
-import { openCollapse } from '../support/collapse.js';
 import { linkFromMail, waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
-import { waitForServerResponse } from '../support/response.js';
+
+const SETTINGS_PATH = '/config/inscriptions/reglages';
 
 /**
- * Opens one of /config/inscriptions' collapsible boxes, asserting on the
- * way that it really was closed. The check and the action belong together:
- * a box that silently starts open would otherwise make every later step
- * pass without anyone noticing the default had changed.
+ * Clicks a button of « Réglages » whose form posts and redirects back to
+ * « Réglages », and waits for the page that redirect renders.
  *
- * Through openCollapse(), which waits for Bootstrap before the click. This
- * helper once clicked as soon as the toggle read `aria-expanded="false"` —
- * true in the markup long before the bundle has run, and in particular
- * right after saveCapacitiesBox(), whose barrier is that very attribute on
- * the page the redirect is still parsing. The click was swallowed and the
- * box never opened (#520).
+ * The barrier is the flash message the action leaves, not the URL: the
+ * POST redirects to the address the browser is ALREADY on, so `waitForURL`
+ * would resolve instantly and let the next assertion read the page from
+ * before the save — which is how a "must not appear" assertion passes for
+ * the wrong reason. Each call starts from a freshly loaded « Réglages »
+ * (a flash is shown once), so the message cannot be a leftover.
  *
  * @param {import('@playwright/test').Page} page
- * @param {string} name accessible name of the box's toggle
- * @param {string} panelId id of the panel it controls
- * @returns {Promise<import('@playwright/test').Locator>} the panel, open
+ * @param {import('@playwright/test').Locator} button
+ * @param {string} flash the message the action confirms itself with
  */
-async function openConfigBox(page, name, panelId) {
-    const toggle = page.getByRole('button', { name, exact: true });
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-
-    return openCollapse(page, panelId, () => toggle.click());
+async function submitOnSettings(page, button, flash) {
+    await button.click();
+    await expect(page.getByRole('alert').filter({ hasText: flash })).toBeVisible();
+    expect(new URL(page.url()).pathname, 'the POST lands back on « Réglages »').toBe(SETTINGS_PATH);
 }
 
 /**
- * Submits the « Capacités par branche » box and waits for the page its
- * redirect renders.
- *
- * The barrier is the toggle going back to `aria-expanded="false"`, not the
- * URL: this POST redirects to the address the browser is ALREADY on, so
- * `waitForURL` would resolve instantly and let the next assertion read the
- * page from before the save — which is how a "must not appear" assertion
- * passes for the wrong reason. The box is open when the click happens and
- * folded again on the page that comes back, so that attribute flipping is
- * a genuine "the new document is here" signal.
- *
- * That attribute says the new document has ARRIVED, not that it has
- * finished loading: it is in the markup before Bootstrap's bundle runs.
- * Whatever follows and needs the library goes through a helper that waits
- * for it — openConfigBox() does.
- *
- * The save button is scoped to the panel: the rich-text editor's modal on
- * this page carries an « Enregistrer » of its own.
+ * Submits the « Capacités par branche » form. Its button is scoped to the
+ * form: the page has another « Enregistrer », the schedule's.
  *
  * @param {import('@playwright/test').Page} page
- * @param {import('@playwright/test').Locator} box the open capacity box
  */
-async function saveCapacitiesBox(page, box) {
-    await Promise.all([
-        waitForServerResponse(page, (response) =>
-            response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
-        box.getByRole('button', { name: 'Enregistrer', exact: true }).click(),
-    ]);
-    await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
-        .toHaveAttribute('aria-expanded', 'false');
+async function saveCapacities(page) {
+    const capacities = page.locator('form[action="/config/inscriptions"]');
+    await submitOnSettings(
+        page,
+        capacities.getByRole('button', { name: 'Enregistrer', exact: true }),
+        'Configuration enregistrée.',
+    );
 }
 
 const PARENT_NAME = 'Camille Verstraeten';
@@ -144,29 +124,23 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // ---------------------------------------------------------------
     await loginAsAdmin(page);
     await answerCookieBanner(page);
-    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
 
-    // The three configuration boxes are folded away on arrival — what this
-    // page serves first is the request list, not its settings. Each toggle
-    // says so; the two boxes opened below are checked folded again, panel
-    // and all, by openCollapse() on the way in, and the one never opened
-    // is checked here.
-    for (const name of ["Formulaire d'inscription", "États d'une demande", 'Capacités par branche']) {
-        await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-expanded', 'false');
+    // Nothing on these pages folds away any more: no collapse toggle in
+    // the page's own content, and the rail names the four sub-pages.
+    await expect(page.locator('#main-content [data-bs-toggle="collapse"]')).toHaveCount(0);
+    const rail = page.getByRole('navigation', { name: "Pages Formulaire d'inscription" });
+    for (const tab of ['Tableau de bord', 'Demandes', 'Gabarits', 'Réglages']) {
+        await expect(rail.getByRole('link', { name: tab, exact: true })).toBeVisible();
     }
-    await expect(page.locator('#registration-states-box')).toBeHidden();
+    await expect(rail.getByRole('link', { name: 'Réglages', exact: true })).toHaveAttribute('aria-current', 'page');
 
-    await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
     // The toggle is one button whose label IS the current state — waiting
     // on either label first keeps this step honest about which state the
     // page really rendered before acting on it.
     await expect(page.getByRole('button', { name: /^(Ouvrir|Fermer) maintenant$/ })).toBeVisible();
     if (await page.getByRole('button', { name: 'Ouvrir maintenant' }).isVisible()) {
-        await page.getByRole('button', { name: 'Ouvrir maintenant' }).click();
-        // The POST redirects back to a freshly rendered page, so the box
-        // is folded again: every step below has to open it for itself.
-        await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
-        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
+        await submitOnSettings(page, page.getByRole('button', { name: 'Ouvrir maintenant' }), 'Formulaire ouvert.');
     }
     await expect(page.getByRole('button', { name: 'Fermer maintenant' })).toBeVisible();
 
@@ -178,34 +152,37 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // the « Vérification des capacités » table, because that table is
     // where a chief would first see an unconfigured branch mislabelled as
     // a full one. « Attente importante » is the exact badge that must
-    // appear for a 0 and must NOT appear for an empty box.
+    // appear for a 0 and must NOT appear for an empty box. The grid is on
+    // « Réglages », the table on the dashboard.
     // ---------------------------------------------------------------
-    let capacities = await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
-
     await expect(
         page.getByRole('switch', { name: "Gérer les listes d'attente" }),
         'the waitlist switch lives in the capacity box it governs, and is on by default',
     ).toBeChecked();
 
-    const capacityBoxes = capacities.locator('input[name^="capacity["]');
+    const capacityBoxes = page.locator('form[action="/config/inscriptions"] input[name^="capacity["]');
     await expect(capacityBoxes.first(), 'the default capacity is stored, so the box comes back filled').toHaveValue('15');
     const capacityCount = await capacityBoxes.count();
     expect(capacityCount, 'the fixture branch must give the grid at least one slot').toBeGreaterThan(0);
 
     // 0 — the branch is deliberately closed, and says so.
     await capacityBoxes.first().fill('0');
-    await saveCapacitiesBox(page, capacities);
+    await saveCapacities(page);
+    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a capacity of zero is a branch closed on purpose — it must still read as full',
     ).toBeVisible();
+    // The dashboard's first figure says what « Réglages » just did.
+    await expect(page.locator('#registration-dashboard-figures')).toContainText('Ouvert');
 
-    // Empty — no limit at all. Same page, same table, opposite reading.
-    capacities = await openConfigBox(page, 'Capacités par branche', 'registration-capacities-box');
+    // Empty — no limit at all. Same table, opposite reading.
+    await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
     for (let i = 0; i < capacityCount; i++) {
-        await capacities.locator('input[name^="capacity["]').nth(i).fill('');
+        await capacityBoxes.nth(i).fill('');
     }
-    await saveCapacitiesBox(page, capacities);
+    await saveCapacities(page);
+    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(
         page.getByText('Attente importante', { exact: true }),
         'a branch with NO recorded capacity must never be announced full',
@@ -314,7 +291,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // acceptance-email body is written on this instance, so the
         // decision stays invisible until that email really goes out.
         // ---------------------------------------------------------------
-        await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
         await page.getByRole('row', { name: new RegExp(CHILD_FIRST_NAME) })
             .getByRole('link', { name: 'Ouvrir' }).click();
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
@@ -375,15 +352,19 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // in-year code the admin generates must open the closed form for
         // whoever types it — and only through their own session.
         // ---------------------------------------------------------------
-        await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
-        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
-        await page.getByRole('button', { name: 'Fermer maintenant' }).click();
-        await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
-        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
+        await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
+        await submitOnSettings(page, page.getByRole('button', { name: 'Fermer maintenant' }), 'Formulaire fermé.');
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
 
+        await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
+        // Generating a code asks first (design.md §7.5) — a new one would
+        // invalidate any code already handed out. waitForConfirmReady()
+        // before the click, as its docblock requires: a click that beats
+        // confirm.js's listener submits natively and no question is asked.
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Générer un nouveau code' }).click();
-        await page.waitForURL('**/config/inscriptions', { waitUntil: 'domcontentloaded' });
+        expect(await answerConfirmation(page)).toContain('Générer un code ?');
+        await expect(page.getByRole('alert').filter({ hasText: 'Nouveau code généré.' })).toBeVisible();
         const yearCode = (await page.locator('p', { hasText: 'Code actif :' }).locator('strong').innerText()).trim();
         expect(yearCode).not.toBe('');
 
@@ -400,10 +381,11 @@ test('a family registers a child, follows the mailed tracking link, and the admi
 
         // The code is a door, not a switch: the admin-side state stays
         // closed, and the code dies with its deactivation.
-        await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
-        await openConfigBox(page, "Formulaire d'inscription", 'registration-form-box');
+        await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Désactiver' }).click();
+        expect(await answerConfirmation(page)).toContain('ne pourront plus accéder au formulaire');
         await expect(page.getByText('Dernier code (désactivé)')).toBeVisible();
 
         expect(familyErrors, 'uncaught JavaScript error in the family\'s browser').toEqual([]);

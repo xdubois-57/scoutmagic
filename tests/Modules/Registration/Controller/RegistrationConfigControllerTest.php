@@ -34,10 +34,13 @@ use Core\Member\Repository\SectionRepository;
 
 /**
  * Full-stack tests through the real controller/templates for the "page de
- * gestion" (module spec Deliverable 1): year selection (target year
- * default, past years read-only, never beyond target), the request list
- * with its filters, the capacity table, the two encarts, and the bulk
- * actions' explicit-confirmation/CSRF/read-only-year guards.
+ * gestion" (module spec Deliverable 1), split into four sub-pages by
+ * issue #843 (IT-01): the dashboard (four figures, capacity table), the
+ * requests (year selection — target year default, past years read-only,
+ * never beyond target —, the list with its filters, the bulk actions'
+ * explicit-confirmation/CSRF/read-only-year guards), the templates
+ * placeholder and the settings (schedule, code, capacity box), plus where
+ * every existing POST sends the visitor back.
  *
  * @group database
  */
@@ -55,6 +58,7 @@ class RegistrationConfigControllerTest extends TestCase
     private int $pastYearId;
     private JournalRepository $journalRepository;
     private SlotCapacityRepository $slotCapacityRepository;
+    private \Twig\Environment $twig;
 
     protected function setUp(): void
     {
@@ -116,6 +120,7 @@ class RegistrationConfigControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/config/inscriptions');
         $twig->addGlobal('csp_nonce', 'test-nonce');
+        $this->twig = $twig;
 
         $this->controller = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
@@ -129,6 +134,29 @@ class RegistrationConfigControllerTest extends TestCase
             session_start();
         }
         $_SESSION = [];
+    }
+
+    /**
+     * Renders one sub-page the way the front controller would: with the
+     * `current_path` global set to its address, which is what selects its
+     * tab in the rail.
+     *
+     * @param array<string, string> $query
+     */
+    private function renderPage(string $action, array $query = []): string
+    {
+        $paths = [
+            'index' => '/config/inscriptions',
+            'requests' => '/config/inscriptions/demandes',
+            'templates' => '/config/inscriptions/gabarits',
+            'settings' => '/config/inscriptions/reglages',
+        ];
+        $this->twig->addGlobal('current_path', $paths[$action]);
+
+        $response = $this->controller->$action(new Request('GET', $paths[$action], $query, [], [], []), []);
+        $this->assertSame(200, $response->getStatusCode());
+
+        return (string) $response->getBody();
     }
 
     private function createRequest(int $scoutYearId, string $childFirstName = 'Léa', string $birthDate = '2020-06-01'): int
@@ -285,10 +313,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->createRequest($this->targetYearId, 'Noa');
         $this->createRequest($this->targetYearId, 'Ilan');
 
-        $body = $this->controller->index(
-            new Request('GET', '/config/inscriptions', ['status' => 'pending'], [], [], []),
-            []
-        )->getBody();
+        $body = $this->renderPage('requests', ['status' => 'pending']);
 
         $this->assertStringContainsString('Exporter (2)', $body);
         $this->assertStringContainsString('/config/inscriptions/export?year=' . $this->targetYearId, $body);
@@ -296,31 +321,354 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // Point 15 — encarts repliés, listes d'attente, capacités par défaut
+    // Issue #843, IT-01 — four sub-pages, nothing folded away
     // ------------------------------------------------------------------
 
     /**
-     * The three configuration boxes open on demand: what this page serves
-     * first is the request list, not its settings. Asserted on the collapse
-     * contract itself (`aria-expanded="false"` on the toggle, no `show`
-     * class on the panel) rather than on rendered pixels.
+     * @return array<string, array{string, string}>
      */
-    public function testTheThreeConfigurationBoxesAreCollapsedByDefault(): void
+    public static function subPageProvider(): array
     {
-        $body = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
+        return [
+            'tableau de bord' => ['index', 'Tableau de bord'],
+            'demandes' => ['requests', 'Demandes'],
+            'gabarits' => ['templates', 'Gabarits'],
+            'réglages' => ['settings', 'Réglages'],
+        ];
+    }
 
-        foreach (['registration-form-box', 'registration-states-box', 'registration-capacities-box'] as $panelId) {
-            $this->assertMatchesRegularExpression(
-                '/data-bs-target="#' . preg_quote($panelId, '/') . '"[^>]*aria-expanded="false"/',
-                $body,
-                "the « {$panelId} » box must open on demand, not on load"
-            );
-            $this->assertMatchesRegularExpression(
-                '/class="collapse[^"]*" id="' . preg_quote($panelId, '/') . '"/',
-                $body,
-                "the « {$panelId} » panel must not carry the `show` class"
-            );
+    /**
+     * Every sub-page carries the module's one title and the same rail of
+     * four tabs, with itself selected — the rail is the shared nav_rail,
+     * whose selected tab says so with `aria-current="page"`.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('subPageProvider')]
+    public function testEachSubPageCarriesTheTitleAndTheRailWithItselfSelected(string $action, string $tab): void
+    {
+        $body = $this->renderPage($action);
+
+        // Twig escapes the apostrophe of the title.
+        $this->assertMatchesRegularExpression('/<h1[^>]*>\s*Formulaire d&#039;inscription\s*</', $body);
+        foreach ([
+            '/config/inscriptions' => 'Tableau de bord',
+            '/config/inscriptions/demandes' => 'Demandes',
+            '/config/inscriptions/gabarits' => 'Gabarits',
+            '/config/inscriptions/reglages' => 'Réglages',
+        ] as $url => $label) {
+            $this->assertStringContainsString('href="' . $url . '"', $body, "the rail links « {$label} »");
         }
+        $this->assertSame(1, substr_count($body, 'aria-current="page"'), 'exactly one tab is selected');
+        $this->assertMatchesRegularExpression(
+            '/<a[^>]*aria-current="page"[^>]*>\s*<span>' . preg_quote($tab, '/') . '<\/span>/u',
+            $body,
+            "« {$tab} » is the selected tab on its own page"
+        );
+    }
+
+    /**
+     * Nothing on these pages folds away any more: no collapse, no chevron,
+     * no remembered state (issue #843, D1).
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('subPageProvider')]
+    public function testNoSubPageFoldsAnythingAway(string $action, string $tab): void
+    {
+        $body = $this->renderPage($action);
+
+        $this->assertStringNotContainsString('data-bs-toggle="collapse"', $body, "« {$tab} »");
+        $this->assertDoesNotMatchRegularExpression('/class="collapse[ "]/', $body, "« {$tab} »");
+        $this->assertStringNotContainsString('bi-chevron-down', $body, "« {$tab} »");
+    }
+
+    /**
+     * Neither a year banner nor a year switch on the dashboard, and no list
+     * of accepted requests waiting for Desk anywhere — the word that used
+     * to name it is gone from these pages too.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('subPageProvider')]
+    public function testNoSubPageListsTheAcceptedRequestsMissingFromDesk(string $action, string $tab): void
+    {
+        $id = $this->createRequest($this->targetYearId, 'Sana');
+        $this->requestRepository->updateStatus($id, 'accepted', null);
+
+        $body = mb_strtolower($this->renderPage($action));
+
+        $this->assertStringNotContainsString('rapproch', $body, "« {$tab} »");
+        $this->assertStringNotContainsString("changer d'année", $body, "« {$tab} »");
+    }
+
+    public function testTheDashboardShowsTheFourFiguresWithTheirLabelsFourThenTwoPerRow(): void
+    {
+        // Target year: one pending, one accepted whose e-mail has not left,
+        // one encoded whose e-mail has not left either, one refused whose
+        // e-mail has, one withdrawn.
+        $this->createRequest($this->targetYearId, 'Attente');
+        $accepted = $this->createRequest($this->targetYearId, 'Acceptee');
+        $this->requestRepository->updateStatus($accepted, 'accepted', null);
+        $encoded = $this->createRequest($this->targetYearId, 'Encodee');
+        $this->requestRepository->updateStatus($encoded, 'encoded', new \DateTimeImmutable());
+        $refused = $this->createRequest($this->targetYearId, 'Refusee');
+        $this->requestRepository->updateStatus($refused, 'refused', new \DateTimeImmutable());
+        $this->requestRepository->markRefusedEmailSent($refused);
+        $withdrawn = $this->createRequest($this->targetYearId, 'Retiree');
+        $this->requestRepository->updateStatus($withdrawn, 'withdrawn', new \DateTimeImmutable());
+        // Current year (an in-year registration made with the code): one
+        // pending, one refused whose e-mail has not left.
+        $this->createRequest($this->currentYearId, 'EnCours');
+        $refusedNow = $this->createRequest($this->currentYearId, 'RefuseeEnCours');
+        $this->requestRepository->updateStatus($refusedNow, 'refused', new \DateTimeImmutable());
+        // A past year is consultation-only and counts for nothing.
+        $this->createRequest($this->pastYearId, 'Ancienne');
+        $pastAccepted = $this->createRequest($this->pastYearId, 'AncienneAcceptee');
+        $this->requestRepository->updateStatus($pastAccepted, 'accepted', null);
+
+        $body = $this->renderPage('index');
+
+        $this->assertStringContainsString('row row-cols-2 row-cols-md-4', $body);
+        $this->assertFigure($body, 'Formulaire', 'Fermé');
+        $this->assertFigure($body, 'Demandes en attente', '2');
+        $this->assertFigure($body, 'E-mails de décision à envoyer', '3');
+        $this->assertFigure($body, 'Acceptées, pas encore dans Desk', '1');
+
+        $this->settingService->set('registration_form_open', '1', 'registration');
+        $this->assertFigure($this->renderPage('index'), 'Formulaire', 'Ouvert');
+    }
+
+    public function testTheDashboardShowsTheCapacityCheckOfTheTargetYearAndNoYearControl(): void
+    {
+        $body = $this->renderPage('index');
+
+        $this->assertStringContainsString('Vérification des capacités — année 2027-2028', $body);
+        $this->assertStringContainsString('<th>Effectif projeté</th>', $body);
+        $this->assertStringNotContainsString('name="year"', $body);
+        $this->assertStringNotContainsString('Consultation seule', $body);
+        // The request list and the capacity grid live on their own pages.
+        $this->assertStringNotContainsString('Exporter (', $body);
+        $this->assertStringNotContainsString('name="capacity[', $body);
+    }
+
+    public function testTheRequestsPageCarriesTheNotesTheStatesTheListAndTheBulkActions(): void
+    {
+        $this->createRequest($this->targetYearId, 'Noa');
+
+        $body = $this->renderPage('requests');
+
+        $this->assertStringContainsString('Notes internes', $body);
+        $this->assertStringContainsString("États d'une demande", $body);
+        $this->assertStringContainsString('acceptée, pas encore encodée dans Desk', $body);
+        $this->assertStringContainsString('inscription reliée à un membre', $body);
+        $this->assertStringContainsString('Demandes — année 2027-2028', $body);
+        $this->assertStringContainsString('action="/config/inscriptions/demandes"', $body);
+        $this->assertStringContainsString('Noa', $body);
+        $this->assertStringContainsString('Demandes non clôturées', $body);
+        $this->assertStringContainsString('Tout refuser (1)', $body);
+        $this->assertStringNotContainsString('Vérification des capacités', $body);
+        $this->assertStringNotContainsString('name="capacity[', $body);
+    }
+
+    /**
+     * A waiting page until the templates arrive (IT-07): its title, and
+     * nothing that promises what is not there.
+     */
+    public function testTheTemplatesPageIsAWaitingPageWithItsTitle(): void
+    {
+        $body = $this->renderPage('templates');
+
+        $this->assertStringContainsString('Gabarits des e-mails de demande', $body);
+        $this->assertStringContainsString('Aucun gabarit à afficher.', $body);
+        $this->assertDoesNotMatchRegularExpression('/bientôt|prochainement|à venir/iu', $body);
+    }
+
+    public function testTheSettingsPageCarriesTheFormTheCodeAndTheCapacities(): void
+    {
+        $body = $this->renderPage('settings');
+
+        $this->assertStringContainsString('Programmation annuelle récurrente', $body);
+        $this->assertStringContainsString('Ouvrir maintenant', $body);
+        $this->assertStringContainsString(
+            "Ce code permet à une famille d'accéder au formulaire même lorsque les inscriptions sont fermées.",
+            $body
+        );
+        $this->assertStringContainsString('Capacités par branche', $body);
+        $this->assertStringContainsString('name="capacity[' . $this->baladinsId . '][1]"', $body);
+        // The catch-up window keeps working, and its setting stays on the
+        // generic settings page; it is no longer explained here.
+        $this->assertStringNotContainsString('rattrapage', $body);
+        $this->assertStringNotContainsString('Vérification des capacités —', $body);
+    }
+
+    /**
+     * One « Enregistrer » per box (issue #843): the schedule form and the
+     * capacity form each carry exactly one submit button, and no other form
+     * of the page saves anything.
+     */
+    public function testEachSettingsBoxHasExactlyOneSaveButton(): void
+    {
+        $body = $this->renderPage('settings');
+
+        foreach (['/config/inscriptions/schedule', '/config/inscriptions'] as $action) {
+            $form = $this->formHtml($body, $action);
+            $this->assertSame(1, substr_count($form, 'type="submit"'), $action);
+            $this->assertMatchesRegularExpression('/type="submit"[^>]*>\s*Enregistrer\s*</', $form, $action);
+        }
+        $this->assertSame(2, preg_match_all('/>\s*Enregistrer\s*</', $body));
+    }
+
+    /**
+     * The schedule is edited with native date pickers showing the next
+     * occurrence of the stored day; nothing stored, an empty picker.
+     */
+    public function testTheScheduleIsShownInNativeDatePickersAtItsNextOccurrence(): void
+    {
+        // The last 30 September is marked applied, as the scheduled task
+        // leaves it, so the next one is the date to show whatever today is
+        // (a 30 September a few days back would otherwise still be due,
+        // see the test below).
+        $today = new \DateTimeImmutable('today');
+        $year = (int) $today->format('Y');
+        $thisYears = sprintf('%04d-09-30', $year);
+        $lastApplied = $thisYears <= $today->format('Y-m-d') ? $thisYears : sprintf('%04d-09-30', $year - 1);
+        if ($thisYears <= $today->format('Y-m-d')) {
+            $year++;
+        }
+        $this->settingService->set('registration_scheduled_open_at', '09-30', 'registration');
+        $this->settingService->set('registration_scheduled_open_applied_on', $lastApplied, 'registration');
+        $this->settingService->set('registration_scheduled_close_at', '', 'registration');
+
+        $body = $this->renderPage('settings');
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*type="date"[^>]*id="scheduled_open_at"|<input[^>]*id="scheduled_open_at"[^>]*type="date"/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*id="scheduled_open_at"[^>]*value="' . $year . '-09-30"/',
+            $body
+        );
+        $this->assertStringContainsString('Prochaine ouverture : 30/09/' . $year . '.', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_close_at"[^>]*value=""/', $body);
+        $this->assertStringContainsString('Aucune fermeture programmée', $body);
+    }
+
+    /**
+     * A date picked a few days back is acted on by the scheduled task at
+     * its next run (catch-up window): the page shows that date and says
+     * so, rather than announcing next year's.
+     */
+    public function testADateThatHasJustPassedIsShownAsStillToBeApplied(): void
+    {
+        $justPassed = (new \DateTimeImmutable('today'))->modify('-2 days');
+        if ($justPassed->format('m-d') === '02-29') {
+            // A 29th of February has a page state of its own (below).
+            $justPassed = $justPassed->modify('-1 day');
+        }
+        $this->settingService->set('registration_scheduled_open_at', $justPassed->format('m-d'), 'registration');
+        $this->settingService->set('registration_scheduled_open_applied_on', '', 'registration');
+
+        $body = $this->renderPage('settings');
+
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*id="scheduled_open_at"[^>]*value="' . $justPassed->format('Y-m-d') . '"/',
+            $body
+        );
+        $this->assertStringContainsString("Cette date vient de passer : l&#039;ouverture aura lieu", $body);
+
+        // Once the task has applied it, the next one is next year's.
+        $this->settingService->set(
+            'registration_scheduled_open_applied_on',
+            $justPassed->format('Y-m-d'),
+            'registration'
+        );
+        $this->assertStringContainsString(
+            'Prochaine ouverture : ' . $justPassed->modify('+1 year')->format('d/m/Y') . '.',
+            $this->renderPage('settings')
+        );
+    }
+
+    /**
+     * A 29th of February can only come from the generic settings page;
+     * this form refuses to save it back, and says so before anybody tries.
+     * A stored value is read trimmed, exactly as the scheduled task reads
+     * it — the picker never looks empty for a schedule that is live.
+     */
+    public function testAStored29thOfFebruaryAndAPaddedValueAreShownForWhatTheyAre(): void
+    {
+        $this->settingService->set('registration_scheduled_open_at', '02-29', 'registration');
+        $this->settingService->set('registration_scheduled_close_at', ' 08-31 ', 'registration');
+
+        $body = $this->renderPage('settings');
+
+        $this->assertStringContainsString('choisissez une autre date pour pouvoir enregistrer', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_open_at"[^>]*value="\d{4}-02-29"/', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_close_at"[^>]*value="\d{4}-08-31"/', $body);
+        $this->assertStringNotContainsString('Aucune fermeture programmée', $body);
+    }
+
+    /**
+     * Both code actions reach families who already hold the code — a new
+     * one invalidates it, deactivating shuts them out — so both forms ask
+     * first (design.md §7.5), and the question says what is at stake.
+     */
+    public function testBothCodeActionsAskForConfirmation(): void
+    {
+        $withoutCode = $this->renderPage('settings');
+        $this->assertStringContainsString(
+            'data-confirm="Générer un code ?',
+            $this->formHtml($withoutCode, '/config/inscriptions/code/regenerate')
+        );
+        $this->assertStringNotContainsString('/config/inscriptions/code/deactivate', $withoutCode);
+
+        $this->controller->regenerateCode(new Request('POST', '/config/inscriptions/code/regenerate', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ], [], []), []);
+        $withCode = $this->renderPage('settings');
+
+        $this->assertStringContainsString(
+            "data-confirm=\"Générer un nouveau code ? L'ancien ne fonctionnera plus pour les familles "
+            . "qui l'ont reçu.\"",
+            $this->formHtml($withCode, '/config/inscriptions/code/regenerate')
+        );
+        $this->assertStringContainsString(
+            "data-confirm=\"Désactiver ce code ? Les familles qui l'ont reçu ne pourront plus accéder "
+            . "au formulaire.\"",
+            $this->formHtml($withCode, '/config/inscriptions/code/deactivate')
+        );
+    }
+
+    /**
+     * The export link carries the screen's filters as query parameters, each
+     * URL-encoded — a status value never breaks out of its parameter.
+     */
+    public function testTheExportLinkEncodesTheStatusFilter(): void
+    {
+        $body = $this->renderPage('requests', ['status' => 'pending&year=1']);
+
+        $this->assertStringContainsString('&amp;status=pending%26year%3D1&amp;q=', $body);
+    }
+
+    /**
+     * The HTML of the first `<form>` posting to exactly $action.
+     */
+    private function formHtml(string $body, string $action): string
+    {
+        $this->assertSame(
+            1,
+            preg_match('#<form[^>]*action="' . preg_quote($action, '#') . '"[^>]*>.*?</form>#s', $body, $matches),
+            "a form posting to {$action}"
+        );
+
+        return $matches[0];
+    }
+
+    /**
+     * One of the dashboard's four figures: its label, then its value.
+     */
+    private function assertFigure(string $body, string $label, string $value): void
+    {
+        $this->assertMatchesRegularExpression(
+            '#<div class="small text-body-secondary">' . preg_quote($label, '#') . '</div>\s*'
+            . '<div class="h4[^"]*">' . preg_quote($value, '#') . '</div>#u',
+            $body,
+            "« {$label} » shows {$value}"
+        );
     }
 
     /**
@@ -333,7 +681,7 @@ class RegistrationConfigControllerTest extends TestCase
         $louveteauxId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
         $this->assertNull($this->slotCapacityRepository->capacityFor($louveteauxId, 1));
 
-        $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), []);
+        $this->renderPage('index');
 
         for ($yearInBranch = 1; $yearInBranch <= 4; $yearInBranch++) {
             $this->assertSame(
@@ -368,21 +716,22 @@ class RegistrationConfigControllerTest extends TestCase
     {
         $this->postCapacities([1 => '', 2 => '20']);
 
-        $body = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
+        $settings = $this->renderPage('settings');
+        $dashboard = $this->renderPage('index');
 
         $this->assertNull($this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
         $this->assertStringContainsString(
             'name="capacity[' . $this->baladinsId . '][1]" value=""',
-            $body
+            $settings
         );
-        $this->assertStringContainsString('Sans limite', $body);
+        $this->assertStringContainsString('Sans limite', $dashboard);
     }
 
     public function testTheCapacityTableNeverShowsAnUnlimitedBranchAsFull(): void
     {
         $this->postCapacities([1 => '', 2 => '20']);
 
-        $body = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
+        $body = $this->renderPage('index');
 
         // The unlimited slot's row carries "Sans limite" and no
         // "Attente importante" badge is rendered for it. Nothing else on
@@ -393,7 +742,7 @@ class RegistrationConfigControllerTest extends TestCase
 
     public function testTheWaitlistSwitchLivesInTheCapacityBoxAndSaves(): void
     {
-        $body = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
+        $body = $this->renderPage('settings');
         $this->assertStringContainsString('name="waitlist_enabled"', $body);
         $this->assertStringContainsString("Gérer les listes d'attente", $body);
 
@@ -412,17 +761,17 @@ class RegistrationConfigControllerTest extends TestCase
     {
         $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
 
-        $body = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
+        $settings = $this->renderPage('settings');
+        $dashboard = $this->renderPage('index');
 
-        $this->assertStringNotContainsString('name="threshold_available"', $body);
-        $this->assertStringNotContainsString('name="threshold_limited"', $body);
-        $this->assertStringNotContainsString('<th>Restant</th>', $body);
-        $this->assertStringNotContainsString('<th>Niveau public</th>', $body);
+        $this->assertStringNotContainsString('name="threshold_available"', $settings);
+        $this->assertStringNotContainsString('name="threshold_limited"', $settings);
+        $this->assertStringNotContainsString('<th>Restant</th>', $dashboard);
+        $this->assertStringNotContainsString('<th>Niveau public</th>', $dashboard);
 
         $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
-        $backOn = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), [])->getBody();
-        $this->assertStringContainsString('name="threshold_available"', $backOn);
-        $this->assertStringContainsString('<th>Niveau public</th>', $backOn);
+        $this->assertStringContainsString('name="threshold_available"', $this->renderPage('settings'));
+        $this->assertStringContainsString('<th>Niveau public</th>', $this->renderPage('index'));
     }
 
     /**
@@ -564,76 +913,55 @@ class RegistrationConfigControllerTest extends TestCase
         return \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
     }
 
-    public function testIndexDefaultsToTargetYear(): void
+    public function testRequestsDefaultToTargetYear(): void
     {
-        $response = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), []);
-
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('2027-2028', $response->getBody());
+        $this->assertStringContainsString('Demandes — année 2027-2028', $this->renderPage('requests'));
     }
 
-    public function testIndexHonorsRequestedYear(): void
+    public function testRequestsHonorTheRequestedYear(): void
     {
         $this->createRequest($this->pastYearId);
 
-        $response = $this->controller->index(
-            new Request('GET', '/config/inscriptions', ['year' => (string) $this->pastYearId], [], [], []),
-            []
-        );
+        $body = $this->renderPage('requests', ['year' => (string) $this->pastYearId]);
 
-        $this->assertStringContainsString('Consultation seule', $response->getBody());
-        $this->assertStringContainsString('Léa', $response->getBody());
+        $this->assertStringContainsString('Consultation seule', $body);
+        $this->assertStringContainsString('Léa', $body);
+        $this->assertStringContainsString('aucune action groupée possible', $body);
     }
 
-    public function testIndexIgnoresYearBeyondTarget(): void
+    public function testRequestsIgnoreAYearBeyondTarget(): void
     {
         $beyondId = $this->scoutYearService->ensureYear('2028-2029');
 
-        $response = $this->controller->index(
-            new Request('GET', '/config/inscriptions', ['year' => (string) $beyondId], [], [], []),
-            []
-        );
+        $body = $this->renderPage('requests', ['year' => (string) $beyondId]);
 
         // Falls back to the target year (2027-2028) rather than accepting 2028-2029.
-        $this->assertStringContainsString('2027-2028', $response->getBody());
-        $this->assertStringNotContainsString('Consultation seule', $response->getBody());
+        $this->assertStringContainsString('Demandes — année 2027-2028', $body);
+        $this->assertStringNotContainsString('Consultation seule', $body);
     }
 
     public function testRequestListShowsSlotAndStatus(): void
     {
         $this->createRequest($this->targetYearId, 'Noa', '2020-06-01');
 
-        $response = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), []);
+        $body = $this->renderPage('requests');
 
-        $this->assertStringContainsString('Noa', $response->getBody());
-        $this->assertStringContainsString('Baladins', $response->getBody());
-        $this->assertStringContainsString('En attente', $response->getBody());
+        $this->assertStringContainsString('Noa', $body);
+        $this->assertStringContainsString('Baladins', $body);
+        $this->assertStringContainsString('En attente', $body);
+        $this->assertStringContainsString('href="/config/inscriptions/demandes/', $body);
     }
 
     public function testStatusFilterExcludesOtherStatuses(): void
     {
-        $pendingId = $this->createRequest($this->targetYearId, 'Pending');
+        $this->createRequest($this->targetYearId, 'Pending');
         $acceptedId = $this->createRequest($this->targetYearId, 'Accepted');
         $this->requestRepository->updateStatus($acceptedId, 'accepted', null);
 
-        $response = $this->controller->index(
-            new Request('GET', '/config/inscriptions', ['status' => 'accepted'], [], [], []),
-            []
-        );
+        $body = $this->renderPage('requests', ['status' => 'accepted']);
 
-        $this->assertStringContainsString('Accepted', $response->getBody());
-        $this->assertStringNotContainsString('Pending', $response->getBody());
-    }
-
-    public function testUnreconciledEncartListsAcceptedRequestsWithoutLinkedMember(): void
-    {
-        $id = $this->createRequest($this->targetYearId, 'Sana');
-        $this->requestRepository->updateStatus($id, 'accepted', null);
-
-        $response = $this->controller->index(new Request('GET', '/config/inscriptions', [], [], [], []), []);
-
-        $this->assertStringContainsString('Sana', $response->getBody());
-        $this->assertStringContainsString('non rapprochées', mb_strtolower($response->getBody()));
+        $this->assertStringContainsString('Accepted', $body);
+        $this->assertStringNotContainsString('Pending', $body);
     }
 
     public function testBulkRefuseRejectsInvalidCsrf(): void
@@ -811,5 +1139,149 @@ class RegistrationConfigControllerTest extends TestCase
         ], [], []), []);
 
         $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+    }
+
+    // ------------------------------------------------------------------
+    // Issue #843, IT-01 — the existing POSTs keep their address and send
+    // the visitor back to the sub-page their form lives on
+    // ------------------------------------------------------------------
+
+    private const SETTINGS = '/config/inscriptions/reglages';
+
+    /**
+     * @return array<string, array{string, string, array<string, string>, string}>
+     */
+    public static function postRedirectProvider(): array
+    {
+        return [
+            'capacity box' => ['save', '/config/inscriptions', ['waitlist_enabled' => '1'], self::SETTINGS],
+            'open or close now' => ['toggleOpen', '/config/inscriptions/toggle-open', [], self::SETTINGS],
+            'schedule' => [
+                'saveSchedule',
+                '/config/inscriptions/schedule',
+                ['scheduled_open_at' => '2027-09-30', 'scheduled_close_at' => ''],
+                self::SETTINGS,
+            ],
+            'schedule refused' => [
+                'saveSchedule',
+                '/config/inscriptions/schedule',
+                ['scheduled_open_at' => '02-29', 'scheduled_close_at' => ''],
+                self::SETTINGS,
+            ],
+            'new code' => ['regenerateCode', '/config/inscriptions/code/regenerate', [], self::SETTINGS],
+            'code off' => ['deactivateCode', '/config/inscriptions/code/deactivate', [], self::SETTINGS],
+            'refuse all' => [
+                'bulkRefuse',
+                '/config/inscriptions/bulk/refuse',
+                ['scout_year_id' => 'TARGET'],
+                '/config/inscriptions/demandes?year=TARGET',
+            ],
+            'withdraw all' => [
+                'bulkWithdraw',
+                '/config/inscriptions/bulk/withdraw',
+                ['scout_year_id' => 'TARGET'],
+                '/config/inscriptions/demandes?year=TARGET',
+            ],
+            'refuse all, past year' => [
+                'bulkRefuse',
+                '/config/inscriptions/bulk/refuse',
+                ['scout_year_id' => 'PAST'],
+                '/config/inscriptions/demandes?year=PAST',
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('postRedirectProvider')]
+    public function testEachPostRedirectsToTheSubPageItsFormLivesOn(
+        string $action,
+        string $path,
+        array $body,
+        string $expected
+    ): void
+    {
+        $this->createRequest($this->targetYearId);
+        $years = ['TARGET' => (string) $this->targetYearId, 'PAST' => (string) $this->pastYearId];
+        $body = array_map(static fn(string $value) => strtr($value, $years), $body);
+
+        $response = $this->controller->$action(
+            new Request('POST', $path, [], $body + ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(strtr($expected, $years), $response->getHeaders()['Location'] ?? null);
+    }
+
+    /**
+     * An expired session is sent back to the same sub-page, not to the
+     * dashboard it no longer came from.
+     */
+    public function testARefusedCsrfTokenAlsoReturnsToTheSubPage(): void
+    {
+        $settings = $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => 'invalid', 'scheduled_open_at' => '2027-10-01', 'scheduled_close_at' => '',
+        ], [], []), []);
+        $requests = $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
+            '_csrf_token' => 'invalid', 'scout_year_id' => (string) $this->targetYearId,
+        ], [], []), []);
+
+        $this->assertSame('/config/inscriptions/reglages', $settings->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            '/config/inscriptions/demandes?year=' . $this->targetYearId,
+            $requests->getHeaders()['Location'] ?? null
+        );
+    }
+
+    /**
+     * What a native date picker posts is a full date: only its month and
+     * day are stored, whatever the year it carries.
+     */
+    public function testSaveScheduleStoresTheMonthAndDayOfWhatTheDatePickerPosts(): void
+    {
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'scheduled_open_at' => '2027-10-01',
+            'scheduled_close_at' => '2031-07-15',
+        ], [], []), []);
+
+        $this->assertSame('10-01', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+        $this->assertSame('07-15', $this->settingService->get('registration_scheduled_close_at', 'registration'));
+    }
+
+    /**
+     * Decided for issue #843 (IT-01): the 29th of February stays refused,
+     * picked in a date picker on a leap year as much as typed — a recurring
+     * date that exists one year in four would fire one year in four. The
+     * whole save is refused, the other field included, and the message
+     * says why.
+     */
+    public function testSaveScheduleRefusesThe29thOfFebruaryFromTheDatePicker(): void
+    {
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'scheduled_open_at' => '2028-02-29',
+            'scheduled_close_at' => '2027-07-15',
+        ], [], []), []);
+
+        $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+        $this->assertSame('08-31', $this->settingService->get('registration_scheduled_close_at', 'registration'));
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('29 février', $flash['message'] ?? '');
+    }
+
+    public function testSaveScheduleRefusesADateThatDoesNotExist(): void
+    {
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'scheduled_open_at' => '2027-04-31',
+            'scheduled_close_at' => '',
+        ], [], []), []);
+
+        $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+        $this->assertSame('08-31', $this->settingService->get('registration_scheduled_close_at', 'registration'));
     }
 }

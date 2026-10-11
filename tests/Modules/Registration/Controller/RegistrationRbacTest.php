@@ -44,10 +44,13 @@ use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 
 /**
- * RBAC boundary for the iteration-5 staff routes — role_min: admin (the
- * espace_admin menu's own floor), one level below (chief) must be
- * rejected. Mirrors Tests\Modules\Finance\Controller\FinanceRbacTest's
- * pattern.
+ * RBAC boundary for the iteration-5 staff routes and the sub-pages issue
+ * #843 split the management page into — role_min: admin (the espace_admin
+ * menu's own floor), one level below (chief) must be rejected. Mirrors
+ * Tests\Modules\Finance\Controller\FinanceRbacTest's pattern, with one
+ * difference: the router is loaded from the module's real manifest — every
+ * route, its `role_min` and its breadcrumb as declared — so a route
+ * declared a rung too low, or shadowed by another, fails here.
  *
  * @group database
  */
@@ -149,7 +152,10 @@ class RegistrationRbacTest extends TestCase
     public static function routeProvider(): array
     {
         return [
-            'management page' => ['/config/inscriptions', 'RegistrationConfigController', 'index'],
+            'dashboard' => ['/config/inscriptions', 'RegistrationConfigController', 'index'],
+            'requests' => ['/config/inscriptions/demandes', 'RegistrationConfigController', 'requests'],
+            'templates' => ['/config/inscriptions/gabarits', 'RegistrationConfigController', 'templates'],
+            'settings' => ['/config/inscriptions/reglages', 'RegistrationConfigController', 'settings'],
             // The export takes the role of the page it lives on, never a
             // rung below it — the requests it writes out are the same
             // ones that page renders.
@@ -184,12 +190,95 @@ class RegistrationRbacTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * The two pages issue #843 gave a full breadcrumb: a sub-page hangs
+     * under « Formulaire d'inscription », the fiche under « Demandes » too,
+     * each a real link (design.md §7.3), the menu label at the root.
+     */
+    public function testTheSubPagesAndTheFicheCarryTheirFullBreadcrumb(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $requests = (string) $this->dispatch(
+            '/config/inscriptions/demandes',
+            'RegistrationConfigController',
+            'requests'
+        )->getBody();
+        $fiche = (string) $this->dispatch(
+            '/config/inscriptions/demandes/{id}',
+            'RegistrationRequestController',
+            'show'
+        )->getBody();
+
+        foreach ([$requests, $fiche] as $body) {
+            $this->assertStringContainsString("Espace chefs d&#039;U", $body);
+            $this->assertMatchesRegularExpression(
+                '#<a href="/config/inscriptions" class="text-decoration-none">Formulaire d&\#039;inscription</a>#',
+                $body
+            );
+        }
+        $this->assertMatchesRegularExpression('#aria-current="page">Demandes</li>#', $requests);
+        $this->assertMatchesRegularExpression(
+            '#<a href="/config/inscriptions/demandes" class="text-decoration-none">Demandes</a>#',
+            $fiche
+        );
+        $this->assertMatchesRegularExpression('#aria-current="page">Demande \#' . $this->requestId . '</li>#', $fiche);
+    }
+
+    /**
+     * `/config/inscriptions/demandes` and `/config/inscriptions/demandes/{id}`
+     * both resolve to their own action, through the manifest's own order.
+     */
+    public function testTheRequestListAndTheFicheDoNotShadowEachOther(): void
+    {
+        $router = $this->manifestRouter();
+
+        $list = $router->resolve(new Request('GET', '/config/inscriptions/demandes', [], [], [], []));
+        $fiche = $router->resolve(new Request('GET', '/config/inscriptions/demandes/42', [], [], [], []));
+
+        $this->assertNotNull($list);
+        $this->assertSame('requests', $list->action);
+        $this->assertNotNull($fiche);
+        $this->assertSame('show', $fiche->action);
+        $this->assertSame(['id' => '42'], $fiche->params);
+    }
+
+    /**
+     * Every route of the module, as its manifest declares it.
+     */
+    private function manifestRouter(): Router
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/registration/module.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $router = new Router();
+        foreach ($manifest['routes'] as $route) {
+            $router->addRoute(
+                $route['method'],
+                $route['path'],
+                $route['controller'],
+                $route['action'],
+                $route['role_min'],
+                $route['breadcrumb'] ?? null,
+                'registration'
+            );
+        }
+
+        return $router;
+    }
+
     private function dispatch(string $path, string $controllerName, string $action): \Core\Http\Response
     {
         $resolvedPath = str_replace('{id}', (string) $this->requestId, $path);
 
-        $router = new Router();
-        $router->addRoute('GET', $path, "Modules\\Registration\\Controller\\{$controllerName}", $action, 'admin');
+        $router = $this->manifestRouter();
+        $resolved = $router->resolve(new Request('GET', $resolvedPath, [], [], [], []));
+        $this->assertNotNull($resolved, "the manifest declares GET {$path}");
+        $this->assertSame("Modules\\Registration\\Controller\\{$controllerName}", $resolved->controllerClass);
+        $this->assertSame($action, $resolved->action);
 
         $configFile = sys_get_temp_dir() . '/test_registration_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

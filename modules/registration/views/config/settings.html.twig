@@ -1,0 +1,15 @@
+{% extends 'base.html.twig' %}
+{% block title %}Réglages — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
+        <p class="text-body-secondary small mb-4">
+            Les autres réglages (adresse d'alerte, textes des emails, rétention...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
+        </p>
+
+        {% include '@registration/config/_settings_form.html.twig' %}
+        {% include '@registration/config/_settings_code.html.twig' %}
+        {% include '@registration/config/_settings_capacities.html.twig' %}
+    </div>
+{% endblock %}

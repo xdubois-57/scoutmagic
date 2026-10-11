@@ -1,0 +1,45 @@
+{% extends 'base.html.twig' %}
+{% block title %}Formulaire d'inscription — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
+
+        {# Four figures, four per row on a wide screen and two on a phone
+           (issue #843, D2). Their definitions live in
+           Repository\RegistrationRequestRepository; this template only
+           prints them. #}
+        <div class="row row-cols-2 row-cols-md-4 g-3 mb-4" id="registration-dashboard-figures">
+            <div class="col">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-body-secondary">Formulaire</div>
+                    {% if registration_form_open %}
+                        <div class="h4 mb-0 mt-1 text-success">Ouvert</div>
+                    {% else %}
+                        <div class="h4 mb-0 mt-1 text-danger">Fermé</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-body-secondary">Demandes en attente</div>
+                    <div class="h4 mb-0 mt-1">{{ pending_count }}</div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-body-secondary">E-mails de décision à envoyer</div>
+                    <div class="h4 mb-0 mt-1">{{ decision_emails_to_send_count }}</div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="border rounded p-3 h-100">
+                    <div class="small text-body-secondary">Acceptées, pas encore dans Desk</div>
+                    <div class="h4 mb-0 mt-1">{{ accepted_not_in_desk_count }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% include '@registration/config/_capacity_check.html.twig' %}
+    </div>
+{% endblock %}

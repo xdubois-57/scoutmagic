@@ -1,0 +1,28 @@
+{# The selected year's requests still open (pending or accepted), with the
+   two bulk actions that close them. Never offered on a past year, which is
+   consultation-only — the controller refuses it too. Requires
+   `non_final_count`, `selected_year` and `is_past_year`. #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Demandes non clôturées</h2>
+        <p class="small text-body-secondary">{{ non_final_count }} demande(s) en attente ou acceptée(s) pour l'année {{ selected_year.label }}.</p>
+        {% if not is_past_year and non_final_count > 0 %}
+            <div class="d-flex flex-wrap gap-2">
+                <form method="post" action="/config/inscriptions/bulk/refuse"
+                      data-confirm="Refuser les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} ? Cette action ne peut pas être annulée en masse.">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="scout_year_id" value="{{ selected_year.id }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Tout refuser ({{ non_final_count }})</button>
+                </form>
+                <form method="post" action="/config/inscriptions/bulk/withdraw"
+                      data-confirm="Retirer les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} ? Cette action ne peut pas être annulée en masse.">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="scout_year_id" value="{{ selected_year.id }}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Tout retirer ({{ non_final_count }})</button>
+                </form>
+            </div>
+        {% elseif is_past_year %}
+            <p class="text-body-secondary small mb-0 fst-italic">Année passée — consultation seule, aucune action groupée possible.</p>
+        {% endif %}
+    </div>
+</div>

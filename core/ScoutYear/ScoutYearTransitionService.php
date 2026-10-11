@@ -341,7 +341,7 @@ class ScoutYearTransitionService
                     . "renseignez la « section prévue » de chaque demande acceptée — c'est elle qui alimente le bloc "
                     . "« nouvelles inscriptions » de la page Passages de branche.",
                 'auto_done' => null,
-                'action_url' => '/config/inscriptions',
+                'action_url' => '/config/inscriptions/demandes',
                 'action_label' => 'Aller aux inscriptions',
             ],
             [

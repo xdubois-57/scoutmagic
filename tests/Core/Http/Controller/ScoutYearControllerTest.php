@@ -313,7 +313,7 @@ class ScoutYearControllerTest extends TestCase
         $body = $controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('2 demande', $body);
-        $this->assertStringContainsString('/config/inscriptions', $body);
+        $this->assertStringContainsString('href="/config/inscriptions/demandes"', $body);
     }
 
     public function testIndexShowsBlockingAlertAtStepFourAndDisablesActivation(): void
