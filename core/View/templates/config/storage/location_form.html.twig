@@ -12,6 +12,12 @@
        does not mean typing it again. #}
     {% set values = values ?? location %}
 
+    {% if location and location.reconciliationNote %}
+        <div class="alert alert-warning">
+            <strong>Après la restauration :</strong> {{ location.reconciliationNote }}
+            Enregistrer cette page retire cet avertissement.
+        </div>
+    {% endif %}
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
     {% endif %}
