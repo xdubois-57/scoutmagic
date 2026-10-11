@@ -8,229 +8,78 @@ declare(strict_types=1);
 
 namespace Core\Offline;
 
-use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
-use Core\Import\AgeBranchRepository;
-use Core\Member\MemberService;
-use Core\Member\SectionService;
-use Core\Member\TemporaryMemberProviderInterface;
-use Core\Member\UnitStaffSectionService;
-use Core\Module\HookRegistry;
-use Core\Module\StaffDirectoryProvider;
-use Core\Photo\MemberPhotoService;
-use Core\Photo\SectionPhotoService;
 use Core\Security\Role;
-use Core\View\EditableContentService;
 
 /**
- * GET /api/offline/manifest (Core\Http\Controller\OfflineController) —
- * everything the caller's role entitles them to hold offline: every
- * whitelisted page URL (Core\Offline\OfflineWhitelist), with `/members/`
- * expanded to the caller's own linked members, and every image URL those
- * pages actually render — as the EXACT variant URL the page itself uses
- * (`/files/{id}/thumb` for member/staff photos, `/files/{id}/md` for
- * section photos, the home hero, branch logos). Same URL as the page, or
- * the cache misses — this is the one thing this whole feature exists to
- * get right (see Core\Photo\ImageVariantService, ARCHITECTURE §8.39).
+ * GET /api/offline/manifest (Core\Http\Controller\OfflineController) — the
+ * exact pages the person asking holds offline (#883):
  *
- * Supersedes the old, narrower `/api/offline/photo-manifest` (staff
- * photos only) — folded in here as the `/trombinoscope` case below, still
- * gated the same way on Core\Module\StaffDirectoryProvider.
+ *     {"pages": ["/", "/contact", "/members/12", "/news", "/news/41"],
+ *      "last":  ["/aide", "/aide/installer-application"]}
  *
- * Deliberately hardcodes which CORE whitelisted page needs which image —
- * `/`, `/contact`, `/sections`, `/chefs/staffs`, `/members/` are core
- * routes, never a module's, so this is not "naming a module path in
- * Core\Offline" (that rule is about OfflineWhitelist's own declarations).
- * The one MODULE page with images, `/trombinoscope`, is handled the same
- * way Core\Http\Controller\OfflineController always resolved staff
- * photos — through the StaffDirectoryProvider hook, never by naming the
- * module. `/calendar`, `/notifications`, `/account`, `/rgpd`,
- * `/chiefs/stats`, `/previsions` render no images at all, so nothing is
- * added for them.
+ * It only assembles what the entries of Core\Offline\OfflineWhitelist give
+ * it, filtered by role: a fixed path as it is, a provider's pages as its
+ * Core\Offline\OfflinePageProvider names them. It knows no page and no
+ * image of its own. The images are read by the service worker in the HTML
+ * of the pages it has just stored — what a page shows is what it keeps —
+ * so a list of images kept here by hand, page by page, is gone, and with
+ * it the trombinoscope that was never in it (#883).
+ *
+ * `last` is the entries marked so — the help — which the service worker
+ * downloads after the other pages and their images.
  */
 class OfflineManifestService
 {
     public function __construct(
         private OfflineWhitelist $offlineWhitelist,
-        private MemberService $memberService,
-        private MemberPhotoService $memberPhotoService,
-        private SectionPhotoService $sectionPhotoService,
-        private SectionService $sectionService,
-        private UnitStaffSectionService $unitStaffSectionService,
-        private ScoutYearResolver $scoutYearService,
-        private EditableContentService $editableContentService,
-        private AgeBranchRepository $ageBranchRepository,
-        private ?HookRegistry $hooks = null,
-        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
+        private OfflinePageProviders $providers
     ) {
     }
 
     /**
-     * @return array{pages: array<int, string>, images: array<int, string>}
+     * @return array{pages: list<string>, last: list<string>}
      */
     public function buildManifest(Role $role, ?string $email): array
     {
-        // The year this viewer is actually browsing, not the public
-        // date-computed one: this service is handed the Role precisely so
-        // that a chief in preview gets the manifest of the year they are
-        // looking at rather than of the year the site shows the public.
-        $scoutYearId = $this->scoutYearService->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
-        $entries = $this->offlineWhitelist->getEntriesForRole($role);
-
         $pages = [];
-        $hasHome = false;
-        $hasContact = false;
-        $hasSectionsOrStaffs = false;
-        $hasTrombinoscope = false;
-        $hasMembers = false;
+        $last = [];
 
-        foreach ($entries as $entry) {
-            if ($entry['match'] === 'child') {
-                if ($entry['path'] === '/members/') {
-                    // Expanded to the caller's own linked members below,
-                    // each as its own page URL.
-                    $hasMembers = true;
-                }
-                // No child entry is ever added literally: its bare parent
-                // path ('/members/', '/aide/') is not a servable URL, and
-                // this service has no way to enumerate the concrete
-                // children ('/aide/{id}' pages are cached by the service
-                // worker as they are visited instead — network-first with
-                // cache fallback already covers them via the whitelist).
-                continue;
-            }
-
-            if (!OfflineWhitelist::isPrefetched($entry)) {
-                // Whitelisted (a visit caches it), never pre-downloaded.
-                continue;
-            }
-
-            $pages[] = $entry['path'];
-
-            match ($entry['path']) {
-                '/' => $hasHome = true,
-                '/contact' => $hasContact = true,
-                '/sections', '/chefs/staffs' => $hasSectionsOrStaffs = true,
-                '/trombinoscope' => $hasTrombinoscope = true,
-                default => null,
-            };
-        }
-
-        $linkedMembers = [];
-        if ($hasMembers && $email !== null) {
-            $linkedMembers = $this->excludeTemporaryMember(
-                $this->memberService->getLinkedMembers($email, $scoutYearId),
-                $email
-            );
-            foreach ($linkedMembers as $member) {
-                $pages[] = '/members/' . $member->memberId;
+        foreach ($this->offlineWhitelist->getEntriesForRole($role) as $entry) {
+            $paths = $entry['path'] !== null ? [$entry['path']] : $this->providedPages($entry, $role, $email);
+            if ($entry['last']) {
+                array_push($last, ...$paths);
+            } else {
+                array_push($pages, ...$paths);
             }
         }
 
-        $images = [];
-
-        if ($hasHome) {
-            $this->addImage($images, $this->editableContentService->get('home.hero'), 'md');
-        }
-
-        if ($hasContact) {
-            $staffduSectionId = $this->unitStaffSectionService->ensureSection();
-            $this->addImage($images, $this->sectionPhotoService->resolveFileId($staffduSectionId, $scoutYearId), 'md');
-        }
-
-        if ($hasSectionsOrStaffs) {
-            foreach ($this->sectionService->getAllWithBranches() as $section) {
-                $this->addImage($images, $this->sectionPhotoService->resolveFileId($section['id'], $scoutYearId), 'md');
-            }
-        }
-
-        $staffDirectoryProvider = $this->hooks?->getOptional(StaffDirectoryProvider::class);
-        if ($hasTrombinoscope && $staffDirectoryProvider !== null) {
-            $staffMemberIds = $staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId);
-            $this->memberPhotoService->primeFileIds($staffMemberIds, $scoutYearId);
-            foreach ($staffMemberIds as $memberId) {
-                $this->addImage($images, $this->memberPhotoService->resolveFileId($memberId, $scoutYearId), 'thumb');
-            }
-        }
-
-        foreach ($linkedMembers as $member) {
-            $this->addImage(
-                $images,
-                $this->memberPhotoService->resolveFileId($member->memberId, $scoutYearId),
-                'thumb'
-            );
-            $this->addImage($images, $this->resolveBranchLogoFileId($member), 'md');
-        }
+        $pages = array_values(array_unique($pages));
 
         return [
-            'pages' => array_values(array_unique($pages)),
-            'images' => array_values(array_unique($images)),
+            'pages' => $pages,
+            'last' => array_values(array_diff(array_unique($last), $pages)),
         ];
     }
 
     /**
-     * Drop the session's temporary member (ARCHITECTURE.md §8.42) from a
-     * linked-member list, deliberately.
-     *
-     * Everything else that feature touches is a live, server-side decision
-     * that disappears the moment the override does. The offline manifest is
-     * the one consumer whose output is written to the visitor's own device
-     * and outlives the session: caching another member's page and photo
-     * into an admin's browser, where they would stay readable after the
-     * override was removed, is a data-retention problem the rest of the
-     * feature simply does not have.
-     *
-     * @param \Core\Member\MemberProfile[] $linkedMembers
-     * @return \Core\Member\MemberProfile[]
+     * @param array{provider: ?string, prefix: ?string} $entry
+     * @return list<string>
      */
-    private function excludeTemporaryMember(array $linkedMembers, string $email): array
+    private function providedPages(array $entry, Role $role, ?string $email): array
     {
-        $temporaryMemberYearId = $this->temporaryMemberProvider?->resolveMemberYearId($email);
-        if ($temporaryMemberYearId === null) {
-            return $linkedMembers;
+        $provider = $entry['provider'] !== null ? $this->providers->get($entry['provider']) : null;
+        if ($provider === null || $entry['prefix'] === null) {
+            return [];
         }
 
+        // A provider never widens its entry: a page outside the declared
+        // prefix — or anything that is not a plain path of this site — is
+        // dropped rather than handed to the browser to cache.
         return array_values(array_filter(
-            $linkedMembers,
-            static fn(\Core\Member\MemberProfile $member) => $member->memberYearId !== $temporaryMemberYearId
+            $provider->pagesFor($role, $email),
+            static fn (string $path): bool => str_starts_with($path, '/')
+                && !str_starts_with($path, '//')
+                && OfflineWhitelist::isUnder((string) parse_url($path, PHP_URL_PATH), (string) $entry['prefix'])
         ));
-    }
-
-    /**
-     * The member's own age-branch federation logo (member page's branch
-     * card, ARCHITECTURE §8.22) — resolved the same way
-     * Core\Member\MemberPageService::buildBranchCard() does: main
-     * function's Desk section code → section → age branch. Null whenever
-     * any step doesn't resolve, or no logo was ever uploaded (the branch
-     * card's shipped-default fallback is a static asset, already part of
-     * the app-shell precache — nothing to add here for that case).
-     */
-    private function resolveBranchLogoFileId(\Core\Member\MemberProfile $member): ?int
-    {
-        $sectionCode = $member->getMainFunction()?->sectionCode;
-        if ($sectionCode === null) {
-            return null;
-        }
-
-        $section = $this->sectionService->findByDeskCode($sectionCode);
-        if ($section === null) {
-            return null;
-        }
-
-        $branch = $this->ageBranchRepository->findById($section['age_branch_id']);
-
-        return $branch['logo_file_id'] ?? null;
-    }
-
-    /**
-     * @param array<int, string> $images
-     */
-    private function addImage(array &$images, int|string|null $fileId, string $variant): void
-    {
-        if ($fileId === null || $fileId === '' || (int) $fileId <= 0) {
-            return;
-        }
-
-        $images[] = '/files/' . (int) $fileId . '/' . $variant;
     }
 }

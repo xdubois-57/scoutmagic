@@ -7,28 +7,42 @@ namespace Tests\Core\View;
 use PHPUnit\Framework\TestCase;
 
 /**
- * public/assets/js/offline-prefetch.js (Part 3.2/3.4) and the
- * `standalone` flag public/assets/js/offline-cache.js computes for it —
- * no JS test runner in this repo (AGENTS.md), so this reads the raw files
- * to pin down the structural things that matter: fetching the new
- * manifest route, skipping already-cached images, deleting stale ones,
- * and revalidating pages via If-None-Match with a Date-refresh on 304.
+ * public/assets/js/offline-prefetch.js (Part 3.2/3.4), the pass it asks
+ * public/sw.js to run (#883), and the `standalone` flag
+ * public/assets/js/offline-cache.js computes for both. Reads the raw files
+ * to pin down the structural things that matter: the manifest route,
+ * skipping already-cached images, deleting what left the list, and
+ * revalidating pages via If-None-Match with a Date-refresh on 304. The
+ * behaviour itself is exercised by tests/js/sw-offline-pass.test.js and
+ * tests/js/offline-prefetch.test.js.
  */
 class OfflinePrefetchScriptTest extends TestCase
 {
     private string $prefetchJs;
     private string $cacheJs;
+    private string $swJs;
 
     protected function setUp(): void
     {
         $root = dirname(__DIR__, 3);
         $this->prefetchJs = (string) file_get_contents($root . '/public/assets/js/offline-prefetch.js');
         $this->cacheJs = (string) file_get_contents($root . '/public/assets/js/offline-cache.js');
+        $this->swJs = (string) file_get_contents($root . '/public/sw.js');
+    }
+
+    /** The body of a top-level function of public/sw.js. */
+    private function swFunction(string $signature): string
+    {
+        preg_match('/function ' . preg_quote($signature, '/') . ' \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, "Could not locate {$signature} in public/sw.js");
+
+        return $m[1];
     }
 
     public function testFetchesTheNewManifestRouteNotTheOldPhotoManifest(): void
     {
-        $this->assertStringContainsString('/api/offline/manifest', $this->prefetchJs);
+        $this->assertStringContainsString("const MANIFEST_URL = '/api/offline/manifest';", $this->swJs);
+        $this->assertStringNotContainsString('/api/offline/photo-manifest', $this->swJs);
         $this->assertStringNotContainsString('/api/offline/photo-manifest', $this->prefetchJs);
     }
 
@@ -52,57 +66,55 @@ class OfflinePrefetchScriptTest extends TestCase
         $this->assertStringNotContainsString('predownloaded', $this->prefetchJs);
     }
 
-    public function testImagesSkipAlreadyCachedUrlsWithoutFetching(): void
+    /**
+     * #883: the page asks, the worker works — and the launch is remembered
+     * only once the worker says the pass finished.
+     */
+    public function testThePageAsksTheWorkerAndRemembersOnlyAFinishedPass(): void
     {
-        preg_match('/function prefetchImages\(cache, imageUrls\) \{(.*?)\n    \}\n\}/s', $this->prefetchJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate prefetchImages()');
-
-        $this->assertStringContainsString('cache.match(url)', $m[1]);
-        $this->assertMatchesRegularExpression('/if \(cached\) \{\s*return undefined;/', $m[1]);
+        $this->assertStringContainsString("postMessage({ type: 'offline-refresh' })", $this->prefetchJs);
+        $this->assertStringContainsString("event.data?.type === 'offline-refresh-done'", $this->prefetchJs);
+        $this->assertStringNotContainsString('caches.open', $this->prefetchJs);
+        $this->assertStringContainsString("data.type === 'offline-refresh'", $this->swJs);
     }
 
-    public function testImagesDeleteStaleEntriesNoLongerInTheManifest(): void
+    public function testImagesSkipAlreadyCachedUrlsWithoutFetching(): void
     {
-        preg_match('/function prefetchImages\(cache, imageUrls\) \{(.*?)\n    \}\n\}/s', $this->prefetchJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate prefetchImages()');
+        $body = $this->swFunction('fetchMissingImages(cache, images, scope)');
 
-        $this->assertStringContainsString('cache.keys()', $m[1]);
-        $this->assertStringContainsString('cache.delete(', $m[1]);
-        $this->assertStringContainsString('IMAGE_URL_PATTERN', $m[1]);
+        $this->assertStringContainsString('cache.match(url)', $body);
+        $this->assertMatchesRegularExpression('/if \(cached\) \{\s*return undefined;/', $body);
+    }
+
+    public function testWhatLeftTheListIsDeleted(): void
+    {
+        $body = $this->swFunction('pruneCopies(cache, kept)');
+
+        $this->assertStringContainsString('cache.keys()', $body);
+        $this->assertStringContainsString('cache.delete(', $body);
     }
 
     public function testPagesSendIfNoneMatchFromTheCachedEtag(): void
     {
-        preg_match('/function prefetchPages\(cache, pageUrls\) \{(.*?)\n    \}\n\}/s', $this->prefetchJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate prefetchPages()');
+        $body = $this->swFunction('refreshPages(cache, pages, startedAt, scope)');
 
-        $this->assertStringContainsString("cached.headers.get('ETag')", $m[1]);
-        $this->assertStringContainsString("headers['If-None-Match']", $m[1]);
+        $this->assertStringContainsString("cached.headers.get('ETag')", $body);
+        $this->assertStringContainsString("headers['If-None-Match']", $body);
     }
 
     public function testA304RefreshesTheCachedDateInsteadOfRedownloading(): void
     {
-        preg_match('/function prefetchPages\(cache, pageUrls\) \{(.*?)\n    \}\n\}/s', $this->prefetchJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate prefetchPages()');
+        $body = $this->swFunction('refreshPages(cache, pages, startedAt, scope)');
 
-        $this->assertStringContainsString('response.status === 304', $m[1]);
-        $this->assertStringContainsString('refreshCachedDate(', $m[1]);
-    }
-
-    public function testRefreshCachedDateSetsANewDateHeaderOnTheSameBody(): void
-    {
-        preg_match('/function refreshCachedDate\(cache, url, cached\) \{(.*?)\n\}/s', $this->prefetchJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate refreshCachedDate()');
-
-        $this->assertStringContainsString("headers.set('Date'", $m[1]);
-        $this->assertStringContainsString('cache.put(url, refreshed)', $m[1]);
+        $this->assertStringContainsString('response.status === 304', $body);
+        $this->assertStringContainsString('stamped(cached, true)', $body);
+        $this->assertStringContainsString("headers.set('Date'", $this->swFunction('stamped(response, refreshDate)'));
     }
 
     public function testEveryImageAndPageFetchIsBestEffort(): void
     {
-        // At least the per-image and per-page fetch chains each carry
-        // their own .catch() — one failure must never abort the rest.
-        $this->assertGreaterThanOrEqual(2, substr_count($this->prefetchJs, '.catch(function ()'));
+        // One failed fetch must never abort the rest of the pass.
+        $this->assertStringContainsString('.catch(function () {})', $this->swFunction('inLanes(items, work)'));
     }
 
     // --- offline-cache.js: the standalone flag itself ---

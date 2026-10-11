@@ -180,18 +180,16 @@ class ModuleManifestTest extends TestCase
      * a space where minors write, plus their photos; a full copy of that
      * on the device is a different privacy proposition entirely, and
      * SECURITY.md §10 / docs/module-development.md ("if in doubt, don't
-     * declare it") both point the same way. Adding a `/groups/` child
-     * entry here should break this test — that is the point.
+     * declare it") both point the same way. Adding a provider of
+     * `/groups/{id}` pages here should break this test — that is the point.
      */
     public function testItCachesTheGroupListOfflineButNeverAGroupsConversation(): void
     {
         $this->assertSame(
-            [['path' => '/groups', 'label' => 'Discussions', 'match' => 'exact', 'role_min' => 'identified', 'prefetch' => true]],
-            $this->manifest->offline
+            [['path' => '/groups', 'provider' => null, 'prefix' => null, 'label' => 'Discussions', 'role_min' => 'identified', 'last' => false]],
+            $this->manifest->offline,
+            'a group conversation must never be cached on the device: one fixed page, no provider'
         );
-
-        $paths = array_column($this->manifest->offline, 'path');
-        $this->assertNotContains('/groups/', $paths, 'a group conversation must never be cached on the device');
 
         // The module stores no file outside gallery's delegated album.
         $this->assertSame([], $this->manifest->storage);

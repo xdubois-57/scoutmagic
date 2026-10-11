@@ -54,7 +54,6 @@
     {
       "path": "/test-module",
       "label": "Test Module",
-      "match": "exact",
       "role_min": "identified"
     }
   ],

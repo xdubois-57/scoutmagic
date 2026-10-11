@@ -84,62 +84,36 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // isWhitelisted — the rule that has three implementations
 // ---------------------------------------------------------------------------
-describe('sw.js: isWhitelisted()', () => {
-    // Mirrors the real core entries: Core\Offline\OfflineWhitelist::CORE_ENTRIES.
-    const WHITELIST = [
-        { path: '/', match: 'exact' },
-        { path: '/contact', match: 'exact' },
-        { path: '/account', match: 'exact' },
-        { path: '/members/', match: 'child' },
-    ];
+describe('sw.js: isListed() — the exact list, never a pattern (#883)', () => {
+    const LIST = { pages: ['/', '/contact', '/members/12', '/news', '/news/41'], last: ['/aide', '/aide/installer-application'] };
+    const at = (path) => new URL(path, self.location.origin);
 
-    it('returns false when no whitelist has been delivered yet', () => {
-        expect(sw.isWhitelisted('/contact', null)).toBe(false);
-        expect(sw.isWhitelisted('/contact', undefined)).toBe(false);
+    it('lists nothing when no list has been received yet', () => {
+        expect(sw.isListed(at('/contact'), null)).toBe(false);
     });
 
-    it('returns false for an empty whitelist', () => {
-        expect(sw.isWhitelisted('/contact', [])).toBe(false);
+    it('holds exactly the addresses of the list, help included', () => {
+        expect(sw.isListed(at('/contact'), LIST)).toBe(true);
+        expect(sw.isListed(at('/members/12'), LIST)).toBe(true);
+        expect(sw.isListed(at('/aide/installer-application'), LIST)).toBe(true);
     });
 
-    it('matches an exact entry', () => {
-        expect(sw.isWhitelisted('/contact', WHITELIST)).toBe(true);
-        expect(sw.isWhitelisted('/', WHITELIST)).toBe(true);
+    // What the patterns let through: any member's fiche, any article.
+    it('never holds another member\'s fiche, an older article, or a management page', () => {
+        expect(sw.isListed(at('/members/13'), LIST)).toBe(false);
+        expect(sw.isListed(at('/news/7'), LIST)).toBe(false);
+        expect(sw.isListed(at('/news/manage'), LIST)).toBe(false);
+        expect(sw.isListed(at('/contacts'), LIST)).toBe(false);
     });
 
-    it('rejects a path that merely starts with an exact entry', () => {
-        expect(sw.isWhitelisted('/contacts', WHITELIST)).toBe(false);
-        expect(sw.isWhitelisted('/account/settings', WHITELIST)).toBe(false);
+    it('never holds an address with a query string: /news?page=2 is not /news', () => {
+        expect(sw.isListed(at('/news?page=2'), LIST)).toBe(false);
     });
 
-    it('rejects a non-whitelisted path outright', () => {
-        expect(sw.isWhitelisted('/finance', WHITELIST)).toBe(false);
-    });
-
-    // The regression this file's isWhitelisted() used to have: entry.match
-    // was ignored, so every child entry failed here while offline-nav.js
-    // and the PHP matcher both accepted it.
-    it('matches a child entry plus exactly one segment', () => {
-        expect(sw.isWhitelisted('/members/12', WHITELIST)).toBe(true);
-        expect(sw.isWhitelisted('/members/abc', WHITELIST)).toBe(true);
-    });
-
-    it('rejects a child entry with two or more extra segments', () => {
-        expect(sw.isWhitelisted('/members/12/emails/5', WHITELIST)).toBe(false);
-        expect(sw.isWhitelisted('/members/12/photos', WHITELIST)).toBe(false);
-    });
-
-    it('rejects the bare child prefix itself (no additional segment)', () => {
-        expect(sw.isWhitelisted('/members/', WHITELIST)).toBe(false);
-    });
-
-    it('tolerates a trailing slash on a child match, as the PHP trim() does', () => {
-        expect(sw.isWhitelisted('/members/12/', WHITELIST)).toBe(true);
-    });
-
-    it('treats an entry with no match key as exact', () => {
-        expect(sw.isWhitelisted('/legacy', [{ path: '/legacy' }])).toBe(true);
-        expect(sw.isWhitelisted('/legacy/1', [{ path: '/legacy' }])).toBe(false);
+    // The referrer of an image may be another site embedding it: its
+    // /contact is not ours.
+    it('never holds another origin', () => {
+        expect(sw.isListed(new URL('https://elsewhere.example/contact'), LIST)).toBe(false);
     });
 });
 
@@ -219,7 +193,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(await res.text()).toBe('<body>live</body>');
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
@@ -237,7 +211,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
         const event = { waitUntil: vi.fn() };
 
-        await sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, event, true);
 
         expect(event.waitUntil).toHaveBeenCalledTimes(1);
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
@@ -248,7 +222,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
 
-        await sw.networkFirstWithCacheFallback(request, url, { ...config, standalone: false });
+        await sw.networkFirstWithCacheFallback(request, url, { ...config, standalone: false }, undefined, undefined, true);
 
         expect(caches.stores.get(cacheName)?.size ?? 0).toBe(0);
     });
@@ -258,7 +232,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>login</body>', { redirected: true })));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(caches.stores.get(cacheName)?.size ?? 0).toBe(0);
     });
@@ -268,7 +242,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('nope', { ok: false, status: 500 })));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(caches.stores.get(cacheName)?.size ?? 0).toBe(0);
     });
@@ -278,7 +252,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = createCachesFake({ [cacheName]: { [request.url]: cached } });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(res.body).toContain('cached</body>');
         expect(res.body).toContain('alert-warning');
@@ -289,7 +263,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = createCachesFake({ 'app-shell': { '/offline': offline } });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(res).toBe(offline);
     });
@@ -303,7 +277,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(res).toBe(offline);
     });
@@ -315,7 +289,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(res.body).toContain('ok</body>');
     });
@@ -328,7 +302,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     // NaN is not > anything, so a bare `ageMs > threshold` would call an
@@ -341,7 +315,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     // A negative age is not > the threshold either. A clock that jumped
@@ -356,7 +330,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     it('defaults to a 7-day window when staleness_days is absent', async () => {
@@ -369,7 +343,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
         const res = await sw.networkFirstWithCacheFallback(
-            request, url, { ...config, staleness_days: undefined });
+            request, url, { ...config, staleness_days: undefined }, undefined, undefined, true);
 
         expect(res).toBe(offline);
     });
@@ -379,7 +353,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>x</body>')));
 
-        await sw.networkFirstWithCacheFallback(request, url, { ...config, account_scope: 'other', version: '9' });
+        await sw.networkFirstWithCacheFallback(request, url, { ...config, account_scope: 'other', version: '9' }, undefined, undefined, true);
 
         expect(caches.open).toHaveBeenCalledWith('content-other-9');
     });
@@ -399,7 +373,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
             makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct2' } })
         ));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size ?? 0).toBe(0));
     });
 
@@ -413,7 +387,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
             makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct2' } })
         ));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         await vi.waitFor(() => expect(caches.stores.has('content-acct1-1.2.3')).toBe(false));
         expect(caches.stores.has('content-acct2-1.2.3')).toBe(true);
@@ -426,7 +400,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
             makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct1' } })
         ));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
     });
@@ -441,7 +415,7 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
         global.caches = caches;
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
 
-        await sw.networkFirstWithCacheFallback(request, url, config);
+        await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
     });
@@ -515,9 +489,12 @@ describe('sw.js: handleNavigate()', () => {
         global.self = realSelf;
     });
 
-    function seedConfig(config) {
+    function seedConfig(config, list = null) {
         const stored = config === null ? {} : {
-            'offline-config': { 'https://offline-config.internal/v1': { json: () => Promise.resolve(config) } },
+            'offline-config': {
+                'https://offline-config.internal/v1': { json: () => Promise.resolve(config) },
+                ...(list ? { 'https://offline-config.internal/list': { json: () => Promise.resolve(list) } } : {}),
+            },
         };
         global.caches = createCachesFake({ ...stored, 'app-shell': { '/offline': makeResponse('<body>offline</body>') } });
     }
@@ -533,7 +510,7 @@ describe('sw.js: handleNavigate()', () => {
     });
 
     it('bypasses the cache when consent is absent', async () => {
-        seedConfig({ consent: false, whitelist: [{ path: '/members/', match: 'child' }], account_scope: 'a', version: '1' });
+        seedConfig({ consent: false, account_scope: 'a', version: '1' }, { scope: 'a', pages: ['/members/12'], last: [] });
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
 
         await sw.handleNavigate(request, url);
@@ -541,8 +518,8 @@ describe('sw.js: handleNavigate()', () => {
         expect(caches.open).not.toHaveBeenCalledWith(expect.stringContaining('content-'));
     });
 
-    it('serves /offline rather than a network error for a non-whitelisted path', async () => {
-        seedConfig({ consent: true, whitelist: [{ path: '/contact', match: 'exact' }], account_scope: 'a', version: '1' });
+    it('serves /offline rather than a network error for a page with no copy', async () => {
+        seedConfig({ consent: true, account_scope: 'a', version: '1' }, { scope: 'a', pages: ['/contact'], last: [] });
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
         const res = await sw.handleNavigate(request, url);
@@ -570,15 +547,65 @@ describe('sw.js: handleNavigate()', () => {
         expect(res).toBe(offline);
     });
 
-    // The end-to-end shape of the bug: a child-matched member page must take
-    // the caching path, not the bypass path.
-    it('routes a child-matched whitelisted page into the content cache', async () => {
-        seedConfig({ consent: true, whitelist: [{ path: '/members/', match: 'child' }], account_scope: 'a', version: '1', standalone: true });
+    it('writes a page of the list into the content cache', async () => {
+        const url = new URL('/members/12', self.location.origin);
+        const request = { url: url.href, mode: 'navigate' };
+        seedConfig(
+            { consent: true, account_scope: 'a', version: '1', standalone: true },
+            { scope: 'a', pages: ['/members/12'], last: [] }
+        );
         global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>member</body>')));
 
         await sw.handleNavigate(request, url);
 
-        await vi.waitFor(() => expect(caches.open).toHaveBeenCalledWith('content-a-1'));
+        await vi.waitFor(() => expect(caches.stores.get('content-a-1')?.has(url.href)).toBe(true));
+    });
+
+    // #883: the fiche of a member not linked to this account, visited
+    // online in the installed app, is never cached.
+    it('never writes a page off the list, visited or not', async () => {
+        const url = new URL('/members/12', self.location.origin);
+        const request = { url: url.href, mode: 'navigate' };
+        seedConfig(
+            { consent: true, account_scope: 'a', version: '1', standalone: true },
+            { scope: 'a', pages: ['/members/7'], last: [] }
+        );
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>someone else</body>')));
+
+        const res = await sw.handleNavigate(request, url);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(res.body ?? await res.text()).toContain('someone else');
+        expect(caches.stores.get('content-a-1')?.has(url.href) ?? false).toBe(false);
+    });
+
+    it('never writes under a list received for another account', async () => {
+        const url = new URL('/members/12', self.location.origin);
+        const request = { url: url.href, mode: 'navigate' };
+        seedConfig(
+            { consent: true, account_scope: 'a', version: '1', standalone: true },
+            { scope: 'b', pages: ['/members/12'], last: [] }
+        );
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>member</body>')));
+
+        await sw.handleNavigate(request, url);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(caches.stores.get('content-a-1')?.has(url.href) ?? false).toBe(false);
+    });
+
+    // Offline, a page is available if and only if it really is in the
+    // cache — whatever put it there (a copy from before the list changed
+    // is pruned by the next pass, not refused here).
+    it('serves the copy a page has, offline, whether or not it is on the list', async () => {
+        seedConfig({ consent: true, account_scope: 'a', version: '1', standalone: true, staleness_days: 30 }, null);
+        caches.stores.set('content-a-1', new Map([[url.href, makeResponse('<body>kept</body>', { headers: { date: new Date().toUTCString() } })]]));
+        global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
+        global.self = { navigator: { onLine: false } };
+
+        const res = await sw.handleNavigate(request, url, undefined);
+
+        expect(res.body ?? await res.text()).toContain('kept');
     });
 });
 
@@ -862,7 +889,7 @@ describe('sw.js: a Cache Storage that rejects instead of missing', () => {
         };
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     it('answers the navigation when cache.match() rejects', async () => {
@@ -876,7 +903,7 @@ describe('sw.js: a Cache Storage that rejects instead of missing', () => {
         };
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     // The banner injection reads the cached body, and that read can fail
@@ -895,7 +922,7 @@ describe('sw.js: a Cache Storage that rejects instead of missing', () => {
         };
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        expect(await sw.networkFirstWithCacheFallback(request, url, config)).toBe(offline);
+        expect(await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true)).toBe(offline);
     });
 
     // Both reads broken at once: the last resort is the generated page,
@@ -908,7 +935,7 @@ describe('sw.js: a Cache Storage that rejects instead of missing', () => {
         };
         global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
 
-        const res = await sw.networkFirstWithCacheFallback(request, url, config);
+        const res = await sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
 
         expect(res).toBeTruthy();
         expect(res.body).toContain('Pas de connexion');
@@ -939,7 +966,7 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
         // screen for as long as the connection stays bad.
         global.fetch = vi.fn(() => new Promise(() => {}));
 
-        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
         await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
         const res = await navigation;
 
@@ -961,7 +988,7 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
         global.fetch = vi.fn(() => new Promise(() => {}));
         const event = { waitUntil: vi.fn() };
 
-        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event, true);
         await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
         await navigation;
 
@@ -976,7 +1003,7 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
         // What a real worker throws once the event is already settled.
         const event = { waitUntil: vi.fn(() => { throw new Error('InvalidStateError'); }) };
 
-        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event);
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, event, true);
         await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
 
         expect((await navigation).body).toContain('cached</body>');
@@ -987,7 +1014,7 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
         let release;
         global.fetch = vi.fn(() => new Promise((resolve) => { release = resolve; }));
 
-        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
         await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
         release(makeResponse('<body>late but live</body>'));
 
@@ -1001,7 +1028,7 @@ describe('sw.js: networkFirstWithCacheFallback() on a slow network', () => {
             setTimeout(() => resolve(makeResponse('<body>live</body>')), sw.NETWORK_TIMEOUT_MS - 1000);
         }));
 
-        const navigation = sw.networkFirstWithCacheFallback(request, url, config);
+        const navigation = sw.networkFirstWithCacheFallback(request, url, config, undefined, undefined, true);
         await vi.advanceTimersByTimeAsync(sw.NETWORK_TIMEOUT_MS + 10);
 
         expect(await (await navigation).text()).toBe('<body>live</body>');

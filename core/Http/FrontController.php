@@ -368,7 +368,7 @@ class FrontController
             || $request->getMethod() !== 'GET'
             || $response->getStatusCode() !== 200
             || ConfigurationMode::isActive()
-            || !$this->offlineWhitelist->isPathWhitelisted($request->getPath())
+            || !$this->offlineWhitelist->isEtagEligible($request->getPath())
         ) {
             return $response;
         }

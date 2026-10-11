@@ -1870,6 +1870,16 @@ nothing**:
   remains the lesson: the two layers were each right about themselves, and
   the gap lived in what neither could name.
 
+  Since #883 the offline refresh itself runs in the worker, so the scenario
+  that watched it, `pwa-prefetch-once.spec.js`, moved there too and became
+  `specs/service-worker/offline-list.spec.js`: in a faked installed app, the
+  pass downloads the list (an article and its image, the trombinoscope,
+  Staffs, a help topic) without any of it being opened, a page off the list
+  visited online is not kept, and with the network cut every request is
+  also aborted at the context — offline emulation alone lets the worker's
+  navigation preload through in Chromium, and a test that forgot it would
+  read the network and call it the cache.
+
 - **The deprecated browser API gate passes when it has not run, by
   design.** `scripts/check-deprecated-api.php` asks whether an engine has
   removed `document.execCommand`; an unreachable source or an upstream

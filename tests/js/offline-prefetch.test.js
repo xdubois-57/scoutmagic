@@ -1,42 +1,16 @@
 // Isolated JavaScript unit test — jsdom only. Exercises the real
-// public/assets/js/offline-prefetch.js against a fake Cache Storage and a
-// mocked fetch: the pre-download runs once per launch of the installed
-// app, in idle time, a bounded number of requests at a time, and not at
-// all where it must not.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-function createCachesFake() {
-    const store = new Map();
-    const cache = {
-        match: vi.fn((url) => Promise.resolve(store.get(url))),
-        put: vi.fn((url, res) => { store.set(url, res); return Promise.resolve(); }),
-        keys: vi.fn(() => Promise.resolve([...store.keys()].map((url) => ({ url: 'https://example.test' + url })))),
-        delete: vi.fn((req) => { store.delete(new URL(req.url).pathname); return Promise.resolve(true); }),
-    };
-    return { store, cache, open: vi.fn(() => Promise.resolve(cache)) };
-}
-
-function response(body, { status = 200, headers = {}, redirected = false } = {}) {
-    const h = new Map(Object.entries(headers));
-    return {
-        ok: status >= 200 && status < 300,
-        status,
-        statusText: 'OK',
-        // fetch() follows redirects by default, so a login bounce arrives
-        // as ok:true with this flag set — the whole of issue #250.
-        redirected,
-        headers: { get: (n) => h.get(n) ?? null },
-        json: () => Promise.resolve(JSON.parse(body)),
-        clone() { return response(body, { status, headers, redirected }); },
-        blob: () => Promise.resolve(body),
-    };
-}
+// public/assets/js/offline-prefetch.js against a fake service worker: it
+// decides WHEN the installed app's offline copies are refreshed, and asks
+// the worker to do it (#883). The work itself — pages, images, help,
+// pruning — is public/sw.js's refreshOfflineCopies(), covered in
+// tests/js/sw.test.js.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function config(overrides = {}) {
     const el = document.createElement('script');
     el.type = 'application/json';
     el.id = 'offline-config-data';
-    el.textContent = JSON.stringify({ consent: true, accountScope: 'acct1', version: '1.2.3', whitelist: [], ...overrides });
+    el.textContent = JSON.stringify({ consent: true, accountScope: 'acct1', version: '1.2.3', ...overrides });
     document.body.appendChild(el);
 }
 
@@ -44,21 +18,26 @@ function standalone(on) {
     window.matchMedia = /** @type {any} */ ((query) => ({ matches: on && query === '(display-mode: standalone)', media: query }));
 }
 
-const MANIFEST = { pages: ['/', '/contact', '/calendar', '/groups', '/members/1'], images: ['/files/1/thumb', '/files/2/md'] };
-let inFlight;
-let maxInFlight;
+let postMessage;
+let workerListeners;
 
-function mockFetch(manifest = MANIFEST) {
-    inFlight = 0;
-    maxInFlight = 0;
-    global.fetch = vi.fn((url) => {
-        inFlight++;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        return new Promise((resolve) => setTimeout(() => {
-            inFlight--;
-            resolve(url === '/api/offline/manifest' ? response(JSON.stringify(manifest)) : response('<body>page</body>'));
-        }, 10));
+function installWorker() {
+    postMessage = vi.fn();
+    workerListeners = [];
+    Object.defineProperty(navigator, 'serviceWorker', {
+        configurable: true,
+        value: {
+            ready: Promise.resolve({ active: { postMessage } }),
+            addEventListener: (type, listener) => workerListeners.push({ type, listener }),
+        },
     });
+}
+
+/** The worker telling every listening page that its pass finished. */
+function workerSaysDone() {
+    workerListeners
+        .filter(({ type }) => type === 'message')
+        .forEach(({ listener }) => listener({ data: { type: 'offline-refresh-done' } }));
 }
 
 async function boot() {
@@ -70,186 +49,124 @@ async function settle() {
     await vi.runAllTimersAsync();
 }
 
-let caches;
+const ASK = { type: 'offline-refresh' };
 
 beforeEach(() => {
     vi.useFakeTimers();
     document.body.innerHTML = '';
     sessionStorage.clear();
-    caches = createCachesFake();
-    global.caches = caches;
-    global.Headers = class { constructor(init) { this.map = new Map(Object.entries(init instanceof Map ? Object.fromEntries(init) : {})); } set(k, v) { this.map.set(k, v); } };
-    global.Response = class { constructor(body, init) { this.body = body; this.status = init.status; this.headers = init.headers; } };
-    delete window.requestIdleCallback;
+    delete /** @type {any} */ (navigator).connection;
+    installWorker();
     standalone(true);
     Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
-    mockFetch();
 });
 
-afterEach(() => {
-    vi.useRealTimers();
-});
-
-describe('offline-prefetch.js: when it runs', () => {
-    it('runs once on the first page of a launch of the installed app', async () => {
+describe('offline-prefetch.js: when it asks', () => {
+    it('asks the worker once the installed app has loaded and is idle', async () => {
         config();
         await boot();
+        expect(postMessage).not.toHaveBeenCalled();
+
         await settle();
 
-        expect(global.fetch).toHaveBeenCalledWith('/api/offline/manifest', expect.anything());
-        expect(caches.store.size).toBe(MANIFEST.pages.length + MANIFEST.images.length);
-    });
-
-    it('does NOT run again on the next page of the same launch', async () => {
-        config();
-        await boot();
-        await settle();
-        const callsAfterFirstPage = global.fetch.mock.calls.length;
-
-        document.body.innerHTML = '';
-        config();
-        await boot();
-        await settle();
-
-        expect(global.fetch.mock.calls.length).toBe(callsAfterFirstPage);
-    });
-
-    it('runs again once the last run is a day old — an app left open for days still refreshes', async () => {
-        sessionStorage.setItem('scoutmagic-offline-prefetch', JSON.stringify({ scope: 'acct1|1.2.3', at: Date.now() - 25 * 60 * 60 * 1000 }));
-        config();
-        await boot();
-        await settle();
-
-        expect(global.fetch).toHaveBeenCalledWith('/api/offline/manifest', expect.anything());
-    });
-
-    it('runs for another account or another version even within the same session', async () => {
-        sessionStorage.setItem('scoutmagic-offline-prefetch', JSON.stringify({ scope: 'someone-else|1.2.3', at: Date.now() }));
-        config();
-        await boot();
-        await settle();
-
-        expect(global.fetch).toHaveBeenCalledWith('/api/offline/manifest', expect.anything());
-    });
-
-    it('waits for idle time after load rather than competing with the page', async () => {
-        Object.defineProperty(document, 'readyState', { configurable: true, value: 'loading' });
-        const idle = vi.fn((cb) => cb());
-        window.requestIdleCallback = idle;
-        config();
-        await boot();
-
-        expect(global.fetch).not.toHaveBeenCalled();
-        window.dispatchEvent(new Event('load'));
-        await settle();
-
-        expect(idle).toHaveBeenCalled();
-        expect(global.fetch).toHaveBeenCalledWith('/api/offline/manifest', expect.anything());
+        expect(postMessage).toHaveBeenCalledTimes(1);
+        expect(postMessage).toHaveBeenCalledWith(ASK);
     });
 
     it.each([
-        ['a browser tab', () => standalone(false)],
-        ['no consent', () => {}, { consent: false }],
-        ['an anonymous visitor', () => {}, { accountScope: 'guest' }],
-        ['Data Saver', () => Object.defineProperty(navigator, 'connection', { configurable: true, value: { saveData: true } })],
-    ])('never runs in %s', async (_label, arrange, overrides = {}) => {
+        ['outside the installed app', () => standalone(false), {}],
+        ['without functional consent', () => {}, { consent: false }],
+        ['for a visitor not signed in', () => {}, { accountScope: 'guest' }],
+        ['under Data Saver', () => { /** @type {any} */ (navigator).connection = { saveData: true }; }, {}],
+    ])('never asks %s', async (_label, arrange, overrides) => {
         arrange();
         config(overrides);
         await boot();
         await settle();
 
-        expect(global.fetch).not.toHaveBeenCalled();
-        Object.defineProperty(navigator, 'connection', { configurable: true, value: undefined });
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it('never asks without a service worker', async () => {
+        Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: undefined });
+        delete /** @type {any} */ (navigator).serviceWorker;
+        config();
+
+        await expect(boot()).resolves.toBeUndefined();
     });
 });
 
-describe('offline-prefetch.js: how it runs', () => {
-    it('keeps at most two requests in flight, pages before images', async () => {
+describe('offline-prefetch.js: a launch is done only once the pass finished (#883)', () => {
+    it('does not ask again in the same launch once the worker said the pass finished', async () => {
         config();
         await boot();
         await settle();
+        workerSaysDone();
 
-        expect(maxInFlight).toBeLessThanOrEqual(2);
-        const order = global.fetch.mock.calls.map((c) => c[0]);
-        const lastPage = Math.max(...MANIFEST.pages.map((p) => order.indexOf(p)));
-        const firstImage = Math.min(...MANIFEST.images.map((p) => order.indexOf(p)));
-        expect(lastPage).toBeLessThan(firstImage);
+        installWorker();
+        await boot();
+        await settle();
+
+        expect(postMessage).not.toHaveBeenCalled();
     });
 
-    it('re-validates a cached page with its ETag and only refreshes the date on a 304', async () => {
-        caches.store.set('/', response('<body>old</body>', { headers: { ETag: '"abc"', Date: 'Mon, 01 Jan 2024 00:00:00 GMT' } }));
-        global.fetch = vi.fn((url, init) => Promise.resolve(
-            url === '/api/offline/manifest'
-                ? response(JSON.stringify({ pages: ['/'], images: [] }))
-                : (init && init.headers['If-None-Match'] === '"abc"' ? response('', { status: 304 }) : response('<body>new</body>'))
-        ));
+    // The pass used to be marked done when it STARTED: interrupted, nothing
+    // resumed it for 24 hours. Now the next page asks again, and the
+    // worker resumes it where it stopped.
+    it('asks again on the next page while the pass has not finished', async () => {
         config();
         await boot();
         await settle();
 
-        const stored = caches.store.get('/');
-        expect(stored.body).toBe('<body>old</body>');
-        expect(stored.headers.map.get('Date')).not.toBe('Mon, 01 Jan 2024 00:00:00 GMT');
+        installWorker();
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith(ASK);
     });
 
-    it('skips an image already cached and drops one the manifest no longer lists', async () => {
-        caches.store.set('/files/1/thumb', response('img'));
-        caches.store.set('/files/99/thumb', response('gone'));
+    it('asks again for another account or another version', async () => {
         config();
         await boot();
         await settle();
+        workerSaysDone();
 
-        const fetched = global.fetch.mock.calls.map((c) => c[0]);
-        expect(fetched).not.toContain('/files/1/thumb');
-        expect(fetched).toContain('/files/2/md');
-        expect(caches.store.has('/files/99/thumb')).toBe(false);
+        document.body.innerHTML = '';
+        config({ accountScope: 'acct2' });
+        installWorker();
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith(ASK);
     });
 
-    it('never caches a page whose fetch followed a redirect — a session expiring mid-run', async () => {
-        // The session expires part-way through the loop: /calendar
-        // answers 302 -> /login, fetch follows it, and the login page
-        // comes back ok:true, redirected:true. Storing that would serve
-        // « Se connecter » under /calendar on the next offline visit.
-        global.fetch = vi.fn((url) => Promise.resolve(
-            url === '/api/offline/manifest'
-                ? response(JSON.stringify(MANIFEST))
-                : (url === '/calendar'
-                    ? response('<title>Se connecter</title>', { redirected: true })
-                    : response('<body>ok</body>'))
-        ));
+    it('asks again once the last finished pass is a day old — an app left open for days still refreshes', async () => {
         config();
         await boot();
         await settle();
+        workerSaysDone();
 
-        expect(caches.store.has('/calendar')).toBe(false);
-        expect(caches.store.has('/contact')).toBe(true);
+        vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
+        installWorker();
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith(ASK);
     });
 
-    it('never caches an image whose fetch followed a redirect', async () => {
-        global.fetch = vi.fn((url) => Promise.resolve(
-            url === '/api/offline/manifest'
-                ? response(JSON.stringify({ pages: [], images: ['/files/1/thumb', '/files/2/md'] }))
-                : (url === '/files/1/thumb'
-                    ? response('login', { redirected: true })
-                    : response('img'))
-        ));
+    it('asks every time when sessionStorage is refused', async () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
         config();
         await boot();
         await settle();
+        workerSaysDone();
 
-        expect(caches.store.has('/files/1/thumb')).toBe(false);
-        expect(caches.store.has('/files/2/md')).toBe(true);
-    });
-
-    it('carries on when one fetch fails', async () => {
-        global.fetch = vi.fn((url) => url === '/contact'
-            ? Promise.reject(new TypeError('Failed to fetch'))
-            : Promise.resolve(url === '/api/offline/manifest' ? response(JSON.stringify(MANIFEST)) : response('<body>ok</body>')));
-        config();
+        installWorker();
         await boot();
         await settle();
 
-        expect(caches.store.has('/calendar')).toBe(true);
-        expect(caches.store.has('/contact')).toBe(false);
+        expect(postMessage).toHaveBeenCalledWith(ASK);
+        vi.restoreAllMocks();
     });
 });

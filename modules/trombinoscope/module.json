@@ -2,7 +2,7 @@
   "id": "trombinoscope",
   "name": "Trombinoscope",
   "description": "Les animateurs de chaque section, en photo.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -49,9 +49,7 @@
     {
       "path": "/trombinoscope",
       "label": "Les animateurs",
-      "match": "exact",
-      "role_min": "identified",
-      "prefetch": false
+      "role_min": "identified"
     }
   ],
   "category": "membres"

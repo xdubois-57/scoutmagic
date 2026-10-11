@@ -101,7 +101,7 @@
                 // public/sw.js's own 'message' handler for why this is a
                 // full config update, not just a purge). Reads the same
                 // #offline-config-data blob offline-cache.js does, so the
-                // stored whitelist/version/account scope aren't clobbered by
+                // stored version/account scope aren't clobbered by
                 // a stub — only consent actually changes here.
                 if ('serviceWorker' in navigator) {
                     var configEl = document.getElementById('offline-config-data');
@@ -119,7 +119,6 @@
                                 type: 'offline-config',
                                 consent: false,
                                 staleness_days: config ? config.stalenessDays : undefined,
-                                whitelist: config ? config.whitelist : [],
                                 account_scope: config ? config.accountScope : 'guest',
                                 version: config ? config.version : undefined
                             });

@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.11.0",
+  "version": "6.11.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -847,15 +847,6 @@
     }
   ],
   "storage": {},
-  "offline": [
-    {
-      "path": "/previsions",
-      "label": "Prévisions d'effectifs",
-      "match": "exact",
-      "role_min": "chief",
-      "prefetch": false
-    }
-  ],
   "emails": [
     {
       "id": "registration.secondary_email_confirmation",

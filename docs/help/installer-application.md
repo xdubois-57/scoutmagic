@@ -51,28 +51,27 @@ revenu, et ne recharge la page que s'il l'est.
 
 ## Consulter hors connexion
 
-Une fois l'application installée et si vous avez accepté les cookies
-fonctionnels, les pages principales sont gardées sur votre appareil à
-chaque ouverture : l'accueil, les sections, votre page de membre, vos
-notifications, l'aide, et selon les modules le calendrier ou le
-trombinoscope. Sans connexion :
+Avec l'application installée et les cookies fonctionnels acceptés,
+certaines pages sont gardées sur votre appareil avec leurs images, sans
+que vous ayez à les ouvrir : l'accueil, les sections, vos membres, vos
+notifications, les actualités récentes, le calendrier, la liste des
+discussions, le trombinoscope et l'aide. Elles sont mises à jour à
+chaque ouverture ; une mise à jour interrompue reprend la fois suivante.
+Aucune autre page n'est gardée. Sans connexion :
 
-- un bandeau vous prévient que vous lisez une version enregistrée, en
-  lecture seule, avec sa date ;
-- les pages non disponibles apparaissent grisées ;
-- rien ne peut être envoyé — les formulaires attendent le retour de la
-  connexion, sans effacer ce que vous avez tapé.
+- un bandeau indique que vous lisez une version enregistrée, en lecture
+  seule ;
+- les pages non disponibles sont grisées ;
+- rien ne peut être envoyé, mais ce que vous avez tapé reste.
 
-Si l'écran « Pas de connexion » s'affiche, la page n'a pas été gardée.
-Vérifiez que les cookies fonctionnels sont activés (lien en pied de
-page, en ligne) et que la page a été ouverte dans l'application
-récemment : une copie plus ancienne que le délai fixé par l'unité,
-30 jours par défaut, n'est plus proposée.
+L'écran « Pas de connexion » signifie que la page n'est pas gardée :
+vérifiez que les cookies fonctionnels sont activés (en pied de page,
+en ligne). Une copie plus ancienne que le délai de l'unité, 30 jours
+par défaut, n'est plus proposée.
 
 Les documents privés, les données financières et les pages de gestion
-ne sont jamais gardés sur l'appareil. La copie locale est effacée quand
-vous vous déconnectez ou quand vous retirez votre accord sur les
-cookies fonctionnels.
+ne sont jamais gardés. La copie locale est effacée à la déconnexion ou
+quand vous retirez votre accord sur les cookies fonctionnels.
 
 ## Si l'icône n'est plus à jour
 

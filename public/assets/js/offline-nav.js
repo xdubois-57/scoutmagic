@@ -9,7 +9,7 @@
 //
 // 1. Delegated CAPTURE listeners on `document` for `click` (internal
 //    `<a href="/…">`) and `submit` (any `<form>`) — while offline, a
-//    click on a link outside the whitelist, or ANY form submission, is
+//    click on a link to a page this device holds no copy of, or ANY form submission, is
 //    prevented and opens the dialog instead of leading to a dead end.
 //    Capture phase (not bubble) so this always runs before any other
 //    handler on the page, regardless of what else is listening for the
@@ -26,12 +26,11 @@
 //    the net for what never reaches this page at all: a typed URL, the
 //    back button, or a tab left open since yesterday.
 //
-// Same server-side whitelist public/sw.js itself routes on (the
-// #offline-config-data blob base.html.twig renders) — never a second,
-// hand-maintained copy of the DATA here. The generic exact/child matching
-// algorithm below necessarily has its own JS implementation (there is no
-// shared runtime with Core\Offline\OfflineWhitelist), but it operates
-// entirely on server-supplied entries, never a hardcoded path.
+// Which pages are available offline is what is REALLY in the cache
+// (#883): a link is greyed when its page has no copy the service worker
+// would serve — none at all, or one older than the staleness setting. It
+// used to be a rule, the same exact/child patterns as the server's list,
+// which announced as available pages that had never been stored.
 (function () {
     var configEl = document.getElementById('offline-config-data');
     if (!configEl) {
@@ -45,46 +44,78 @@
         return;
     }
 
-    var whitelist = config.whitelist || [];
+    var IMAGE_VARIANT_PATH = /^\/files\/\d+\/(thumb|md)$/;
+    var DAY_MS = 24 * 60 * 60 * 1000;
+    // The device clock against the server's Date header — the same bounded
+    // tolerance as public/sw.js's cachedCopy().
+    var CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 
-    // 'child' means the entry's path plus EXACTLY one additional segment
-    // — e.g. '/members/' covers '/members/12' but not
-    // '/members/12/emails/5' (mass-mail content, two extra segments).
     /**
-     * Strip leading and trailing '/' without a regex.
+     * The pages this device holds a copy of that the service worker would
+     * serve, or null while not known yet. Unknown counts as available, for
+     * the same reason isOffline() below counts unknown as online: a click
+     * let through costs a real offline visitor the service worker's own
+     * /offline page, a click held back costs everybody a tap that does
+     * nothing.
      *
-     * `^\/+` and `\/+$` both let the engine backtrack across a run of
-     * slashes, which is super-linear on a crafted path — and this runs on
-     * every navigation, against a pathname an attacker can choose. Two
-     * counters are linear by construction.
-     *
-     * @param {string} value
-     * @returns {string}
+     * @type {Set<string>|null}
      */
-    function trimSlashes(value) {
-        var from = 0;
-        var to = value.length;
-        while (from < to && value[from] === '/') { from++; }
-        while (to > from && value[to - 1] === '/') { to--; }
-    
-        return value.slice(from, to);
+    var availablePages = null;
+
+    /**
+     * Reads the content cache of this account and version — the one
+     * public/sw.js serves from — into availablePages, then repaints.
+     *
+     * @returns {Promise<void>}
+     */
+    function readAvailablePages() {
+        if (!('caches' in window)) {
+            availablePages = new Set();
+            return Promise.resolve();
+        }
+        var cacheName = 'content-' + config.accountScope + '-' + config.version;
+        var maxAgeMs = (Number(config.stalenessDays) || 30) * DAY_MS;
+
+        return caches.has(cacheName).then(function (exists) {
+            if (!exists) {
+                return new Set();
+            }
+            return caches.open(cacheName).then(function (cache) {
+                return cache.keys().then(function (requests) {
+                    return Promise.all(requests.map(function (request) {
+                        var url = new URL(request.url);
+                        if (url.search !== '' || IMAGE_VARIANT_PATH.test(url.pathname)) {
+                            return null;
+                        }
+                        return cache.match(request).then(function (copy) {
+                            var age = copy ? Date.now() - Date.parse(copy.headers.get('Date') || '') : Number.NaN;
+                            return age >= -CLOCK_SKEW_TOLERANCE_MS && age <= maxAgeMs ? url.pathname : null;
+                        });
+                    }));
+                });
+            }).then(function (paths) {
+                return new Set(paths.filter(function (path) { return path !== null; }));
+            });
+        }).catch(function () {
+            return new Set();
+        }).then(function (pages) {
+            availablePages = pages;
+            applyState();
+        });
     }
 
-    function isWhitelisted(pathname) {
-        for (const entry of whitelist) {
-            if (entry.match === 'child') {
-                if (pathname.indexOf(entry.path) !== 0) {
-                    continue;
-                }
-                var remainder = trimSlashes(pathname.slice(entry.path.length));
-                if (remainder !== '' && !remainder.includes('/')) {
-                    return true;
-                }
-            } else if (pathname === entry.path) {
-                return true;
-            }
+    /**
+     * Whether the page a link leads to would open offline. A query string
+     * is never a stored page: `/news?page=2` is not `/news`.
+     *
+     * @param {string} href the link's href, fragment removed
+     * @returns {boolean}
+     */
+    function isAvailablePath(href) {
+        if (availablePages === null) {
+            return true;
         }
-        return false;
+        return !href.includes('?') && availablePages.has(href);
     }
 
     var PAGE_MESSAGE = "Cette page n'est pas disponible hors ligne.";
@@ -190,6 +221,10 @@
                 stopRechecking();
             } else {
                 keepRechecking();
+                // What is held may have changed since the last look — a
+                // refresh pass finishing, a copy aging out — and offline
+                // is when the answer is used.
+                void readAvailablePages();
             }
 
             applyState();
@@ -315,8 +350,8 @@
         // the network is fine.
         var offline = isOffline();
         document.querySelectorAll('a[href^="/"]').forEach(function (link) {
-            var path = link.getAttribute('href').split('?')[0].split('#')[0];
-            var unavailable = offline && !isWhitelisted(path);
+            var href = link.getAttribute('href').split('#')[0];
+            var unavailable = offline && !isAvailablePath(href);
             link.classList.toggle('offline-link-disabled', unavailable);
             if (unavailable) {
                 link.setAttribute('aria-disabled', 'true');
@@ -408,8 +443,8 @@
         if (!link) {
             return;
         }
-        var path = link.getAttribute('href').split('?')[0].split('#')[0];
-        if (isWhitelisted(path) || !canShowDialog()) {
+        var href = link.getAttribute('href').split('#')[0];
+        if (isAvailablePath(href) || !canShowDialog()) {
             return;
         }
         if (sameOriginUrl(link.getAttribute('href')) === null) {
@@ -482,7 +517,7 @@
             });
     }
 
-    // Layer 1b: forms. No whitelist check — a form submission always
+    // Layer 1b: forms. No availability check — a form submission always
     // needs the network (there is no "safe, cacheable" form action),
     // so every one is blocked while offline, unconditionally.
     document.addEventListener('submit', function (event) {

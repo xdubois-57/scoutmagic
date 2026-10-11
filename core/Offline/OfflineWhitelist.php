@@ -11,83 +11,84 @@ namespace Core\Offline;
 use Core\Security\Role;
 
 /**
- * The single, server-side declaration of which pages the installed app
- * may cache for offline viewing (Lot 3). An aggregator, same shape as
- * Core\Cookie\CookieConsentService's cookie declarations or
- * Core\Notification\NotificationRegistry's notification types: core
- * entries are hardcoded here (they can never belong to a module), module
- * entries are registered by Core\Module\ModuleManager while loading each
- * enabled module (from that module's own `module.json` `offline`
- * section, validated by Core\Module\ModuleManifest) — never a module path
- * hardcoded in this class, and a disabled module's pages simply never get
- * registered at all.
+ * The single, server-side declaration of what the installed app holds
+ * offline. An aggregator, same shape as Core\Cookie\CookieConsentService's
+ * cookie declarations or Core\Notification\NotificationRegistry's
+ * notification types: core entries are declared here, module entries are
+ * registered by Core\Module\ModuleManager while loading each enabled
+ * module (from that module's own `module.json` `offline` section,
+ * validated by Core\Module\ModuleManifest) — never a module path named in
+ * this class, and a disabled module's pages are never registered at all.
  *
- * Consumed on both ends of the same round trip: `public/index.php`
- * builds the role-filtered list as a Twig global once every enabled
- * module has registered (see loadEnabledModules() ordering in
- * public/index.php), `base.html.twig` serializes it into the page and
- * hands it to `public/sw.js` via `postMessage` (routing decisions) and to
- * `public/assets/js/offline-nav.js` (greying out unavailable links,
- * intercepting non-GET fetches). One list, several consumers — never
- * hand-maintain a second copy of the DATA in JS (the generic exact/child
- * matching algorithm itself is necessarily reimplemented in JS, since
- * there is no shared runtime between PHP and the browser/service worker
- * — that is not a second copy of the whitelist, only of the matching
- * logic operating on server-supplied data).
+ * **A fixed list of exact addresses, and nothing else (#883).** A page is
+ * either on the list — downloaded, kept fresh, served offline — or never
+ * cached at all, even after a visit. Each entry is either:
+ *
+ *  - a fixed `path` — `/contact`;
+ *  - a `provider` (Core\Offline\OfflinePageProvider) naming the exact
+ *    pages for the person asking — the fiches of the members linked to
+ *    this account, the first page of the news, the help topics this role
+ *    may read. It declares the `prefix` its pages live under; a page
+ *    outside it is dropped.
+ *
+ * There used to be PATTERNS here (« `/members/` plus one segment »),
+ * checked by three copies of one algorithm, in PHP, in the service worker
+ * and in offline-nav.js. A pattern covers too much: any member's fiche was
+ * cached on a visit, and a numeric `/news/{id}` would have greyed nothing
+ * offline while caching every article ever opened. Core\Offline\
+ * OfflineManifestService now sends the browser the exact list, and the
+ * browser holds and greys pages by what is actually in its cache.
+ *
+ * An entry marked `last` is downloaded after every other page and their
+ * images — the help, the least likely reason the app was opened offline.
  *
  * Deliberately excludes anything carrying data this feature must never
- * cache: `/files/{id}` (the original — variant derivatives are read-only
- * cached separately, see public/sw.js), finance, member documents,
- * mass-mail content, `/inscriptions`, and every admin/configuration page
- * (see SECURITY.md's file-access rule and this feature's own "what NOT to
- * do" list).
+ * cache: `/files/{id}` (the original — derivatives are cached separately,
+ * see public/sw.js), finance, member documents, mass-mail content,
+ * `/inscriptions`, and every admin/configuration page (see SECURITY.md's
+ * file-access rule and this feature's own "what NOT to do" list).
+ *
+ * @phpstan-type OfflineEntry array{
+ *     path: ?string,
+ *     provider: ?string,
+ *     prefix: ?string,
+ *     label: string,
+ *     role_min: string,
+ *     last: bool
+ * }
  */
 class OfflineWhitelist
 {
-    /**
-     * `match: 'child'` means the declared path plus EXACTLY one
-     * additional path segment — e.g. `/members/` covers `/members/12`
-     * but not `/members/12/emails/5` (two extra segments), with no
-     * exclusion list to maintain for the latter.
-     *
-     * @var array<int, array{path: string, label: string, match: string, role_min: string}>
-     */
+    /** @var list<OfflineEntry> */
     private const CORE_ENTRIES = [
-        ['path' => '/', 'label' => 'Accueil', 'match' => 'exact', 'role_min' => 'public'],
-        ['path' => '/contact', 'label' => 'Contact', 'match' => 'exact', 'role_min' => 'public'],
-        ['path' => '/sections', 'label' => 'Sections', 'match' => 'exact', 'role_min' => 'public'],
-        ['path' => '/rgpd', 'label' => 'Protection des données', 'match' => 'exact', 'role_min' => 'public'],
-        ['path' => '/account', 'label' => 'Mon compte', 'match' => 'exact', 'role_min' => 'identified'],
-        ['path' => '/notifications', 'label' => 'Notifications', 'match' => 'exact', 'role_min' => 'identified'],
-        ['path' => '/members/', 'label' => 'Membre', 'match' => 'child', 'role_min' => 'identified'],
-        // prefetch false: cached when visited, never pre-downloaded at
-        // launch — one of the heaviest pages of the site (every staff of
-        // a section, badges, photos), and the installed app used to
-        // render it on every launch for everyone who might open it.
+        ['path' => '/', 'provider' => null, 'prefix' => null, 'label' => 'Accueil', 'role_min' => 'public', 'last' => false],
+        ['path' => '/contact', 'provider' => null, 'prefix' => null, 'label' => 'Contact', 'role_min' => 'public', 'last' => false],
+        ['path' => '/sections', 'provider' => null, 'prefix' => null, 'label' => 'Sections', 'role_min' => 'public', 'last' => false],
+        ['path' => '/rgpd', 'provider' => null, 'prefix' => null, 'label' => 'Protection des données', 'role_min' => 'public', 'last' => false],
+        ['path' => '/account', 'provider' => null, 'prefix' => null, 'label' => 'Mon compte', 'role_min' => 'identified', 'last' => false],
+        ['path' => '/notifications', 'provider' => null, 'prefix' => null, 'label' => 'Notifications', 'role_min' => 'identified', 'last' => false],
         [
-            'path' => '/chefs/staffs',
-            'label' => 'Staffs',
-            'match' => 'exact',
-            'role_min' => 'intendant',
-            'prefetch' => false,
+            'path' => null,
+            'provider' => LinkedMemberPages::class,
+            'prefix' => '/members',
+            'label' => 'Fiches des membres liés',
+            'role_min' => 'identified',
+            'last' => false,
         ],
-        // Contextual help (ARCHITECTURE.md §8.64) — product documentation
-        // shipped with the release, so keeping it readable offline costs
-        // nothing sensitive. role_min public on both: a topic page a role
-        // may not see is already a 404 (HelpService), so there is nothing
-        // narrower to declare here.
-        // `/aide/` also covers `/aide/assistant`, which is deliberate:
-        // the page is worth reading offline (it says what the assistant
-        // does and does not do), and public/assets/js/help-assistant.js
-        // shows « vous êtes hors connexion » there instead of letting a
-        // visitor type a question into a field that cannot send it. The
-        // ANSWER never comes from the cache — the POST is intercepted by
-        // offline-nav.js like every other non-GET.
-        ['path' => '/aide', 'label' => 'Aide', 'match' => 'exact', 'role_min' => 'public'],
-        ['path' => '/aide/', 'label' => 'Aide', 'match' => 'child', 'role_min' => 'public'],
+        // Pre-downloaded since #883, like every other entry: the photos of
+        // the Staffs page used to need a visit first.
+        ['path' => '/chefs/staffs', 'provider' => null, 'prefix' => null, 'label' => 'Staffs', 'role_min' => 'intendant', 'last' => false],
+        [
+            'path' => null,
+            'provider' => HelpPages::class,
+            'prefix' => '/aide',
+            'label' => 'Aide',
+            'role_min' => 'public',
+            'last' => true,
+        ],
     ];
 
-    /** @var array<int, array{path: string, label: string, match: string, role_min: string}> */
+    /** @var list<OfflineEntry> */
     private array $moduleEntries = [];
 
     /**
@@ -95,7 +96,7 @@ class OfflineWhitelist
      * module declaring an `offline` section — never called directly by
      * application code.
      *
-     * @param array<int, array{path: string, label: string, match: string, role_min: string}> $entries
+     * @param array<int, OfflineEntry> $entries
      */
     public function registerModuleEntries(string $moduleId, array $entries): void
     {
@@ -107,7 +108,7 @@ class OfflineWhitelist
     /**
      * Every declared entry, core + module, unfiltered by role.
      *
-     * @return array<int, array{path: string, label: string, match: string, role_min: string}>
+     * @return list<OfflineEntry>
      */
     public function getAllEntries(): array
     {
@@ -115,58 +116,37 @@ class OfflineWhitelist
     }
 
     /**
-     * Whether the installed app pre-downloads this entry at launch
-     * (Core\Offline\OfflineManifestService, public/assets/js/
-     * offline-prefetch.js). Default yes; an entry declares `prefetch:
-     * false` when its page is costly to render and rarely the reason the
-     * app was opened — it stays whitelisted, so a visit still caches it.
+     * Entries a given role is entitled to hold offline: a logged-out
+     * visitor is never handed `/account`, and the client never tries to
+     * cache a page it would only ever get a 403 for.
      *
-     * @param array<string, mixed> $entry a whitelist entry, with or without its role_min
-     */
-    public static function isPrefetched(array $entry): bool
-    {
-        return $entry['prefetch'] ?? true;
-    }
-
-    /**
-     * Entries a given role is actually entitled to hold offline — this,
-     * not getAllEntries(), is what feeds `#offline-config-data`
-     * (base.html.twig) and Core\Offline\OfflineManifestService: a
-     * logged-out visitor must never be handed `/previsions` or
-     * `/chiefs/stats`, and the client must never try to cache a page it
-     * will only ever get a 403 for. `role_min` itself is stripped from
-     * the returned shape — it has already done its job by this point.
-     *
-     * @return array<int, array{path: string, label: string, match: string}>
+     * @return list<OfflineEntry>
      */
     public function getEntriesForRole(Role $role): array
     {
-        $entries = [];
-        foreach ($this->getAllEntries() as $entry) {
-            if ($role->hasAccess(Role::fromString($entry['role_min']))) {
-                $entries[] = [
-                    'path' => $entry['path'],
-                    'label' => $entry['label'],
-                    'match' => $entry['match'],
-                    'prefetch' => self::isPrefetched($entry),
-                ];
-            }
-        }
-
-        return $entries;
+        return array_values(array_filter(
+            $this->getAllEntries(),
+            static fn (array $entry): bool => $role->hasAccess(Role::fromString($entry['role_min']))
+        ));
     }
 
     /**
-     * Whether $path is covered by ANY declared entry, regardless of role
-     * — used server-side by Core\Http\FrontController to decide whether a
-     * response is eligible for ETag revalidation. No role filtering is
-     * needed here: by the time this runs, the RBAC guard has already
-     * decided whether the current request may reach this path at all.
+     * Whether a response for $path may carry an ETag — used by
+     * Core\Http\FrontController, so the installed app's refresh can be
+     * answered « 304 non modifié ». A fixed path, or anything under a
+     * provider's prefix, regardless of who is asking: the guard has already
+     * decided whether this request may reach the path at all.
+     *
+     * Never what decides what goes into the cache: that is the exact list
+     * of Core\Offline\OfflineManifestService.
      */
-    public function isPathWhitelisted(string $path): bool
+    public function isEtagEligible(string $path): bool
     {
         foreach ($this->getAllEntries() as $entry) {
-            if (self::matches($entry, $path)) {
+            if ($entry['path'] !== null && $path === $entry['path']) {
+                return true;
+            }
+            if ($entry['prefix'] !== null && self::isUnder($path, $entry['prefix'])) {
                 return true;
             }
         }
@@ -174,20 +154,9 @@ class OfflineWhitelist
         return false;
     }
 
-    /**
-     * @param array{path: string, match: string} $entry
-     */
-    private static function matches(array $entry, string $path): bool
+    /** Whether $path is $prefix itself or a page under it. */
+    public static function isUnder(string $path, string $prefix): bool
     {
-        if ($entry['match'] === 'child') {
-            if (!str_starts_with($path, $entry['path'])) {
-                return false;
-            }
-            $remainder = trim(substr($path, strlen($entry['path'])), '/');
-
-            return $remainder !== '' && !str_contains($remainder, '/');
-        }
-
-        return $path === $entry['path'];
+        return $path === $prefix || str_starts_with($path, $prefix . '/');
     }
 }

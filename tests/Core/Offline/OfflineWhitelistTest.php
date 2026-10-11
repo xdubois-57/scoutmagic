@@ -1,14 +1,24 @@
 <?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
 
 declare(strict_types=1);
 
 namespace Tests\Core\Offline;
 
+use Core\Offline\HelpPages;
+use Core\Offline\LinkedMemberPages;
 use Core\Offline\OfflineWhitelist;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 
-class OfflineWhitelistTest extends TestCase
+/**
+ * The declaration of what the installed app holds offline (#883): fixed
+ * pages and providers, by role — and which responses may carry an ETag.
+ */
+final class OfflineWhitelistTest extends TestCase
 {
     private OfflineWhitelist $whitelist;
 
@@ -17,199 +27,76 @@ class OfflineWhitelistTest extends TestCase
         $this->whitelist = new OfflineWhitelist();
     }
 
-    public function testEveryCoreEntryHasAPathLabelMatchAndRoleMin(): void
+    /** @return list<string> */
+    private function fixedPathsFor(Role $role): array
     {
-        foreach ($this->whitelist->getAllEntries() as $entry) {
-            $this->assertArrayHasKey('path', $entry);
-            $this->assertArrayHasKey('label', $entry);
-            $this->assertArrayHasKey('match', $entry);
-            $this->assertArrayHasKey('role_min', $entry);
-            $this->assertNotSame('', $entry['path']);
-            $this->assertNotSame('', $entry['label']);
-            $this->assertContains($entry['match'], ['exact', 'child']);
-        }
+        return array_values(array_filter(array_column($this->whitelist->getEntriesForRole($role), 'path')));
     }
 
-    public function testIncludesExactlyTheSpecifiedCorePages(): void
+    public function testTheCoreHoldsItsFixedPagesAndTwoProviders(): void
     {
-        $paths = array_column($this->whitelist->getAllEntries(), 'path');
-
+        $this->assertSame(['/', '/contact', '/sections', '/rgpd'], $this->fixedPathsFor(Role::PUBLIC));
         $this->assertSame(
-            ['/', '/contact', '/sections', '/rgpd', '/account', '/notifications', '/members/', '/chefs/staffs', '/aide', '/aide/'],
-            $paths
+            ['/', '/contact', '/sections', '/rgpd', '/account', '/notifications', '/chefs/staffs'],
+            $this->fixedPathsFor(Role::INTENDANT)
         );
+
+        $providers = array_column(array_filter($this->whitelist->getAllEntries(), static fn ($e) => $e['provider'] !== null), 'prefix', 'provider');
+        $this->assertSame([LinkedMemberPages::class => '/members', HelpPages::class => '/aide'], $providers);
+    }
+
+    public function testOnlyTheHelpComesLast(): void
+    {
+        $last = array_values(array_filter($this->whitelist->getAllEntries(), static fn ($e) => $e['last']));
+
+        $this->assertCount(1, $last);
+        $this->assertSame(HelpPages::class, $last[0]['provider']);
     }
 
     public function testNeverIncludesFileServingOrPrivateRoutes(): void
     {
-        $paths = array_column($this->whitelist->getAllEntries(), 'path');
-
-        foreach ($paths as $path) {
-            $this->assertStringNotContainsString('/files/', $path);
-            $this->assertStringNotContainsString('/finance', $path);
-            $this->assertStringNotContainsString('/mass-mail', $path);
-            $this->assertStringNotContainsString('/inscriptions', $path);
-            $this->assertStringNotContainsString('/config', $path);
-        }
-    }
-
-    public function testCorePathsHaveNoDuplicates(): void
-    {
-        $paths = array_column($this->whitelist->getAllEntries(), 'path');
-
-        $this->assertSame(array_unique($paths), $paths);
-    }
-
-    // --- module aggregation ---
-
-    public function testRegisterModuleEntriesAddsThemToAllEntries(): void
-    {
-        $this->whitelist->registerModuleEntries('calendar', [
-            ['path' => '/calendar', 'label' => 'Calendrier', 'match' => 'exact', 'role_min' => 'public'],
-        ]);
-
-        $paths = array_column($this->whitelist->getAllEntries(), 'path');
-        $this->assertContains('/calendar', $paths);
-    }
-
-    public function testDisabledModuleNeverRegisteredMeansItNeverAppears(): void
-    {
-        // A disabled module's loadModule() is never called (Core\Module\
-        // ModuleManager::loadEnabledModules() skips it entirely), so its
-        // offline entries simply never reach registerModuleEntries() — no
-        // explicit unregister mechanism needed.
-        $paths = array_column($this->whitelist->getAllEntries(), 'path');
-
-        $this->assertNotContains('/chiefs/stats', $paths);
-        $this->assertNotContains('/previsions', $paths);
-    }
-
-    // --- role filtering (§1.3) ---
-
-    public function testGuestRoleGetsOnlyPublicEntries(): void
-    {
-        $this->whitelist->registerModuleEntries('member_stats', [
-            ['path' => '/chiefs/stats', 'label' => 'Statistiques', 'match' => 'exact', 'role_min' => 'chief'],
-        ]);
-
-        $paths = array_column($this->whitelist->getEntriesForRole(Role::PUBLIC), 'path');
-
-        $this->assertSame(['/', '/contact', '/sections', '/rgpd', '/aide', '/aide/'], $paths);
-        $this->assertNotContains('/chiefs/stats', $paths);
-        $this->assertNotContains('/account', $paths);
-        $this->assertNotContains('/chefs/staffs', $paths);
-    }
-
-    public function testIdentifiedRoleGetsPublicAndIdentifiedButNotChiefOnlyPaths(): void
-    {
-        $this->whitelist->registerModuleEntries('registration', [
-            ['path' => '/previsions', 'label' => 'Prévisions', 'match' => 'exact', 'role_min' => 'chief'],
-        ]);
-
-        $paths = array_column($this->whitelist->getEntriesForRole(Role::IDENTIFIED), 'path');
-
-        $this->assertContains('/account', $paths);
-        $this->assertContains('/notifications', $paths);
-        $this->assertContains('/members/', $paths);
-        $this->assertNotContains('/previsions', $paths);
-        $this->assertNotContains('/chefs/staffs', $paths);
-    }
-
-    public function testChiefRoleGetsEverythingItsLevelAllows(): void
-    {
-        $this->whitelist->registerModuleEntries('member_stats', [
-            ['path' => '/chiefs/stats', 'label' => 'Statistiques', 'match' => 'exact', 'role_min' => 'chief'],
-        ]);
-
-        $paths = array_column($this->whitelist->getEntriesForRole(Role::CHIEF), 'path');
-
-        $this->assertContains('/chiefs/stats', $paths);
-        $this->assertContains('/chefs/staffs', $paths);
-        $this->assertContains('/account', $paths);
-    }
-
-    public function testGetEntriesForRoleStripsRoleMinFromTheReturnedShape(): void
-    {
-        $entries = $this->whitelist->getEntriesForRole(Role::PUBLIC);
-
-        foreach ($entries as $entry) {
-            $this->assertArrayNotHasKey('role_min', $entry);
-        }
-    }
-
-    // --- child matching (`/members/12` in, `/members/12/emails/5` out) ---
-
-    public function testChildMatchCoversAPathPlusExactlyOneSegment(): void
-    {
-        $this->assertTrue($this->whitelist->isPathWhitelisted('/members/12'));
-    }
-
-    public function testChildMatchExcludesAPathPlusTwoSegments(): void
-    {
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/members/12/emails/5'));
-    }
-
-    public function testChildMatchExcludesTheBarePrefixWithNoSegment(): void
-    {
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/members/'));
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/members'));
-    }
-
-    public function testChildMatchExcludesACoincidentalPrefixThatIsNotActuallyAChildSegment(): void
-    {
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/members-list'));
-    }
-
-    public function testExactMatchOnlyMatchesTheLiteralPath(): void
-    {
-        $this->assertTrue($this->whitelist->isPathWhitelisted('/contact'));
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/contact/extra'));
-    }
-
-    public function testIsPathWhitelistedIsRoleAgnostic(): void
-    {
-        $this->whitelist->registerModuleEntries('registration', [
-            ['path' => '/previsions', 'label' => 'Prévisions', 'match' => 'exact', 'role_min' => 'chief'],
-        ]);
-
-        // Server-side ETag eligibility never re-checks role — the RBAC
-        // guard already ran by the time Core\Http\FrontController gets
-        // here.
-        $this->assertTrue($this->whitelist->isPathWhitelisted('/previsions'));
-    }
-
-    public function testIsPathWhitelistedReturnsFalseForAnUnknownPath(): void
-    {
-        $this->assertFalse($this->whitelist->isPathWhitelisted('/finance'));
-    }
-
-    // --- prefetch: whitelisted is not the same as pre-downloaded at launch ---
-
-    public function testOnlyTheStaffsPageIsWhitelistedWithoutBeingPrefetched(): void
-    {
-        $notPrefetched = [];
         foreach ($this->whitelist->getAllEntries() as $entry) {
-            if (!OfflineWhitelist::isPrefetched($entry)) {
-                $notPrefetched[] = $entry['path'];
+            foreach ([$entry['path'], $entry['prefix']] as $declared) {
+                if ($declared === null) {
+                    continue;
+                }
+                foreach (['/files', '/finance', '/config', '/inscriptions', '/documents'] as $private) {
+                    $this->assertFalse(OfflineWhitelist::isUnder($declared, $private), "{$declared} is under {$private}");
+                }
             }
         }
-
-        $this->assertSame(['/chefs/staffs'], $notPrefetched);
     }
 
-    public function testGetEntriesForRoleCarriesThePrefetchFlagWithTrueAsTheDefault(): void
+    public function testAModuleEntryIsFilteredByRole(): void
     {
-        $this->whitelist->registerModuleEntries('m', [
-            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'public', 'prefetch' => false],
+        $this->whitelist->registerModuleEntries('test', [
+            ['path' => '/chefs/test', 'provider' => null, 'prefix' => null, 'label' => 'Test', 'role_min' => 'chief', 'last' => false],
         ]);
 
-        $byPath = [];
-        foreach ($this->whitelist->getEntriesForRole(Role::INTENDANT) as $entry) {
-            $byPath[$entry['path']] = $entry['prefetch'];
-        }
+        $this->assertNotContains('/chefs/test', $this->fixedPathsFor(Role::IDENTIFIED));
+        $this->assertContains('/chefs/test', $this->fixedPathsFor(Role::CHIEF));
+    }
 
-        $this->assertTrue($byPath['/']);
-        $this->assertFalse($byPath['/chefs/staffs']);
-        $this->assertFalse($byPath['/heavy']);
+    public function testAnEtagIsGivenToAFixedPageAndToAnythingUnderAProvidersPrefix(): void
+    {
+        $this->assertTrue($this->whitelist->isEtagEligible('/contact'));
+        $this->assertTrue($this->whitelist->isEtagEligible('/members/12'));
+        $this->assertTrue($this->whitelist->isEtagEligible('/aide'));
+        $this->assertTrue($this->whitelist->isEtagEligible('/aide/installer-application'));
+    }
+
+    public function testNoEtagOutsideTheList(): void
+    {
+        foreach (['/contact/extra', '/members-list', '/aidez-nous', '/finance', '/files/12'] as $path) {
+            $this->assertFalse($this->whitelist->isEtagEligible($path), $path);
+        }
+    }
+
+    public function testIsUnderMeansThePrefixOrAPageBelowIt(): void
+    {
+        $this->assertTrue(OfflineWhitelist::isUnder('/news', '/news'));
+        $this->assertTrue(OfflineWhitelist::isUnder('/news/41', '/news'));
+        $this->assertFalse(OfflineWhitelist::isUnder('/newsletter', '/news'));
+        $this->assertFalse(OfflineWhitelist::isUnder('/', '/news'));
     }
 }

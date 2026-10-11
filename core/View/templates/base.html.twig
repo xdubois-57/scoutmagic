@@ -288,20 +288,20 @@
         });
     }
     </script>
-    {# Offline content caching (Lot 3/4) — the single server-side source of
-       truth (Core\Offline\OfflineWhitelist + the offline_cache_staleness_days
-       setting), handed to both public/assets/js/offline-cache.js (which
-       relays it to the service worker via postMessage — see public/sw.js's
-       own 'message' handler, never hardcoded there) and offline-nav.js
-       (greys out unavailable links while offline, opens the unavailability
-       dialog below). type="application/json" so this never executes and
+    {# Offline content caching (Lot 3/4) — the settings of the offline cache
+       (the offline_cache_staleness_days setting, consent, the account the
+       cache belongs to), handed to public/assets/js/offline-cache.js (which
+       relays them to the service worker via postMessage — see public/sw.js's
+       own 'message' handler, never hardcoded there), offline-prefetch.js and
+       offline-nav.js. WHICH pages are held is not here: the service worker
+       asks GET /api/offline/manifest for the exact list, and offline-nav.js
+       greys a link by what is actually in the cache (#883). type="application/json" so this never executes and
        needs no CSP nonce. Rendered unconditionally — public pages are
        cacheable for a logged-out visitor too (offline_account_scope is
        'guest' in that case). #}
     <script type="application/json" id="offline-config-data">{{ {
         stalenessDays: offline_cache_staleness_days|default(30),
         consent: offline_functional_consent|default(false),
-        whitelist: offline_whitelist|default([]),
         accountScope: offline_account_scope|default('guest'),
         version: app_version|default('0.0.0')
     }|json_encode|raw }}</script>

@@ -774,46 +774,105 @@ class ModuleManifestTest extends TestCase
         ];
     }
 
-    public function testOfflineEntryParsesWithDefaultMatchExact(): void
+    public function testAFixedOfflinePageParses(): void
     {
         $manifest = ModuleManifest::fromArray($this->baseManifestData([
             ['path' => '/my-module', 'label' => 'Mon module', 'role_min' => 'public'],
         ]));
 
-        $this->assertCount(1, $manifest->offline);
-        $this->assertSame('/my-module', $manifest->offline[0]['path']);
-        $this->assertSame('Mon module', $manifest->offline[0]['label']);
-        $this->assertSame('exact', $manifest->offline[0]['match']);
-        $this->assertSame('public', $manifest->offline[0]['role_min']);
-        $this->assertTrue($manifest->offline[0]['prefetch'], 'pre-downloaded at launch unless declared otherwise');
+        $this->assertSame([[
+            'path' => '/my-module',
+            'provider' => null,
+            'prefix' => null,
+            'label' => 'Mon module',
+            'role_min' => 'public',
+            'last' => false,
+        ]], $manifest->offline);
     }
 
-    public function testOfflineEntryAcceptsExplicitChildMatch(): void
+    /** #883: the pages of a provider, under the prefix it declares. */
+    public function testAProviderOfOfflinePagesParsesWithItsPrefix(): void
     {
         $manifest = ModuleManifest::fromArray($this->baseManifestData([
-            ['path' => '/my-module/items/', 'label' => 'Items', 'match' => 'child', 'role_min' => 'identified'],
+            ['provider' => 'Modules\\Test\\Pages', 'prefix' => '/my-module/items', 'label' => 'Items', 'role_min' => 'identified', 'last' => true],
         ]));
 
-        $this->assertSame('child', $manifest->offline[0]['match']);
+        $this->assertSame('Modules\\Test\\Pages', $manifest->offline[0]['provider']);
+        $this->assertSame('/my-module/items', $manifest->offline[0]['prefix']);
+        $this->assertNull($manifest->offline[0]['path']);
+        $this->assertTrue($manifest->offline[0]['last']);
     }
 
-    public function testOfflineEntryRejectsMissingPath(): void
+    public function testAnOfflineEntryDeclaresAPathOrAProviderAndNotBoth(): void
     {
-        $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage("missing or invalid 'path'");
-
-        ModuleManifest::fromArray($this->baseManifestData([
+        foreach ([
             ['label' => 'Mon module', 'role_min' => 'public'],
-        ]));
+            ['path' => '/a', 'provider' => 'X', 'prefix' => '/a', 'label' => 'Mon module', 'role_min' => 'public'],
+        ] as $entry) {
+            try {
+                ModuleManifest::fromArray($this->baseManifestData([$entry]));
+                $this->fail('accepted: ' . json_encode($entry));
+            } catch (ModuleException $e) {
+                $this->assertStringContainsString("either a 'path' or a 'provider'", $e->getMessage());
+            }
+        }
     }
 
     public function testOfflineEntryRejectsPathNotStartingWithSlash(): void
     {
+        foreach (['my-module', '//elsewhere.example/page'] as $path) {
+            try {
+                ModuleManifest::fromArray($this->baseManifestData([
+                    ['path' => $path, 'label' => 'Mon module', 'role_min' => 'public'],
+                ]));
+                $this->fail('accepted ' . $path);
+            } catch (ModuleException $e) {
+                $this->assertStringContainsString("starting with a single '/'", $e->getMessage());
+            }
+        }
+    }
+
+    public function testAProviderNeedsAPrefixOfPlainSegments(): void
+    {
+        foreach ([null, '/news/', 'news', '/news/*', '/'] as $prefix) {
+            $entry = ['provider' => 'X', 'label' => 'Actus', 'role_min' => 'public'];
+            if ($prefix !== null) {
+                $entry['prefix'] = $prefix;
+            }
+            try {
+                ModuleManifest::fromArray($this->baseManifestData([$entry]));
+                $this->fail('accepted prefix ' . var_export($prefix, true));
+            } catch (ModuleException $e) {
+                $this->assertStringContainsString("needs a 'prefix'", $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * The pattern list #883 replaced: a module still declaring `match` or
+     * `prefetch` fails loudly instead of being read as something else.
+     */
+    public function testTheRetiredMatchAndPrefetchKeysAreRefusedByName(): void
+    {
+        foreach (['match' => 'exact', 'prefetch' => false] as $key => $value) {
+            try {
+                ModuleManifest::fromArray($this->baseManifestData([
+                    ['path' => '/my-module', 'label' => 'Mon module', 'role_min' => 'public', $key => $value],
+                ]));
+                $this->fail("accepted '{$key}'");
+            } catch (ModuleException $e) {
+                $this->assertStringContainsString("'{$key}' no longer exists", $e->getMessage());
+            }
+        }
+    }
+
+    public function testOfflineEntryLastMustBeABoolean(): void
+    {
         $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage("path must start with '/'");
+        $this->expectExceptionMessage('offline[0] last must be a boolean');
 
         ModuleManifest::fromArray($this->baseManifestData([
-            ['path' => 'my-module', 'label' => 'Mon module', 'role_min' => 'public'],
+            ['path' => '/aide', 'label' => 'Aide', 'role_min' => 'public', 'last' => 'oui'],
         ]));
     }
 
@@ -844,16 +903,6 @@ class ModuleManifestTest extends TestCase
 
         ModuleManifest::fromArray($this->baseManifestData([
             ['path' => '/my-module', 'label' => 'Mon module', 'role_min' => 'not-a-role'],
-        ]));
-    }
-
-    public function testOfflineEntryRejectsInvalidMatchValue(): void
-    {
-        $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage("invalid match");
-
-        ModuleManifest::fromArray($this->baseManifestData([
-            ['path' => '/my-module', 'label' => 'Mon module', 'match' => 'prefix', 'role_min' => 'public'],
         ]));
     }
 
@@ -1338,25 +1387,6 @@ class ModuleManifestTest extends TestCase
                 'default_on_role_min' => 'chief',
             ]],
         ]);
-    }
-
-    public function testOfflineEntryMayOptOutOfThePrefetch(): void
-    {
-        $manifest = ModuleManifest::fromArray($this->baseManifestData([
-            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => false],
-        ]));
-
-        $this->assertFalse($manifest->offline[0]['prefetch']);
-    }
-
-    public function testOfflineEntryPrefetchMustBeABoolean(): void
-    {
-        $this->expectException(ModuleException::class);
-        $this->expectExceptionMessage("offline[0] prefetch must be a boolean");
-
-        ModuleManifest::fromArray($this->baseManifestData([
-            ['path' => '/heavy', 'label' => 'Lourd', 'match' => 'exact', 'role_min' => 'chief', 'prefetch' => 'non'],
-        ]));
     }
 
     /**

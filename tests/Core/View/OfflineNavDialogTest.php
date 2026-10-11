@@ -128,10 +128,15 @@ class OfflineNavDialogTest extends TestCase
         );
     }
 
-    public function testChildMatchLogicMirrorsExactlyOneExtraSegment(): void
+    /**
+     * #883: a link is greyed by what is really in the cache — the content
+     * cache public/sw.js serves from — never by a pattern rule.
+     */
+    public function testAvailabilityIsReadInTheContentCacheNotInARule(): void
     {
-        $this->assertStringContainsString("entry.match === 'child'", $this->navJs);
-        $this->assertStringContainsString("!remainder.includes('/')", $this->navJs);
+        $this->assertStringContainsString("'content-' + config.accountScope + '-' + config.version", $this->navJs);
+        $this->assertStringNotContainsString('entry.match', $this->navJs);
+        $this->assertStringNotContainsString('whitelist', $this->navJs);
     }
 
     public function testAppliedStateNeverForcesTabindex(): void

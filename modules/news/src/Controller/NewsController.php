@@ -55,8 +55,11 @@ class NewsController extends AbstractController
     private const NOT_THE_AUTHOR_MESSAGE = "Seul l'auteur de cet article, ou un chef d'unité, "
         . 'peut le modifier.';
 
-    /** Cards per page on /news and /news/manage. */
-    private const LIST_PER_PAGE = 30;
+    /**
+     * Cards per page on /news and /news/manage — and so how many articles
+     * the installed app holds offline (Offline\NewsOfflinePages, #883).
+     */
+    public const LIST_PER_PAGE = 30;
 
     /** @var string[] */
     private const IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];

@@ -52,14 +52,11 @@ class OfflineConfigBlobTest extends TestCase
         return $config;
     }
 
-    public function testEmbedsTheStalenessSettingAndWhitelistVerbatim(): void
+    public function testEmbedsTheSettingsOfTheCacheAndNoListOfPages(): void
     {
-        $whitelist = [['path' => '/', 'label' => 'Accueil'], ['path' => '/calendar', 'label' => 'Calendrier']];
-
         $html = $this->render([
             'offline_cache_staleness_days' => 14,
             'offline_functional_consent' => true,
-            'offline_whitelist' => $whitelist,
             'offline_account_scope' => '42',
             'app_version' => '1.4.0',
         ]);
@@ -67,9 +64,11 @@ class OfflineConfigBlobTest extends TestCase
 
         $this->assertSame(14, $config['stalenessDays']);
         $this->assertTrue($config['consent']);
-        $this->assertSame($whitelist, $config['whitelist']);
         $this->assertSame('42', $config['accountScope']);
         $this->assertSame('1.4.0', $config['version']);
+        // #883: which pages are held comes from GET /api/offline/manifest,
+        // exact addresses for this person — never a pattern in every page.
+        $this->assertArrayNotHasKey('whitelist', $config);
     }
 
     public function testDegradesToSafeDefaultsWhenGlobalsAreMissing(): void
@@ -78,7 +77,6 @@ class OfflineConfigBlobTest extends TestCase
 
         $this->assertSame(30, $config['stalenessDays']);
         $this->assertFalse($config['consent']);
-        $this->assertSame([], $config['whitelist']);
         $this->assertSame('guest', $config['accountScope']);
     }
 
