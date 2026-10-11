@@ -28,7 +28,6 @@ découvres qu'ils décrivent une réalité que le code contredit, **mets-les à 
   request », sans demander de confirmation : la PR se fusionne sur `main` dès que la CI est verte. Un
   test rouge arrête le lot : tu corriges, tu ne contournes pas, tu ne désactives rien, tu n'ajoutes
   rien à une baseline.
-- Toute modification de `schema.sql` impose de relever la `version` dans `module.json`.
 - Code, commentaires et identifiants en anglais ; interface en français.
 - Chaque écran modifié ship son sujet d'aide dans la même PR ; `tests/Core/Help/` échoue sinon.
 - Couverture RBAC explicite sur toute route nouvelle ou modifiée.
