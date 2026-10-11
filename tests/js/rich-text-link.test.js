@@ -608,6 +608,47 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
     });
 
+    // « Select all » counts the end in children of the surface. The items
+    // become blocks of their own and the emptied list goes: the old count
+    // still fits, but would end before the last paragraph and leave it out
+    // of what the engine formats.
+    it('keeps every paragraph after the list in a selection of everything', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>a</p><p>b</p>', 'un');
+        const range = document.createRange();
+        range.setStart(surface, 0);
+        range.setEnd(surface, surface.childNodes.length);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>deux</h2><p>a</p><p>b</p>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.startContainer).toBe(surface);
+        expect(restored.startOffset).toBe(0);
+        expect(restored.endContainer).toBe(surface);
+        expect(restored.endOffset).toBe(4);
+    });
+
+    // An end in the surface just before a paragraph that follows the list
+    // stays before that paragraph, wherever the surgery has moved it.
+    it('keeps an end standing before a paragraph before that same paragraph', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>a</p><p>b</p>', 'un');
+        const range = document.createRange();
+        range.setStart(textNode(surface, 'un'), 0);
+        range.setEnd(surface, 2);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>deux</h2><p>a</p><p>b</p>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.endContainer).toBe(surface);
+        expect(surface.childNodes[restored.endOffset].textContent).toBe('b');
+    });
+
     // A selection counted in children of the list itself: once the list is
     // cut in two, it no longer has the third child the end pointed after.
     it('survives a selection whose offsets no longer fit the list it was cut from, and still tells the form', async () => {

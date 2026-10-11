@@ -1661,7 +1661,8 @@
             return null;
         }
         var range = found.range;
-        var bounds = { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset };
+        var start = boundaryOf(range.startContainer, range.startOffset);
+        var end = boundaryOf(range.endContainer, range.endOffset);
         var engine = !range.collapsed && touchesOutsideLists(range, surface);
 
         var blocks = found.lines.map(function (line) {
@@ -1675,44 +1676,75 @@
             }
         });
 
-        // Each end as it was, while it still exists and its offset still
-        // fits: a list cut in two can keep a node and lose the children an
-        // offset counted, and setEnd() would then throw before the caller
-        // had told the form anything had changed. An end that no longer
-        // fits — an item removed with its list — falls back to the edge of
-        // the new blocks on its own side only, so the other end keeps what
-        // the selection held outside the list for the engine.
+        // Each end where it was, found again from the node it stood
+        // before rather than from a count of children: the surgery adds
+        // and removes children, so an offset into the surface — what
+        // « select all » gives — would still fit and point elsewhere,
+        // leaving the last paragraphs out of what the engine formats. An
+        // end whose node is gone — an item removed with its list — falls
+        // back to the edge of the new blocks on its own side only, so the
+        // other end keeps what the selection held outside the list.
+        var first = /** @type {HTMLElement} */ (blocks[0]);
+        var last = /** @type {HTMLElement} */ (blocks.at(-1));
         var restored = document.createRange();
-        if (stillFits(bounds.start, bounds.startOffset, surface)) {
-            restored.setStart(bounds.start, bounds.startOffset);
-        } else {
-            restored.setStartBefore(blocks[0]);
+        restored.setStartBefore(first);
+        restored.setEndAfter(last);
+        var startAt = placeOf(start, surface);
+        if (startAt && (first.contains(startAt.node) || restored.comparePoint(startAt.node, startAt.offset) < 0)) {
+            restored.setStart(startAt.node, startAt.offset);
         }
-        if (stillFits(bounds.end, bounds.endOffset, surface)) {
-            restored.setEnd(bounds.end, bounds.endOffset);
-        } else {
-            restored.setEndAfter(/** @type {HTMLElement} */ (blocks.at(-1)));
+        var endAt = placeOf(end, surface);
+        if (endAt && (last.contains(endAt.node) || restored.comparePoint(endAt.node, endAt.offset) > 0)) {
+            restored.setEnd(endAt.node, endAt.offset);
         }
 
         return { range: restored, engine: engine };
     }
 
     /**
-     * Whether a boundary at $offset in $node can still be set: $node is in
-     * $surface, and the offset is within what it holds now.
+     * A selection end, held so that it survives children being added and
+     * removed around it: in a text node by its offset, which only the
+     * text changes; in an element by the child it stands before, or as
+     * the element's end when it stands after the last one.
      *
      * @param {Node} node
      * @param {number} offset
-     * @param {HTMLElement} surface
-     * @returns {boolean}
+     * @returns {{node: Node, offset: number, before: Node|null}}
      */
-    function stillFits(node, offset, surface) {
-        if (!surface.contains(node)) {
-            return false;
-        }
-        var size = node.nodeType === Node.TEXT_NODE ? (node.textContent || '').length : node.childNodes.length;
+    function boundaryOf(node, offset) {
+        return {
+            node: node,
+            offset: offset,
+            before: node.nodeType === Node.TEXT_NODE ? null : node.childNodes[offset] ?? null,
+        };
+    }
 
-        return offset <= size;
+    /**
+     * Where $boundary stands now, or null when the node it was held by has
+     * left $surface (or, in a text node, the offset no longer fits).
+     *
+     * @param {{node: Node, offset: number, before: Node|null}} boundary
+     * @param {HTMLElement} surface
+     * @returns {{node: Node, offset: number}|null}
+     */
+    function placeOf(boundary, surface) {
+        var node = boundary.node;
+        if (node.nodeType === Node.TEXT_NODE) {
+            var fits = surface.contains(node) && boundary.offset <= (node.textContent || '').length;
+
+            return fits ? { node: node, offset: boundary.offset } : null;
+        }
+        var before = boundary.before;
+        if (before) {
+            var parent = before.parentNode;
+            if (!parent || before === surface || !surface.contains(parent)) {
+                return null;
+            }
+
+            return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, before) };
+        }
+
+        return surface.contains(node) ? { node: node, offset: node.childNodes.length } : null;
     }
 
     /**
