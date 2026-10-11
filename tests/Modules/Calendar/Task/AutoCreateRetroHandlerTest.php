@@ -137,8 +137,8 @@ class AutoCreateRetroHandlerTest extends TestCase
         $this->enableRetro();
         $eventId = $this->createEvent();
         $this->boardRepository->create(
-            'Board manuel', '2026-08-10', $eventId, bin2hex(random_bytes(8)), null, true,
-            'unlimited', 5, true, 'cookie', 140, 'none', null, 3
+            'Board manuel', '2026-08-10', $eventId, bin2hex(random_bytes(8)), null, 'public',
+            'unlimited', 5, true, 140, 'none', null, 3
         );
 
         (new AutoCreateRetroHandler())->handle(['event_id' => $eventId], $this->context);

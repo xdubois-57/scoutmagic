@@ -58,20 +58,27 @@
                     </div>
                 </div>
 
-                <div>
-                    <div class="form-label small fw-semibold d-block">Découverte du lien</div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="listed" id="retro-listed-yes" value="1"
-                               {{ (board is null or board.listed) ? 'checked' : '' }}>
-                        <label class="form-check-label small" for="retro-listed-yes">Espace membres</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="listed" id="retro-listed-no" value="0"
-                               {{ (board and not board.listed) ? 'checked' : '' }}>
-                        <label class="form-check-label small" for="retro-listed-no">Lien seul</label>
-                    </div>
-                    <div class="form-text">« Espace membres » rend la rétrospective visible aux membres identifiés. « Lien seul » ne la rend accessible qu'à qui reçoit le lien ou le QR code.</div>
-                </div>
+                {# One setting for who may open the board, who sees its link in the
+                   calendar and how votes are deduplicated (issue #833). Once a
+                   vote exists it is frozen: disabled here, and refused by
+                   Service\BoardService::update() whatever the form sends. #}
+                {% set current_access_mode = board ? board.accessMode : default_access_mode %}
+                <fieldset>
+                    <legend class="form-label small fw-semibold d-block">Accès à la rétrospective</legend>
+                    {% for mode in access_modes %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="access_mode" id="retro-access-{{ mode.value }}"
+                                   value="{{ mode.value }}" aria-describedby="retro-access-{{ mode.value }}-help"
+                                   {{ current_access_mode == mode.value ? 'checked' : '' }}
+                                   {{ access_mode_locked ? 'disabled' : '' }}>
+                            <label class="form-check-label small" for="retro-access-{{ mode.value }}">{{ mode.label }}</label>
+                            <div class="form-text mt-0" id="retro-access-{{ mode.value }}-help">{{ mode.help }}</div>
+                        </div>
+                    {% endfor %}
+                    {% if access_mode_locked %}
+                        <div class="form-text"><i class="bi bi-lock" aria-hidden="true"></i> {{ access_mode_locked_message }}</div>
+                    {% endif %}
+                </fieldset>
 
                 <div>
                     <div class="form-label small fw-semibold d-block">Mode de vote</div>
@@ -109,21 +116,6 @@
                 </div>
 
                 <div>
-                    <div class="form-label small fw-semibold d-block">Anti-doublon des votes</div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="anti_duplicate_mode" id="retro-dup-cookie" value="cookie"
-                               {{ (board is null or board.antiDuplicateMode == 'cookie') ? 'checked' : '' }}>
-                        <label class="form-check-label small" for="retro-dup-cookie">Cookie anonyme</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="anti_duplicate_mode" id="retro-dup-auth" value="auth"
-                               {{ (board and board.antiDuplicateMode == 'auth') ? 'checked' : '' }}>
-                        <label class="form-check-label small" for="retro-dup-auth">Connexion requise</label>
-                    </div>
-                    <div class="form-text">« Cookie anonyme » suffit à éviter les doublons sans connexion, mais se perd si le participant change d'appareil ou vide ses cookies. « Connexion requise » est plus fiable mais impose de se connecter pour voter (ajouter des mots reste toujours possible sans connexion).</div>
-                </div>
-
-                <div>
                     <label class="form-label small fw-semibold" for="retro-max-length">
                         Longueur max. d'un mot (<span id="retro-max-length-value">{{ board ? board.maxCommentLength : default_max_comment_length }}</span>)
                     </label>
@@ -153,16 +145,6 @@
                     <input type="email" class="form-control" id="retro-notify-email" name="close_notify_email"
                            value="{{ board ? board.closeNotifyEmail : default_notify_email }}">
                     <div class="form-text">Préremplie avec ton adresse à la création, modifiable à tout moment.</div>
-                </div>
-
-                <div>
-                    <label class="form-label small fw-semibold" for="retro-link-visibility">Audience du lien dans le calendrier</label>
-                    <select class="form-select" id="retro-link-visibility" name="link_visibility" style="max-width: 16rem;">
-                        {% for option in link_visibilities %}
-                            <option value="{{ option.value }}" {{ (board ? board.linkVisibility : 'chief') == option.value ? 'selected' : '' }}>{{ option.label }}</option>
-                        {% endfor %}
-                    </select>
-                    <div class="form-text">Quand un événement est lié, seule l'audience minimale choisie ici verra le lien vers cette rétrospective dans le calendrier et dans le flux ICS personnel — « Animateur » par défaut.</div>
                 </div>
             </div>
             <div class="card-footer d-flex gap-2 bg-body">

@@ -156,12 +156,12 @@ class RetroChiefControllerTest extends TestCase
     {
         $this->boardService->expects($this->once())->method('create')->willReturn(
             $this->boardRepository->findById($this->boardRepository->create(
-                'Camp', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3
+                'Camp', '2026-07-01', null, 'tok', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3
             ))
         );
         $token = $this->csrfToken();
         $request = new Request('POST', '/retro', [], [
-            '_csrf_token' => $token, 'title' => 'Camp', 'vote_mode' => 'unlimited', 'anti_duplicate_mode' => 'cookie',
+            '_csrf_token' => $token, 'title' => 'Camp', 'vote_mode' => 'unlimited', 'access_mode' => 'public',
             'max_comment_length' => '140', 'auto_close_delay' => '7d',
         ], [], []);
 
@@ -191,7 +191,7 @@ class RetroChiefControllerTest extends TestCase
 
     public function testEditRendersForAnExistingBoard(): void
     {
-        $id = $this->boardRepository->create('Camp', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $id = $this->boardRepository->create('Camp', '2026-07-01', null, 'tok', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3);
 
         $response = $this->controller->edit(new Request('GET', '/retro/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
 
@@ -201,7 +201,7 @@ class RetroChiefControllerTest extends TestCase
     /** « Espace animateurs / Rétrospectives / <nom> / Configuration » (issue #736). */
     public function testTheConfigurationBreadcrumbNamesTheRetrospective(): void
     {
-        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3);
         $this->twig->addGlobal('route_breadcrumb', ['label' => 'Modifier la rétrospective', 'parents' => ['Espace animateurs']]);
         $this->twig->addGlobal('route_breadcrumb_ancestors', [['label' => 'Rétrospectives', 'url' => '/retro']]);
 
@@ -220,7 +220,7 @@ class RetroChiefControllerTest extends TestCase
     public function testTheListCardActionsAreIconsWithAccessibleNames(): void
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
-        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $id = $this->boardRepository->create('Camp de Pâques', '2026-07-01', null, 'tok', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3);
         $this->boardRepository->close($id);
 
         $body = (string) preg_replace('/\s+/', ' ', (string) $this->controller->index(new Request('GET', '/retro', [], [], [], []), [])->getBody());
@@ -371,8 +371,8 @@ class RetroChiefControllerTest extends TestCase
 
     public function testIndexSeparatesArchivedBoardsFromActiveOnes(): void
     {
-        $this->boardRepository->create('Active', '2026-07-01', null, 'tok-active', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
-        $archivedId = $this->boardRepository->create('Archived', '2026-06-01', null, 'tok-archived', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3);
+        $this->boardRepository->create('Active', '2026-07-01', null, 'tok-active', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3);
+        $archivedId = $this->boardRepository->create('Archived', '2026-06-01', null, 'tok-archived', null, 'public', 'unlimited', 5, true, 140, '7d', null, 3);
         $this->boardRepository->close($archivedId);
         $this->boardRepository->archive($archivedId);
 
@@ -413,6 +413,62 @@ class RetroChiefControllerTest extends TestCase
      * and the close notification only fires for a board that was still open
      * and carries a notify address — neither happens here.
      */
+    /**
+     * Issue #833: one setting in place of « Découverte du lien »,
+     * « Audience du lien dans le calendrier » and « Anti-doublon des votes ».
+     */
+    public function testTheFormOffersOneAccessSettingAndNoneOfTheThreeItReplaces(): void
+    {
+        $body = (string) $this->controllerWithRealBoardService()->create(new Request('GET', '/retro/create', [], [], [], []), [])
+            ->getBody();
+
+        $this->assertStringContainsString('Accès à la rétrospective', $body);
+        foreach (['Animateurs', 'Membre identifié', 'Lien public'] as $label) {
+            $this->assertStringContainsString($label, $body);
+        }
+        $this->assertMatchesRegularExpression('/value="animators"\s+aria-describedby="[^"]+"\s+checked/', $body);
+        foreach (['Découverte du lien', 'Audience du lien', 'Anti-doublon', 'name="listed"', 'name="link_visibility"',
+            'name="anti_duplicate_mode"'] as $gone) {
+            $this->assertStringNotContainsString($gone, $body);
+        }
+    }
+
+    public function testTheAccessSettingIsGreyedOutWithItsReasonOnceAVoteExists(): void
+    {
+        $id = $this->makeBoard('Camp', 'tok-locked');
+        $commentId = (new CommentRepository($this->pdo))->create($id, 'good', 'Top');
+        (new \Modules\Retro\Repository\VoteRepository($this->pdo))->create($commentId, $id, 'h', 'b', 1);
+
+        $body = (string) $this->controllerWithRealBoardService()
+            ->edit(new Request('GET', '/retro/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+
+        $this->assertSame(3, preg_match_all('/name="access_mode"[^>]*disabled/s', $body));
+        $this->assertStringContainsString("Le mode d'accès ne peut plus changer : des votes ont déjà été enregistrés.", html_entity_decode($body, ENT_QUOTES));
+    }
+
+    /**
+     * A disabled field is not sent: a locked board's form comes back without
+     * access_mode, and that must keep the mode rather than reset it.
+     */
+    public function testSavingALockedBoardKeepsItsAccessMode(): void
+    {
+        $id = $this->makeBoard('Camp', 'tok-locked-save');
+        $commentId = (new CommentRepository($this->pdo))->create($id, 'good', 'Top');
+        (new \Modules\Retro\Repository\VoteRepository($this->pdo))->create($commentId, $id, 'h', 'b', 1);
+        $request = new Request('POST', '/retro/' . $id, [], [
+            '_csrf_token' => $this->csrfToken(), 'title' => 'Camp revu', 'board_date' => '2026-07-02',
+            'vote_mode' => 'unlimited', 'max_comment_length' => '140', 'auto_close_delay' => '7d',
+        ], [], []);
+
+        $response = $this->controllerWithRealBoardService()->update($request, ['id' => (string) $id]);
+
+        $this->assertSame('/retro', $response->getHeaders()['Location']);
+        $board = $this->boardRepository->findById($id);
+        $this->assertSame('Camp revu', $board->title);
+        $this->assertSame('public', $board->accessMode);
+    }
+
     private function controllerWithRealBoardService(): RetroChiefController
     {
         $boardService = new BoardService(
@@ -441,7 +497,7 @@ class RetroChiefControllerTest extends TestCase
     private function makeBoard(string $title, string $token): int
     {
         return $this->boardRepository->create(
-            $title, '2026-07-01', null, $token, null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, 3
+            $title, '2026-07-01', null, $token, null, 'public', 'unlimited', 5, true, 140, '7d', null, 3
         );
     }
 
@@ -492,7 +548,7 @@ class RetroChiefControllerTest extends TestCase
         $id = $this->makeBoard('Camp 2026', 'tok-update-ok');
         $request = new Request('POST', '/retro/' . $id, [], [
             '_csrf_token' => $this->csrfToken(), 'title' => 'Camp 2026 revu', 'board_date' => '2026-07-02',
-            'vote_mode' => 'unlimited', 'anti_duplicate_mode' => 'cookie',
+            'vote_mode' => 'unlimited', 'access_mode' => 'public',
             'max_comment_length' => '140', 'auto_close_delay' => '7d',
         ], [], []);
 

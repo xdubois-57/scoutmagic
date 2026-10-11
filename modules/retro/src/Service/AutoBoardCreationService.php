@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\CapabilityToken;
 use Modules\Retro\Api\RetroBoardCreationInterface;
+use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\BoardRepository;
 
 /**
@@ -32,10 +33,11 @@ use Modules\Retro\Repository\BoardRepository;
  * Task\AutoCloseHandler treats both origins identically), the capability
  * token, the one-board-per-event rule, and the journal trail.
  *
- * An auto-created board is `link_visibility: chief` and listed — the same
- * stance the manual creation page defaults to: the retro exists for the
- * section's chiefs, and widening it is a decision a human takes on the
- * board afterwards.
+ * An auto-created board is open to the animators only
+ * (Board::DEFAULT_ACCESS_MODE, issue #833) — the same stance the manual
+ * creation page defaults to: the retro exists for the section's animators,
+ * and widening it is a decision a human takes on the board afterwards,
+ * before its first vote.
  */
 class AutoBoardCreationService implements RetroBoardCreationInterface
 {
@@ -79,18 +81,18 @@ class AutoBoardCreationService implements RetroBoardCreationInterface
             $calendarEventId,
             CapabilityToken::generate(),
             null,
-            true,
+            // The same default as a board created by hand (issue #833):
+            // nobody chose to open it wider.
+            Board::DEFAULT_ACCESS_MODE,
             'unlimited',
             $voteBudget,
             true,
-            'cookie',
             $maxCommentLength,
             self::AUTO_CLOSE_DELAY,
             $autoCloseMoment->format('Y-m-d H:i:s'),
             null,
             true,
-            null,
-            'chief'
+            null
         );
 
         $this->schedulerService->schedule(

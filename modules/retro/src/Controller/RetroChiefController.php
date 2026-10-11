@@ -119,18 +119,16 @@ class RetroChiefController extends AbstractController
                 (string) $request->getBody('title', ''),
                 $this->nullableInt($request->getBody('calendar_event_id', '')),
                 $this->nullableString($request->getBody('board_date', '')),
-                $request->getBody('listed', '1') === '1',
+                (string) $request->getBody('access_mode', Board::DEFAULT_ACCESS_MODE),
                 (string) $request->getBody('vote_mode', 'unlimited'),
                 (int) $request->getBody('vote_budget', '5'),
                 $request->getBody('votes_visible', '1') === '1',
-                (string) $request->getBody('anti_duplicate_mode', 'cookie'),
                 (int) $request->getBody('max_comment_length', '140'),
                 (string) $request->getBody('auto_close_delay', '7d'),
                 Role::fromString(AuthSession::getRole()),
                 AuthSession::getUserAccountId(),
                 $request->getBody('close_notify_enabled', '1') === '1',
-                $this->nullableString($request->getBody('close_notify_email', '')),
-                (string) $request->getBody('link_visibility', 'chief')
+                $this->nullableString($request->getBody('close_notify_email', ''))
             );
         } catch (RetroException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -178,6 +176,7 @@ class RetroChiefController extends AbstractController
         }
 
         $id = (int) ($params['id'] ?? 0);
+        $existing = $this->boardRepository->findById($id);
 
         try {
             $this->boardService->update(
@@ -185,18 +184,18 @@ class RetroChiefController extends AbstractController
                 (string) $request->getBody('title', ''),
                 $this->nullableInt($request->getBody('calendar_event_id', '')),
                 $this->nullableString($request->getBody('board_date', '')),
-                $request->getBody('listed', '1') === '1',
+                // A locked mode is a disabled field, which the browser does
+                // not send: absent means unchanged, never the default.
+                (string) $request->getBody('access_mode', $existing->accessMode ?? Board::DEFAULT_ACCESS_MODE),
                 (string) $request->getBody('vote_mode', 'unlimited'),
                 (int) $request->getBody('vote_budget', '5'),
                 $request->getBody('votes_visible', '1') === '1',
-                (string) $request->getBody('anti_duplicate_mode', 'cookie'),
                 (int) $request->getBody('max_comment_length', '140'),
                 (string) $request->getBody('auto_close_delay', '7d'),
                 Role::fromString(AuthSession::getRole()),
                 AuthSession::getUserAccountId(),
                 $request->getBody('close_notify_enabled', '1') === '1',
-                $this->nullableString($request->getBody('close_notify_email', '')),
-                (string) $request->getBody('link_visibility', 'chief')
+                $this->nullableString($request->getBody('close_notify_email', ''))
             );
         } catch (RetroException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -349,12 +348,32 @@ class RetroChiefController extends AbstractController
             // spec). An edit form always shows the board's own stored
             // value instead (via board.closeNotifyEmail).
             'default_notify_email' => $board === null ? ($email ?? '') : '',
-            'link_visibilities' => [
-                ['value' => 'identified', 'label' => 'Identifié'],
-                ['value' => 'chief', 'label' => 'Chef'],
-                ['value' => 'unit_chief', 'label' => "Chef d'unité"],
-                ['value' => 'superadmin', 'label' => 'Superadmin'],
+            // One setting for who may open the board, who sees its link in
+            // the calendar and how votes are deduplicated (issue #833,
+            // Service\BoardAccess). Frozen from the first vote on.
+            'access_modes' => [
+                [
+                    'value' => 'animators',
+                    'label' => 'Animateurs',
+                    'help' => 'Réservée aux animateurs connectés (intendant ou plus). Le lien apparaît dans leur agenda '
+                        . 'et leur flux ICS tant que la rétrospective est ouverte.',
+                ],
+                [
+                    'value' => 'identified',
+                    'label' => 'Membre identifié',
+                    'help' => 'Toute personne connectée, parents compris. Le lien apparaît dans son calendrier et son '
+                        . 'flux ICS tant que la rétrospective est ouverte.',
+                ],
+                [
+                    'value' => 'public',
+                    'label' => 'Lien public',
+                    'help' => "Toute personne qui a le lien ou le QR code, sans connexion. Le lien n'est jamais publié "
+                        . 'dans le calendrier ; un cookie anonyme évite les votes en double.',
+                ],
             ],
+            'default_access_mode' => Board::DEFAULT_ACCESS_MODE,
+            'access_mode_locked' => $board !== null && $this->boardService->isAccessModeLocked($board),
+            'access_mode_locked_message' => BoardService::ACCESS_MODE_LOCKED_MESSAGE,
         ];
     }
 

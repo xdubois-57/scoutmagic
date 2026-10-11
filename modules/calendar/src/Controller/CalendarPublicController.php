@@ -109,14 +109,29 @@ class CalendarPublicController extends AbstractController
             $effectiveYear->id
         );
 
+        // The reader, as the chiefs' page passes it: a linked retrospective
+        // shows its link to the readers its access mode lets in (issue
+        // #833). Nobody at all for an anonymous visitor — no access mode
+        // publishes its link to one.
+        $reader = AuthSession::isAuthenticated()
+            ? [$role, $email !== '' ? $email : null, $effectiveYear->id]
+            : [null, null, null];
+
         $events = $this->calendarService->getEventsForGrid($year, $month, $calendarIds);
-        $weeks = $this->monthGridBuilder->build($year, $month, $this->calendarService->toGridEvents($events));
+        $weeks = $this->monthGridBuilder->build(
+            $year,
+            $month,
+            $this->calendarService->toGridEvents($events, ...$reader)
+        );
 
         // Reuses the same GridEvent shape as the grid bars (label, color,
         // and the full data bag incl. calendar-label) so the "Prochains
         // évènements" list and the detail dialog can show which calendar
         // an event belongs to without a separate data structure.
-        $upcoming = $this->calendarService->toGridEvents($this->calendarService->getUpcomingEvents($calendarIds, 10));
+        $upcoming = $this->calendarService->toGridEvents(
+            $this->calendarService->getUpcomingEvents($calendarIds, 10),
+            ...$reader
+        );
 
         $isAuthenticated = AuthSession::isAuthenticated();
         $personalToken = null;

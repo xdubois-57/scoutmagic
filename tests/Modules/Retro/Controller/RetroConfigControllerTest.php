@@ -230,6 +230,47 @@ class RetroConfigControllerTest extends TestCase
         $this->assertSame('disabled', $this->settingService->get('retro_moderation_mode', 'retro', 'disabled'));
     }
 
+    /**
+     * Issue #833: « Avertissement » by default. Without AI the page mirrors
+     * the stored value in a hidden field, so saving it back must stay
+     * possible — otherwise no other setting on the page could be saved.
+     */
+    public function testTheModuleDefaultsModerationToWarning(): void
+    {
+        $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/modules/retro/module.json'), true);
+        $defaults = array_column($manifest['settings'], 'default_value', 'key');
+
+        $this->assertSame('warning', $defaults['retro_moderation_mode']);
+    }
+
+    public function testWithoutAiThePageSavesWithTheStoredModeMirroredBack(): void
+    {
+        $this->settingService->set('retro_moderation_mode', 'warning', 'retro');
+
+        $response = $this->controller(null)->save($this->postRequest([
+            '_csrf_token' => $this->csrfToken(),
+            'retro_moderation_mode' => 'warning',
+            'retro_polling_interval_seconds' => '12',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('12', $this->settingService->get('retro_polling_interval_seconds', 'retro'));
+        $this->assertSame('warning', $this->settingService->get('retro_moderation_mode', 'retro'));
+    }
+
+    public function testWithoutAiAModeOtherThanTheStoredOneIsStillRefused(): void
+    {
+        $this->settingService->set('retro_moderation_mode', 'warning', 'retro');
+
+        $response = $this->controller(null)->save($this->postRequest([
+            '_csrf_token' => $this->csrfToken(),
+            'retro_moderation_mode' => 'enforced',
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('warning', $this->settingService->get('retro_moderation_mode', 'retro'));
+    }
+
     public function testSavePersistsModerationModeWhenAiIsAvailable(): void
     {
         $moderationService = $this->createStub(ModerationService::class);

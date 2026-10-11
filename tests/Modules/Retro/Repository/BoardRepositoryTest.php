@@ -29,17 +29,17 @@ class BoardRepositoryTest extends TestCase
     {
         $defaults = [
             'title' => 'Camp 2026', 'boardDate' => '2026-07-01', 'calendarEventId' => null,
-            'token' => bin2hex(random_bytes(8)), 'shortCode' => null, 'listed' => true,
+            'token' => bin2hex(random_bytes(8)), 'shortCode' => null, 'accessMode' => 'animators',
             'voteMode' => 'unlimited', 'voteBudget' => 5, 'votesVisible' => true,
-            'antiDuplicateMode' => 'cookie', 'maxCommentLength' => 140, 'autoCloseDelay' => '7d',
+            'maxCommentLength' => 140, 'autoCloseDelay' => '7d',
             'autoCloseAt' => null, 'createdBy' => null,
             'closeNotifyEnabled' => true, 'closeNotifyEmail' => null,
         ];
         $p = array_merge($defaults, $overrides);
 
         return $this->repository->create(
-            $p['title'], $p['boardDate'], $p['calendarEventId'], $p['token'], $p['shortCode'], $p['listed'],
-            $p['voteMode'], $p['voteBudget'], $p['votesVisible'], $p['antiDuplicateMode'], $p['maxCommentLength'],
+            $p['title'], $p['boardDate'], $p['calendarEventId'], $p['token'], $p['shortCode'], $p['accessMode'],
+            $p['voteMode'], $p['voteBudget'], $p['votesVisible'], $p['maxCommentLength'],
             $p['autoCloseDelay'], $p['autoCloseAt'], $p['createdBy'], $p['closeNotifyEnabled'], $p['closeNotifyEmail']
         );
     }
@@ -117,14 +117,13 @@ class BoardRepositoryTest extends TestCase
     {
         $id = $this->createBoard(['title' => 'Old title']);
 
-        $this->repository->update($id, 'New title', '2026-08-01', null, false, 'budget', 3, false, 'auth', 160, 'none', null);
+        $this->repository->update($id, 'New title', '2026-08-01', null, 'identified', 'budget', 3, false, 160, 'none', null);
         $board = $this->repository->findById($id);
 
         $this->assertSame('New title', $board->title);
         $this->assertSame('budget', $board->voteMode);
-        $this->assertFalse($board->listed);
+        $this->assertSame('identified', $board->accessMode);
         $this->assertFalse($board->votesVisible);
-        $this->assertSame('auth', $board->antiDuplicateMode);
     }
 
     public function testCloseNotifyFieldsRoundTripThroughCreateAndUpdate(): void
@@ -135,8 +134,8 @@ class BoardRepositoryTest extends TestCase
         $this->assertSame('chief@example.com', $board->closeNotifyEmail);
 
         $this->repository->update(
-            $id, $board->title, $board->boardDate, null, $board->listed, $board->voteMode, $board->voteBudget,
-            $board->votesVisible, $board->antiDuplicateMode, $board->maxCommentLength, $board->autoCloseDelay,
+            $id, $board->title, $board->boardDate, null, $board->accessMode, $board->voteMode, $board->voteBudget,
+            $board->votesVisible, $board->maxCommentLength, $board->autoCloseDelay,
             null, false, null
         );
         $updated = $this->repository->findById($id);

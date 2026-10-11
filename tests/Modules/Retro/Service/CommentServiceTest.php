@@ -51,8 +51,8 @@ class CommentServiceTest extends TestCase
         $defaults = ['maxCommentLength' => 140, 'status' => 'open'];
         $p = array_merge($defaults, $overrides);
         $id = $this->boardRepository->create(
-            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, true, 'unlimited', 5,
-            true, 'cookie', $p['maxCommentLength'], '7d', null, null
+            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, 'public', 'unlimited', 5,
+            true, $p['maxCommentLength'], '7d', null, null
         );
         if ($p['status'] === 'closed') {
             $this->boardRepository->close($id);
