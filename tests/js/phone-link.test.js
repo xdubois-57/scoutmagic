@@ -206,6 +206,7 @@ describe('phone-link.js', () => {
 
             expect(writeText).toHaveBeenCalledWith('+32 472 54 67 71');
             expect(document.querySelector('[data-phone-copy-label]').textContent).toBe('Numéro copié');
+            expect(document.querySelector('[role="status"][aria-live="polite"]').textContent).toBe('Numéro copié');
             vi.advanceTimersByTime(1000);
             expect(offcanvas.hide).toHaveBeenCalledTimes(1);
             vi.advanceTimersByTime(1000);
@@ -293,8 +294,10 @@ describe('phone-link.js', () => {
 
             expect(writeText).toHaveBeenCalledWith('+32 472 54 67 71');
             expect(button.textContent).toBe('Copié');
+            expect(document.querySelector('[role="status"]').textContent).toBe('Copié');
             vi.advanceTimersByTime(2000);
             expect(button.textContent).toBe('Copier');
+            expect(document.querySelector('[role="status"]').textContent).toBe('');
         });
 
         it('says so when the clipboard refuses', async () => {
@@ -308,6 +311,22 @@ describe('phone-link.js', () => {
             await Promise.resolve();
 
             expect(button.textContent).toBe('Copie impossible');
+        });
+
+        it('tells a screen reader how the copy went, which the button\'s aria-label would hide', async () => {
+            writeText.mockImplementation(() => Promise.reject(new Error('denied')));
+            document.body.innerHTML = phoneLink('n', '+32472546771', '+32 472 54 67 71', 'mobile');
+            api().enhance(document);
+            const region = document.querySelector('[data-phone-status]');
+            expect(region.getAttribute('role')).toBe('status');
+            expect(region.getAttribute('aria-live')).toBe('polite');
+            expect(region.textContent).toBe('');
+
+            click(document.querySelector('[data-phone-copy-inline]'));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(region.textContent).toBe('Copie impossible');
         });
 
         it('handles a number only once, however often enhance runs', () => {

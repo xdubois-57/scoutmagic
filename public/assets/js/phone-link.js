@@ -120,7 +120,30 @@
     }
 
     /**
-     * Swap a label for a moment, then put it back.
+     * The polite live region that tells a screen reader how a copy went.
+     * Each copy button's name is an aria-label carrying the number, which
+     * outranks its text: changing the text alone reaches only the eye.
+     * Created with the first number on the page, so it exists before its
+     * first message, which is what makes a screen reader read it.
+     *
+     * @returns {HTMLElement}
+     */
+    function statusRegion() {
+        var region = /** @type {HTMLElement|null} */ (document.querySelector('[data-phone-status]'));
+        if (!region) {
+            region = document.createElement('div');
+            region.className = 'visually-hidden';
+            region.setAttribute('role', 'status');
+            region.setAttribute('aria-live', 'polite');
+            region.setAttribute('data-phone-status', '');
+            document.body.appendChild(region);
+        }
+        return region;
+    }
+
+    /**
+     * Swap a label for a moment, then put it back, and say the new one to
+     * a screen reader.
      *
      * @param {HTMLElement} element
      * @param {string} text
@@ -130,8 +153,14 @@
         restore(element);
         element.dataset.phoneOriginalLabel = element.textContent || '';
         element.textContent = text;
+        statusRegion().textContent = text;
         labelTimers.set(element, window.setTimeout(function () {
             restore(element);
+            // Emptied, so the same message after the next copy is a change
+            // a screen reader reads again.
+            if (statusRegion().textContent === text) {
+                statusRegion().textContent = '';
+            }
         }, delay));
     }
 
@@ -175,6 +204,7 @@
                 return;
             }
             link.dataset.phoneReady = '1';
+            statusRegion();
             if (touch) {
                 link.setAttribute('aria-haspopup', 'dialog');
                 link.setAttribute('aria-controls', 'phone-sheet');
