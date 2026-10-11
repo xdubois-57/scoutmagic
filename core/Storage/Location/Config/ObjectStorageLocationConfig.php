@@ -72,6 +72,12 @@ final class ObjectStorageLocationConfig implements LocationConfig
         return $this->publicUrl !== null && $this->publicUrl !== '';
     }
 
+    /** The bucket at its endpoint; the key and the public address are not where. */
+    public function target(): string
+    {
+        return rtrim($this->endpoint, '/') . '/' . $this->bucket;
+    }
+
     public function describe(): string
     {
         $host = parse_url($this->endpoint, PHP_URL_HOST);

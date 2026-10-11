@@ -26,7 +26,11 @@ use Core\Storage\Location\StoredObject;
  * so this class only ever sees one absolute directory and the rest of the
  * codebase never has to know the rule.
  */
-class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBackend, ServerSideCopyBackend
+class LocalStorageBackend implements
+    RangeReadableBackend,
+    ResumableUploadBackend,
+    ServerSideCopyBackend,
+    EmptinessProbingBackend
 {
     /**
      * Both of these are true of any filesystem and neither of them costs
@@ -356,6 +360,20 @@ class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBacken
      * and a resumed walk could skip files or repeat them for ever.
      * Directories are not entries — only files are stored objects.
      */
+    public function holdsAnything(): bool
+    {
+        if (!is_dir($this->baseDirectory)) {
+            return false;
+        }
+
+        // The first entry answers; the rest of the tree is never read.
+        foreach (new \FilesystemIterator($this->baseDirectory, \FilesystemIterator::SKIP_DOTS) as $ignored) {
+            return true;
+        }
+
+        return false;
+    }
+
     public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
     {
         $root = $this->fullPath(trim($prefix, '/'));

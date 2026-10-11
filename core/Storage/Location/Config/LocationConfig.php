@@ -61,4 +61,19 @@ interface LocationConfig
      * one visitor and dead minutes later.
      */
     public function servesPubliclyWithoutExpiry(): bool;
+
+    /**
+     * WHERE the bytes are, as an identity rather than a sentence: two
+     * configurations with the same target read and write the same files
+     * (#832).
+     *
+     * Every type has to answer this too. It is what tells a change of
+     * credentials or of label — the same storage, reached differently —
+     * from a change of target, which attaches the location to another
+     * storage that may already hold files: that second kind is never made
+     * without the administrator seeing whether the new target is empty.
+     * The most reliable identifier the type has, never a display name: a
+     * Drive folder's id, not its name.
+     */
+    public function target(): string;
 }

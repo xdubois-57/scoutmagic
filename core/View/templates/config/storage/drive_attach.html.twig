@@ -1,0 +1,77 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Rattacher un dossier existant — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with { title: 'Rattacher un dossier existant' } only %}
+
+    {% if submit_error %}
+        <div class="alert alert-danger">{{ submit_error }}</div>
+    {% endif %}
+
+    {#
+      Three acts, said apart (#832): renaming keeps the folder, this page
+      points the location at a folder that already exists, and « Créer un
+      nouveau dossier » starts an empty one. None of them moves a file.
+    #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <p class="mb-2">
+                L'emplacement <strong>{{ location.label }}</strong> lira et écrira désormais dans le dossier
+                Google Drive que vous indiquez ici. Utilisez cette page quand son dossier actuel n'existe plus
+                — après une restauration, par exemple — alors que vos fichiers sont toujours dans un autre
+                dossier.
+            </p>
+            <ul class="small text-body-secondary mb-0">
+                <li>Rien n'est copié, déplacé, renommé ni effacé, ni dans l'ancien dossier ni dans celui-ci.</li>
+                <li>Le dossier est désigné par son adresse, jamais par son nom : deux dossiers peuvent porter le même.</li>
+                <li>Ce site ne voit que les dossiers qu'il a créés lui-même, rangés sous « {{ parent_folder }} »
+                    dans le Drive du compte raccordé. Choisissez le dossier de l'emplacement, pas
+                    « {{ parent_folder }} » lui-même.</li>
+                <li>Renommer l'emplacement ne change jamais de dossier : c'est ici qu'on en change.</li>
+            </ul>
+        </div>
+    </div>
+
+    {% if not connected %}
+        <div class="alert alert-warning">
+            Aucun compte Google n'est raccordé à cet emplacement : raccordez-en un depuis
+            <a href="/config/stockage/emplacements">la liste des emplacements</a>, puis revenez ici.
+        </div>
+    {% else %}
+        <form method="post" action="/config/stockage/emplacements/{{ location.id }}/google/dossier-existant">
+            {{ csrf_field()|raw }}
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'drive-folder-reference',
+                        field_name: 'folder',
+                        label: 'Adresse du dossier',
+                        value: reference,
+                        required: true,
+                        autocomplete: 'off',
+                        placeholder: 'https://drive.google.com/drive/folders/…',
+                        help: "Ouvrez le dossier dans Google Drive et copiez l'adresse affichée par votre navigateur.",
+                        size: 'sm',
+                    } only %}
+
+                    {% if needs_confirmation %}
+                        <div class="alert alert-warning mt-3 mb-0" data-existing-content>
+                            <p class="mb-2">{{ confirmation }}</p>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="confirm-existing-content"
+                                       name="confirm_existing_content" value="1" required>
+                                <label class="form-check-label" for="confirm-existing-content">
+                                    Je confirme : rattacher l'emplacement à ce dossier tel qu'il est.
+                                </label>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Rattacher ce dossier</button>
+        </form>
+    {% endif %}
+{% endblock %}

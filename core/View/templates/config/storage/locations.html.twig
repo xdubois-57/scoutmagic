@@ -171,6 +171,23 @@
                                 </span>
                             {% endif %}
 
+                            {% if drive and drive.hasGrant %}
+                                {# The repair, as two acts said apart (#832):
+                                   pointing at a folder that exists, or
+                                   starting an empty one. Neither is ever done
+                                   by a rename, a reconnection or a restore. #}
+                                <a class="btn btn-link btn-sm p-0"
+                                   href="/config/stockage/emplacements/{{ location.id }}/google/dossier-existant">
+                                    Rattacher un dossier existant
+                                </a>
+                                <form method="post"
+                                      action="/config/stockage/emplacements/{{ location.id }}/google/nouveau-dossier"
+                                      data-confirm="Créer un nouveau dossier vide pour cet emplacement ? Seulement si son dossier actuel n'existe plus : ce qu'il contenait ne serait plus lu par le site. Rien n'est supprimé chez Google.">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-link btn-sm p-0">Créer un nouveau dossier</button>
+                                </form>
+                            {% endif %}
+
                             {% if drive and (drive.hasGrant or drive.hasClientSecret) %}
                                 {# Destructive, so a POST form with its CSRF token
                                    and the shared data-confirm attribute — never a

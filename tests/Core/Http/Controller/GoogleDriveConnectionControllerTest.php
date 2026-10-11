@@ -163,6 +163,21 @@ final class GoogleDriveConnectionControllerTest extends TestCase
                 '/config/stockage/emplacements/1/google/deraccordement',
                 'disconnect',
             ],
+            'the page that attaches an existing folder' => [
+                'GET',
+                '/config/stockage/emplacements/1/google/dossier-existant',
+                'attachFolderForm',
+            ],
+            'attach an existing folder' => [
+                'POST',
+                '/config/stockage/emplacements/1/google/dossier-existant',
+                'attachFolder',
+            ],
+            'create a new folder' => [
+                'POST',
+                '/config/stockage/emplacements/1/google/nouveau-dossier',
+                'createFolder',
+            ],
             // The one a browser reaches from somewhere else, and the one
             // that writes a refresh token. Left open it would be a route
             // where anybody able to compose a URL decides which Google
@@ -504,8 +519,15 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($folderId));
     }
 
-    /** A folder in the trash is not reused: writing there would lose it all in thirty days. */
-    public function testAFolderInTheTrashIsReplacedOnReconnection(): void
+    /**
+     * **A folder gone missing is not replaced on reconnection** (#832).
+     * In the trash, deleted, or out of sight of the account just
+     * authorised — a new folder then would point the location at nothing
+     * while its files wait elsewhere. The grant is saved, since repairing
+     * needs it; the folder id stays; the operator is told, and the
+     * journal records it.
+     */
+    public function testAFolderInTheTrashIsNotReplacedOnReconnection(): void
     {
         $drive = new FakeDrive(null);
         $this->connectThrough($drive);
@@ -514,8 +536,105 @@ final class GoogleDriveConnectionControllerTest extends TestCase
 
         $this->connectThrough($drive);
 
+        $this->assertSame($old, $this->config()->folderId);
+        $this->assertTrue($this->config()->isConnected());
+        $this->assertCount(
+            1,
+            array_filter(
+                $drive->files,
+                static fn (array $f): bool => $f['name'] === 'Google Drive' && $f['mime'] === FakeDrive::FOLDER_MIME
+            ),
+            'a folder was created on its own'
+        );
+        $this->assertSame(1, $this->journal->countOf('storage_location_folder_missing'));
+    }
+
+    // ————— Repairing a location whose folder went missing (#832) —————
+
+    public function testThePageToAttachAFolderSaysWhatItDoesAndDoesNot(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+
+        $html = (string) $this->controllerOn($drive)
+            ->attachFolderForm($this->getRequest(), ['id' => (string) $this->locationId])
+            ->getBody();
+
+        $this->assertStringContainsString('name="folder"', $html);
+        $this->assertStringContainsString('jamais par son nom', $html);
+        $this->assertStringContainsString('Rien n\'est copié, déplacé, renommé ni effacé', $html);
+    }
+
+    /**
+     * The ticket's repair, through the screen: the folder holding the
+     * files is attached by its address, after a confirmation since it
+     * holds files, and journaled.
+     */
+    public function testAFolderHoldingFilesIsAttachedOnceConfirmed(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $old = $this->config()->folderId;
+        $drive->files[$old]['trashed'] = true;
+        $current = $drive->addFolder('Drive', (string) $drive->folderAt('ScoutMagic'), 'dossier-actuel-0001');
+        $drive->put('photo.jpg', 'octets', 'image/jpeg', $current);
+        $address = 'https://drive.google.com/drive/folders/' . $current;
+
+        $asked = $this->controllerOn($drive)->attachFolder(
+            $this->postRequest(['folder' => $address]),
+            ['id' => (string) $this->locationId]
+        );
+
+        $this->assertSame(409, $asked->getStatusCode());
+        $this->assertStringContainsString('name="confirm_existing_content"', (string) $asked->getBody());
+        $this->assertStringContainsString('value="' . $address . '"', (string) $asked->getBody());
+        $this->assertSame($old, $this->config()->folderId);
+
+        $done = $this->controllerOn($drive)->attachFolder(
+            $this->postRequest(['folder' => $address, 'confirm_existing_content' => '1']),
+            ['id' => (string) $this->locationId]
+        );
+
+        $this->assertSame(302, $done->getStatusCode());
+        $this->assertSame($current, $this->config()->folderId);
+        $this->assertSame(1, $this->journal->countOf('storage_location_folder_attached'));
+        $this->assertSame('octets', $drive->contentOf('photo.jpg'));
+    }
+
+    public function testAFolderThatCannotBeAttachedIsRefusedWithTheReason(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $old = $this->config()->folderId;
+
+        $response = $this->controllerOn($drive)->attachFolder(
+            $this->postRequest(['folder' => 'dossier-inconnu-0001', 'confirm_existing_content' => '1']),
+            ['id' => (string) $this->locationId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('ne voit aucun dossier', (string) $response->getBody());
+        $this->assertSame($old, $this->config()->folderId);
+        $this->assertSame(0, $this->journal->countOf('storage_location_folder_attached'));
+    }
+
+    /** A new folder only on request, and only once the old one is gone. */
+    public function testANewFolderIsCreatedOnRequestOnceTheOldOneIsGone(): void
+    {
+        $drive = new FakeDrive(null);
+        $this->connectThrough($drive);
+        $old = $this->config()->folderId;
+
+        $this->controllerOn($drive)->createFolder($this->postRequest([]), ['id' => (string) $this->locationId]);
+        $this->assertSame($old, $this->config()->folderId);
+        $this->assertSame(0, $this->journal->countOf('storage_location_folder_created'));
+
+        $drive->files[$old]['trashed'] = true;
+        $this->controllerOn($drive)->createFolder($this->postRequest([]), ['id' => (string) $this->locationId]);
+
         $this->assertNotSame($old, $this->config()->folderId);
         $this->assertSame('ScoutMagic/Google Drive', $drive->pathOf($this->config()->folderId));
+        $this->assertSame(1, $this->journal->countOf('storage_location_folder_created'));
     }
 
     /**
@@ -687,6 +806,28 @@ final class GoogleDriveConnectionControllerTest extends TestCase
             $this->settings,
             new JournalService($this->journal),
             $client ?? new GoogleDriveClient(fn (): array => ['status' => 500, 'body' => '{}'])
+        );
+    }
+
+    /**
+     * The controller over a service whose backends reach $drive too — the
+     * repair actions look at the folder through the location's backend.
+     */
+    private function controllerOn(FakeDrive $drive): GoogleDriveConnectionController
+    {
+        $this->journal = new RecordingJournalRepository();
+
+        return new GoogleDriveConnectionController(
+            TestTwig::create(),
+            $this->locations,
+            new StorageLocationService(
+                $this->locations,
+                new StorageBackendFactory($this->locations, sys_get_temp_dir(), $drive->client()),
+                new StorageLocationConsumerRegistry()
+            ),
+            $this->settings,
+            new JournalService($this->journal),
+            $drive->client()
         );
     }
 

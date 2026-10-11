@@ -8,7 +8,7 @@ question: Où sont stockés les fichiers du site ?
 question: Quel type de stockage choisir pour les photos ?
 question: Comment déclarer un disque réseau ?
 paths: /config/stockage/emplacements, /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification
-related: stockage-webdav, stockage-google-drive, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
+related: stockage-cible, stockage-webdav, stockage-google-drive, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
 ---
 
 Un **emplacement de stockage**, c'est une destination où le site écrit
