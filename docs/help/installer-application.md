@@ -63,6 +63,12 @@ trombinoscope. Sans connexion :
 - rien ne peut être envoyé — les formulaires attendent le retour de la
   connexion, sans effacer ce que vous avez tapé.
 
+Si l'écran « Pas de connexion » s'affiche, la page n'a pas été gardée.
+Vérifiez que les cookies fonctionnels sont activés (lien en pied de
+page, en ligne) et que la page a été ouverte dans l'application
+récemment : une copie plus ancienne que le délai fixé par l'unité,
+30 jours par défaut, n'est plus proposée.
+
 Les documents privés, les données financières et les pages de gestion
 ne sont jamais gardés sur l'appareil. La copie locale est effacée quand
 vous vous déconnectez ou quand vous retirez votre accord sur les

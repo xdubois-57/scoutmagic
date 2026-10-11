@@ -272,6 +272,47 @@ class PwaControllerTest extends TestCase
     }
 
     /**
+     * #883: the screen says why a page is missing — functional cookies, a
+     * page opened recently — with the setting's number of days, and offers
+     * « Accueil » only once offline-page.js has found a saved home page.
+     */
+    public function testTheOfflinePageSaysWhenAPageIsAvailableAndHidesAccueilUntilOneIsSaved(): void
+    {
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 14);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+
+        $body = $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('cookies fonctionnels sont activés', $body);
+        $this->assertStringContainsString('il y a moins de 14 jours', $body);
+        $this->assertStringContainsString('data-staleness-days="14"', $body);
+        $this->assertMatchesRegularExpression('~id="offline-home-link" class="[^"]*\\bd-none\\b~', $body);
+        $this->assertStringContainsString('Aucune page n\'est encore enregistrée sur cet appareil.', $body);
+    }
+
+    public function testTheOfflinePageFallsBackToThirtyDaysAndSaysOneDayInTheSingular(): void
+    {
+        $this->assertStringContainsString(
+            'il y a moins de 30 jours',
+            $this->controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody()
+        );
+
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 1);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+        $body = $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('il y a moins de 1 jour.', preg_replace('~\s+~', ' ', $body));
+    }
+
+    /**
      * Mirrors public/index.php's actual route registrations: role_min
      * "public" for all four PWA/favicon routes, so an unauthenticated
      * request must reach the controller (200/404 territory) rather than

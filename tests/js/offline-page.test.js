@@ -72,3 +72,73 @@ describe('offline-page.js', () => {
         expect(back).not.toHaveBeenCalled();
     });
 });
+
+// #883: « Accueil » reloaded `/`, and without a saved copy the service
+// worker answered with this very screen — a button that seemed to do
+// nothing. It shows only when a recent copy of the home page exists.
+describe('offline-page.js: « Accueil » only when the home page is saved', () => {
+    const DOM = `
+        <p id="offline-nothing-saved" class="d-none">Aucune page n'est encore enregistrée sur cet appareil.</p>
+        <a href="/" id="offline-home-link" class="d-none">Accueil</a>
+    `;
+
+    /** Cache Storage holding $copies: {cacheName: {url: dateHeader}}. */
+    function storage(copies) {
+        return {
+            keys: vi.fn(async () => Object.keys(copies)),
+            open: vi.fn(async (name) => ({
+                match: vi.fn(async (url) => (copies[name]?.[url] !== undefined
+                    ? { headers: { get: (h) => (h === 'Date' ? copies[name][url] : null) } }
+                    : undefined)),
+            })),
+        };
+    }
+
+    async function settle() {
+        for (let i = 0; i < 10; i++) {
+            await Promise.resolve();
+        }
+    }
+
+    it('offers « Accueil » when a recent copy of the home page is saved', async () => {
+        globalThis.caches = storage({ 'app-shell-1': {}, 'content-7-1.0': { '/': new Date().toUTCString() } });
+        document.body.dataset.stalenessDays = '30';
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('offline-nothing-saved').classList.contains('d-none')).toBe(true);
+    });
+
+    it('says nothing is saved when there is no copy of the home page', async () => {
+        globalThis.caches = storage({ 'content-7-1.0': { '/contact': new Date().toUTCString() } });
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('offline-nothing-saved').classList.contains('d-none')).toBe(false);
+    });
+
+    it('does not count a copy older than the service worker would serve', async () => {
+        const fortyDaysAgo = new Date(Date.now() - 40 * 86400000).toUTCString();
+        globalThis.caches = storage({ 'content-7-1.0': { '/': fortyDaysAgo } });
+        document.body.dataset.stalenessDays = '30';
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+    });
+
+    it('leaves both hidden when Cache Storage cannot be read', async () => {
+        globalThis.caches = { keys: vi.fn(() => Promise.reject(new Error('SecurityError'))) };
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('offline-nothing-saved').classList.contains('d-none')).toBe(true);
+    });
+});
