@@ -182,6 +182,13 @@ final class ModuleManifestTest extends TestCase
      * of the charter's 500 AND had already spent its one warning
      * callout, so IT-02's blur had nowhere to go in it. Splitting was the
      * decision, not squeezing.
+     *
+     * `une-publication-partagee` is the only `public` topic of this
+     * module, and it exists because the public page of a communication
+     * is a PAGE (issue #706, IT-04): `HelpMenuCoverageTest` requires
+     * help visible at a page's own role floor, and this one's floor is
+     * « anyone who followed a link from Facebook ». Listing the route as
+     * a non-page instead would have been a lie — it renders a page.
      */
     public function testTheModulesHelpTopicsAreAllThere(): void
     {
@@ -202,6 +209,7 @@ final class ModuleManifestTest extends TestCase
                 'l-image-publiee',
                 'medias-sociaux',
                 'reseaux-sociaux',
+                'une-publication-partagee',
             ],
             $ids,
             'A social help topic stopped parsing, or one arrived without this test being told.'
