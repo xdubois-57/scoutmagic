@@ -427,5 +427,36 @@ class RegistrationRequestControllerTest extends TestCase
         $updated = $this->requestRepository->findById($id);
         $this->assertSame('encoded', $updated->status);
         $this->assertSame($memberId, $updated->linkedMemberId);
+        $this->assertSame(
+            ['type' => 'success', 'message' => 'Demande liée au membre Desk et encodée.'],
+            \Core\Http\FlashMessage::get()
+        );
+    }
+
+    /**
+     * The fiche is a sub-page of « Demandes » (issue #843, D1): the
+     * module's title, its rail with « Demandes » selected, the request's
+     * number as the last step of the trail, and the manual link offered as
+     * « Lier à un membre Desk » — the word it used to carry is gone.
+     */
+    public function testTheFicheIsASubPageOfTheRequests(): void
+    {
+        $id = $this->createRequest();
+        $this->requestRepository->updateStatus($id, 'accepted', null);
+
+        $body = (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertMatchesRegularExpression('/<h1[^>]*>\s*Formulaire d&#039;inscription\s*</', $body);
+        $this->assertMatchesRegularExpression(
+            '#<a href="/config/inscriptions/demandes"[^>]*aria-current="page"[^>]*>\s*<span>Demandes</span>#',
+            $body
+        );
+        $this->assertStringContainsString('Léa Dupont — demande #' . $id, $body);
+        $this->assertStringContainsString("<title>Demande #{$id} — Formulaire d'inscription", $body);
+        $this->assertStringContainsString('Lier à un membre Desk', $body);
+        $this->assertStringNotContainsString('rapproch', mb_strtolower($body));
     }
 }

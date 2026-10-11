@@ -1,0 +1,53 @@
+{# The public form: open or close it now, and the recurring yearly dates.
+   The dates are stored as "MM-DD" and edited with native date pickers
+   showing their next occurrence (Service\RecurringMonthDay) — a picker
+   cannot hold a day without a year. Requires `registration_form_open`,
+   `scheduled_open` and `scheduled_close` (RegistrationConfigController::
+   scheduleField()). #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Formulaire d'inscription</h2>
+        <p class="mb-3">
+            État actuel :
+            {% if registration_form_open %}
+                {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Ouvert' } only %}
+            {% else %}
+                {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Fermé' } only %}
+            {% endif %}
+        </p>
+        <form method="post" action="/config/inscriptions/toggle-open" class="mb-4">
+            {{ csrf_field()|raw }}
+            {% if registration_form_open %}
+                <button type="submit" class="btn btn-outline-danger btn-sm">Fermer maintenant</button>
+            {% else %}
+                <button type="submit" class="btn btn-outline-success btn-sm">Ouvrir maintenant</button>
+            {% endif %}
+        </form>
+
+        <h3 class="h6 mb-2">Programmation annuelle récurrente</h3>
+        <p class="text-body-secondary small mb-3">
+            Le formulaire s'ouvre et se ferme automatiquement à ces dates chaque année, sans devoir les reconfigurer :
+            seuls le jour et le mois comptent. Laissez un champ vide pour piloter cette bascule uniquement à la main.
+        </p>
+        <form method="post" action="/config/inscriptions/schedule">
+            {{ csrf_field()|raw }}
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    {% include '@registration/config/_schedule_field.html.twig' with {
+                        field_id: 'scheduled_open_at', label: 'Ouverture programmée', field: scheduled_open,
+                        noun: 'ouverture', the_noun: "l'ouverture",
+                        none_help: "Aucune ouverture programmée : le formulaire ne s'ouvre qu'à la main.",
+                    } only %}
+                </div>
+                <div class="col-12 col-md-6">
+                    {% include '@registration/config/_schedule_field.html.twig' with {
+                        field_id: 'scheduled_close_at', label: 'Fermeture programmée', field: scheduled_close,
+                        noun: 'fermeture', the_noun: 'la fermeture',
+                        none_help: "Aucune fermeture programmée : le formulaire ne se ferme qu'à la main.",
+                    } only %}
+                </div>
+            </div>
+            <button type="submit" class="btn btn-outline-primary mt-3">Enregistrer</button>
+        </form>
+    </div>
+</div>

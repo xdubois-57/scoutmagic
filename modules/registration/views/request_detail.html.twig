@@ -1,16 +1,18 @@
 {% extends 'base.html.twig' %}
-{% block title %}{{ r.childFirstName }} {{ r.childLastName }} — Inscriptions — {{ site_name }}{% endblock %}
+{% block title %}Demande #{{ r.id }} — Formulaire d'inscription — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="page-medium">
-        {# The way back to the request list lives in the breadcrumb trail
-           (design.md §7.3) — no « Retour » link here. #}
-        {% include 'partials/page_header.html.twig' with {
-            title: r.childFirstName ~ ' ' ~ r.childLastName,
-            subtitle: 'Demande reçue le ' ~ r.receivedAt|french_date ~ ' — année scoute ' ~ scout_year_label,
-        } only %}
+    <div class="page-wide">
+        {# A sub-page of « Demandes » (issue #843, D1): the module's title and
+           its rail, « Demandes » selected. The way back to the list lives
+           in the breadcrumb trail (design.md §7.3) — no « Retour » link
+           here. #}
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
 
         <div class="card mb-4">
             <div class="card-body">
+                <h2 class="h5 mb-1">{{ r.childFirstName }} {{ r.childLastName }} — demande #{{ r.id }}</h2>
+                <p class="text-body-secondary small mb-3">Demande reçue le {{ r.receivedAt|french_date }} — année scoute {{ scout_year_label }}</p>
                 <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                     {% if r.status == 'pending' %}
                         {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
@@ -236,14 +238,14 @@
         {% if r.status != 'encoded' %}
             <div class="card mb-4">
                 <div class="card-body">
-                    <h2 class="h5 mb-3">Rapprochement manuel</h2>
+                    <h2 class="h5 mb-3">Lier à un membre Desk</h2>
                     <p class="small text-body-secondary">
-                        Si l'import Desk n'a pas pu rapprocher automatiquement cette demande (ou si le membre existe déjà dans Desk sans passer par un nouvel import), saisissez son numéro de tiers Desk ci-dessous.
+                        Si l'import Desk n'a pas pu relier automatiquement cette demande à un membre (ou si le membre existe déjà dans Desk sans passer par un nouvel import), saisissez son numéro de tiers Desk ci-dessous : la demande sera encodée dans Desk.
                     </p>
                     <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/link" class="d-flex flex-column flex-sm-row gap-2">
                         {{ csrf_field()|raw }}
                         <input type="text" name="desk_id" class="form-control form-control-sm" style="max-width:220px;" placeholder="Numéro de tiers Desk" aria-label="Numéro de tiers Desk" required>
-                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Rapprocher et encoder</button>
+                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Lier et encoder</button>
                     </form>
                 </div>
             </div>

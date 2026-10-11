@@ -1,0 +1,20 @@
+{#
+  Sub-navigation of « Formulaire d'inscription » — four sub-pages, one menu
+  entry (issue #843, D1): the dashboard, the requests (whose fiche is a
+  sub-page of its own, hence `match_prefix`: /config/inscriptions/demandes/12
+  keeps « Demandes » selected), the e-mail templates and the settings.
+  The shared `partials/page_picker.html.twig`, like `_reenrollment_nav`;
+  nothing on these pages folds away.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'registration-page-picker',
+    pages: [
+        {'url': '/config/inscriptions', 'label': 'Tableau de bord'},
+        {'url': '/config/inscriptions/demandes', 'label': 'Demandes'},
+        {'url': '/config/inscriptions/gabarits', 'label': 'Gabarits'},
+        {'url': '/config/inscriptions/reglages', 'label': 'Réglages'},
+    ],
+    current_path: current_path,
+    match_prefix: true,
+    aria_label: "Pages Formulaire d'inscription",
+} only %}

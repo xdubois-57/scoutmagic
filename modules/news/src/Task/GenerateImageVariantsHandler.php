@@ -18,13 +18,14 @@ use Core\Scheduler\TaskHandlerInterface;
 
 /**
  * One-shot backfill: generates the thumb/md derivatives for news images
- * uploaded before the module grew its variant pipeline. The templates
+ * uploaded before the module grew its variant pipeline — covers first,
+ * then the images of article texts (#883). The templates
  * render /files/{id}/thumb|md, and FileController::variant() deliberately
  * never falls back to the original — without this pass, every article
  * image from before the pipeline would 404 forever.
  *
  * Seeded once from the composition root, guarded by the non-editable
- * `news_image_variants_backfilled` setting (same runtime-flag pattern as
+ * `DONE_FLAG` setting (same runtime-flag pattern as
  * the finance module's own `…_seeded` bookkeeping settings); the handler
  * flips the flag when it is done, so the pass never runs twice. Fully
  * idempotent regardless: an already-present derivative is skipped, so an
@@ -34,7 +35,15 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
 {
     public const TASK_KEY = 'generate_image_variants';
     public const REFERENCE = 'backfill';
-    public const DONE_FLAG = 'news_image_variants_backfilled';
+    /**
+     * Second of its name (#883). The first pass ran once, for the covers,
+     * and stayed done; the images of an article's TEXT were uploaded
+     * without derivatives until #883 and kept arriving that way after it.
+     * They live under the same `news/images/` prefix, so the same walk
+     * covers them — a new flag is what makes every installation run it
+     * once more. Covers already done are skipped at the cost of a stat.
+     */
+    public const DONE_FLAG = 'news_body_image_variants_backfilled';
 
     /**
      * How many images one pass re-encodes before handing over.

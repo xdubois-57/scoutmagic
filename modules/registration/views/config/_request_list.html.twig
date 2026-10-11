@@ -1,0 +1,124 @@
+{# The request list of one scout year: year selector, filters, search,
+   export and table. Requires `selected_year`, `is_past_year`,
+   `selectable_years`, `target_year_id`, `current_year_id`, `status_filter`,
+   `search` and `request_rows`. #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Demandes — année {{ selected_year.label }}{% if is_past_year %} <span class="badge text-bg-secondary">Consultation seule</span>{% endif %}</h2>
+
+        <form method="get" action="/config/inscriptions/demandes" class="row g-2 align-items-end mb-4">
+            <div class="col-12 col-sm-4 col-md-3">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'year', field_name: 'year', label: 'Année scoute',
+                    type: 'select', size: 'sm', wrapper_class: '',
+                    options: selectable_years|default([])|map(year => {
+                        value: year.id,
+                        label: year.label
+                            ~ (year.id == target_year_id ? ' (cible)' : '')
+                            ~ (year.id == current_year_id ? ' (en cours)' : ''),
+                        selected: year.id == selected_year.id,
+                    }),
+                } only %}
+            </div>
+            <div class="col-12 col-sm-4 col-md-3">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'status', field_name: 'status', label: 'État',
+                    type: 'select', size: 'sm', wrapper_class: '',
+                    options: {
+                        '': 'Tous',
+                        'pending': 'En attente',
+                        'accepted': 'Acceptée',
+                        'refused': 'Refusée',
+                        'withdrawn': 'Retirée',
+                        'encoded': 'Encodée dans Desk',
+                    }|map((label, value) => {
+                        value: value, label: label, selected: status_filter == value,
+                    }),
+                } only %}
+            </div>
+            <div class="col-12 col-sm-4 col-md-4">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'q', field_name: 'q', label: 'Recherche (enfant, parent)',
+                    value: search, size: 'sm', wrapper_class: '',
+                } only %}
+            </div>
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-outline-primary btn-sm w-100">Filtrer</button>
+            </div>
+        </form>
+
+        {# The export takes exactly the rows this screen shows, filters
+           included — so it carries the same three query parameters, and
+           its label carries the count. Exporting 200 requests while
+           looking at the 12 pending ones would be a surprise; the reverse
+           would be worse. #}
+        <div class="mb-3">
+            <a href="/config/inscriptions/export?year={{ selected_year.id }}&amp;status={{ status_filter|default('')|url_encode }}&amp;q={{ search|default('')|url_encode }}"
+               class="btn btn-outline-secondary btn-sm w-100 w-sm-auto">
+                <i class="bi bi-download" aria-hidden="true"></i>
+                Exporter ({{ request_rows|length }})
+            </a>
+            <span class="form-text d-block d-sm-inline ms-sm-2">
+                Reprend les demandes affichées ci-dessous. Les notes internes n'y figurent jamais.
+            </span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Reçue le</th>
+                        <th>Enfant</th>
+                        <th>Créneau</th>
+                        <th>Section prévue</th>
+                        <th>Fratrie</th>
+                        <th>État</th>
+                        <th>E-mail de décision</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in request_rows %}
+                        {% set r = row.request %}
+                        <tr>
+                            <td>{{ r.receivedAt|french_date }}</td>
+                            <td>{{ r.childFirstName }} {{ r.childLastName }}</td>
+                            <td>{{ row.slot_label }}</td>
+                            <td>{{ row.intended_section_label ?? '—' }}</td>
+                            <td>{{ row.sibling_count > 0 ? row.sibling_count : '—' }}</td>
+                            <td>
+                                {% if r.status == 'pending' %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
+                                {% elseif r.status == 'accepted' %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %}
+                                {% elseif r.status == 'refused' %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %}
+                                {% elseif r.status == 'withdrawn' %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %}
+                                {% elseif r.status == 'encoded' %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée' } only %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.status == 'accepted' or r.status == 'encoded' %}
+                                    {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
+                                {% elseif r.status == 'refused' %}
+                                    {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td><a href="/config/inscriptions/demandes/{{ r.id }}" class="btn btn-sm btn-outline-secondary">Ouvrir</a></td>
+                        </tr>
+                    {% else %}
+                        {% include 'partials/empty_state.html.twig' with {
+                            message: 'Aucune demande pour ces critères.',
+                            compact: true,
+                            colspan: 8,
+                        } only %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
