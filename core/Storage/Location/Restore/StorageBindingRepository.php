@@ -30,7 +30,9 @@ class StorageBindingRepository
      */
     public function rows(): array
     {
-        $stmt = $this->pdo->query('SELECT id, type, label, config, secret_encrypted FROM storage_locations ORDER BY id');
+        $stmt = $this->pdo->query(
+            'SELECT id, type, label, config, secret_encrypted FROM storage_locations ORDER BY id'
+        );
         if ($stmt === false) {
             return [];
         }

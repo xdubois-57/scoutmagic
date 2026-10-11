@@ -76,14 +76,17 @@ final class StorageBindingSnapshot
             throw new \RuntimeException('Le dossier temporaire du site n\'a pas pu être créé.');
         }
 
-        $encoded = array_map(static fn (array $row): array => [
-            'id' => $row['id'],
-            'type' => $row['type'],
-            'label' => $row['label'],
-            'config' => $row['config'],
-            // Base64 because the ciphertext is bytes, not text.
-            'secret' => $row['secret'] === null ? null : base64_encode($row['secret']),
-        ], $this->rows);
+        $encoded = [];
+        foreach ($this->rows as $row) {
+            $encoded[] = [
+                'id' => $row['id'],
+                'type' => $row['type'],
+                'label' => $row['label'],
+                'config' => $row['config'],
+                // Base64 because the ciphertext is bytes, not text.
+                'secret' => $row['secret'] === null ? null : base64_encode($row['secret']),
+            ];
+        }
 
         $path = $directory . '/storage_bindings_' . bin2hex(random_bytes(8)) . '.json';
         $json = json_encode(['format' => self::FORMAT, 'rows' => $encoded]);
@@ -110,7 +113,10 @@ final class StorageBindingSnapshot
             return null;
         }
         $decoded = json_decode($raw, true);
-        if (!is_array($decoded) || ($decoded['format'] ?? null) !== self::FORMAT || !is_array($decoded['rows'] ?? null)) {
+        if (!is_array($decoded)
+            || ($decoded['format'] ?? null) !== self::FORMAT
+            || !is_array($decoded['rows'] ?? null)
+        ) {
             return null;
         }
 
