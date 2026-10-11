@@ -430,6 +430,22 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertNull($linked[0]['destination']);
     }
 
+    /**
+     * An allocation at 0 is a removal someone made: not listed.
+     */
+    public function testARemovedAllocationIsNotListed(): void
+    {
+        $kept = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $removed = $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'Loyer', $this->categoryId);
+        $movement = $this->movement(150.00);
+        $this->allocate($movement, $kept, 15000);
+        $this->allocate($movement, $removed, 0);
+
+        $linked = $this->linkedService()->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame([$kept], array_column($linked, 'id'));
+    }
+
     public function testAMovementThatPaysNothingListsNothing(): void
     {
         $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));

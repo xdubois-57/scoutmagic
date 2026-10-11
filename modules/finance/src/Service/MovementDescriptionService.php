@@ -122,6 +122,10 @@ final class MovementDescriptionService
         $shares = [];
         foreach ($byMovement as $movementId => $allocations) {
             foreach ($allocations as $allocation) {
+                // 0 is a removal kept so the next import does not redo it.
+                if ($allocation->amountCents <= 0) {
+                    continue;
+                }
                 $shares[$movementId][$allocation->receivableId]
                     = ($shares[$movementId][$allocation->receivableId] ?? 0) + abs($allocation->amountCents);
             }

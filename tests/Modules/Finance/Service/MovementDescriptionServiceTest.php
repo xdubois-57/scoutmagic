@@ -73,6 +73,28 @@ class MovementDescriptionServiceTest extends TestCase
         $this->assertStringStartsWith('News #1 — Premier', $this->present([$movement])[$movement]['description']);
     }
 
+    /**
+     * An allocation at 0 is a removal someone made: the movement no longer
+     * pays that receivable, so it is unimputed again.
+     */
+    public function testARemovedAllocationNoLongerNamesTheReceivable(): void
+    {
+        $receivables = FinanceTestHelper::receivableService($this->pdo, $this->encryption);
+        $fee = $receivables->createReceivable('news', 1, $this->accountId, 3000, '+++123/4567/89002+++', 'Cotisation Jean', $this->categoryId);
+        $camp = $receivables->createReceivable('news', 2, $this->accountId, 9000, '+++123/4567/89103+++', 'Camp Jean', $this->categoryId);
+        $paysOne = $this->movement('Virement', 30.00);
+        $this->allocate($paysOne, $fee, 3000);
+        $this->allocate($paysOne, $camp, 0);
+        $removed = $this->movement('+++123/4567/89002+++', 30.00);
+        $this->allocate($removed, $fee, 0);
+
+        $presented = $this->present([$paysOne, $removed]);
+
+        $this->assertStringStartsWith('News #1 — Cotisation Jean', $presented[$paysOne]['description']);
+        $this->assertStringNotContainsString('autre créance', $presented[$paysOne]['description']);
+        $this->assertSame('Paiement non imputé', $presented[$removed]['description']);
+    }
+
     public function testACreditCarryingAnUnknownCommunicationIsUnimputed(): void
     {
         $movement = $this->movement('+++123/4567/89002+++', 45.00);
