@@ -28,7 +28,7 @@ class CommentRepositoryTest extends TestCase
 
         $boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->boardId = $boardRepository->create(
-            'Board', '2026-07-01', null, 'tok', null, true, 'unlimited', 5, true, 'cookie', 140, '7d', null, null
+            'Board', '2026-07-01', null, 'tok', null, 'public', 'unlimited', 5, true, 140, '7d', null, null
         );
     }
 

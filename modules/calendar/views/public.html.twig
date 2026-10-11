@@ -126,6 +126,13 @@
             <div class="small mb-1 d-none" id="event-details-time-row"><i class="bi bi-clock" aria-hidden="true"></i> <span id="event-details-time"></span></div>
             <div class="small mb-2 d-none" id="event-details-location-row"><i class="bi bi-geo-alt" aria-hidden="true"></i> <span id="event-details-location"></span></div>
             <p class="small mb-0" style="white-space:pre-line;" id="event-details-description"></p>
+            {# A linked retrospective, for a reader its access mode lets in
+               and only while it is open (issue #833) — the server leaves
+               data-retro-link empty for everybody else. #}
+            <div class="small mt-2 d-none" id="event-details-retro-row">
+                <i class="bi bi-sticky" aria-hidden="true"></i>
+                <a href="#" id="event-details-retro-link">Ouvrir la rétrospective</a>
+            </div>
         {% endblock %}
         {% block footer %}
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>

@@ -103,6 +103,21 @@
 
             setText('event-details-description', data.description || '');
 
+            // The linked retrospective (issue #833). The server only fills
+            // data-retro-link for a reader the board lets in, and only
+            // with its own address; the check here keeps anything else
+            // from ever becoming a link.
+            var retroLink = /** @type {HTMLAnchorElement|null} */ (
+                document.getElementById('event-details-retro-link')
+            );
+            var retroUrl = data.retroLink || '';
+            var showRetro = /^https?:\/\//.test(retroUrl) || retroUrl.charAt(0) === '/';
+            if (retroLink && showRetro) {
+                retroLink.href = retroUrl;
+                retroLink.textContent = data.retroLinkTitle || 'Ouvrir la rétrospective';
+            }
+            toggleRow('event-details-retro-row', !!retroLink && showRetro);
+
             if (detailsModal) {
                 detailsModal.show();
             }

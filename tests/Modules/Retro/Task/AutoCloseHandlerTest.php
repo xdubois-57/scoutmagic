@@ -56,8 +56,8 @@ class AutoCloseHandlerTest extends TestCase
     private function createOpenBoard(bool $closeNotifyEnabled = true, ?string $closeNotifyEmail = null): int
     {
         return $this->boardRepository->create(
-            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, true, 'unlimited', 5,
-            true, 'cookie', 140, '24h', (new \DateTimeImmutable('+1 day'))->format('Y-m-d H:i:s'), null,
+            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, 'public', 'unlimited', 5,
+            true, 140, '24h', (new \DateTimeImmutable('+1 day'))->format('Y-m-d H:i:s'), null,
             $closeNotifyEnabled, $closeNotifyEmail
         );
     }

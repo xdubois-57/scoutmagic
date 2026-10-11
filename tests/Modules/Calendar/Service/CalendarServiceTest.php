@@ -577,6 +577,41 @@ class CalendarServiceTest extends TestCase
         $this->assertSame('Local scout', $gridEvent->data['location']);
     }
 
+    /**
+     * The board's existence and the auto-create flag are editor-only data
+     * (issue #833): a reader with a role gets the gated link keys, never
+     * these two; the chiefs' page asks for them explicitly.
+     */
+    public function testToGridEventsGivesTheRetroFlagsToTheEditorOnly(): void
+    {
+        $lookup = $this->createStub(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $lookup->method('hasLinkedBoard')->willReturn(true);
+        $lookup->method('findLinkedBoardLink')->willReturn(null);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $service = new CalendarService(
+            $this->calendarRepository,
+            $this->eventRepository,
+            new SectionService(
+                new SectionRepository(Connection::withPdo($this->pdo)),
+                new MemberProfileRepository(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo))
+            ),
+            new CalendarUnitFeedTokenRepository($this->pdo, $encryption),
+            $lookup
+        );
+        $calendar = $service->addCalendar('Test', Calendar::VISIBILITY_PUBLIC);
+        $id = $this->eventRepository->create($calendar->id, 'Réunion', '2026-03-11', null, null, null, null, null, null);
+        $event = $this->eventRepository->findById($id);
+
+        $reader = $service->toGridEvents([$event], Role::IDENTIFIED, 'parent@test.be', 1)[0]->data;
+        $this->assertArrayNotHasKey('has-linked-retro', $reader);
+        $this->assertArrayNotHasKey('auto-create-retro', $reader);
+        $this->assertSame('', $reader['retro-link']);
+
+        $editor = $service->toGridEvents([$event], Role::CHIEF, 'chef@test.be', 1, forEditor: true)[0]->data;
+        $this->assertSame('1', $editor['has-linked-retro']);
+        $this->assertSame('0', $editor['auto-create-retro']);
+    }
+
     public function testToGridEventsOmitsTimeAndLocationFromTooltipWhenAbsent(): void
     {
         $calendar = $this->service->addCalendar('Test', Calendar::VISIBILITY_PUBLIC);

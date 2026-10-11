@@ -34,8 +34,8 @@
         <div class="collapse mb-3" id="retro-anonymity-info">
             <div class="alert alert-success small mb-0">
                 <p class="mb-2">Tes mots ne sont jamais associés à ton compte : rien dans la base de données ne permet de savoir qui a écrit quoi — même les chefs d'unité et les administrateurs du site n'y ont pas accès.</p>
-                {% if vote_requires_auth %}
-                    <p class="mb-2">Se connecter sert uniquement à vérifier que tu ne votes pas deux fois pour le même mot. Cette vérification passe par un code à sens unique : personne ne peut s'en servir pour retrouver ton identité.</p>
+                {% if votes_keyed_by_account %}
+                    <p class="mb-2">Ta connexion sert uniquement à vérifier que tu ne votes pas deux fois pour le même mot. Cette vérification passe par un code à sens unique : personne ne peut s'en servir pour retrouver ton identité.</p>
                 {% endif %}
                 <p class="mb-0">Un chef d'unité peut masquer un mot en cas de propos injurieux ou d'attaque personnelle, mais ne verra jamais qui l'a écrit.</p>
             </div>
@@ -45,13 +45,6 @@
             <div class="alert alert-warning small d-flex gap-2">
                 <i class="bi bi-exclamation-triangle flex-shrink-0" aria-hidden="true"></i>
                 <span>Masquer un mot est une mesure de <strong>dernier recours</strong> — réservée aux propos injurieux ou aux attaques personnelles, jamais à un simple désaccord. L'action reste réversible. Seul le chef d'unité peut voir et lever un masquage.</span>
-            </div>
-        {% endif %}
-
-        {% if vote_requires_auth and not can_vote %}
-            <div class="alert alert-info small d-flex gap-2">
-                <i class="bi bi-box-arrow-in-right flex-shrink-0" aria-hidden="true"></i>
-                <span>Tu peux toujours ajouter des mots anonymement. Pour voter, connecte-toi avec ton email — juste pour s'assurer qu'une même personne ne vote pas deux fois, ton identité reste invisible des autres.</span>
             </div>
         {% endif %}
 
