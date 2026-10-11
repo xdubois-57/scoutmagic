@@ -31,6 +31,33 @@ class CommunicationRepository
      * module whether this viewer may share it — this layer only records
      * the answer.
      */
+    /**
+     * The communication this share is, creating it if it is new — **and
+     * answering the existing row when it is not** (issue #793, #706
+     * IT-05).
+     *
+     * The same source, the same text and the same chief are the same
+     * communication, and `uq_social_communications_twin` is what decides
+     * it: the INSERT either goes in or raises a duplicate key, and the
+     * duplicate key IS the replay signal. No SELECT before it, so there
+     * is no window for two simultaneous POSTs to both pass — which the
+     * SELECT-then-INSERT over a 120-second window that stood here until
+     * IT-05 could not close, `session_write_close()` running before
+     * routing so that PHP's session lock does not serialise two requests
+     * from one chief either.
+     *
+     * **Answering the row is not dropping the request.** A chief who
+     * shares an album to Facebook and then, straight away, to a
+     * discussion group sends the same text both times; the caller carries
+     * the publication out against the row this hands back, and
+     * `social_publications`' own unique key refuses only what has already
+     * gone, destination by destination. Deciding it here, from the text,
+     * would throw the second share away in silence — the defect a review
+     * of IT-01 found and the reason that method existed at all.
+     *
+     * Nothing of the existing row is touched: its title, its text, its
+     * blur and its kept card are what the first share settled.
+     */
     public function create(
         string $title,
         string $body,
@@ -40,102 +67,75 @@ class CommunicationRepository
         ?int $sourceId = null
     ): int {
         $stamp = $now->format('Y-m-d H:i:s');
-        $this->pdo->prepare(
-            'INSERT INTO social_communications'
-            . ' (title, body, created_by, created_at, updated_at, source_kind, source_id)'
-            . ' VALUES (?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$title, $body, $createdBy, $stamp, $stamp, $sourceKind, $sourceId]);
+        // Null for a communication with no source: there is nothing to be
+        // a duplicate of, and the unique key then matches no row.
+        $hash = $sourceKind === null ? null : hash('sha256', $body);
 
-        return (int) $this->pdo->lastInsertId();
+        try {
+            $this->pdo->prepare(
+                'INSERT INTO social_communications'
+                . ' (title, body, created_by, created_at, updated_at, source_kind, source_id, body_hash)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([$title, $body, $createdBy, $stamp, $stamp, $sourceKind, $sourceId, $hash]);
+
+            return (int) $this->pdo->lastInsertId();
+        } catch (\PDOException $e) {
+            if (!self::isDuplicate($e)) {
+                throw $e;
+            }
+        }
+
+        $twin = $this->twin((string) $sourceKind, (int) $sourceId, (string) $hash, $createdBy);
+
+        // The key raised and the row is not there: another request rolled
+        // its own back between the two statements. Nothing to answer with,
+        // so the duplicate key is re-raised rather than turned into a
+        // silent zero that would publish against row 0.
+        if ($twin === null) {
+            throw new \RuntimeException('The twin this key named is not there any more.');
+        }
+
+        return $twin;
     }
 
     /**
-     * The id of a communication this very POST appears to have created
-     * already, or null.
-     *
-     * **Why this exists.** Publishing a source-backed share creates the
-     * row and publishes it in one request, and publications are recorded
-     * against the COMMUNICATION's own id — so a replayed POST creates a
-     * second row with a second id, whose
-     * `(source_kind, source_id, destination)` key differs from the
-     * first's and therefore passes the unique constraint. The album went
-     * out publicly twice. The retired `/partage/album/{id}` route
-     * published against the album's own stable key, so a replay hit that
-     * constraint and did nothing; routing through `store()` lost the
-     * protection (raised in review on the pull request for IT-01).
-     *
-     * **Why the body is part of the match.** Sharing the same album again
-     * with a DIFFERENT message is a different content, and gets a row of
-     * its own. The window keeps the match to a resubmission rather than a
-     * decision taken later.
-     *
-     * **What a match does NOT mean is « drop this ».** Byte-identical
-     * fields do not tell a replay from a second, deliberate share: the
-     * composer prefills the caption from the source, so a chief who
-     * shares an album to Facebook and then, straight away, to a
-     * discussion group sends exactly the same text both times. The caller
-     * therefore carries the request out against the row this hands back
-     * instead of answering it — the unique
-     * `(source_kind, source_id, destination)` key refuses what has
-     * already gone, and only that (see
-     * {@see \Modules\Social\Controller\CommunicationController::store()}).
-     * Deciding it here, from the text, threw the second share away in
-     * silence. Raised in review on the pull request for IT-01.
-     *
-     * **WHAT THIS DOES NOT CLOSE, and it matters.** This is a SELECT read
-     * before an INSERT, with no unique constraint behind the matched
-     * columns and no transaction around the pair — a check-then-insert.
-     * Two genuinely simultaneous POSTs can both pass this read before
-     * either row commits, and both then publish. `session_write_close()`
-     * runs before routing (`public/index.php`), so PHP's session lock
-     * does not serialise two requests from the same chief either.
-     *
-     * So the sequential replay — the tap after a slow Meta round trip,
-     * the resubmitted form — is closed, and the simultaneous one is not.
-     * `data-submit-lock` on the composer covers the double tap in the
-     * browser, which is where that case comes from in practice, and
-     * nothing covers two tabs or a retried request landing together.
-     *
-     * Closing it for good needs the database to say so: a UNIQUE index
-     * over the matched columns, taking the duplicate-key error as the
-     * replay signal. Not done here, and not a detail to wave through —
-     * `body` is TEXT, which MySQL indexes only by prefix, and a 255-char
-     * prefix of a caption that may run to
-     * {@see \Modules\Social\Service\PublishingService::CAPTION_MAX_LENGTH}
-     * 2200 would collide on two genuinely different long texts and refuse
-     * a share that should be allowed. A separate hashed key column with a
-     * unique index would work, and would make the refusal permanent
-     * rather than a window — which is a rule the chantier gives to
-     * IT-05, with its « permis, avec avertissement », not to this
-     * iteration. Raised in review on the pull request for IT-01.
+     * The row `uq_social_communications_twin` matched, read back by the
+     * same columns the key is built from.
      */
-    public function recentTwin(
-        string $sourceKind,
-        int $sourceId,
-        string $body,
-        ?int $createdBy,
-        \DateTimeImmutable $since
-    ): ?int {
+    private function twin(string $sourceKind, int $sourceId, string $hash, ?int $createdBy): ?int
+    {
         // The author is compared with an explicit IS NULL branch rather
         // than MySQL's `<=>`, which SQLite — what the suite runs on
         // outside the `database` group — does not know.
         $author = $createdBy === null ? 'created_by IS NULL' : 'created_by = ?';
-        $parameters = [$sourceKind, $sourceId, $body];
+        $parameters = [$sourceKind, $sourceId, $hash];
         if ($createdBy !== null) {
             $parameters[] = $createdBy;
         }
-        $parameters[] = $since->format('Y-m-d H:i:s');
 
         $statement = $this->pdo->prepare(
             'SELECT id FROM social_communications'
-            . ' WHERE source_kind = ? AND source_id = ? AND body = ?'
-            . ' AND ' . $author . ' AND created_at >= ?'
-            . ' ORDER BY id DESC LIMIT 1'
+            . ' WHERE source_kind = ? AND source_id = ? AND body_hash = ?'
+            . ' AND ' . $author . ' ORDER BY id DESC LIMIT 1'
         );
         $statement->execute($parameters);
         $id = $statement->fetchColumn();
 
         return $id === false ? null : (int) $id;
+    }
+
+    /**
+     * A duplicate-key error, told apart from every other database
+     * failure: 1062 on MySQL, 19 with « UNIQUE » in the message on
+     * SQLite. The same reading as
+     * {@see PublicationRepository::isDuplicate()}, which is where this
+     * pattern already earned its place.
+     */
+    private static function isDuplicate(\PDOException $e): bool
+    {
+        $driverCode = (int) ($e->errorInfo[1] ?? 0);
+
+        return $driverCode === 1062 || ($driverCode === 19 && str_contains($e->getMessage(), 'UNIQUE'));
     }
 
     public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): void

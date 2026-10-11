@@ -84,13 +84,6 @@ final class CommunicationController extends AbstractController
 {
     public const HISTORY_PATH = '/medias-sociaux';
 
-    /**
-     * How long a second, byte-identical share of the same source counts
-     * as the same POST arriving twice rather than a decision taken again.
-     * Generous enough to cover a slow Meta round trip and the tap that
-     * follows it; short enough that a share meant later is still a share.
-     */
-    private const REPLAY_WINDOW_SECONDS = 120;
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
@@ -212,40 +205,35 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        // **A replayed POST must not publish the album twice.** Creating
-        // the row and publishing it happen in one request, and the
-        // publication is keyed on the new row's own id, so a second
-        // identical POST would make a second row with a second key and
-        // sail past the unique constraint that used to stop it when the
-        // retired route published against the album's own id. Measured
-        // before this guard: two rows, two publications, two Facebook
-        // posts.
+        // **A replayed POST must not publish the album twice**, and since
+        // IT-05 the database is what says so: `create()` either inserts
+        // or hits `uq_social_communications_twin` and hands back the row
+        // that is already there (issue #793). Creating the row and
+        // publishing it happen in one request, and the publication is
+        // keyed on the new row's own id — so a second identical POST
+        // making a second row would sail past the unique constraint that
+        // stops a second publication. Measured before any of this: two
+        // rows, two publications, two Facebook posts.
         //
-        // **So the guard stops the duplicate ROW, and nothing else.** The
-        // request is then carried out against the row that already
-        // exists, exactly as a second « Publier » on a saved
-        // communication is: a destination already sent is refused by the
-        // unique key, with the sentence that says so, and a destination
-        // this click asks for and that one did not — the chief who shared
-        // to Facebook and then, straight away, to a discussion group —
-        // goes out. A twin never means « drop this »: deciding that from
-        // the text alone would have thrown the second share away in
-        // silence, since the caption the composer prefills is the same
-        // both times (raised in review on the pull request for IT-01).
-        if ($kind !== null) {
-            $twin = $this->communications->recentTwin(
-                $kind,
-                (int) $sourceId,
-                self::body($request),
-                AuthSession::getUserAccountId(),
-                (new \DateTimeImmutable())->modify('-' . self::REPLAY_WINDOW_SECONDS . ' seconds')
-            );
-            $existing = $twin === null ? null : $this->communications->find($twin);
-            if ($existing !== null) {
-                return $this->act($request, $existing);
-            }
-        }
-
+        // The guard stopped the duplicate ROW and nothing else, and that
+        // has not changed: the request is carried out against whichever
+        // row comes back, exactly as a second « Publier » on a saved
+        // communication is. A destination already sent is refused by
+        // `social_publications`' own key, with the sentence that says so,
+        // and a destination this click asks for and that one did not —
+        // the chief who shared to Facebook and then, straight away, to a
+        // discussion group — goes out. Answering the row never means
+        // « drop this »: deciding that from the text alone would have
+        // thrown the second share away in silence, since the caption the
+        // composer prefills is the same both times (raised in review on
+        // the pull request for IT-01).
+        //
+        // What IT-05 changed is the window. It was a SELECT before the
+        // INSERT over 120 seconds, which closed the sequential replay and
+        // left two simultaneous POSTs both passing; the key closes both,
+        // and makes the refusal permanent — the chantier's own rule,
+        // since the same source with a DIFFERENT message is a new
+        // communication, allowed with a warning.
         $id = $this->communications->create(
             // A source-backed communication has no title of its own: the
             // card's title IS the source's, read at every use, so writing

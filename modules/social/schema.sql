@@ -106,6 +106,17 @@ CREATE TABLE IF NOT EXISTS social_communications (
     file_id INT UNSIGNED NULL,
     source_kind VARCHAR(20) NULL,
     source_id INT UNSIGNED NULL,
+    -- SHA-256 of `body`, and the only reason it exists is the unique key
+    -- below (issue #793, #706 IT-05). `body` is TEXT, which MySQL indexes
+    -- by prefix only, and a 255-character prefix of a caption that may
+    -- run to 2 200 would collide on two genuinely different long texts —
+    -- refusing a share that should be allowed. A hash collides only on
+    -- equal texts.
+    --
+    -- NULL for a communication written from nothing: there is no source
+    -- to deduplicate it against, and two free communications with the
+    -- same text are two posts somebody wrote twice on purpose.
+    body_hash CHAR(64) NULL,
     -- How blurred this card's photo leaves, chosen with the composer's
     -- slider and frozen with the rest once one destination has been tried
     -- (issue #706, IT-02). NULL is « never chosen »: the site's own
@@ -142,5 +153,25 @@ CREATE TABLE IF NOT EXISTS social_communications (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_social_communications_source (source_kind, source_id),
-    UNIQUE KEY uq_social_communications_public_token (public_token)
+    UNIQUE KEY uq_social_communications_public_token (public_token),
+    -- **The same source, the same text, the same chief is the same
+    -- communication** (issue #793, #706 IT-05), and the database is what
+    -- says so: a replayed POST hits this key and the caller reads the row
+    -- back instead of creating a second one. It used to be a SELECT
+    -- before the INSERT over a 120-second window, which closed the
+    -- sequential replay and left two simultaneous POSTs both passing —
+    -- `session_write_close()` runs before routing, so PHP's session lock
+    -- does not serialise them either.
+    --
+    -- The refusal is now PERMANENT rather than a window, and that is the
+    -- chantier's own rule: sharing the same source again with a DIFFERENT
+    -- message is a new communication, allowed with a warning; with the
+    -- same message it is the same communication, and what may still leave
+    -- is decided by `social_publications`' own key, destination by
+    -- destination.
+    --
+    -- A NULL in any column makes the row collide with nothing, on both
+    -- engines. That is the behaviour wanted here, not a loophole: a
+    -- communication with no source has nothing to be a duplicate of.
+    UNIQUE KEY uq_social_communications_twin (source_kind, source_id, created_by, body_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

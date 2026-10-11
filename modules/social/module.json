@@ -2,7 +2,7 @@
   "id": "social",
   "name": "Réseaux sociaux",
   "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {

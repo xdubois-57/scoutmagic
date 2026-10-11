@@ -99,8 +99,8 @@ final class ModuleManifestTest extends TestCase
     /**
      * The schema gained `source_kind` / `source_id` for IT-01, then the
      * slider's ratio and the kept card for IT-02, then `public_token` for
-     * IT-04 — and the chantier asks for the manifest version to go up
-     * with each.
+     * IT-04, then `body_hash` and its unique key for IT-05 — and the
+     * chantier asks for the manifest version to go up with each.
      *
      * **Not because the bump is what ships the columns** — it is not, and
      * believing it is would be the dangerous reading of this pin.
@@ -117,7 +117,7 @@ final class ModuleManifestTest extends TestCase
      */
     public function testTheVersionRisesWithTheSchema(): void
     {
-        $this->assertSame('1.3.0', $this->manifest['version']);
+        $this->assertSame('1.4.0', $this->manifest['version']);
     }
 
     /**

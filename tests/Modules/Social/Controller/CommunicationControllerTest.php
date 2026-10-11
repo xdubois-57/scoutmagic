@@ -1229,9 +1229,15 @@ final class CommunicationControllerTest extends TestCase
      * publication is keyed on the NEW row's own id — so a second
      * identical POST made a second row with a second key and sailed past
      * the unique constraint that stopped this when the retired route
-     * published against the album's own id. Measured before the guard:
+     * published against the album's own id. Measured before any guard:
      * two rows, two publications, two Facebook posts. Raised in review on
      * the pull request for IT-01.
+     *
+     * **What stops it since IT-05 is the database**, not a window:
+     * `uq_social_communications_twin` raises on the second INSERT and
+     * `create()` hands back the row already there (issue #793). The
+     * SELECT-then-INSERT it replaces could be passed by two simultaneous
+     * POSTs, neither having committed when the other read.
      */
     public function testAReplayedShareDoesNotPublishTheAlbumTwice(): void
     {
@@ -1391,8 +1397,10 @@ final class CommunicationControllerTest extends TestCase
 
     /**
      * The other side: the same album with a DIFFERENT message is a new
-     * share and stays allowed — which is why the text is part of what
-     * tells a replay from a decision.
+     * share and stays allowed — which is why the text is part of the
+     * unique key, through its hash, and what tells a replay from a
+     * decision. « Permis, avec avertissement » is the chantier's rule for
+     * it, and the warning is the composer's own confirmation.
      */
     public function testTheSameAlbumWithAnotherMessageIsStillANewShare(): void
     {
@@ -1411,6 +1419,47 @@ final class CommunicationControllerTest extends TestCase
             2,
             (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
             'a second message about the same album was refused'
+        );
+    }
+
+    /**
+     * **The refusal has no expiry date**, which is the whole difference
+     * between IT-05's key and the 120-second window it replaces (issue
+     * #793).
+     *
+     * A row written long ago still matches, so a POST replayed an hour
+     * later — a form left open in a tab, a request retried by a flaky
+     * network — finds that row instead of making a second one. Under the
+     * window it made a second row, a second publication and a second
+     * Facebook post, and the window could not be widened without
+     * refusing a share meant later: a hash key does not have to choose,
+     * because the same source with the same text IS the same
+     * communication whenever it arrives.
+     */
+    public function testAReplayLongAfterTheOldWindowStillFindsItsRow(): void
+    {
+        $this->loginAuthor();
+        $body = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => 'Les photos sont en ligne',
+            'action' => 'publish',
+            'destinations' => ['facebook'],
+        ];
+
+        $this->controller()->store($this->post($body), []);
+        // Older than any window this code ever had.
+        $this->pdo->exec("UPDATE social_communications SET created_at = '2020-01-01 00:00:00'");
+        $this->controller()->store($this->post($body), []);
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'the replay made a second communication an hour later'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_publications')->fetchColumn()
         );
     }
 

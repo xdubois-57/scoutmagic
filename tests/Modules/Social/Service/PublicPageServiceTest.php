@@ -147,7 +147,12 @@ final class PublicPageServiceTest extends TestCase
     public function testATokenOpensItsOwnCommunicationAndNoOther(): void
     {
         $mine = $this->communication();
-        $other = $this->communication();
+        // A different text, because since IT-05 the same source with the
+        // same text and the same chief IS the same communication, and
+        // `create()` hands the first row back
+        // (`uq_social_communications_twin`, issue #793). Two rows need
+        // two messages.
+        $other = $this->communication('Et il y en a d\'autres');
         $url = (string) $this->service()->ensureUrlFor($mine, new \DateTimeImmutable());
         $token = substr($url, -64);
 
@@ -183,11 +188,11 @@ final class PublicPageServiceTest extends TestCase
         );
     }
 
-    private function communication(): int
+    private function communication(string $body = 'Les photos sont en ligne'): int
     {
         return $this->communications->create(
             '',
-            'Les photos sont en ligne',
+            $body,
             7,
             new \DateTimeImmutable(),
             ShareSource::KIND_ALBUM,
