@@ -143,6 +143,14 @@ One shared component draws a person everywhere the site shows one — the member
 
 Two photos, never mixed. A **member's** photo belongs to a scout year and is the one on their member page. A **login's** photo is set from "Mon compte", belongs to the person rather than to a year, and is what appears next to their name and their messages. It is optional (initials otherwise), only its owner can set or remove it — an administrator cannot, from anywhere — it is visible only to identified visitors, and removing it deletes the file.
 
+### 3.8 How a phone number is shown
+
+Every phone number the site shows — a member page, a staff list, a camp, a booking, a carpool — is written in **international form, Belgian numbers included** (`+32 472 54 67 71`), whatever way it was typed. The stored value is never changed. A leading « 00 » reads as « + », a « (0) » after the country code is dropped, and the country code is read to its full length (`+352` is Luxembourg, not `+35`). A field holding something other than one number — two numbers, or a number with a note such as « après 18h » — is shown exactly as typed, with no action offered: the site does not guess which number to dial.
+
+On a **touch screen**, the number is the one target of its cell, and tapping it opens a sheet at the bottom of the screen: **Appeler, SMS, WhatsApp, Signal, Copier le numéro**, in that order. Each opens the matching application on that number; a phone without WhatsApp or Signal lands on that service's own explanation page. A **Belgian landline** (anything but `+32 4[5-9]…` on nine digits) is offered the call and the copy only, and the sheet says why; a foreign number is offered everything, since nothing tells its landlines from its mobiles. On a **screen without touch**, the number is plain text followed by a « Copier » button. Without JavaScript, the number is a plain call link.
+
+The sheet never shows a number the page itself would not: who sees which number is decided by each page, exactly as before. Numbers in e-mails stay plain text. The help topic « Appeler ou écrire à un contact depuis son numéro » describes it for users; ARCHITECTURE.md §8.124 says how it is built.
+
 ## 4. Core pages
 
 ### 4.1 Notre unité
