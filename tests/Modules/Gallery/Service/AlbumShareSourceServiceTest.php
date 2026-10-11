@@ -104,6 +104,46 @@ final class AlbumShareSourceServiceTest extends TestCase
         $this->assertNull($this->service()->describe(999, 'chief', 'chef@unite.be'));
     }
 
+    /**
+     * **`pagePath()` asks about no caller, and that is the point** (issue
+     * #706, IT-04): the one thing that needs it is the public page of a
+     * communication sharing this album, which has to decide a « Voir sur
+     * le site » button for a visitor with no account at all.
+     *
+     * So `canManageAlbum()` is not consulted — the album still exists for
+     * a chief who lost it — and nothing of the album leaves here: an
+     * address, or null. The page the path names applies the gallery's own
+     * rule to whoever follows it, which for an album means signing in.
+     */
+    public function testThePagePathIsAnsweredWhateverTheCaller(): void
+    {
+        $id = $this->localAlbum();
+        $this->manages = false;
+
+        // The same address `describe()` refuses to this caller.
+        $this->assertNull($this->service()->describe($id, 'chief', 'chef@unite.be'));
+        $this->assertSame('/gallery/' . $id, $this->service()->pagePath($id));
+    }
+
+    /**
+     * **Null is « there is no longer an album there »**, which is what
+     * makes the button disappear rather than lead nowhere.
+     *
+     * A delegated album answers null like `describe()`'s own structural
+     * exclusions: it belongs to another module and does not live at this
+     * address. The two must agree on that, which is why this is pinned
+     * rather than left to the reading of the code.
+     */
+    public function testADelegatedOrUnknownAlbumHasNoPagePath(): void
+    {
+        $delegated = $this->albums->create(
+            Album::TYPE_LOCAL, 'Délégué', null, '2026-01-01', null, $this->scoutYearId, null, 1, 1, 'camp', 42
+        );
+
+        $this->assertNull($this->service()->pagePath($delegated));
+        $this->assertNull($this->service()->pagePath(999));
+    }
+
     private function localAlbum(): int
     {
         return $this->albums->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, 1, 1);

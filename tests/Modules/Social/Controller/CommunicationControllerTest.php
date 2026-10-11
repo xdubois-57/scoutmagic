@@ -31,6 +31,7 @@ use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\GroupPublishingService;
 use Tests\Modules\Social\FakeGroupPublisher;
+use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
@@ -1169,7 +1170,56 @@ final class CommunicationControllerTest extends TestCase
         // No copy of the album's title: the card reads it from the album,
         // so a second answer here could only ever disagree with it.
         $this->assertSame('', (string) $row['title']);
+        // `/photos`, and that is not IT-04 failing to apply: this POST
+        // carries no drawn card, so the public page would have nothing to
+        // show and the publication goes as a photo instead, composed
+        // server-side as it always was
+        // ({@see \Modules\Social\Service\PublishingService::sendsFacebookLink()}).
+        // The link path, with a card kept, is pinned in
+        // `PublishingServiceTest::testASavedAlbumShareGoesToFacebookAsALinkToItsPublicPage()`.
+        // What this test is about is the pair that was recorded, and that
+        // something left.
         $this->assertNotNull($this->request('/photos'));
+    }
+
+    /**
+     * **The whole chain, through the controller: an album with a drawn
+     * card reaches the Page as a link to its own public page** (issue
+     * #706, IT-04).
+     *
+     * Everything else pins one link of this: `PublishingServiceTest`
+     * publishes a hand-built `ShareSource`, and the composer tests only
+     * read the sentence. This one goes through `store()` as the chief
+     * does — the card arrives in `$_FILES` as the browser's canvas posts
+     * it, `refreshPostedCard()` keeps it, the source is re-resolved from
+     * the row, and only then is the page minted. Both defects the review
+     * of IT-04 found lived in the gap between those steps.
+     */
+    public function testAnAlbumWithADrawnCardReachesFacebookAsALinkToItsPublicPage(): void
+    {
+        $this->loginAuthor();
+        $this->postedCard(self::ALBUM_TITLE);
+
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        $token = (string) $this->pdo->query(
+            'SELECT public_token FROM social_communications ORDER BY id DESC LIMIT 1'
+        )->fetchColumn();
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $token);
+        $this->assertSame(
+            'https://unite.example/partage/' . $token,
+            $this->request('/feed')['fields']['link'] ?? null
+        );
+        $this->assertNull($this->request('/photos'), 'not a photo post');
     }
 
     /**
@@ -1493,16 +1543,62 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
     }
 
-    /** And an album, which goes as a photo, still gets the plain promise. */
-    public function testTheComposerStillPromisesTheCardItselfForAnAlbum(): void
+    /**
+     * **The very first share of an album, where the row does not exist
+     * yet.**
+     *
+     * This is the request that creates the public page, and it is the one
+     * the sentence got wrong: the composer opened from « Partager » holds
+     * the PREFILL `ShareSource` — `kind = KIND_ALBUM`, built before any
+     * row — and the predicate required `KIND_COMMUNICATION`, so it read
+     * « Voici exactement ce qui sera publié » while `store()`, in the
+     * same request, created the row, re-resolved it as a communication
+     * and sent Facebook a link. The one promise that predicate exists to
+     * keep, broken on the first share of every album, and invisible to
+     * the test below because that one starts from a saved row. Found in
+     * review on the pull request for IT-04.
+     */
+    public function testTheComposerSaysFacebookWillLinkBeforeTheRowEvenExists(): void
+    {
+        $this->loginAuthor();
+
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('Sur Facebook, c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('une page de ce site qui montre cette carte', $flat);
+        $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
+    }
+
+    /**
+     * **An album says « a link » too since IT-04, and says something
+     * else about the card** — the opposite of what this test pinned for
+     * IT-03, when an album went to the Page as a photo.
+     *
+     * The difference from the article above is the whole point of there
+     * being two sentences: the link leads to the communication's own
+     * public page, which shows THIS card, this title and this text. So
+     * the card does reach Facebook, inside the preview, and the
+     * article's « n'affiche donc pas cette carte » would be false here.
+     * The reassurance the chief needs instead is that the album stays
+     * among the members.
+     */
+    public function testTheComposerSaysFacebookWillLinkToThePublicPageOfAnAlbum(): void
     {
         $id = $this->sourceBackedCommunication();
         $this->loginAuthor();
 
         $flat = self::flattened($this->controller()->edit($this->get(), ['id' => (string) $id])->getBody());
 
-        $this->assertStringContainsString('Voici exactement ce qui sera publié', $flat);
-        $this->assertStringNotContainsString('c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('Sur Facebook, c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('une page de ce site qui montre cette carte', $flat);
+        $this->assertStringContainsString('L\'album, lui, reste réservé aux membres', $flat);
+        $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
+        // The article's sentence, which would be false here.
+        $this->assertStringNotContainsString('n\'affiche donc pas cette carte', $flat);
     }
 
     /**
@@ -2530,6 +2626,16 @@ final class CommunicationControllerTest extends TestCase
                     )
                     : null;
             }
+
+            public function pagePath(int $albumId): ?string
+            {
+                // `reachable` is « this person may share it », and this
+                // method asks nothing about a person: an album still
+                // exists for a chief who lost it (issue #706, IT-04).
+                return $albumId === CommunicationControllerTest::ALBUM_ID
+                    ? '/gallery/' . CommunicationControllerTest::ALBUM_ID
+                    : null;
+            }
         };
     }
 
@@ -2556,6 +2662,13 @@ final class CommunicationControllerTest extends TestCase
                         $this->cover,
                         true
                     )
+                    : null;
+            }
+
+            public function pagePath(int $articleId): ?string
+            {
+                return $articleId === CommunicationControllerTest::ARTICLE_ID
+                    ? '/s/abc'
                     : null;
             }
         };
@@ -2612,6 +2725,7 @@ final class CommunicationControllerTest extends TestCase
             $cards,
             $settings,
             $journal,
+            new PublicPageService($this->communications, $settings, $journal),
             new MetaClient($this->meta, static function (int $seconds): void {
             })
         );

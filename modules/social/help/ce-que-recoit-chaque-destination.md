@@ -1,7 +1,7 @@
 ---
 id: ce-que-recoit-chaque-destination
 title: Ce que reçoit chaque destination
-summary: L'image qui part sur la Page Facebook, sur Instagram et dans les groupes de discussion — et pourquoi Facebook montre autre chose d'une actualité.
+summary: L'image qui part sur la Page Facebook, sur Instagram et dans les groupes de discussion — et pourquoi la Page reçoit un lien plutôt qu'une image.
 category: Espace animateurs
 role_min: chief
 question: Que reçoit un groupe de discussion quand je publie ?
@@ -16,16 +16,24 @@ est privé et que ses membres voient déjà la galerie ; ce n'est plus le
 cas, pour que ce que vous voyez soit vraiment ce qui part. Un groupe
 reçoit en plus un **vrai lien** vers l'album ou l'actualité.
 
-## L'actualité, sur la Page Facebook
+## Sur la Page Facebook
 
-Une actualité ne part pas en image sur la Page : elle part **en lien**,
-et c'est Facebook qui fabrique l'aperçu, depuis la page de l'actualité —
-sa couverture, son titre, son résumé.
+Un **album** et une **actualité** n'y partent pas en image : ils partent
+**en lien**, et c'est Facebook qui fabrique l'aperçu. Une communication
+écrite de rien part bien en image.
 
-Les deux ne se ressemblent pas forcément : l'image du composeur porte le
-titre écrit dessus et l'adresse du site, tandis que Facebook met le titre
-en texte à côté de la couverture nue. **Le composeur vous le dit sous
-l'image** quand c'est le cas.
+Le lien d'une actualité mène à la page de l'actualité : l'aperçu montre
+sa couverture, son titre et son résumé, qui ne ressemblent pas forcément
+à l'image du composeur — celle-ci porte le titre écrit dessus et
+l'adresse du site.
+
+Le lien d'un album mène à une page de ce site, créée à ce moment-là, qui
+montre l'image du composeur, son titre et son texte : l'aperçu leur
+ressemble. L'album, lui, reste réservé aux membres, et cette page n'en
+montre rien d'autre. Elle reste en ligne ensuite, même si l'album est
+supprimé.
+
+**Le composeur vous dit sous l'image** lequel des cas s'applique.
 
 Sur Instagram et dans les groupes, qui n'affichent pas d'aperçu de lien,
 c'est bien l'image du composeur qui part.

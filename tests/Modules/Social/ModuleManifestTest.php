@@ -32,7 +32,9 @@ final class ModuleManifestTest extends TestCase
     public function testConfigurationIsSuperadminAndSharingIsForChiefs(): void
     {
         foreach ($this->manifest['routes'] as $route) {
-            if ($route['path'] === '/partage/carte/{token}') {
+            if (str_starts_with($route['path'], '/partage/')) {
+                // The three anonymous ones, pinned by
+                // testTheOnlyPublicRoutesAreTheCardAndThePublicPage().
                 continue;
             }
             if (str_starts_with($route['path'], '/medias-sociaux')) {
@@ -50,23 +52,55 @@ final class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The one public route: Meta's servers fetch the card anonymously.
-     * Anything else public in this module would be a mistake.
+     * The anonymous routes, and there are three: Meta's servers fetch the
+     * card for an hour, and from IT-04 a communication's public page and
+     * its card answer for good — what a Facebook link post points at.
+     *
+     * **Anything else public in this module would be a mistake**, which is
+     * what this pin is for. Each one is a token and nothing else between a
+     * passer-by and something the unit composed, so a fourth is a decision
+     * to take in review, not a line to add.
      */
-    public function testTheCardRouteIsTheOnlyPublicOne(): void
+    public function testTheOnlyPublicRoutesAreTheCardAndThePublicPage(): void
     {
-        $public = array_values(array_filter(
-            $this->manifest['routes'],
-            static fn (array $route): bool => $route['role_min'] === 'public'
-        ));
+        $public = array_map(
+            static fn (array $route): array => [$route['method'], $route['path']],
+            array_values(array_filter(
+                $this->manifest['routes'],
+                static fn (array $route): bool => $route['role_min'] === 'public'
+            ))
+        );
 
-        $this->assertCount(1, $public);
-        $this->assertSame(['GET', '/partage/carte/{token}'], [$public[0]['method'], $public[0]['path']]);
+        $this->assertSame([
+            ['GET', '/partage/carte/{token}'],
+            ['GET', '/partage/{token}'],
+            ['GET', '/partage/{token}/carte.jpg'],
+        ], $public);
     }
 
     /**
-     * The schema gained `source_kind` / `source_id` for IT-01, and the
-     * chantier asks for the manifest version to go up with it.
+     * **The card route is declared before the page's image**, and the
+     * order is the point: `Core\Http\Router::resolve()` stops at the
+     * first route that answers, and both patterns have three segments.
+     * `/partage/carte/carte.jpg` matches either one — no real token is
+     * `carte` or `carte.jpg`, so both answer 404, but the day one of
+     * these paths changes shape the reach of the other changes with it.
+     */
+    public function testTheEphemeralCardRouteIsDeclaredFirst(): void
+    {
+        $paths = array_column($this->manifest['routes'], 'path');
+
+        $this->assertLessThan(
+            array_search('/partage/{token}/carte.jpg', $paths, true),
+            array_search('/partage/carte/{token}', $paths, true)
+        );
+    }
+
+    /**
+     * The schema gained `source_kind` / `source_id` for IT-01, then the
+     * slider's ratio and the kept card for IT-02, then `public_token` for
+     * IT-04 — and the chantier asks for the manifest version to go up
+     * with each.
      *
      * **Not because the bump is what ships the columns** — it is not, and
      * believing it is would be the dangerous reading of this pin.
@@ -83,7 +117,7 @@ final class ModuleManifestTest extends TestCase
      */
     public function testTheVersionRisesWithTheSchema(): void
     {
-        $this->assertSame('1.2.0', $this->manifest['version']);
+        $this->assertSame('1.3.0', $this->manifest['version']);
     }
 
     /**
@@ -148,6 +182,13 @@ final class ModuleManifestTest extends TestCase
      * of the charter's 500 AND had already spent its one warning
      * callout, so IT-02's blur had nowhere to go in it. Splitting was the
      * decision, not squeezing.
+     *
+     * `une-publication-partagee` is the only `public` topic of this
+     * module, and it exists because the public page of a communication
+     * is a PAGE (issue #706, IT-04): `HelpMenuCoverageTest` requires
+     * help visible at a page's own role floor, and this one's floor is
+     * « anyone who followed a link from Facebook ». Listing the route as
+     * a non-page instead would have been a lie — it renders a page.
      */
     public function testTheModulesHelpTopicsAreAllThere(): void
     {
@@ -168,6 +209,7 @@ final class ModuleManifestTest extends TestCase
                 'l-image-publiee',
                 'medias-sociaux',
                 'reseaux-sociaux',
+                'une-publication-partagee',
             ],
             $ids,
             'A social help topic stopped parsing, or one arrived without this test being told.'
@@ -184,6 +226,9 @@ final class ModuleManifestTest extends TestCase
                 // the card (issue #706, IT-02): a read, like the composed
                 // preview beside it.
                 'background', 'backgroundSource',
+                // The public page's own card (issue #706, IT-04) — the
+                // durable image a Facebook preview shows.
+                'image',
             ], true);
             $this->assertSame($reads ? 'GET' : 'POST', $route['method'], $route['path'] . ' → ' . $route['action']);
         }

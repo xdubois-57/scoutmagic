@@ -124,4 +124,57 @@ final class ShareSource
         return ($this->card !== null && $this->card !== '')
             || ($this->image !== null && $this->image !== '');
     }
+
+    /**
+     * Whether Facebook receives a **link** post rather than a photo post
+     * — the whole of that decision, in one place (issue #706, IT-04).
+     *
+     * Three cases, and the roadmap names all three:
+     *
+     * - an **article** carries `link`, its own public address, whose
+     *   Open Graph tags the news module already emits (IT-03);
+     * - an **album** has no public address of its own and never will —
+     *   it stays `identified` — so what Facebook is pointed at is the
+     *   communication's public page
+     *   ({@see \Modules\Social\Service\PublicPageService});
+     * - a communication written from **nothing** has no page to offer and
+     *   goes as a photo post, as it always did.
+     *
+     * One predicate rather than a condition repeated, because the
+     * composer has to say which of the two will happen BEFORE anything is
+     * published, and the publisher has to do what was said. Keying the
+     * composer's sentence on `link` alone was right while only an article
+     * went as a link; for an album `link` is still null at that moment,
+     * since the public page is minted at the first share that needs it
+     * and not when a draft is opened. Two rules would have drifted apart
+     * on exactly that gap.
+     *
+     * **It asks about the CONTENT, never about the shape this object
+     * happens to be in**, and that distinction is the fix for a bug this
+     * predicate had on its first day. It carried
+     * `kind === KIND_COMMUNICATION`, to keep the publisher from minting a
+     * page against an album's id — a real concern, but the wrong place
+     * for it. The composer opened from « Partager » holds the PREFILL
+     * shape (`kind = KIND_ALBUM`, built by `ShareSourceResolver::album()`
+     * before any row exists), so the sentence read « Voici exactement ce
+     * qui sera publié » while `store()`, in the very same request,
+     * created the row, re-resolved it as a communication and sent
+     * Facebook a link. The one promise this predicate exists to keep,
+     * broken on the first share of every album. Found in review on the
+     * pull request for IT-04.
+     *
+     * **This is what the composer shows; the publisher adds what only it
+     * can know** — a communication row to own the page, and a kept card
+     * for the page to show
+     * ({@see \Modules\Social\Service\PublishingService::sendsFacebookLink()}).
+     * So the sentence is optimistic exactly once: a share not yet saved
+     * promises a link because the browser normally posts its card with
+     * « Publier ». A browser that cannot draw one gets a photo post
+     * carrying the card the server composes, which beats a link to a page
+     * with no image on it.
+     */
+    public function facebookReceivesLink(): bool
+    {
+        return $this->link !== null || $this->spokenKind() === self::KIND_ALBUM;
+    }
 }

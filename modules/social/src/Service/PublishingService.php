@@ -53,6 +53,12 @@ class PublishingService
         private readonly CardService $cards,
         private readonly SettingService $settings,
         private readonly JournalService $journal,
+        /**
+         * Where an album's Facebook post points (issue #706, IT-04).
+         * Asked at the moment of publishing and never earlier, because
+         * asking is what brings the page into being.
+         */
+        private readonly PublicPageService $publicPages,
         private readonly MetaClient $meta = new MetaClient()
     ) {
     }
@@ -112,10 +118,10 @@ class PublishingService
             }
 
             try {
-                if ($this->needsImage($source, $platform)) {
+                if ($this->needsCardUrl($source, $platform)) {
                     $card ??= $this->cards->issue($this->cardBytes($source), $source->imageFromGallery, $now);
                 }
-                $remoteId = $this->send($source, $platform, $caption, $base, $card);
+                $remoteId = $this->send($source, $platform, $caption, $base, $card, $now);
             } catch (MetaException | CardException $e) {
                 $this->markFailed($source, $platform, $e->getMessage(), $now);
                 $this->log(
@@ -241,11 +247,86 @@ class PublishingService
     }
 
     /**
-     * Whether this destination receives the card rather than a link.
+     * Whether this publication needs an image to exist at all.
+     *
+     * **Not the same question as « does it receive an image »**, which is
+     * what this used to say and what an album's Facebook post made false
+     * (issue #706, IT-04): that post carries a LINK, and still needs the
+     * card, because the card is what the public page it points at shows
+     * and therefore what Facebook builds its preview from. An album with
+     * no cover photo is refused on Facebook for that reason, as it always
+     * was — `link` being null for an album is what keeps it refused, and
+     * is why this line did not have to change when the album's post did.
+     *
+     * An article is the opposite case: its link carries its own page,
+     * whose cover the news module publishes, so this module needs no
+     * image for it. {@see needsCardUrl()} answers the other question.
      */
     public function needsImage(ShareSource $source, SocialPlatform $platform): bool
     {
         return $platform === SocialPlatform::Instagram || $source->link === null;
+    }
+
+    /**
+     * Whether this publication needs the card at a URL Meta can fetch —
+     * the hour-long route of {@see CardService::issue()}.
+     *
+     * Instagram always, since it fetches rather than accepts an upload;
+     * Facebook only for a photo post. An album's link post needs the card
+     * ({@see needsImage()}) and not an address for it: what Facebook
+     * fetches is the public page, which serves the same bytes from its
+     * own durable address. Issuing the ephemeral one too would write a
+     * file and a row for a URL nobody reads.
+     */
+    private function needsCardUrl(ShareSource $source, SocialPlatform $platform): bool
+    {
+        return $platform === SocialPlatform::Instagram || !$this->sendsFacebookLink($source);
+    }
+
+    /**
+     * Whether this send will **actually** carry a link, decided without
+     * minting anything — the question {@see needsCardUrl()} and
+     * {@see send()} have to answer the same way, or one of them is wrong:
+     * a photo post whose card was never issued goes out with an empty
+     * image URL, which is how a review of IT-04 found the legacy album
+     * retry publishing nothing at all.
+     *
+     * It is {@see ShareSource::facebookReceivesLink()} — the decision the
+     * composer showed the chief — plus the two things only the publisher
+     * can know:
+     *
+     * - **a communication to own the page.** A retry reached through
+     *   `…/reessayer/album/{albumId}/…` carries the album's own id and no
+     *   row behind it; minting against that id would point Facebook at a
+     *   page built from an unrelated row that happens to share the
+     *   number.
+     * - **a kept card for the page to show.** The public page serves
+     *   `card_file_id` and nothing else — never the source's photo, which
+     *   is what keeps the rest of the album out of a public address. With
+     *   no card the page would carry no image at all, and that is a worse
+     *   post than the photo this module published before IT-04. Found in
+     *   review on the pull request for IT-04.
+     *
+     * **So the composer's sentence can be optimistic, exactly once**: for
+     * a share not yet saved it promises a link, because the browser
+     * normally posts its card with « Publier » and the publisher then
+     * agrees. A browser that cannot draw one — JavaScript off, a photo
+     * still loading, which
+     * `Controller\CommunicationController::refreshPostedCard()` keeps
+     * supported on purpose — gets a photo post instead, carrying the card
+     * the server composes. That is a better post than the page would have
+     * been, and the one place these two readings differ.
+     */
+    private function sendsFacebookLink(ShareSource $source): bool
+    {
+        if ($source->link !== null) {
+            return true;
+        }
+
+        return $source->facebookReceivesLink()
+            && $source->kind === ShareSource::KIND_COMMUNICATION
+            && $source->card !== null
+            && $source->card !== '';
     }
 
     /**
@@ -287,20 +368,35 @@ class PublishingService
         SocialPlatform $platform,
         string $caption,
         string $base,
-        ?IssuedCard $card
+        ?IssuedCard $card,
+        \DateTimeImmutable $now
     ): string {
         $connection = $this->connections->find($platform);
         $accountId = (string) $connection?->accountId;
         $token = $this->connections->secretsOf($platform)->accessToken;
         $imageUrl = $card === null ? '' : $base . $card->path;
 
-        return match (true) {
-            $platform === SocialPlatform::Instagram
-                => $this->meta->publishInstagramImage($accountId, $token, $imageUrl, $caption),
-            $source->link !== null
-                => $this->meta->publishFacebookLink($accountId, $token, $source->link, $caption),
-            default => $this->meta->publishFacebookPhoto($accountId, $token, $imageUrl, $caption),
-        };
+        if ($platform === SocialPlatform::Instagram) {
+            return $this->meta->publishInstagramImage($accountId, $token, $imageUrl, $caption);
+        }
+
+        // Resolved HERE and not before the branch above: for an album the
+        // answer is a public page that does not exist yet, and asking for
+        // it creates one. An Instagram publication must not leave a public
+        // page behind it (issue #706, IT-04).
+        //
+        // The page is asked for HERE and not before the branch above:
+        // asking is what brings it into being, and an Instagram
+        // publication must leave none behind it. {@see
+        // sendsFacebookLink()} holds every condition, so the card for a
+        // photo post has already been issued when this answers false.
+        $link = $this->sendsFacebookLink($source)
+            ? ($source->link ?? $this->publicPages->ensureUrlFor($source->id, $now))
+            : null;
+
+        return $link === null
+            ? $this->meta->publishFacebookPhoto($accountId, $token, $imageUrl, $caption)
+            : $this->meta->publishFacebookLink($accountId, $token, $link, $caption);
     }
 
     private function log(

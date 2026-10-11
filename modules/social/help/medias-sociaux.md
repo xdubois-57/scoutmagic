@@ -33,8 +33,8 @@ aucune, le bouton est absent et la page le dit en une ligne.
 La page se lit de haut en bas, dans l'ordre où la publication se compose :
 
 - **l'image, telle qu'elle sera publiée**, titre et adresse du site
-  écrits dessus — sauf sur la Page Facebook quand vous partagez une
-  actualité, qui part en lien et dont Facebook fabrique son propre
+  écrits dessus — sauf sur la Page Facebook, qui reçoit un lien quand
+  vous partagez un album ou une actualité, et fabrique son propre
   aperçu ; la page vous le dit sous l'image, et
   [Ce que reçoit chaque destination](ce-que-recoit-chaque-destination)
   l'explique ;

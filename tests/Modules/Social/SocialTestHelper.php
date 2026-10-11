@@ -9,6 +9,14 @@ use Core\Security\EncryptionService;
 /**
  * The social module's table as SQLite, mirroring modules/social/schema.sql,
  * and a transport that plays Meta's part.
+ *
+ * **The column set is kept in step by hand**, like every other module's
+ * helper (`Tests\Modules\InboundMail\InboundMailTestHelper` says the
+ * same). A column added to the real schema and forgotten here surfaces as
+ * « no such column » in whichever test first touches it — the intended
+ * failure mode, and the one `public_token` found on its way in: not in the
+ * repository test that reads it, but in a controller test publishing an
+ * album, three layers away from the column.
  */
 final class SocialTestHelper
 {
@@ -63,6 +71,7 @@ final class SocialTestHelper
             source_id INTEGER NULL,
             blur_ratio REAL NULL,
             card_file_id INTEGER NULL,
+            public_token TEXT NULL UNIQUE,
             created_by INTEGER NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL

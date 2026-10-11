@@ -56,6 +56,24 @@ final class AlbumShareSourceService implements AlbumShareSourceInterface
         );
     }
 
+    /**
+     * Existence and an address, and nothing else — the question a public
+     * page asks to decide one button (issue #706, IT-04).
+     *
+     * Delegated and migrating albums answer null like {@see describe()}:
+     * one belongs to another module and does not live at this address,
+     * the other is halfway between two storages. No access check, because
+     * there is no caller to check — and nothing of the album leaves here.
+     */
+    public function pagePath(int $albumId): ?string
+    {
+        $album = $this->albums->findById($albumId);
+
+        return $album === null || $album->isDelegated() || $album->isMigrating()
+            ? null
+            : '/gallery/' . $album->id;
+    }
+
     private function cover(Album $album): ?string
     {
         if (!$album->isLocal()) {

@@ -58,6 +58,21 @@ final class Communication
          * repository.
          */
         public readonly ?int $cardFileId = null,
+        /**
+         * The address of this communication's public page — the token
+         * itself, which is the whole capability (issue #706, IT-04).
+         *
+         * Null until a share needed that page, and nothing mints it on
+         * the way past: a communication that only ever went to Instagram
+         * or to a discussion group has no public page, and asking for
+         * one is not the same act as sharing.
+         *
+         * Stored in clear, unlike the credentials SECURITY.md § 4
+         * keeps as a SHA-256, because this one has to be HANDED BACK:
+         * the link a chief copies from the history is this string, and a
+         * hash could not be turned back into it.
+         */
+        public readonly ?string $publicToken = null,
     ) {
     }
 

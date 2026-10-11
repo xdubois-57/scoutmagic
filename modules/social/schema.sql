@@ -121,8 +121,26 @@ CREATE TABLE IF NOT EXISTS social_communications (
     -- those the server still composes one: a retry of an old failed share
     -- has to remain possible.
     card_file_id INT UNSIGNED NULL,
+    -- The address of this communication's public page, which is the whole
+    -- capability: whoever holds it reads the page, with no account (issue
+    -- #706, IT-04, SECURITY.md § 6). 32 bytes from `random_bytes()` in
+    -- hexadecimal, never an identifier a passer-by could increment —
+    -- iterating over sequential ids would harvest every communication
+    -- ever shared.
+    --
+    -- NULL until the page is needed, and it is needed by the first share
+    -- that cannot carry the card itself: an album published to Facebook,
+    -- which goes as a LINK to this page. Minted at that instant and never
+    -- afterwards, so a communication that only ever went to Instagram or
+    -- to a discussion group has no public page at all.
+    --
+    -- Once minted it stays: Facebook caches a preview and comes back to
+    -- read the page later, and a page that answered yesterday and 404s
+    -- today breaks a post nobody can edit any more.
+    public_token CHAR(64) NULL,
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    KEY idx_social_communications_source (source_kind, source_id)
+    KEY idx_social_communications_source (source_kind, source_id),
+    UNIQUE KEY uq_social_communications_public_token (public_token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -10844,8 +10844,9 @@ if ($isEnabled('social')) {
         )
     );
 
-    // The composed images Meta fetches (§8.122): the one public route of
-    // the module, and the daily purge of the expired ones.
+    // The composed images Meta fetches (§8.122): the ephemeral public
+    // route — an hour, no cache, for Instagram — and the daily purge of
+    // the expired ones. The durable one is the public page below.
     $socialCardService = new \Modules\Social\Card\CardService(
         new \Modules\Social\Repository\CardRepository($pdo),
         new \Modules\Social\Card\CardRenderer(),
@@ -10861,12 +10862,39 @@ if ($isEnabled('social')) {
     // Sharing an album or an article (§8.122): through the gallery's and
     // the news module's Api, both optional — null when either is off.
     $socialPublicationRepo = new \Modules\Social\Repository\PublicationRepository($pdo);
+    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
+    // The public page of a communication (issue #706, IT-04): where an
+    // album's Facebook post points, since the album itself stays
+    // « Membres connectés » and a crawler signs in nowhere. Built before
+    // the publishing service because that is what asks for a page — and
+    // asking is what creates one.
+    $socialPublicPages = new \Modules\Social\Service\PublicPageService(
+        $socialCommunicationRepo,
+        $settingService,
+        $journalService
+    );
     $socialPublishing = new \Modules\Social\Service\PublishingService(
         $socialConnectionRepo,
         $socialPublicationRepo,
         $socialCardService,
         $settingService,
-        $journalService
+        $journalService,
+        $socialPublicPages
+    );
+    $frontController->registerController(
+        \Modules\Social\Controller\PublicPageController::class,
+        new \Modules\Social\Controller\PublicPageController(
+            $twig,
+            $socialPublicPages,
+            $socialPublicationRepo,
+            $storedFileReader,
+            // One content-free question each — « is the source still
+            // there, and where is its page » — to decide the « Voir sur
+            // le site » button. Null with either module off (§7.5), and
+            // then there is no button.
+            $galleryShareSourceForOthers,
+            $newsShareSourceForOthers
+        )
     );
     // The discussion groups as a destination, or null with the groups
     // module off: one instance, shared by what offers the destinations and
@@ -10898,7 +10926,6 @@ if ($isEnabled('social')) {
         $socialConnectionRepo,
         $socialGroupPublishing
     );
-    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
         $settingService,
         $storedFileReader,

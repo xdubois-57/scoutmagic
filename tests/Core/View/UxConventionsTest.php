@@ -620,6 +620,10 @@ final class UxConventionsTest extends TestCase
         '/config/reseaux-sociaux/{platform}/retour',
         // The composed image Meta's servers fetch — a JPEG, never a page.
         '/partage/carte/{token}',
+        // The same card at the durable address a Facebook link post
+        // points at (issue #706, IT-04) — also a JPEG. Its PAGE,
+        // `/partage/{token}`, declares a breadcrumb like any other.
+        '/partage/{token}/carte.jpg',
         // The card a chief is about to publish, drawn for the composer's
         // <img> — by the communication once it exists, and by its source
         // before that, since « Partager » writes no row on opening.

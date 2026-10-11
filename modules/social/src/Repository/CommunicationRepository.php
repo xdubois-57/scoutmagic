@@ -176,6 +176,48 @@ class CommunicationRepository
             ->execute([$fileId, $now->format('Y-m-d H:i:s'), $id]);
     }
 
+    /**
+     * The communication's public page comes into being (issue #706,
+     * IT-04): the token is written once and never rewritten.
+     *
+     * `WHERE public_token IS NULL` is not belt and braces, it is the
+     * rule: re-minting would silently orphan a page Facebook has already
+     * cached and a chief has already posted, and the post is not theirs
+     * to edit any more. Two requests racing to publish the same
+     * communication therefore mint at most one page, whichever arrives
+     * first, and the loser reads that one back.
+     */
+    public function assignPublicToken(int $id, string $token, \DateTimeImmutable $now): void
+    {
+        $this->pdo->prepare(
+            'UPDATE social_communications SET public_token = ?, updated_at = ?'
+            . ' WHERE id = ? AND public_token IS NULL'
+        )->execute([$token, $now->format('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * The communication a public page's address names, for a caller who
+     * has no account and no session — the token IS the authorisation
+     * (SECURITY.md § 6).
+     *
+     * An empty token is refused before the query rather than matched
+     * against the column: every row written before IT-04 carries NULL
+     * there, which `= ''` would never match anyway, but a caller asking
+     * for nothing should get an answer that does not depend on that.
+     */
+    public function findByPublicToken(string $token): ?Communication
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT * FROM social_communications WHERE public_token = ?');
+        $stmt->execute([$token]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : self::hydrate($row);
+    }
+
     /** One image or the other: choosing a gallery photo forgets the uploaded file, and back. */
     public function useGalleryPhoto(int $id, int $mediaId, \DateTimeImmutable $now): void
     {
@@ -210,7 +252,8 @@ class CommunicationRepository
             // own starting position applies. A cast would turn it into a
             // deliberate 0 — « Net » — which is a different answer.
             ($row['blur_ratio'] ?? null) === null ? null : (float) $row['blur_ratio'],
-            ($row['card_file_id'] ?? null) === null ? null : (int) $row['card_file_id']
+            ($row['card_file_id'] ?? null) === null ? null : (int) $row['card_file_id'],
+            ($row['public_token'] ?? null) === null ? null : (string) $row['public_token']
         );
     }
 }

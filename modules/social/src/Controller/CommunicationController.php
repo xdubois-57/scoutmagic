@@ -826,23 +826,31 @@ final class CommunicationController extends AbstractController
             'uploadable' => !$fromSource,
             'from_source' => $fromSource,
             'image_is_settled' => self::imageIsSettled($source, $fromSource),
-            // **Whether Facebook will build its own preview instead of
-            // showing this card** (issue #706, IT-03).
+            // **What Facebook will be pointed at, when it is pointed at
+            // a page rather than handed a photo** (issue #706, IT-03,
+            // then IT-04): null for a photo post, otherwise which page
+            // builds the preview — because the two tell the chief
+            // opposite things about the card they are looking at.
             //
-            // Keyed on `link`, which is the very field
-            // `PublishingService::send()` branches on: a non-null link
-            // makes the Page post a LINK publication, and Facebook then
-            // renders the target page's Open Graph tags — for an
-            // article, its cover, title and summary — not the card. The
-            // sentence under the card promised « exactement ce qui sera
-            // publié » to everyone, which was true of Instagram and the
-            // groups and false of Facebook.
+            // An ARTICLE goes as a link to its own page, whose cover,
+            // title and summary Facebook renders instead of the card.
+            // An ALBUM goes as a link to the communication's public
+            // page, which shows this very card — so the card does reach
+            // Facebook, inside the preview.
             //
-            // The same signal rather than the kind, so IT-04 carries it
-            // for free: once a communication has a public page, an album
-            // shared to the Page becomes a link publication too, and
-            // this says so without being touched.
-            'link_preview_on_facebook' => ($source->link ?? null) !== null,
+            // IT-03 keyed this on `link` alone and said IT-04 would
+            // carry it for free. **It does not**, and the reason is
+            // worth keeping: the public page is minted at the first
+            // share that needs it, so while the composer is open an
+            // album's `link` is still null. The decision had to become a
+            // predicate of its own, {@see
+            // ShareSource::facebookReceivesLink()}, which the publisher
+            // obeys too — one rule, read before and applied after.
+            'facebook_link_target' => match (true) {
+                !$source?->facebookReceivesLink() => null,
+                ($source->link ?? null) !== null => 'article',
+                default => 'page',
+            },
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,

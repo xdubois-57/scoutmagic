@@ -25,4 +25,13 @@ final class FakeAlbumSource implements AlbumShareSourceInterface
             ? $this->album
             : null;
     }
+
+    /**
+     * Existence and an address, asked by nobody in particular — no
+     * manager, which is the point of the method (issue #706, IT-04).
+     */
+    public function pagePath(int $albumId): ?string
+    {
+        return $this->album !== null && $this->album->id === $albumId ? $this->album->path : null;
+    }
 }

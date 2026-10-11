@@ -15,9 +15,16 @@ use Modules\Social\Card\CardService;
 use Twig\Environment;
 
 /**
- * GET /partage/carte/{token} — the one public route of the module, and the
- * only way Meta's servers can fetch an image to publish (see
- * {@see CardService} and SECURITY.md).
+ * GET /partage/carte/{token} — the only way Meta's servers can fetch an
+ * image to publish (see {@see CardService} and SECURITY.md).
+ *
+ * **The ephemeral one of the module's two public routes.** This address
+ * dies within the hour and is never cached: Instagram fetches the media
+ * once, while publishing. {@see PublicPageController} serves the opposite
+ * need at a neighbouring address — the durable page and card a Facebook
+ * link post points at, which has to still answer days later. The two look
+ * alike; confusing them would either break a preview or leave an image
+ * public for good.
  *
  * Every refusal is the same bare 404, whatever the reason — unknown,
  * malformed, expired: an answer that differed would tell a guesser which
