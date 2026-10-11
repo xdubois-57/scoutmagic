@@ -1201,3 +1201,30 @@ body.cookie-banner-visible {
 .inventory-autosave form[data-inventory-line] [data-inventory-save] {
     display: none;
 }
+
+/* ---------------------------------------------------------------------
+   Solid state badges (partials/status_badge.html.twig's `solid`).
+
+   For a state that has to stand out from the light badges sitting next
+   to it — the publication state of an article (issue #845) is the first:
+   « Brouillon », « Programmée », « Publiée » before « Public » and
+   « Formulaire ouvert ». White bold text on a dark fill, each fill at
+   least 4.5:1 against white, and the three far enough apart in LIGHTNESS
+   (≈ 0.04, 0.11 and 0.18 relative luminance) to be told apart without
+   telling the colours apart. Fixed colours, the same in the dark theme:
+   white on these fills reads on either background. In app.css, not
+   components.css: the partial is reachable from every page header.
+   --------------------------------------------------------------------- */
+.badge-solid {
+    color: #fff;
+    font-weight: 700;
+}
+.badge-solid-dark {
+    background-color: #343a40;    /* 11.5:1 against white */
+}
+.badge-solid-primary {
+    background-color: #0a58ca;    /* 6.4:1 */
+}
+.badge-solid-success {
+    background-color: #198754;    /* 4.5:1 */
+}

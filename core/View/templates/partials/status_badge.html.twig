@@ -28,6 +28,12 @@
   renders secondary — an unknown state is a grey fact, never a silent
   green. text-bg-* (Bootstrap 5.3) guarantees the text contrast on every
   tone, which neither bg-* nor bg-*-subtle did.
+
+  `solid: 'dark'|'primary'|'success'` instead draws the badge filled and
+  bold, white on a dark fill (components.css, .badge-solid-*), for a state
+  that must stand out from the light badges beside it — an article's
+  publication state is the first (issue #845). It replaces `status`'s
+  tone; `label` is unchanged.
 #}
 {% set _tones = {
     'pending': 'warning', 'waiting': 'warning', 'scheduled': 'warning', 'in_progress': 'warning',
@@ -36,4 +42,8 @@
     'closed': 'secondary', 'inactive': 'secondary', 'cancelled': 'secondary', 'withdrawn': 'secondary', 'archived': 'secondary', 'neutral': 'secondary',
     'draft': 'info', 'info': 'info',
 } %}
+{% if solid|default('') in ['dark', 'primary', 'success'] %}
+<span class="badge badge-solid badge-solid-{{ solid }}">{{ label }}</span>
+{% else %}
 <span class="badge text-bg-{{ _tones[status|default('neutral')]|default('secondary') }}">{{ label }}</span>
+{% endif %}

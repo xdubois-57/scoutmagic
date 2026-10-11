@@ -21,6 +21,11 @@ use Modules\Social\Api\SocialSharingInterface;
  * more (docs/chantiers/CHANTIER-medias-sociaux.md, IT-01). Same reasoning
  * as {@see AlbumShareAction}, including why the question is `canPublish()`
  * rather than the Meta accounts alone.
+ *
+ * Unlike the album's, this button carries its word, « Partager » (issue
+ * #845): it shares one row with « Télécharger le PDF » in the editor, and
+ * every button there says what it does. The news editor offers it once the
+ * article is online only.
  */
 final class ArticleShareAction implements ArticleActionProviderInterface
 {
@@ -35,7 +40,7 @@ final class ArticleShareAction implements ArticleActionProviderInterface
     public function actionsFor(int $articleId): array
     {
         return $this->canPublish()
-            ? [new ArticleAction('Partager', self::PATH . $articleId, 'bi-share', true)]
+            ? [new ArticleAction('Partager', self::PATH . $articleId, 'bi-share')]
             : [];
     }
 

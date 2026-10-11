@@ -33,6 +33,11 @@ final class ArticleShareSourceService implements ArticleShareSourceInterface
         if ($article === null || !$this->articles->canEdit($article, Role::fromString($role), $accountId)) {
             return null;
         }
+        // Nothing is shared of an article that is not online (issue #845):
+        // the address would lead every reader to « pas encore en ligne ».
+        if (!ArticleService::isOnline($article)) {
+            return null;
+        }
 
         $base = rtrim((string) ($this->settings->get('base_url') ?: ''), '/');
         $url = $base === '' ? '' : $base . ($article->shortUrlCode !== null

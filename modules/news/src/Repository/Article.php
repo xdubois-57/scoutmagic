@@ -22,6 +22,23 @@ final class Article
     public const VISIBILITY_ADMIN = 'admin';
     public const VISIBILITY_DIRECT_LINK = 'direct_link';
 
+    /**
+     * The two STORED states (issue #845). « Programmée » is not one of
+     * them: it is `published` with a publication date still ahead, read
+     * by Service\ArticleService::isLive() and never written down.
+     */
+    public const STATUS_DRAFT = 'draft';
+    public const STATUS_PUBLISHED = 'published';
+
+    /**
+     * The three states an article is SHOWN in — the badge, the editor's
+     * buttons, the list. Derived from status + published_at by
+     * Service\ArticleService::state(), never stored.
+     */
+    public const STATE_DRAFT = 'draft';
+    public const STATE_SCHEDULED = 'scheduled';
+    public const STATE_PUBLISHED = 'published';
+
     /** @var string[] */
     public const VISIBILITIES = [
         self::VISIBILITY_PUBLIC,
@@ -80,25 +97,42 @@ final class Article
         public readonly string $createdAt,
         public readonly string $updatedAt,
         public readonly ?string $summary = null,
-        public readonly ?int $imageFileId = null
+        public readonly ?int $imageFileId = null,
+        public readonly string $status = self::STATUS_PUBLISHED,
+        public readonly ?string $publishedAt = null
     ) {
+    }
+
+    /**
+     * The date this article is shown and sorted by: its publication date,
+     * or — for a draft, which has none or keeps an old one it does not
+     * show — its creation date.
+     */
+    public function displayDate(): string
+    {
+        if ($this->status === self::STATUS_DRAFT || $this->publishedAt === null) {
+            return $this->createdAt;
+        }
+
+        return $this->publishedAt;
     }
 
     /**
      * Effective SEO indexing state — always computed live (module spec
      * §16: no cron for this). noindex when is_indexed is off, OR
-     * seo_stop_date has passed, OR visibility is direct_link or
-     * identified (enforced again here as a rendering-time safety net on
-     * top of Service\ArticleService already refusing to persist
-     * is_indexed=true for either of those in the first place).
+     * seo_stop_date has passed, OR the visibility is anything but public
+     * (issue #845: only a public article may be indexed — enforced again
+     * here as a rendering-time safety net on top of
+     * Service\ArticleService already refusing to persist is_indexed=true
+     * for any other visibility).
+     *
+     * Whether the article is ONLINE is not asked here: an article that is
+     * not is never rendered to a visitor at all, and the page a manager
+     * sees carries its own noindex (Controller\NewsController::show()).
      */
     public function isEffectivelyIndexed(?\DateTimeImmutable $now = null): bool
     {
-        if (!$this->isIndexed || in_array(
-            $this->visibility,
-            [self::VISIBILITY_DIRECT_LINK, self::VISIBILITY_IDENTIFIED],
-            true
-        )) {
+        if (!$this->isIndexed || $this->visibility !== self::VISIBILITY_PUBLIC) {
             return false;
         }
 

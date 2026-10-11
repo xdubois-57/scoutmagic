@@ -363,7 +363,7 @@ describe('news-form-builder.js: addFieldEditRow() is only ever handed a literal'
 // of them are only ever a courtesy: the server refuses indexing for
 // `direct_link` and `identified` on its own (Service\ArticleService::
 // enforceSeoRules), and derives the form's access from the same value.
-// Hiding the SEO panel spares the author a section that would be
+// Disabling the SEO controls spares the author a choice that would be
 // discarded; it is never the protection. These cases pin the rules as a
 // table so a fifth visibility cannot be added without deciding them.
 describe('news-form-builder.js: visibilityUiState()', () => {
@@ -378,18 +378,14 @@ describe('news-form-builder.js: visibilityUiState()', () => {
         });
     });
 
-    it('offers the SEO panel only where indexing is actually possible', () => {
-        expect(visibilityUiState('public').showSeoSection).toBe(true);
-        expect(visibilityUiState('chief').showSeoSection).toBe(true);
-        expect(visibilityUiState('admin').showSeoSection).toBe(true);
-    });
-
-    it('hides the SEO panel for the two visibilities the server refuses to index', () => {
-        // direct_link: in no list at all. identified: a crawler never
-        // signs in, so an indexed page would publish the title, the
-        // summary and the cover image of a members-only article.
-        expect(visibilityUiState('direct_link').showSeoSection).toBe(false);
-        expect(visibilityUiState('identified').showSeoSection).toBe(false);
+    it('enables indexing for a Public article only', () => {
+        // Issue #845: every other visibility is refused by the server —
+        // direct_link is in no list, and identified, chief and admin pages
+        // would send a search engine's visitors to a refusal.
+        expect(visibilityUiState('public').seoEnabled).toBe(true);
+        ['identified', 'chief', 'admin', 'direct_link'].forEach((v) => {
+            expect(visibilityUiState(v).seoEnabled, v).toBe(false);
+        });
     });
 
     it('shows each explanatory note only under its own visibility', () => {
@@ -407,7 +403,7 @@ describe('news-form-builder.js: visibilityUiState()', () => {
         const state = visibilityUiState('something-else');
 
         expect(state.formAccessIsPublic).toBe(false);
-        expect(state.showSeoSection).toBe(true);
+        expect(state.seoEnabled).toBe(false);
         expect(state.showDirectLinkHelp).toBe(false);
         expect(state.showIdentifiedHelp).toBe(false);
     });

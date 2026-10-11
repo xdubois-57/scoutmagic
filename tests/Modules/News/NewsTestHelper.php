@@ -6,6 +6,21 @@ namespace Tests\Modules\News;
 
 class NewsTestHelper
 {
+    /**
+     * Puts an article online, as « Publier » would a minute ago — an
+     * article is created as a draft (issue #845), and most tests are about
+     * one readers can already see.
+     */
+    public static function publish(\PDO $pdo, int $articleId): int
+    {
+        $statement = $pdo->prepare(
+            "UPDATE news_articles SET status = 'published', published_at = ? WHERE id = ?"
+        );
+        $statement->execute([(new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), $articleId]);
+
+        return $articleId;
+    }
+
     public static function createTables(\PDO $pdo): void
     {
         $pdo->exec('CREATE TABLE news_articles (
@@ -19,6 +34,8 @@ class NewsTestHelper
             seo_keywords TEXT NULL,
             seo_stop_date TEXT NULL,
             short_url_code TEXT NULL,
+            status TEXT NOT NULL DEFAULT "published",
+            published_at TEXT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

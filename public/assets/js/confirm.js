@@ -687,6 +687,10 @@
      * when only that one of a form's buttons needs asking (« Publier »
      * beside « Enregistrer »: one form, one irreversible button):
      *   data-confirm            the question. Required; nothing else fires without it.
+     *   data-confirm-title      the dialog's title (default « Confirmation »).
+     *   data-confirm-variant    `primary` for an action that destroys
+     *                           nothing (« Publier »); anything else keeps
+     *                           the danger styling.
      *   data-confirm-label      the wording of the agreeing button.
      *   data-confirm-note       a second question — asks for a free-text
      *                           word to send along with the decision, and
@@ -749,6 +753,8 @@
             if (note === '') {
                 api.ask({
                     message: host.dataset.confirm || '',
+                    title: host.dataset.confirmTitle || undefined,
+                    variant: host.dataset.confirmVariant === 'primary' ? 'primary' : 'danger',
                     confirmLabel: host.dataset.confirmLabel || 'Confirmer'
                 }).then(function (confirmed) {
                     if (confirmed) {

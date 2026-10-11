@@ -387,21 +387,22 @@
     //   their form needs no login either; the other three already require
     //   being signed in just to see the page. There is no standalone
     //   "Accès au formulaire" control anymore (usability review).
-    // - Lien direct and Membres connectés both refuse indexing on the
-    //   server (Service\ArticleService::enforceSeoRules) — the first
-    //   because it is in no list, the second because a crawler never
-    //   signs in and would publish the preview of a members-only article.
-    //   Hiding the SEO panel only spares the author a section the server
-    //   is going to discard; it is not the protection.
+    // - Only a Public article may be indexed (issue #845): the server
+    //   forces every other visibility to « not indexed »
+    //   (Service\ArticleService::enforceSeoRules). The Référencement card
+    //   stays on screen either way — its controls are disabled, with the
+    //   reason under them, and come back the moment Public is chosen.
+    //   Disabling them only spares the author a choice the server is going
+    //   to discard; it is not the protection.
     //
     // @param {string} value
-    // @returns {{formAccessIsPublic: boolean, showDirectLinkHelp: boolean, showIdentifiedHelp: boolean, showSeoSection: boolean}}
+    // @returns {{formAccessIsPublic: boolean, showDirectLinkHelp: boolean, showIdentifiedHelp: boolean, seoEnabled: boolean}}
     function visibilityUiState(value) {
         return {
             formAccessIsPublic: value === 'public' || value === 'direct_link',
             showDirectLinkHelp: value === 'direct_link',
             showIdentifiedHelp: value === 'identified',
-            showSeoSection: value !== 'direct_link' && value !== 'identified',
+            seoEnabled: value === 'public',
         };
     }
 
@@ -420,13 +421,21 @@
         var directLinkHelp = document.getElementById('news-direct-link-help');
         var identifiedHelp = document.getElementById('news-identified-help');
         var seoSection = document.getElementById('news-seo-section');
+        var seoPublicOnly = document.getElementById('news-seo-public-only');
+        var seoNotLive = document.getElementById('news-seo-not-live');
 
         function updateVisibilityUi() {
             var selected = /** @type {HTMLInputElement} */ (visibilityGroup.querySelector('input:checked'));
             var state = visibilityUiState(selected ? selected.value : 'public');
             if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !state.showDirectLinkHelp);
             if (identifiedHelp) identifiedHelp.classList.toggle('d-none', !state.showIdentifiedHelp);
-            if (seoSection) seoSection.classList.toggle('d-none', !state.showSeoSection);
+            if (seoSection) {
+                seoSection.querySelectorAll('input, button').forEach(function (control) {
+                    /** @type {HTMLInputElement|HTMLButtonElement} */ (control).disabled = !state.seoEnabled;
+                });
+            }
+            if (seoPublicOnly) seoPublicOnly.classList.toggle('d-none', state.seoEnabled);
+            if (seoNotLive) seoNotLive.classList.toggle('d-none', !state.seoEnabled);
             updateAccessUi();
         }
 
@@ -496,7 +505,9 @@
     function updateAiButtonsState() {
         var enabled = hasTitleOrContent();
         setAiButtonEnabled(aiSummaryBtn, enabled);
-        setAiButtonEnabled(aiKeywordsBtn, enabled);
+        // The keywords belong to the Référencement card, which only a
+        // Public article may use (issue #845).
+        setAiButtonEnabled(aiKeywordsBtn, enabled && visibilityUiState(selectedVisibility()).seoEnabled);
     }
 
     var titleInputEl = document.querySelector('input[name="title"]');

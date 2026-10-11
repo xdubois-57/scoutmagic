@@ -37,6 +37,7 @@ use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
+use Modules\News\Service\PublicationWording;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\SeoKeywordService;
 use Modules\News\Service\TicketService;
@@ -54,6 +55,16 @@ class NewsController extends AbstractController
     private const NOT_VISIBLE_MESSAGE = "Cet article n'est pas visible avec votre compte.";
     private const NOT_THE_AUTHOR_MESSAGE = "Seul l'auteur de cet article, ou un chef d'unité, "
         . 'peut le modifier.';
+
+    /**
+     * What the editor's submit buttons ask for, besides saving (issue
+     * #845) — the `intent` they post. Every one of them saves the
+     * article first, through the same validation: a draft needs its
+     * title, summary and cover like any other.
+     */
+    private const INTENT_SAVE = 'save';
+    private const INTENT_PUBLISH = 'publish';
+    private const INTENT_UNPUBLISH = 'unpublish';
 
     /** Cards per page on /news and /news/manage. */
     private const LIST_PER_PAGE = 30;
@@ -330,6 +341,8 @@ class NewsController extends AbstractController
             $accountId
         );
 
+        $this->applyIntent($article, (string) $request->getBody('intent', self::INTENT_SAVE), $accountId);
+
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
 
@@ -426,6 +439,8 @@ class NewsController extends AbstractController
             $this->issueTicketsForExistingResponses($form, $accountId);
         }
 
+        $this->applyIntent($article, (string) $request->getBody('intent', self::INTENT_SAVE), $accountId);
+
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
 
@@ -452,7 +467,13 @@ class NewsController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
-        $this->articleService->delete($article->id);
+        try {
+            $this->articleService->delete($article->id);
+        } catch (NewsException $e) {
+            // Not a draft (issue #845) — refused here whoever asks, the
+            // editor not offering the button being only a convenience.
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 409);
+        }
 
         $this->journalService->log(
             'news',
@@ -526,6 +547,15 @@ class NewsController extends AbstractController
         }
 
         $role = Role::fromString(AuthSession::getRole());
+        $isLive = $this->articleService->isLive($article);
+        // Before publication (issue #845), only those who manage the news
+        // may open the page — a « Lien direct » article included: holding
+        // the address is not enough yet. Everybody else is told it is not
+        // online, and shown nothing of it.
+        if (!$isLive && !ArticleService::managesNews($role)) {
+            return $this->renderNotOnline($article);
+        }
+
         if (!$this->articleService->canView($article, $role)) {
             // A shareable article answers the caller its preview rather
             // than a bare 403 — see renderSocialPreview(). Everything
@@ -562,6 +592,19 @@ class NewsController extends AbstractController
 
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
+            // Not online: the page a manager reads before publishing — a
+            // banner says so, the form takes no response, and nothing
+            // about it is offered to a crawler (issue #845).
+            'is_live' => $isLive,
+            'state' => $this->articleService->state($article),
+            'scheduled_for' => $article->publishedAt !== null
+                ? PublicationWording::longDateTime($article->publishedAt)
+                : '',
+            'can_edit' => $this->articleService->canEdit(
+                $article,
+                $role,
+                (int) AuthSession::getUserAccountId()
+            ),
             'breadcrumb_current' => $article->title,
             'author_name' => $author->firstName ?? $author?->email,
             'form' => $form,
@@ -604,6 +647,27 @@ class NewsController extends AbstractController
      * the body, the form, the author, or anything else the page shows a
      * member — views/preview.html.twig says the same, next to the markup.
      */
+    /**
+     * What anybody but a manager is shown of an article that is not online
+     * yet (issue #845): that it is not, and — for a scheduled one — when it
+     * will be. Nothing of the article itself: no title, no summary, no
+     * image. It is what scanning the QR code of a poster printed in advance
+     * shows.
+     *
+     * A 404 with that body, so nothing indexes it and nothing previews it.
+     */
+    private function renderNotOnline(Article $article): Response
+    {
+        $scheduledFor = $this->articleService->state($article) === Article::STATE_SCHEDULED
+            && $article->publishedAt !== null
+            ? PublicationWording::longDateTime($article->publishedAt)
+            : '';
+
+        return $this->render('@news/not_online.html.twig', [
+            'scheduled_for' => $scheduledFor,
+        ])->setStatusCode(404);
+    }
+
     private function renderSocialPreview(Article $article): Response
     {
         return $this->render('@news/preview.html.twig', [
@@ -633,7 +697,11 @@ class NewsController extends AbstractController
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return [
-            'social_preview' => $this->articleService->isSociallyShareable($article),
+            // Never for an article that is not online (issue #845): the
+            // page a manager reads before publishing is no link anybody
+            // should be previewing yet.
+            'social_preview' => $this->articleService->isLive($article)
+                && $this->articleService->isSociallyShareable($article),
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
@@ -666,8 +734,17 @@ class NewsController extends AbstractController
             $form = $this->formService->findByArticleId($article->id);
             $author = $currentAccountId !== null ? $this->userAccountRepository->findById($article->createdBy) : null;
 
+            $state = $this->articleService->state($article);
+
             return [
                 'article' => $article,
+                'state' => $state,
+                // The publication date, or a draft's creation date — the
+                // one the list also sorts on (issue #845).
+                'date' => $article->displayDate(),
+                'scheduled_for' => $state === Article::STATE_SCHEDULED && $article->publishedAt !== null
+                    ? PublicationWording::longDateTime($article->publishedAt)
+                    : '',
                 // Single-line summary (module usability review) — the
                 // mandatory one-sentence Article::$summary, never the old
                 // stripped-body excerpt, so the list never shows leftover
@@ -761,13 +838,90 @@ class NewsController extends AbstractController
             // leaving both blank (forever-open, easy to forget about).
             'default_opens_at' => $form->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
             'default_closes_at' => $form->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
-            'article_actions' => $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [],
-            'article_notes' => $article !== null ? ($this->articleActions?->notes($article->id) ?? []) : [],
+            ...$this->publicationContext($article, $form),
             'short_url' => $article?->shortUrlCode !== null
                 ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
                 : null,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
+    }
+
+    /**
+     * The editor's half of issue #845: which state the article is in,
+     * which buttons that state offers, and what each of them asks before
+     * doing anything.
+     *
+     * A new article is a draft that does not exist yet — the same buttons,
+     * minus « Supprimer ».
+     *
+     * The buttons other modules add (« Partager ») are offered only once
+     * the article is online: a draft or a scheduled article is not shared
+     * anywhere yet, and the sentence that replaces them says when it will
+     * be possible.
+     *
+     * @return array<string, mixed>
+     */
+    private function publicationContext(?Article $article, ?NewsForm $form): array
+    {
+        $state = $article !== null ? $this->articleService->state($article) : Article::STATE_DRAFT;
+        $isLive = $state === Article::STATE_PUBLISHED;
+        $actions = $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [];
+
+        return [
+            'state' => $state,
+            'is_live' => $isLive,
+            'article_actions' => $isLive ? $actions : [],
+            'article_notes' => $isLive && $article !== null ? ($this->articleActions?->notes($article->id) ?? []) : [],
+            'share_pending_note' => !$isLive && $actions !== []
+                ? 'Le partage sur les médias sociaux sera disponible une fois l\'actualité '
+                    . ($state === Article::STATE_SCHEDULED ? 'en ligne.' : 'publiée.')
+                : '',
+            'published_on' => $isLive && $article?->publishedAt !== null
+                ? PublicationWording::dayMonthYear($article->publishedAt)
+                : '',
+            'audience' => PublicationWording::audience($article->visibility ?? Article::VISIBILITY_PUBLIC),
+            'publish_questions' => PublicationWording::publishQuestions($article?->publishedAt),
+            'unpublish_question' => $article !== null
+                ? PublicationWording::unpublishQuestion(
+                    $article->title,
+                    $form !== null ? $this->formService->countResponses($form->id) : 0,
+                    $article->publishedAt
+                )
+                : '',
+        ];
+    }
+
+    /**
+     * Applies what the button that was pressed asked for, once the article
+     * is saved — and journals it, since a publication is what makes an
+     * article reach people.
+     */
+    private function applyIntent(Article $article, string $intent, int $accountId): void
+    {
+        if ($intent === self::INTENT_PUBLISH) {
+            $article = $this->articleService->publish($article->id);
+            $this->journalService->log(
+                'news',
+                'article_published',
+                'info',
+                "Article « {$article->title} » publié",
+                ['article_id' => $article->id],
+                $accountId
+            );
+            return;
+        }
+
+        if ($intent === self::INTENT_UNPUBLISH) {
+            $article = $this->articleService->unpublish($article->id);
+            $this->journalService->log(
+                'news',
+                'article_unpublished',
+                'info',
+                "Article « {$article->title} » repassé en brouillon",
+                ['article_id' => $article->id],
+                $accountId
+            );
+        }
     }
 
     /**
