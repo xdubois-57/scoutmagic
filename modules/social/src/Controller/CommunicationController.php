@@ -476,6 +476,17 @@ final class CommunicationController extends AbstractController
         // already reads this first; the preview did not. Found in the
         // review of #850.
         //
+        // **This leans on the resolver**, which attaches no card to a
+        // blocked source — an album deleted, delegated, migrating, or
+        // no longer this caller's. It has to: the card is served here
+        // BEFORE the image-null check that used to answer 404 for all
+        // of those, and `editableCommunication()` asks the gallery
+        // nothing, the row being this chief's. A second check on
+        // `blockedReason` here would never be the one deciding
+        // (`previewSource()` is handed a null source already), so the
+        // rule lives in the one place that fills the field.
+        // {@see ShareSourceResolver::sourceBackedCommunication()}
+        //
         // **Only once it is frozen**, for the reason `backgroundOf()`
         // spells out: before that the share is still the chief's to
         // edit, and a card stored by a refused attempt is not what a

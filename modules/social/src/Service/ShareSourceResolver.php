@@ -127,7 +127,28 @@ final class ShareSourceResolver
                 null,
                 null,
                 $communication->blurRatio,
-                $this->frozenCard($communication)
+                // **No card here, deliberately.** This branch is reached
+                // for every reason `describeSource()` answers null — the
+                // album was deleted, it became delegated or migrating,
+                // or this caller may no longer manage it — and the four
+                // are indistinguishable from here. Handing the kept card
+                // over let a chief who had lost access to the album keep
+                // fetching it through `/medias-sociaux/{id}/apercu`, the
+                // card being a gallery photo under a veil and, at
+                // « Net », no veil at all. `cardOf()` serves the kept
+                // card before it ever reaches the image-null check, so
+                // the old 404 no longer covered it. That contradicted
+                // both `PostedCardOwnershipChecker`, added in this very
+                // change to keep these bytes off every HTTP route but
+                // this one, and SECURITY.md § 6, which promises the
+                // preview answers 404 identically for « a source this
+                // caller may not share ». Found in the review of #850.
+                //
+                // Nothing downstream wants it either: `publish()`
+                // refuses a non-null `blockedReason` before claiming, so
+                // the publication path never reads a blocked source's
+                // card.
+                null
             );
         }
 

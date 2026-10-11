@@ -70,6 +70,17 @@ final class CommunicationControllerTest extends TestCase
      */
     private static string $albumTitle = self::ALBUM_TITLE;
 
+    /**
+     * Whether `albumSource()` still answers for that album at all.
+     *
+     * False stands for every reason the gallery refuses it —
+     * `AlbumShareSourceService::describe()` answers null for an album
+     * deleted, delegated, migrating, OR outside the caller's rights, and
+     * the four are indistinguishable from the social module. Reset in
+     * setUp.
+     */
+    private static bool $albumReachable = true;
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -86,6 +97,7 @@ final class CommunicationControllerTest extends TestCase
     {
         self::$albumHasCover = true;
         self::$albumTitle = self::ALBUM_TITLE;
+        self::$albumReachable = true;
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -1481,6 +1493,61 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * A chief who loses access to the album keeps nothing of it, the
+     * kept card included.
+     *
+     * `AlbumShareSourceService::describe()` answers null for an album
+     * deleted, delegated, migrating or outside the caller's rights, and
+     * the social module cannot tell those apart — SECURITY.md § 6 says
+     * the preview answers 404 identically for all of them. But IT-02
+     * made `cardOf()` serve the kept card BEFORE the image-null check
+     * that used to produce that 404, and `ShareSourceResolver` attached
+     * the card to a blocked source all the same. So the card went on
+     * being served: a gallery photo under a veil, and at « Net » no
+     * veil at all, from an album this chief may no longer open.
+     *
+     * `editableCommunication()` does not re-ask the gallery, by design —
+     * the row is this chief's — which is precisely why the source's own
+     * rule has to be the one that decides here. Found in the review of
+     * #850; guarded twice, in the resolver and in the route.
+     */
+    public function testAShareWhoseAlbumIsNoLongerTheChiefsServesNoCardEither(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->loginAuthor();
+        $kept = $this->postedCard('Le titre du jour');
+        $this->controller()->update(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        // The card is really there, and really served, while the album is.
+        $served = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+        $this->assertSame($kept, $served->getBody(), 'the card was never served, so this test proves nothing');
+
+        // The album is delegated to a camp, or this chief's section
+        // changes hands. The gallery stops answering for it.
+        self::$albumReachable = false;
+
+        $this->assertSame(
+            404,
+            $this->controller()->preview($this->get(), ['id' => (string) $id])->getStatusCode(),
+            'the kept card was still served for an album this chief may no longer open'
+        );
+        $this->assertSame(
+            404,
+            $this->controller()->background($this->get(), ['id' => (string) $id])->getStatusCode()
+        );
+    }
+
+    /**
      * The other side: a communication that owns its image really does
      * freeze both, so it keeps the stronger sentence.
      */
@@ -2357,15 +2424,19 @@ final class CommunicationControllerTest extends TestCase
         // this class and not the enclosing one.
         $cover = self::$albumHasCover ? \Tests\Modules\Social\SocialTestHelper::groupPhoto() : null;
         $title = self::$albumTitle;
+        $reachable = self::$albumReachable;
 
-        return new class ($cover, $title) implements \Modules\Gallery\Api\AlbumShareSourceInterface {
-            public function __construct(private readonly ?string $cover, private readonly string $title)
-            {
+        return new class ($cover, $title, $reachable) implements \Modules\Gallery\Api\AlbumShareSourceInterface {
+            public function __construct(
+                private readonly ?string $cover,
+                private readonly string $title,
+                private readonly bool $reachable
+            ) {
             }
 
             public function describe(int $albumId, string $role, string $email): ?\Modules\Gallery\Api\SharedAlbum
             {
-                return $albumId === CommunicationControllerTest::ALBUM_ID
+                return $this->reachable && $albumId === CommunicationControllerTest::ALBUM_ID
                     ? new \Modules\Gallery\Api\SharedAlbum(
                         CommunicationControllerTest::ALBUM_ID,
                         $this->title,
