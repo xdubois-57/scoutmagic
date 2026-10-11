@@ -291,7 +291,7 @@ class PwaControllerTest extends TestCase
         $this->assertStringContainsString('il y a moins de 14 jours', $body);
         $this->assertStringContainsString('data-staleness-days="14"', $body);
         $this->assertMatchesRegularExpression('~id="offline-home-link" class="[^"]*\\bd-none\\b~', $body);
-        $this->assertStringContainsString('Aucune page n\'est encore enregistrée sur cet appareil.', $body);
+        $this->assertStringContainsString('La page d\'accueil n\'est pas enregistrée sur cet appareil.', $body);
     }
 
     public function testTheOfflinePageFallsBackToThirtyDaysAndSaysOneDayInTheSingular(): void

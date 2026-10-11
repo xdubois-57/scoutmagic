@@ -78,12 +78,12 @@ describe('offline-page.js', () => {
 // nothing. It shows only when a recent copy of the home page exists.
 describe('offline-page.js: « Accueil » only when the home page is saved', () => {
     const DOM = `
-        <p id="offline-nothing-saved" class="d-none">Aucune page n'est encore enregistrée sur cet appareil.</p>
+        <p id="offline-nothing-saved" class="d-none">La page d'accueil n'est pas enregistrée sur cet appareil.</p>
         <a href="/" id="offline-home-link" class="d-none">Accueil</a>
     `;
 
     /** The config public/sw.js keeps: account scope 7, release 1.0. */
-    const CONFIG = { consent: true, account_scope: '7', version: '1.0' };
+    const CONFIG = { consent: true, account_scope: '7', version: '1.0', staleness_days: 30 };
 
     /**
      * Cache Storage holding $copies ({cacheName: {url: dateHeader}}) and,
@@ -179,6 +179,30 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
     it('does not count a copy dated ahead of this device\'s clock, as the service worker does not', async () => {
         const anHourAhead = new Date(Date.now() + 3600000).toUTCString();
         globalThis.caches = storage({ 'content-7-1.0': { '/': anHourAhead } });
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+    });
+
+    // The figure baked into the page when it was precached outlives a
+    // change of the setting; the worker reads its config, and so must this.
+    it('judges a copy by the service worker\'s own threshold, not the one baked into the page', async () => {
+        const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toUTCString();
+        globalThis.caches = storage({ 'content-7-1.0': { '/': tenDaysAgo } }, { ...CONFIG, staleness_days: 3 });
+        document.body.dataset.stalenessDays = '30';
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+    });
+
+    it('falls back to the service worker\'s own default of seven days', async () => {
+        const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toUTCString();
+        const { staleness_days: _unset, ...withoutThreshold } = CONFIG;
+        globalThis.caches = storage({ 'content-7-1.0': { '/': tenDaysAgo } }, withoutThreshold);
 
         await loadOfflinePage(DOM);
         await settle();
