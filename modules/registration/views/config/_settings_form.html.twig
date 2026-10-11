@@ -1,11 +1,9 @@
 {# The public form: open or close it now, and the recurring yearly dates.
    The dates are stored as "MM-DD" and edited with native date pickers
    showing their next occurrence (Service\RecurringMonthDay) — a picker
-   cannot hold a day without a year. `|date(…, false)` keeps the date's
-   own timezone: an occurrence is a calendar day, and converting its
-   midnight to another zone could print the day before. Requires
-   `registration_form_open`, `scheduled_open_next` and
-   `scheduled_close_next`. #}
+   cannot hold a day without a year. Requires `registration_form_open`,
+   `scheduled_open` and `scheduled_close` (RegistrationConfigController::
+   scheduleField()). #}
 <div class="card mb-4">
     <div class="card-body">
         <h2 class="h5 mb-3">Formulaire d'inscription</h2>
@@ -35,25 +33,17 @@
             {{ csrf_field()|raw }}
             <div class="row g-3">
                 <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'scheduled_open_at', field_name: 'scheduled_open_at',
-                        label: 'Ouverture programmée', type: 'date',
-                        value: scheduled_open_next ? scheduled_open_next|date('Y-m-d', false) : '',
-                        help: scheduled_open_next
-                            ? 'Se répète chaque année. Prochaine ouverture : ' ~ scheduled_open_next|date('d/m/Y', false) ~ '.'
-                            : 'Aucune ouverture programmée : le formulaire ne s\'ouvre qu\'à la main.',
-                        wrapper_class: '',
+                    {% include '@registration/config/_schedule_field.html.twig' with {
+                        field_id: 'scheduled_open_at', label: 'Ouverture programmée', field: scheduled_open,
+                        noun: 'ouverture', the_noun: "l'ouverture",
+                        none_help: "Aucune ouverture programmée : le formulaire ne s'ouvre qu'à la main.",
                     } only %}
                 </div>
                 <div class="col-12 col-md-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'scheduled_close_at', field_name: 'scheduled_close_at',
-                        label: 'Fermeture programmée', type: 'date',
-                        value: scheduled_close_next ? scheduled_close_next|date('Y-m-d', false) : '',
-                        help: scheduled_close_next
-                            ? 'Se répète chaque année. Prochaine fermeture : ' ~ scheduled_close_next|date('d/m/Y', false) ~ '.'
-                            : 'Aucune fermeture programmée : le formulaire ne se ferme qu\'à la main.',
-                        wrapper_class: '',
+                    {% include '@registration/config/_schedule_field.html.twig' with {
+                        field_id: 'scheduled_close_at', label: 'Fermeture programmée', field: scheduled_close,
+                        noun: 'fermeture', the_noun: 'la fermeture',
+                        none_help: "Aucune fermeture programmée : le formulaire ne se ferme qu'à la main.",
                     } only %}
                 </div>
             </div>

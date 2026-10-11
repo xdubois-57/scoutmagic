@@ -519,16 +519,22 @@ class RegistrationConfigControllerTest extends TestCase
      */
     public function testTheScheduleIsShownInNativeDatePickersAtItsNextOccurrence(): void
     {
+        // The last 30 September is marked applied, as the scheduled task
+        // leaves it, so the next one is the date to show whatever today is
+        // (a 30 September a few days back would otherwise still be due,
+        // see the test below).
+        $today = new \DateTimeImmutable('today');
+        $year = (int) $today->format('Y');
+        $thisYears = sprintf('%04d-09-30', $year);
+        $lastApplied = $thisYears <= $today->format('Y-m-d') ? $thisYears : sprintf('%04d-09-30', $year - 1);
+        if ($thisYears <= $today->format('Y-m-d')) {
+            $year++;
+        }
         $this->settingService->set('registration_scheduled_open_at', '09-30', 'registration');
+        $this->settingService->set('registration_scheduled_open_applied_on', $lastApplied, 'registration');
         $this->settingService->set('registration_scheduled_close_at', '', 'registration');
 
         $body = $this->renderPage('settings');
-
-        $today = new \DateTimeImmutable('today');
-        $year = (int) $today->format('Y');
-        if (sprintf('%04d-09-30', $year) < $today->format('Y-m-d')) {
-            $year++;
-        }
         $this->assertMatchesRegularExpression(
             '/<input[^>]*type="date"[^>]*id="scheduled_open_at"|<input[^>]*id="scheduled_open_at"[^>]*type="date"/',
             $body
@@ -540,6 +546,56 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString('Prochaine ouverture : 30/09/' . $year . '.', $body);
         $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_close_at"[^>]*value=""/', $body);
         $this->assertStringContainsString('Aucune fermeture programmée', $body);
+    }
+
+    /**
+     * A date picked a few days back is acted on by the scheduled task at
+     * its next run (catch-up window): the page shows that date and says
+     * so, rather than announcing next year's.
+     */
+    public function testADateThatHasJustPassedIsShownAsStillToBeApplied(): void
+    {
+        $justPassed = (new \DateTimeImmutable('today'))->modify('-2 days');
+        if ($justPassed->format('m-d') === '02-29') {
+            // A 29th of February has a page state of its own (below).
+            $justPassed = $justPassed->modify('-1 day');
+        }
+        $this->settingService->set('registration_scheduled_open_at', $justPassed->format('m-d'), 'registration');
+        $this->settingService->set('registration_scheduled_open_applied_on', '', 'registration');
+
+        $body = $this->renderPage('settings');
+
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*id="scheduled_open_at"[^>]*value="' . $justPassed->format('Y-m-d') . '"/',
+            $body
+        );
+        $this->assertStringContainsString("Cette date vient de passer : l&#039;ouverture aura lieu", $body);
+
+        // Once the task has applied it, the next one is next year's.
+        $this->settingService->set('registration_scheduled_open_applied_on', $justPassed->format('Y-m-d'), 'registration');
+        $this->assertStringContainsString(
+            'Prochaine ouverture : ' . $justPassed->modify('+1 year')->format('d/m/Y') . '.',
+            $this->renderPage('settings')
+        );
+    }
+
+    /**
+     * A 29th of February can only come from the generic settings page;
+     * this form refuses to save it back, and says so before anybody tries.
+     * A stored value is read trimmed, exactly as the scheduled task reads
+     * it — the picker never looks empty for a schedule that is live.
+     */
+    public function testAStored29thOfFebruaryAndAPaddedValueAreShownForWhatTheyAre(): void
+    {
+        $this->settingService->set('registration_scheduled_open_at', '02-29', 'registration');
+        $this->settingService->set('registration_scheduled_close_at', ' 08-31 ', 'registration');
+
+        $body = $this->renderPage('settings');
+
+        $this->assertStringContainsString('choisissez une autre date pour pouvoir enregistrer', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_open_at"[^>]*value="\d{4}-02-29"/', $body);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_close_at"[^>]*value="\d{4}-08-31"/', $body);
+        $this->assertStringNotContainsString('Aucune fermeture programmée', $body);
     }
 
     /**

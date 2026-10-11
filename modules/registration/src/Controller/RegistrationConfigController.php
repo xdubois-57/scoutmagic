@@ -658,9 +658,6 @@ class RegistrationConfigController extends AbstractController
     private function buildSettingsContext(): array
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $today = new \DateTimeImmutable('today');
-        $scheduledOpenAt = (string) $this->settingService->get('registration_scheduled_open_at', 'registration', '');
-        $scheduledCloseAt = (string) $this->settingService->get('registration_scheduled_close_at', 'registration', '');
 
         return [
             'brackets' => $this->ageBracketRepository->findAllOrdered(),
@@ -671,11 +668,8 @@ class RegistrationConfigController extends AbstractController
             'year_code' => $this->yearCodeRepository->findForYear((int) $publicYear['id']),
 
             'registration_form_open' => $this->isFormOpen(),
-            // The stored "MM-DD" become the next real date they designate:
-            // that is what a native date picker can show, and what the
-            // scheduled task will act on (Service\RecurringMonthDay).
-            'scheduled_open_next' => RecurringMonthDay::nextOccurrence($scheduledOpenAt, $today),
-            'scheduled_close_next' => RecurringMonthDay::nextOccurrence($scheduledCloseAt, $today),
+            'scheduled_open' => $this->scheduleField('registration_scheduled_open_at', 'registration_scheduled_open_applied_on'),
+            'scheduled_close' => $this->scheduleField('registration_scheduled_close_at', 'registration_scheduled_close_applied_on'),
 
             // Waitlist management, surfaced inside the capacity box rather
             // than hidden away in Configuration > Réglages. When it is off,
@@ -694,6 +688,36 @@ class RegistrationConfigController extends AbstractController
                 '0.1'
             ),
             'default_capacity' => SlotService::DEFAULT_CAPACITY,
+        ];
+    }
+
+    /**
+     * One date picker of the recurring schedule: the stored "MM-DD" turned
+     * into the real date the scheduled task will next act on
+     * (Service\RecurringMonthDay::nextTransition()) — that is what a
+     * native date picker can show — plus the two cases the page has to
+     * spell out: a date that has just passed and is still to be applied
+     * (`pending`), and a 29th of February stored through the generic
+     * settings page (`leap_day`), which this form refuses to save back.
+     * Trimmed exactly as the handlers trim it.
+     *
+     * @return array{date: ?\DateTimeImmutable, pending: bool, leap_day: bool}
+     */
+    private function scheduleField(string $scheduleKey, string $appliedOnKey): array
+    {
+        $monthDay = trim((string) $this->settingService->get($scheduleKey, 'registration', ''));
+        $now = new \DateTimeImmutable();
+        $date = RecurringMonthDay::nextTransition(
+            $monthDay,
+            $now,
+            trim((string) $this->settingService->get($appliedOnKey, 'registration', '')),
+            OpenRegistrationHandler::catchUpDays($this->settingService)
+        );
+
+        return [
+            'date' => $date,
+            'pending' => $date !== null && $date->format('Y-m-d') < $now->format('Y-m-d'),
+            'leap_day' => $monthDay === '02-29',
         ];
     }
 

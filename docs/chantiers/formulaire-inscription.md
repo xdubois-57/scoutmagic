@@ -173,7 +173,8 @@ traite.
 - La vue unique `config.html.twig` est remplacée par un gabarit par
   sous-page sous `views/config/`, assemblé de partiels (`_capacity_check`,
   `_notes`, `_states`, `_request_list`, `_non_final`, `_settings_form`,
-  `_settings_code`, `_settings_capacities`) : la « Vérification des
+  `_schedule_field`, `_settings_code`, `_settings_capacities`) : la
+  « Vérification des
   capacités » et la boîte « Capacités par branche » (champs de seuil
   compris) sont déplacées telles quelles, commentaires traduits en anglais.
   Plus aucun bloc repliable (ni collapse, ni chevron).
@@ -244,7 +245,20 @@ traite.
   en texte libre sur la page Paramètres du site, un `02-29` déjà stocké est
   traité explicitement à l'affichage : le sélecteur montre le 29 février de
   la prochaine année bissextile, le jour où la tâche agirait réellement,
-  plutôt qu'un champ vide.
+  plutôt qu'un champ vide, et une phrase dit qu'il faut choisir une autre
+  date pour pouvoir enregistrer.
+- **Le sélecteur montre la date sur laquelle la tâche agira**, pas
+  seulement la prochaine occurrence du calendrier
+  (`RecurringMonthDay::nextTransition()`, qui reprend la règle de
+  `dueDateForYear()` et le marqueur `*_applied_on`) : une date choisie
+  quelques jours en arrière, encore dans la fenêtre de rattrapage et pas
+  encore appliquée, s'affiche telle quelle avec « Cette date vient de
+  passer : l'ouverture aura lieu à la prochaine vérification automatique,
+  dans l'heure, puis chaque année. » ; une date déjà appliquée aujourd'hui
+  s'affiche à l'année suivante. Sans cela, la page annonçait l'année
+  suivante pendant que la tâche ouvrait le formulaire dans l'heure — et la
+  phrase qui expliquait la fenêtre de rattrapage a disparu de l'écran,
+  comme le document le demande.
 - **« E-mails de décision à envoyer » compte aussi les demandes encodées**
   dont l'e-mail d'acceptation n'est pas parti : c'est la définition de
   `RequestStatusService::visibleStatus()`, qui cache une acceptation —

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Registration\Service;
 
 use Core\Service\DateInput;
+use Modules\Registration\Task\OpenRegistrationHandler;
 
 /**
  * A recurring yearly date, stored as a bare "MM-DD" and edited through a
@@ -34,6 +35,12 @@ use Core\Service\DateInput;
  * showing an empty picker (as if nothing were scheduled) or a 1 March
  * that will never happen, nextOccurrence() answers the next leap year's
  * 29 February — the day the handler would really act on.
+ *
+ * **What the page shows is what the scheduled task will do**
+ * (nextTransition()): the task acts on a date that has just passed, within
+ * its catch-up window, as long as it has not acted on it yet — so such a
+ * date is shown as still to come rather than as next year's — and a date
+ * it has already acted on today is shown as next year's.
  *
  * Pure date arithmetic, no state: static, and tested directly.
  */
@@ -84,6 +91,38 @@ final class RecurringMonthDay
         // A common (non-leap) year: everything but 02-29, already refused
         // above, exists in it.
         return DateInput::parse('!Y-m-d', '2023-' . $monthDay) !== null ? $monthDay : null;
+    }
+
+    /**
+     * The date the scheduled task will next act on for this MM-DD: the
+     * occurrence still due inside the catch-up window when the task has not
+     * applied it yet (Task\OpenRegistrationHandler::dueDateForYear(), the
+     * very rule both handlers apply — it may be a few days in the past),
+     * otherwise the next occurrence from today, skipping one the task has
+     * already applied ($appliedOn, the handler's `*_applied_on` marker, a
+     * Y-m-d or empty). Null when nothing is scheduled.
+     */
+    public static function nextTransition(
+        string $monthDay,
+        \DateTimeImmutable $now,
+        string $appliedOn,
+        int $catchUpDays
+    ): ?\DateTimeImmutable {
+        if (preg_match('/^\d{2}-\d{2}$/', $monthDay) !== 1) {
+            return null;
+        }
+
+        $due = OpenRegistrationHandler::dueDateForYear($monthDay, $now, $catchUpDays);
+        if ($due !== null && $appliedOn < $due) {
+            return DateInput::iso($due);
+        }
+
+        $next = self::nextOccurrence($monthDay, $now->setTime(0, 0));
+        if ($next !== null && $next->format('Y-m-d') <= $appliedOn) {
+            $next = self::nextOccurrence($monthDay, $next->modify('+1 day'));
+        }
+
+        return $next;
     }
 
     /**

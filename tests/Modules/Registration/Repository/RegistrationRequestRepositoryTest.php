@@ -376,6 +376,30 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame(3, $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
     }
 
+    /**
+     * The count and the family's own page are two readings of one rule,
+     * and must never drift apart: a decision whose e-mail is owed is
+     * exactly a request the family still sees « en attente » although it
+     * is not pending (Service\RequestStatusService::visibleStatus()).
+     */
+    public function testTheDecisionEmailCountIsExactlyWhatTheFamilyCannotSeeYet(): void
+    {
+        $this->seedDashboardStates($this->scoutYearId);
+        $statusService = new \Modules\Registration\Service\RequestStatusService(
+            $this->repository,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+
+        $hidden = array_filter(
+            $this->repository->findAllForYear($this->scoutYearId),
+            static fn(RegistrationRequest $request) => $request->status !== RegistrationRequest::STATUS_PENDING
+                && $statusService->visibleStatus($request) === RegistrationRequest::STATUS_PENDING
+        );
+
+        $this->assertNotEmpty($hidden);
+        $this->assertSame(count($hidden), $this->repository->countDecisionEmailsToSendForYears([$this->scoutYearId]));
+    }
+
     public function testCountAcceptedNotEncodedCountsOnlyAcceptedRequestsOfThoseYears(): void
     {
         $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
