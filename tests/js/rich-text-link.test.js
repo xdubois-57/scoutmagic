@@ -721,6 +721,19 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(restored.intersectsNode(surface.querySelector('h2'))).toBe(true);
     });
 
+    // An item of nothing but whitespace between two selected ones: the
+    // canonical form drops it on save, so it must not stay a lone bullet.
+    it('leaves no lone bullet for a whitespace-only item between two selected items', async () => {
+        const { rt, surface, press } = await editing('<ul><li>un</li><li> </li><li>trois</li></ul>', 'un');
+        select(surface, 'un', 'trois');
+
+        press('h2');
+
+        expect(surface.querySelector('li, ul')).toBeNull();
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>trois</h2>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');

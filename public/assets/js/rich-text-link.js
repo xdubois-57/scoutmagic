@@ -1374,12 +1374,13 @@
      * too: leaving those to the engine is the very bug of #885.
      *
      * @param {HTMLElement} surface
-     * @returns {{lines: ItemLine[], range: Range|null}}
+     * @returns {{lines: ItemLine[], range: Range|null, blanks: HTMLLIElement[]}} with the
+     *          items of nothing but whitespace the selection crossed
      */
     function listLinesInSelection(surface) {
         var selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) {
-            return { lines: [], range: null };
+            return { lines: [], range: null, blanks: [] };
         }
         var range = selection.getRangeAt(0);
         if (range.collapsed) {
@@ -1387,17 +1388,28 @@
             var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
             var item = /** @type {HTMLLIElement|null} */ (element?.closest('li') ?? null);
             if (!item || !surface.contains(item) || item === surface || !inAList(item, surface)) {
-                return { lines: [], range: range };
+                return { lines: [], range: range, blanks: [] };
             }
 
-            return { lines: [lineAtCaret(item, node, range.startOffset)], range: range };
+            return { lines: [lineAtCaret(item, node, range.startOffset)], range: range, blanks: [] };
         }
 
         /** @type {ItemLine[]} */
         var lines = [];
+        /** @type {HTMLLIElement[]} */
+        var blanks = [];
         Array.from(surface.querySelectorAll('li')).forEach(function (li) {
             var item = /** @type {HTMLLIElement} */ (li);
             if (!inAList(item, surface)) {
+                return;
+            }
+            // An item of nothing but whitespace, with no list of its own: no
+            // line to make a block of, and the canonical form drops it on
+            // save — left in place, it would stay a lone bullet among the
+            // new blocks. It goes instead.
+            var children = Array.from(item.childNodes);
+            if (children.every(isBlank) && children.some(function (child) { return range.intersectsNode(child); })) {
+                blanks.push(item);
                 return;
             }
             linesOf(item).forEach(function (nodes) {
@@ -1419,7 +1431,7 @@
             return a.nodes[0].compareDocumentPosition(b.nodes[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
         });
 
-        return { lines: lines, range: range };
+        return { lines: lines, range: range, blanks: blanks };
     }
 
     /**
@@ -1654,6 +1666,13 @@
 
         var blocks = found.lines.map(function (line) {
             return lineToBlock(line, surface, tag);
+        });
+        found.blanks.forEach(function (item) {
+            var list = item.parentElement;
+            item.remove();
+            if (list && list !== surface && !list.querySelector(':scope > li')) {
+                list.remove();
+            }
         });
 
         // Each end as it was, while it still exists and its offset still
