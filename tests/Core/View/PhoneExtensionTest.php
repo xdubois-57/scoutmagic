@@ -77,6 +77,9 @@ final class PhoneExtensionTest extends TestCase
             'a number and a note' => ['+33 6 12 34 56 78 (après 18h)'],
             'two numbers joined by a slash' => ['0475 12 34 56 / 02 123 45 67'],
             'too short to be a number' => ['112'],
+            'two Belgian numbers short enough to fit E.164 together' => ['02 123 45 67 / 112'],
+            'a mobile and a short number joined by a dash' => ['0472 12 34 56 - 112'],
+            'a second plus sign' => ['+32 2 123 45 67 +32'],
             'no digit at all, which a template\'s if lets through' => ['- /'],
             'words only' => ['voir avec le chef'],
         ];
@@ -101,8 +104,19 @@ final class PhoneExtensionTest extends TestCase
 
     public function testTheLongestNumbersStillAreNumbers(): void
     {
-        $this->assertStringContainsString('href="tel:+352691123456"', $this->render('{{ phone("00352 691 123 456") }}'));
+        $this->assertStringContainsString(
+            'href="tel:+352691123456"',
+            $this->render('{{ phone("00352 691 123 456") }}')
+        );
         $this->assertStringContainsString('href="tel:+3281223344"', $this->render('{{ phone("(081) 22.33.44") }}'));
+        $this->assertStringContainsString(
+            'href="tel:+32472546771"',
+            $this->render('{{ phone("0472/54.67.71") }}')
+        );
+        $this->assertStringContainsString(
+            'href="tel:+3280012345"',
+            $this->render('{{ phone("0800 12 345") }}')
+        );
     }
 
     public function testTheClassArgumentIsEscaped(): void

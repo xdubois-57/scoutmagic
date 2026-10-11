@@ -44,6 +44,14 @@ final class PhoneExtension extends AbstractExtension
     /** The most digits E.164 allows, its country code included. */
     private const MAX_DIGITS = 15;
 
+    private const BELGIUM = '32';
+
+    /** A Belgian landline after +32 (2 123 45 67, 81 22 33 44). */
+    private const BELGIAN_MIN_DIGITS = 8;
+
+    /** A Belgian mobile after +32 (472 54 67 71). */
+    private const BELGIAN_MAX_DIGITS = 9;
+
     /**
      * @return array<int, TwigFunction>
      */
@@ -80,17 +88,25 @@ final class PhoneExtension extends AbstractExtension
     }
 
     /**
-     * Only what a number is written with — digits, spaces and + ( ) . / -
-     * — and, once read, no more digits than E.164 allows (15) nor fewer
-     * than any real number has (8, country code included): two numbers
-     * typed one after the other read as one too long.
+     * Only what a number is written with — digits, spaces, ( ) . / - and
+     * one leading + — and, once read, as many digits as one number has.
+     * A Belgian number is exactly 8 or 9 digits after its +32, so two
+     * Belgian numbers typed one after the other (« 02 123 45 67 / 112 »)
+     * never read as one; the « / » itself cannot be refused, Belgians
+     * write « 02/123.45.67 ». A foreign number's length is not known here:
+     * it only has to fit E.164 (8 to 15 digits, country code included).
      */
     private static function isOneNumber(string $raw, PhoneNumber $number): bool
     {
-        if (preg_match('#^[\d\s+()./-]+$#u', $raw) !== 1) {
+        if (preg_match('#^\+?[\d\s()./-]+$#u', $raw) !== 1) {
             return false;
         }
         $digits = strlen($number->international) - 1;
+        if ($number->kind() !== 'foreign') {
+            $national = $digits - strlen(self::BELGIUM);
+
+            return $national >= self::BELGIAN_MIN_DIGITS && $national <= self::BELGIAN_MAX_DIGITS;
+        }
 
         return $digits >= self::MIN_DIGITS && $digits <= self::MAX_DIGITS;
     }

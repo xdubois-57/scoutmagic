@@ -145,8 +145,11 @@ numéro d'un locataire, d'un contact de camp ou de la page de suivi est
 saisi librement : « 0475 12 34 56 ou 02 123 45 67 » y est possible. Lu
 chiffre par chiffre, il deviendrait un seul numéro inventé, proposé à
 l'appel. `phone()` n'en fait donc un lien que si le texte n'est écrit
-qu'avec des chiffres, des espaces et `+ ( ) . / -`, et compte de 8 à 15
-chiffres une fois lu ; sinon le texte saisi s'affiche, sans lien — même
+qu'avec des chiffres, des espaces, `( ) . / -` et un seul `+` en tête, et
+s'il a la longueur d'un seul numéro : 8 ou 9 chiffres après le `+32` pour
+un numéro belge — « 02 123 45 67 / 112 » n'en est donc pas un —, de 8 à 15
+chiffres en tout pour un numéro étranger, dont la longueur n'est pas
+connue ; sinon le texte saisi s'affiche, sans lien — même
 sans aucun chiffre, pour qu'un gabarit qui teste la valeur brute n'affiche
 jamais une ligne vide. Seul un champ vide ne rend rien. Relevé par la
 revue de la PR d'IT-03.

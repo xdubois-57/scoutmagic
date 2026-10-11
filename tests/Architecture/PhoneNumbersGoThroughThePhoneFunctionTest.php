@@ -40,7 +40,7 @@ final class PhoneNumbersGoThroughThePhoneFunctionTest extends TestCase
                 continue;
             }
             $code = (string) preg_replace('/\{#.*?#\}/s', '', (string) file_get_contents($file));
-            if (preg_match('/href\s*=\s*["\']\s*tel:/i', $code) === 1) {
+            if (preg_match('/href\s*=\s*(?:["\']\s*)?tel:/i', $code) === 1) {
                 $offenders[] = substr($file, strlen($root) + 1);
             }
         }
@@ -83,7 +83,10 @@ final class PhoneNumbersGoThroughThePhoneFunctionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('screens')]
     public function testEveryScreenShowsItsNumberThroughThePhoneFunction(string $template, string $call): void
     {
-        $this->assertStringContainsString($call, (string) file_get_contents(dirname(__DIR__, 2) . '/' . $template));
+        // Without its comments: a call that only survives in a {# … #} shows nothing.
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/' . $template);
+        $code = (string) preg_replace('/\{#.*?#\}/s', '', $source);
+        $this->assertStringContainsString($call, $code);
     }
 
     /**
