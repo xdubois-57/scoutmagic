@@ -445,6 +445,55 @@ class StorageLocationServiceTest extends TestCase
         );
     }
 
+    /**
+     * The folder took the new name, then the save failed: the folder gets
+     * its old name back, so nothing changed anywhere — and the save's own
+     * failure is what reaches the caller.
+     */
+    public function testAFailedSaveAfterTheRenameGivesTheFolderItsOldNameBack(): void
+    {
+        $drive = new FakeDrive();
+        $failure = new \RuntimeException('base indisponible');
+        $repository = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $failure) extends StorageLocationRepository {
+            public bool $failUpdates = false;
+
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private \RuntimeException $failure)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function update(int $id, string $label, LocationConfig $config, ?string $secret): void
+            {
+                if ($this->failUpdates) {
+                    throw $this->failure;
+                }
+                parent::update($id, $label, $config, $secret);
+            }
+        };
+        $service = new StorageLocationService(
+            $repository,
+            new StorageBackendFactory($repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        );
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $repository->failUpdates = true;
+
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('The failed save must reach the caller.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame($failure, $e);
+        }
+
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+    }
+
     /** A Drive location never connected has no folder: its label is free to change. */
     public function testANeverConnectedDriveLocationIsRenamedWithoutAskingGoogle(): void
     {
