@@ -335,9 +335,15 @@ attendre cette passe.
   portable, qui installe la clé de l'archive : vérifie-le pour chaque élément gardé. Un test le fixe.
 - Le journal reçoit `restore_state_kept`, avec des compteurs (sauvegardes, entrées de journal, tâches
   abandonnées), sans chemin ni nom.
-- **Une remise en place qui échoue est journalisée** (`restore_state_keep_failed`) **et n'annule pas**
-  une restauration réussie par ailleurs — même règle que pour #832. L'avertissement de fin de
-  restauration le dit.
+- **Une remise en place qui échoue fait échouer la restauration**, contrairement à la réconciliation
+  de #832 : sans elle, la liste des sauvegardes serait celle de la date restaurée, la copie de sécurité
+  n'y figurerait plus, et « Annuler cette restauration » serait introuvable au moment où on en a
+  besoin. La restauration revient donc à la copie de sécurité par le retour arrière existant
+  (`rollbackToSafetyBackup()`, celui d'une migration en échec sur la passe de reprise), qui remet
+  l'état d'avant en entier — liste, journal et réglages compris. Le journal reçoit
+  `restore_state_keep_failed` (sans chemin ni nom), et la personne qui a demandé la restauration est
+  prévenue comme pour tout échec : « Échec de la restauration : le site est revenu à son état d'avant,
+  rien n'a été perdu. » Le fichier mis de côté est supprimé une fois le retour arrière terminé.
 - **Pas concernés**, comme pour #832 : l'assistant d'installation et le retour arrière d'une mise à jour.
 
 ### Un envoi hors site en cours
@@ -360,7 +366,8 @@ attendre cette passe.
 - Sa ligne porte la note **« Copie de sécurité prise avant la restauration du 11 octobre 2026 à
   10 h 12. »**, déduite de son type et de sa date — pas de colonne.
 - **La plus récente** de ces copies porte un bouton **« Annuler cette restauration »**, qui ouvre la
-  confirmation de la maquette (« Le site reviendra exactement à son état du … », « Ce qui a été fait sur
+  confirmation de la maquette (« Les données du site reviendront à leur état du … », qui précise que la
+  liste des sauvegardes et le journal restent ceux d'aujourd'hui, « Ce qui a été fait sur
   le site depuis la restauration sera perdu. », mot-clé RESTAURER). C'est une restauration ordinaire de
   cette copie : elle prend elle-même une copie de sécurité, donc elle s'annule à son tour.
 - Après une restauration terminée, la page affiche le message de la maquette (« Restauration terminée.
@@ -447,7 +454,8 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   la restauration a écrit sur des identifiants mis de côté, compte absent → `NULL` ; tâches ramenées
   annulées et comptées dans la passe du remplacement — aucune ne s'exécute à la passe de reprise —,
   chaînes récurrentes ré-amorcées ; données gardées lisibles après installation de
-  la clé de l'archive ; échec de la remise en place journalisé sans faire échouer la restauration ; fichier
+  la clé de l'archive ; échec de la remise en place → retour arrière vers la copie de sécurité, état d'avant intact, échec
+  journalisé et annoncé ; fichier
   mis de côté supprimé dans tous les cas ; purge de rétention qui épargne la copie de sécurité ;
 - **envoi hors site** : envoi en cours interrompu, archive locale supprimée, envoi partiel abandonné ;
   nouvel envoi programmé après une restauration réussie, pas après un échec ;
