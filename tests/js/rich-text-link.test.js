@@ -560,6 +560,19 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(surface.innerHTML).toBe('<ul><li>haut</li></ul><h2>bas</h2><ul><li>après</li></ul>');
     });
 
+    it('makes a paragraph of any block it was not built to offer, never an element named by the attribute', async () => {
+        const { surface } = await editing('<ul><li>un</li></ul>', 'un');
+        const odd = document.querySelector('[data-value="h2"]');
+        odd.dataset.value = 'script';
+
+        odd.dispatchEvent(new Event('click'));
+
+        // The button's own text never reaches createElement(): only the
+        // three blocks of the toolbar can come out of it (CodeQL, #893).
+        expect(surface.innerHTML).toBe('<p>un</p>');
+        expect(surface.querySelector('script')).toBeNull();
+    });
+
     it('still hands a heading outside any list to the engine, so « Paragraphe » turns it back', async () => {
         const { press } = await editing('<h2>Titre</h2>', 'Titre');
 

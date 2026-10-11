@@ -1387,11 +1387,31 @@
     }
 
     /**
+     * The block a « formatBlock » button asks for, as one of the three
+     * literals the toolbar offers — never the attribute's own text, which
+     * would otherwise reach createElement() and execCommand() as written.
+     * Anything else, a missing value included, is a paragraph.
+     *
+     * @param {string|undefined} value the button's data-value
+     * @returns {'h2'|'h3'|'p'}
+     */
+    function blockTagFor(value) {
+        switch ((value || '').toLowerCase()) {
+            case 'h2':
+                return 'h2';
+            case 'h3':
+                return 'h3';
+            default:
+                return 'p';
+        }
+    }
+
+    /**
      * Makes the list item holding the caret a $tag block of its own. Does
      * nothing, and says so, when the caret is not in a list item.
      *
      * @param {HTMLElement} surface
-     * @param {string} tag `h2`, `h3` or `p`
+     * @param {'h2'|'h3'|'p'} tag
      * @returns {Range|null} where the caret now is, to put back once the
      *          surface has focus again; null when there was no item
      */
@@ -1488,7 +1508,7 @@
 
                 var caret = null;
                 if (command === 'formatBlock') {
-                    var tag = (button.dataset.value || 'p').toLowerCase();
+                    var tag = blockTagFor(button.dataset.value);
                     // In a list item, never the engine's formatBlock: it
                     // wraps the whole list (#885, above).
                     caret = listItemToBlock(surface, tag);
