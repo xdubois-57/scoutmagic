@@ -430,6 +430,62 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertNull($linked[0]['destination']);
     }
 
+    /**
+     * An allocation at 0 is a removal someone made: not listed.
+     */
+    public function testARemovedAllocationIsNotListed(): void
+    {
+        $kept = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $removed = $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'Loyer', $this->categoryId);
+        $movement = $this->movement(150.00);
+        $this->allocate($movement, $kept, 15000);
+        $this->allocate($movement, $removed, 0);
+
+        $linked = $this->linkedService()->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame([$kept], array_column($linked, 'id'));
+    }
+
+    /**
+     * A refund is stored negative: still listed, with its negative share.
+     */
+    public function testARefundIsListedWithItsNegativeShare(): void
+    {
+        $deposit = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $movement = $this->movement(-50.00);
+        $this->allocate($movement, $deposit, -5000);
+
+        $linked = $this->linkedService()->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame([$deposit], array_column($linked, 'id'));
+        $this->assertSame(-5000, $linked[0]['amount_cents']);
+    }
+
+    /**
+     * Two receivables of one booking: its describer is asked once.
+     */
+    public function testASourceSharedByTwoReceivablesIsDescribedOnce(): void
+    {
+        $deposit = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $rent = $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'Loyer', $this->categoryId);
+        $calls = 0;
+
+        $labels = $this->linkedService(
+            new FakeReceivableSourceDescriberWithDestination(
+                'rental',
+                static function (int $id) use (&$calls): string {
+                    $calls++;
+                    return 'Location LOC-D4E5F6';
+                },
+                static fn(): ?ReceivableDestination => null
+            )
+        )->labelsFor($this->repository->findByIds([$deposit, $rent]));
+
+        $this->assertSame(1, $calls);
+        $this->assertSame('Location LOC-D4E5F6 — Caution', $labels[$deposit]);
+        $this->assertSame('Location LOC-D4E5F6 — Loyer', $labels[$rent]);
+    }
+
     public function testAMovementThatPaysNothingListsNothing(): void
     {
         $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));

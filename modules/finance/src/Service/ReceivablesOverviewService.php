@@ -369,6 +369,11 @@ class ReceivablesOverviewService
 
         $amounts = [];
         foreach ($this->allocations->findByTransactionId($transactionId) as $allocation) {
+            // 0 is a removal kept so the next import does not redo it; a
+            // refund is negative and still names what it refunds.
+            if ($allocation->amountCents === 0) {
+                continue;
+            }
             $amounts[$allocation->receivableId] = ($amounts[$allocation->receivableId] ?? 0) + $allocation->amountCents;
         }
         if ($amounts === []) {
@@ -376,24 +381,48 @@ class ReceivablesOverviewService
         }
 
         $receivables = $this->repository->findByIds(array_keys($amounts));
-        $names = $this->debtorNames($receivables);
+        $labels = $this->labelsFor($receivables);
 
         $linked = [];
         foreach ($receivables as $receivable) {
-            $debtor = $receivable->label
-                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
             $linked[] = [
                 'id' => $receivable->id,
-                'label' => self::joinFragments([
-                    $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId),
-                    $debtor,
-                ]),
+                'label' => $labels[$receivable->id],
                 'amount_cents' => $amounts[$receivable->id] ?? 0,
                 'destination' => $this->destination($receivable->sourceModule, $receivable->sourceReferenceId, $viewer),
             ];
         }
 
         return $linked;
+    }
+
+    /**
+     * What each receivable is, in its source module's own words followed
+     * by its debtor — « Location LOC-D4E5F6 — Chalet des Pins — Jean
+     * Dupont » — for « Créances liées » and for a movement's description
+     * (issue #838). One describer call per receivable, one name lookup for
+     * all of them.
+     *
+     * @param \Modules\Finance\Repository\ExpectedReceivable[] $receivables
+     * @return array<int, string> receivable id => label
+     */
+    public function labelsFor(array $receivables): array
+    {
+        $names = $this->debtorNames($receivables);
+
+        // Many receivables share one source — a campaign, a booking — so
+        // its describer is asked once per instance, not once per receivable.
+        $instances = [];
+        $labels = [];
+        foreach ($receivables as $receivable) {
+            $debtor = $receivable->label
+                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
+            $instance = $receivable->sourceModule . '#' . $receivable->sourceReferenceId;
+            $instances[$instance] ??= $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId);
+            $labels[$receivable->id] = self::joinFragments([$instances[$instance], $debtor]);
+        }
+
+        return $labels;
     }
 
     /**

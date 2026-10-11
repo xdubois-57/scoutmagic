@@ -8665,22 +8665,6 @@ if ($isEnabled('finance')) {
         )
     );
     $frontController->registerController(
-        \Modules\Finance\Controller\ReceiptController::class,
-        new \Modules\Finance\Controller\ReceiptController(
-            $twig,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
-            $financeTransactionRepo,
-            $financeService,
-            $financeReceiptService,
-            $financeFirstReceiptResolver,
-            $journalService,
-            // The mail this module proposed on, for the treasury to answer
-            // (§7.5): null without `inbound_mail`, and no block then.
-            $inboundMailForOthers
-        )
-    );
-    $frontController->registerController(
         \Modules\Finance\Controller\ConfigController::class,
         new \Modules\Finance\Controller\ConfigController($twig, $financeService, $schedulerService)
     );
@@ -8806,6 +8790,34 @@ if ($isEnabled('finance')) {
         static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds),
         $financeAllocationRepo
     );
+    // The human description of a movement (issue #838) — one source of
+    // truth for the movements list, its search and export, and a receipt's
+    // « Mouvements liés »; it names receivables through the same describers
+    // as « Contrôle des créances », hence its place after that service.
+    $financeMovementDescriptions = new \Modules\Finance\Service\MovementDescriptionService(
+        $financeFirstReceiptResolver,
+        $financeCategoryRepo,
+        $financeAllocationRepo,
+        $financeExpectedReceivableRepo,
+        $financeReceivablesOverviewService,
+        $financeTransactionRepo
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceiptController::class,
+        new \Modules\Finance\Controller\ReceiptController(
+            $twig,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeTransactionRepo,
+            $financeService,
+            $financeReceiptService,
+            $financeMovementDescriptions,
+            $journalService,
+            // The mail this module proposed on, for the treasury to answer
+            // (§7.5): null without `inbound_mail`, and no block then.
+            $inboundMailForOthers
+        )
+    );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,
         new \Modules\Finance\Controller\MovementController(
@@ -8817,7 +8829,7 @@ if ($isEnabled('finance')) {
             $financeAttachmentRepo,
             $financeTransactionAttachmentRepo,
             $financeReceiptService,
-            $financeFirstReceiptResolver,
+            $financeMovementDescriptions,
             $journalService,
             // « Créances liées » in the details dialog (issue #838): named
             // by each source module's describer, as on « Contrôle des

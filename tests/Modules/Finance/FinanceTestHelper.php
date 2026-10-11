@@ -238,6 +238,43 @@ class FinanceTestHelper
      * Modules\Finance\Service\ExpectedReceivableService, wired onto the
      * allocation service above.
      */
+    /**
+     * The movement description service wired on this database (issue
+     * #838), with no source describer: a receivable is named by its module
+     * id and reference, as with no module enabled.
+     *
+     * @param (\Closure(): \DateTimeImmutable)|null $today
+     */
+    public static function movementDescriptions(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        array $describers = [],
+        ?\Closure $today = null
+    ): \Modules\Finance\Service\MovementDescriptionService {
+        $receivables = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryption);
+        $accounts = new \Modules\Finance\Repository\AccountRepository($pdo, $encryption);
+        $visibility = new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller());
+
+        return new \Modules\Finance\Service\MovementDescriptionService(
+            new \Modules\Finance\Service\FirstReceiptResolver(
+                new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo),
+                new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryption)
+            ),
+            new \Modules\Finance\Repository\CategoryRepository($pdo),
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo),
+            $receivables,
+            new \Modules\Finance\Service\ReceivablesOverviewService(
+                $receivables,
+                self::receivableService($pdo, $encryption, $receivables),
+                $accounts,
+                $visibility,
+                $describers
+            ),
+            new \Modules\Finance\Repository\TransactionRepository($pdo, $encryption),
+            $today
+        );
+    }
+
     public static function receivableService(
         \PDO $pdo,
         \Core\Security\EncryptionService $encryption,

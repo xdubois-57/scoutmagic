@@ -206,6 +206,14 @@ class FinanceRbacTest extends TestCase
         }
     }
 
+    private function movementDescriptions(): \Modules\Finance\Service\MovementDescriptionService
+    {
+        return FinanceTestHelper::movementDescriptions(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+    }
+
     protected function tearDown(): void
     {
         AuthSession::logout();
@@ -302,12 +310,12 @@ class FinanceRbacTest extends TestCase
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
                 $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService,
-                $this->firstReceiptResolver, $this->journalService, $this->receivablesOverviewService
+                $this->movementDescriptions(), $this->journalService, $this->receivablesOverviewService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory),
             'ReceiptController' => new ReceiptController(
                 $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
-                $this->receiptService, $this->firstReceiptResolver, $this->journalService
+                $this->receiptService, $this->movementDescriptions(), $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(

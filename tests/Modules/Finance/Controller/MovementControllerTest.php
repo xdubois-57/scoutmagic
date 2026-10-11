@@ -92,7 +92,6 @@ class MovementControllerTest extends TestCase
         $receiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService(
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)), null
         );
-        $firstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($transactionAttachmentRepository, $attachmentRepository);
 
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
         $twig = TestTwig::create(['finance' => $moduleViews]);
@@ -108,7 +107,7 @@ class MovementControllerTest extends TestCase
         $this->controller = new MovementController(
             $twig, $financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
             $attachmentRepository, $transactionAttachmentRepository, $receiptService,
-            $firstReceiptResolver, $journalService
+            FinanceTestHelper::movementDescriptions($this->pdo, $encryption), $journalService
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
@@ -222,10 +221,37 @@ class MovementControllerTest extends TestCase
         $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
         @unlink($tmp);
 
-        // Column 2 = Libellé.
-        $labelCell = $sheet->getCell([2, 2]);
-        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $labelCell->getDataType());
-        $this->assertSame('=HYPERLINK("https://evil.example","x")', $labelCell->getValue());
+        // Column 2 = Description (built from that label), column 3 = Libellé.
+        foreach ([2, 3] as $column) {
+            $cell = $sheet->getCell([$column, 2]);
+            $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $cell->getDataType());
+            $this->assertSame('=HYPERLINK("https://evil.example","x")', $cell->getValue());
+        }
+    }
+
+    /**
+     * The export carries the same human description as the list (issue
+     * #838) beside the bank's own label, kept for audit.
+     */
+    public function testTheExportCarriesTheHumanDescriptionBesideTheBankLabel(): void
+    {
+        $categoryId = $this->categoryRepository->create('Camps');
+        $this->createTransaction('2026-10-01', 45.0, '+++123/4567/89002+++', $categoryId);
+
+        $response = $this->controller->exportXlsx(
+            new Request('GET', '/finance/movements/export', ['account_id' => (string) $this->accountId], [], [], []),
+            []
+        );
+        $tmp = tempnam(sys_get_temp_dir(), 'fin_export_') . '.xlsx';
+        file_put_contents($tmp, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+
+        $this->assertSame(['Date', 'Description', 'Libellé'], [
+            $sheet->getCell([1, 1])->getValue(), $sheet->getCell([2, 1])->getValue(), $sheet->getCell([3, 1])->getValue(),
+        ]);
+        $this->assertSame('Paiement non imputé — Camps', $sheet->getCell([2, 2])->getValue());
+        $this->assertSame('+++123/4567/89002+++', $sheet->getCell([3, 2])->getValue());
     }
 
     public function testListAllFiscalYearsWhenRequested(): void
