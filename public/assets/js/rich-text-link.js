@@ -1656,16 +1656,22 @@
             return lineToBlock(line, surface, tag);
         });
 
-        // The ends as they were, while they still exist and their offsets
-        // still fit: a list cut in two can keep a node and lose the
-        // children an offset counted, and setEnd() would then throw before
-        // the caller had told the form anything had changed.
+        // Each end as it was, while it still exists and its offset still
+        // fits: a list cut in two can keep a node and lose the children an
+        // offset counted, and setEnd() would then throw before the caller
+        // had told the form anything had changed. An end that no longer
+        // fits — an item removed with its list — falls back to the edge of
+        // the new blocks on its own side only, so the other end keeps what
+        // the selection held outside the list for the engine.
         var restored = document.createRange();
-        if (stillFits(bounds.start, bounds.startOffset, surface) && stillFits(bounds.end, bounds.endOffset, surface)) {
+        if (stillFits(bounds.start, bounds.startOffset, surface)) {
             restored.setStart(bounds.start, bounds.startOffset);
-            restored.setEnd(bounds.end, bounds.endOffset);
         } else {
             restored.setStartBefore(blocks[0]);
+        }
+        if (stillFits(bounds.end, bounds.endOffset, surface)) {
+            restored.setEnd(bounds.end, bounds.endOffset);
+        } else {
             restored.setEndAfter(/** @type {HTMLElement} */ (blocks.at(-1)));
         }
 

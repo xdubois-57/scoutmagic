@@ -701,6 +701,26 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
     });
 
+    // A selection ending on the item element itself (a triple click): the
+    // item goes with its list, but the paragraph above stays in the
+    // selection the engine is given.
+    it('keeps the paragraph above in the selection when the end stood on an item that went with its list', async () => {
+        const { surface, press } = await editing('<p>avant</p><ul><li>un</li></ul>', 'avant');
+        const range = document.createRange();
+        range.setStart(textNode(surface, 'avant'), 0);
+        range.setEnd(surface.querySelector('li'), 1);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<p>avant</p><h2>un</h2>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.startContainer.textContent).toBe('avant');
+        expect(restored.intersectsNode(surface.querySelector('h2'))).toBe(true);
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');
