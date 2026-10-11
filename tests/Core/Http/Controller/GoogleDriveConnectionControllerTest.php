@@ -538,7 +538,14 @@ final class GoogleDriveConnectionControllerTest extends TestCase
 
         $this->assertSame($old, $this->config()->folderId);
         $this->assertTrue($this->config()->isConnected());
-        $this->assertSame(0, $drive->countNamed('Google Drive'), 'a folder was created on its own');
+        $this->assertCount(
+            1,
+            array_filter(
+                $drive->files,
+                static fn (array $f): bool => $f['name'] === 'Google Drive' && $f['mime'] === FakeDrive::FOLDER_MIME
+            ),
+            'a folder was created on its own'
+        );
         $this->assertSame(1, $this->journal->countOf('storage_location_folder_missing'));
     }
 
