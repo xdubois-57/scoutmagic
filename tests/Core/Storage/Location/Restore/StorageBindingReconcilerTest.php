@@ -201,6 +201,30 @@ final class StorageBindingReconcilerTest extends TestCase
         $this->assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations')->fetchColumn());
     }
 
+    /**
+     * The unique index ignores case and accents: a label put back that
+     * differs from a restored one only by them is the same label there,
+     * and must be suffixed rather than stop the reconciliation halfway.
+     */
+    public function testLabelsCollideTheWayTheDatabaseComparesThem(): void
+    {
+        $this->insert(1, 'google_drive', 'dropbox', $this->drive('dossier-ici'), 'grant-ici');
+        $this->insert(3, 'local', 'Disque école', '{"path":"ecole"}', null);
+        $before = $this->snapshot();
+
+        $this->replaceWithBackup([
+            [1, 'google_drive', 'Drive', $this->drive('dossier-la-bas'), 'grant-la-bas', false],
+            [2, 'local', 'Dropbox', '{"path":"autre"}', null, true],
+            [4, 'local', 'DISQUE ECOLE', '{"path":"vieux"}', null, false],
+        ]);
+
+        $this->reconciler()->reconcile($before, true);
+
+        $this->assertSame('Drive', $this->row(1)['label'], 'taking « dropbox » would collide with « Dropbox »');
+        $this->assertStringContainsString('dossier-ici', (string) $this->row(1)['config']);
+        $this->assertSame('Disque école (avant restauration)', $this->row(3)['label']);
+    }
+
     /** The same id holding another kind of storage is another location. */
     public function testTheSameIdOfAnotherKindIsNotTheSameLocation(): void
     {

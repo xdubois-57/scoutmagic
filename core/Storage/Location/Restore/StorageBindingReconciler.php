@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage\Location\Restore;
 
 use Core\Security\EncryptionService;
+use Core\Service\TextNormalizerService;
 
 /**
  * Puts today's storage bindings back after a restore (#832) — see
@@ -82,7 +83,10 @@ final class StorageBindingReconciler
         foreach ($this->repository->rows() as $row) {
             $restored[$row['id']] = $row;
         }
-        $labels = array_fill_keys(array_map(static fn (array $row): string => $row['label'], $restored), true);
+        $labels = [];
+        foreach ($restored as $row) {
+            $labels[self::labelKey($row['label'])] = true;
+        }
 
         $report = [];
         $matched = [];
@@ -141,9 +145,13 @@ final class StorageBindingReconciler
         $readable = $this->readable($current['secret']);
         $secret = $readable ? $current['secret'] : $restored['secret'];
         $label = $restored['label'];
-        if ($current['label'] !== $restored['label'] && !isset($labels[$current['label']])) {
-            unset($labels[$restored['label']]);
-            $labels[$current['label']] = true;
+        // Its own label, differently cased, is no collision: it frees as
+        // it is taken.
+        $ownKey = self::labelKey($restored['label']);
+        $currentKey = self::labelKey($current['label']);
+        if ($current['label'] !== $restored['label'] && ($currentKey === $ownKey || !isset($labels[$currentKey]))) {
+            unset($labels[$ownKey]);
+            $labels[$currentKey] = true;
             $label = $current['label'];
         }
 
@@ -174,14 +182,14 @@ final class StorageBindingReconciler
     private function putBack(array $current, ?int $id, array &$labels): string
     {
         $label = $current['label'];
-        if (isset($labels[$label])) {
+        if (isset($labels[self::labelKey($label)])) {
             $label = mb_substr($current['label'], 0, 255 - mb_strlen(self::RESTORED_SUFFIX)) . self::RESTORED_SUFFIX;
             $n = 2;
-            while (isset($labels[$label])) {
+            while (isset($labels[self::labelKey($label)])) {
                 $label = mb_substr($current['label'], 0, 240) . self::RESTORED_SUFFIX . ' ' . $n++;
             }
         }
-        $labels[$label] = true;
+        $labels[self::labelKey($label)] = true;
 
         $readable = $this->readable($current['secret']);
         $this->repository->insert(
@@ -194,6 +202,18 @@ final class StorageBindingReconciler
         );
 
         return "« {$label} » : absent de la sauvegarde, conservé tel qu'il était avant la restauration.";
+    }
+
+    /**
+     * A label as the unique index compares it: the column's collation
+     * ignores case and accents, so « dropbox » and « Dropbox » are one
+     * label there, and must be one here or the reconciliation stops on a
+     * duplicate key halfway through. Folding further than the collation
+     * does only ever adds a suffix — never a collision.
+     */
+    private static function labelKey(string $label): string
+    {
+        return TextNormalizerService::fold($label);
     }
 
     /** Whether this ciphertext opens with the keys the site now holds. */
