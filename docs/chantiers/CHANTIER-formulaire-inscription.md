@@ -138,7 +138,7 @@ les libellés français et les états d'interaction y font foi**, pas les classe
 ### D1. Navigation
 Quatre sous-pages non repliables : **Tableau de bord** (`/config/inscriptions`), **Demandes**,
 **Gabarits**, **Réglages**. La fiche d'une demande est une sous-page de Demandes, avec le fil
-d'Ariane complet (Configuration › Formulaire d'inscription › Demandes › Demande n° …).
+d'Ariane complet (Espace chefs d'U › Formulaire d'inscription › Demandes › Demande #…).
 
 ### D2. Tableau de bord
 Quatre cartes (Formulaire ouvert / fermé ; Demandes en attente ; E-mails de décision à envoyer ;
@@ -310,7 +310,7 @@ Branche `claude/issue-843` (la réclamation), PR « Partie de #843 (IT-00) ».
   définition se précisera en IT-05, qui la reprend).
 - **Réglages**, ce que la maquette montre déjà et qui ne dépend de rien : sélecteurs de date natifs
   récurrents (stockage `MM-DD`), explication du code, retrait de la phrase de rattrapage.
-- Fil d'Ariane de la fiche : Configuration › Formulaire d'inscription › **Demandes** › Demande n° ….
+- Fil d'Ariane de la fiche : Espace chefs d'U › Formulaire d'inscription › **Demandes** › Demande #….
 - Remplace « rapprochée » par « encodée dans Desk » / « Lier à un membre Desk » dans cette UI.
 
 **Critères d'acceptation.** Quatre sous-pages visibles, aucune repliable ; pas de bannière ni de
@@ -350,8 +350,8 @@ de `SlotMath`, `PublicRegistrationControllerTest` (niveau public), tests de proj
   hors tranche d'âge, « Ancienne demande restée sans place » (lit le motif de refus de D6 — la
   colonne est créée ici, l'écran de saisie vient d'IT-04), explication courte construite **depuis les
   critères réellement évalués**, sur le modèle de `recommend()` dans la maquette (« Oui — règle
-  « Toujours Oui » : fratrie déjà présente dans l'unité. », « Oui — 1re demande classée sur 3 pour
-  Louveteaux · 1re année. Avant elle, 6 places sur 15 seraient occupées (40 %), dans la limite du
+  « Toujours Oui » : fratrie déjà présente dans l'unité. », « Oui — 1re demande classée sur 4 pour
+  Louveteaux · 1re année. Avant elle, 7 places sur 15 seraient occupées (47 %), dans la limite du
   « Oui » (70 %). »).
 - Réglage de l'ordre des critères : stockage d'une structure (zone + rang) dans les settings.
   Défauts : *Fratrie* en « Toujours Oui » ; *Ancienne demande restée sans place* et *Ordre d'arrivée*
@@ -460,6 +460,9 @@ absent), réglages (activation refusée sans gabarit).
 - Tâche planifiée : par année de parcours, **dans l'ordre de la file, une demande à la fois, avec
   recalcul et verrou** (`GET_LOCK` ou équivalent déjà utilisé dans le dépôt) ; s'arrête à la
   première demande qui n'est pas « Oui » ; ne dépasse jamais la capacité sauf règle « Toujours Oui ».
+  Conséquence : si le seuil « Oui » est réglé au-delà de 100 %, une demande « Oui » qui ferait
+  dépasser la capacité n'est pas acceptée automatiquement — elle reste à décider à la main, comme
+  « Peut-être » et « Non ».
 - Les e-mails passent par IT-05 / IT-09 ; le journal marque ces acceptations comme **automatiques**.
 - Idempotente : deux passages rapprochés ne produisent pas deux acceptations.
 
@@ -496,7 +499,7 @@ acceptation de Peut-être / Non.
 - [ ] Changement de décision avant envoi : annulation et reprogrammation, jamais d'ancien e-mail.
 - [ ] La fiche détaille l'état et l'historique, avec **Envoyer maintenant**, **Réessayer**, **Renvoyer** ; la note est indépendante et n'envoie rien ; la confirmation répond « un e-mail va-t-il partir ? ».
 - [ ] La page parent reste « en attente » jusqu'à l'envoi effectif ; la recommandation n'apparaît dans aucune vue publique.
-- [ ] Acceptation automatique : désactivée par défaut, prise d'effet respectée, ordre de la file, un à la fois, capacité jamais dépassée (hors « Toujours Oui »), journal distinct, idempotente.
+- [ ] Acceptation automatique : désactivée par défaut, prise d'effet respectée, ordre de la file, un à la fois, capacité jamais dépassée (hors « Toujours Oui », même quand le seuil « Oui » dépasse 100 %), journal distinct, idempotente.
 - [ ] Gabarits : les 4 gabarits avec leur état et un crayon.
 - [ ] Copie : activée par défaut, adresse de l'unité par défaut, sur les 3 e-mails à la famille et leurs renvois, `MailService` du cœur étendu.
 - [ ] Phrase de rattrapage retirée de l'interface ; explication du code d'inscription ajoutée ; sélecteurs de date natifs.

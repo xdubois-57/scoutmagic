@@ -485,7 +485,7 @@ function PriorityLists({ order, setOrder, mobile }) {
         <div className="flex-1">
           <div className="text-sm font-medium">Limite : le nombre de places de l'année de parcours</div>
           <div className="text-xs text-slate-500">
-            Toujours appliquée, en fin de classement. Une fois les places occupées, les demandes classées au-delà sont recommandées « Non ».
+            Toujours appliquée, en fin de classement. Les demandes classées au-delà de la limite du « Peut-être » sont recommandées « Non » ; accepter une demande alors que les places sont déjà occupées dépasse la capacité, et l'explication le signale.
             Deux demandes à égalité sont départagées par leur date de dépôt.
           </div>
         </div>
@@ -1252,7 +1252,14 @@ export default function MaquetteFormulaireInscription() {
           </label>
           <button
             className="rounded border px-2 py-1"
-            onClick={() => setTpl(decisionTplReady ? { ...tpl, accepted: "missing", refused: "missing" } : { ...tpl, accepted: "custom", refused: "custom" })}
+            onClick={() => {
+              if (decisionTplReady) {
+                setTpl({ ...tpl, accepted: "missing", refused: "missing" });
+                set({ autoEmails: false, autoAccept: false });
+              } else {
+                setTpl({ ...tpl, accepted: "custom", refused: "custom" });
+              }
+            }}
           >
             {decisionTplReady ? "Simuler : gabarits à rédiger" : "Simuler : gabarits rédigés"}
           </button>

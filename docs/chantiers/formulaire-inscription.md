@@ -60,12 +60,28 @@ la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
   (« Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité. »,
   « 1re demande classée sur 3 pour … Avant elle, N places sur C seraient
   occupées (P %) … »). L'exemple du document est remplacé par deux exemples
-  construits comme ceux de la maquette.
-- Trois corrections dans la maquette elle-même : les identifiants de la page
+  construits comme ceux de la maquette, chiffres recalculés sur ses données
+  (Louveteaux · 1re année : la fratrie #416 passe d'abord, puis 4 demandes
+  classées, la première jugée sur 7 places sur 15, soit 47 %).
+- **Le fil d'Ariane.** Le document écrivait « Configuration › … › Demande
+  n° … » ; la maquette et le `module.json` actuel ont « Espace chefs d'U » à
+  la racine, et la maquette « Demande #… ». Le document suit la maquette.
+- **L'acceptation automatique et un seuil « Oui » au-delà de 100 %.** Le
+  seuil « Oui » va jusqu'à 120 %, et IT-10 « ne dépasse jamais la capacité
+  sauf règle « Toujours Oui » ». Les deux tiennent ensemble à une condition,
+  désormais écrite dans IT-10 et la définition de terminé : une demande
+  « Oui » qui ferait dépasser la capacité n'est pas acceptée
+  automatiquement, elle reste à décider à la main.
+- Corrections dans la maquette elle-même : les identifiants de la page
   « fiche » passent en anglais (`detailId`, `RequestDetail`) ; une phrase de
   confirmation qui disait « Les 1 décision déjà prise » est accordée ; vider un
   champ de seuil ne fait plus sauter la valeur à une borne (la saisie vide est
-  ignorée — le produit fera de même).
+  ignorée — le produit fera de même) ; l'exemple chiffré des seuils dit en
+  clair quand la bande « Peut-être » ne contient aucun nombre de places ; la
+  ligne « Limite » décrit ce que fait vraiment la borne incluse (à 100 %
+  d'occupation, « Peut-être » et non « Non ») ; le bouton de simulation de la
+  maquette coupe les deux interrupteurs quand il repasse les gabarits « À
+  rédiger ».
 
 **Faits à trancher en cours de route** (section « Faits vérifiés et pièges »
 du document) : R1 dans IT-02, R2 dans IT-02, R3 dans IT-05, R4 dans IT-03, R5
