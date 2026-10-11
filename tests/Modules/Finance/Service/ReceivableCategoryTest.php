@@ -217,6 +217,23 @@ class ReceivableCategoryTest extends TestCase
     }
 
     /**
+     * The debit that pays an overpayment back is booked where the money
+     * came from: it takes the receivable's category too.
+     */
+    public function testARefundDebitTakesTheReceivablesCategory(): void
+    {
+        $id = $this->service->createReceivable('news', 1, $this->accountId, 3825, '+++123/4567/89002+++', null, $this->camps);
+        $this->credit('Virement arrondi +++123/4567/89002+++', 45.00);
+        $this->allocations->reconcileAccount($this->accountId);
+        $this->allocations->requestRefund($id, Role::INTENDANT, 7);
+        $debit = $this->credit('Remboursement trop-perçu', -6.75);
+
+        $this->allocations->allocateRefund($debit, $id, 675, Role::INTENDANT, 7);
+
+        $this->assertCategory($this->camps, Transaction::CATEGORY_SOURCE_RECEIVABLE, $debit);
+    }
+
+    /**
      * A receivable raised before categories were mandatory has none to
      * give — the movement is left to the rules and the AI, as before.
      */

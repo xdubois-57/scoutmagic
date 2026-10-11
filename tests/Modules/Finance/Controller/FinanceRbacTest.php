@@ -197,7 +197,8 @@ class FinanceRbacTest extends TestCase
         $this->expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $this->expectedReceivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $this->expectedReceivableRepository);
         $this->receivablesOverviewService = new ReceivablesOverviewService(
-            $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility
+            $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility,
+            [], null, new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -301,7 +302,7 @@ class FinanceRbacTest extends TestCase
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
                 $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService,
-                $this->firstReceiptResolver, $this->journalService
+                $this->firstReceiptResolver, $this->journalService, $this->receivablesOverviewService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory),
             'ReceiptController' => new ReceiptController(
@@ -626,6 +627,29 @@ class FinanceRbacTest extends TestCase
         $unknown = $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => '999999']);
         $this->assertSame(404, $theirs->getStatusCode());
         $this->assertSame($unknown->getStatusCode(), $theirs->getStatusCode());
+        $this->assertSame($unknown->getBody(), $theirs->getBody());
+    }
+
+    /**
+     * « Créances liées » (issue #838) reads a movement too: same boundary,
+     * same answer for « not yours » as for « no such movement » (#219).
+     */
+    public function testReadingAMovementsLinkedReceivablesRefusesAnAccountThisTreasurerDoesNotHold(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $mineMovement = $this->createMovement($mineAccount);
+        $theirsMovement = $this->createMovement($theirsAccount);
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $controller = $this->instantiateController('MovementController');
+        $mine = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $mineMovement]);
+        $theirs = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement]);
+        $unknown = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => '999999']);
+
+        $this->assertSame(200, $mine->getStatusCode());
+        $this->assertSame(['success' => true, 'receivables' => []], json_decode($mine->getBody(), true));
+        $this->assertSame(404, $theirs->getStatusCode());
         $this->assertSame($unknown->getBody(), $theirs->getBody());
     }
 

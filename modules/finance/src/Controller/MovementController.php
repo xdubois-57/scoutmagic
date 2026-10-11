@@ -49,7 +49,8 @@ class MovementController extends AbstractController
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private ReceiptService $receiptService,
         private FirstReceiptResolver $firstReceiptResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private ?\Modules\Finance\Service\ReceivablesOverviewService $receivablesOverview = null
     ) {
     }
 
@@ -393,6 +394,36 @@ class MovementController extends AbstractController
                 ],
                 $attachments
             ),
+        ]);
+    }
+
+    /**
+     * GET /finance/movements/{id}/receivables — « Créances liées » in the
+     * movement's details dialog (issue #838): what this movement pays, in
+     * each source module's own words, with a link to where it is managed.
+     *
+     * @param array<string, string> $params
+     */
+    public function receivables(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $transaction = $this->transactionRepository->findById($id);
+        $role = Role::fromString(AuthSession::getRole());
+        if (
+            $transaction === null
+            || !$this->financeService->isAccountVisibleTo($this->financeService->getAccount($transaction->accountId), $role)
+        ) {
+            // Same answer for « no such movement » and « not yours to see »
+            // — see attachments() above.
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
+        }
+
+        return $this->json([
+            'success' => true,
+            'receivables' => $this->receivablesOverview?->linkedToMovement(
+                $id,
+                new \Modules\Finance\Api\ReceivableViewer(AuthSession::getEmail(), $role)
+            ) ?? [],
         ]);
     }
 

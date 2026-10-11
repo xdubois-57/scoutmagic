@@ -673,6 +673,9 @@ final class UxConventionsTest extends TestCase
         '/finance/movements/export',
         '/finance/movements/search',
         '/finance/movements/{id}/attachments',
+        // JSON for « Créances liées » in a movement's details dialog —
+        // the twin of the attachments call above, never a page.
+        '/finance/movements/{id}/receivables',
         '/finance/receipts/search',
         '/finance/receipts/{id}/movements',
         '/gallery/media/{media_id}/download',

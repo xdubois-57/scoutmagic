@@ -746,6 +746,10 @@ class FinanceService
             throw new FinanceException("Cette catégorie est utilisée par des mouvements et ne peut pas être "
                 . "supprimée. Désactivez-la plutôt.");
         }
+        if ($this->categoryRepository->isNamedByAReceivable($id)) {
+            throw new FinanceException("Cette catégorie est utilisée par des créances et ne peut pas être "
+                . "supprimée. Désactivez-la plutôt.");
+        }
         $this->categoryRuleRepository->deleteAllForCategory($id);
         $this->categoryRepository->delete($id);
     }

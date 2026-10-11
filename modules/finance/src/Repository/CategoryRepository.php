@@ -101,6 +101,19 @@ class CategoryRepository
         $stmt->execute([$active ? 1 : 0, $id]);
     }
 
+    /**
+     * Whether a receivable still names this category (issue #838) — the
+     * payments it will receive take it, so deleting it would silently
+     * leave them to the rules and the AI.
+     */
+    public function isNamedByAReceivable(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_expected_receivables WHERE category_id = ? LIMIT 1');
+        $stmt->execute([$id]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM finance_categories WHERE id = ?');
