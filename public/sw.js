@@ -294,6 +294,14 @@ function isListed(url, list) {
  * cache, keeping their date (the « Version hors ligne du … » banner stays
  * true), and the old cache is deleted; the next pass refreshes them.
  *
+ * The new cache EXISTING says nothing: any fetch opens it — and so creates
+ * it — the moment the configuration naming the new version is stored,
+ * before this runs, and a copy cut short by the worker stopping leaves it
+ * half full. So the copy always runs, newest previous cache first, and
+ * never replaces what the new cache already holds (a copy stored since is
+ * fresher); an old cache is deleted only once everything has been copied,
+ * so an interrupted adoption is simply done again by the next one.
+ *
  * @param {string} scope
  * @param {string} version
  * @returns {Promise<void>}
@@ -309,9 +317,10 @@ function adoptPreviousVersion(scope, version) {
         if (previous.length === 0) {
             return undefined;
         }
-        const copy = names.includes(current)
-            ? Promise.resolve()
-            : copyCache(previous[previous.length - 1], current);
+        // caches.keys() lists by creation, oldest first.
+        const copy = previous.slice().reverse().reduce(function (done, name) {
+            return done.then(function () { return copyCache(name, current); });
+        }, Promise.resolve());
 
         return copy.then(function () {
             return Promise.all(previous.map(function (name) { return caches.delete(name); }));
@@ -325,8 +334,13 @@ function copyCache(from, to) {
         const target = both[1];
         return source.keys().then(function (requests) {
             return Promise.all(requests.map(function (request) {
-                return source.match(request).then(function (response) {
-                    return response ? target.put(request, response) : undefined;
+                return target.match(request).then(function (held) {
+                    if (held) {
+                        return undefined;
+                    }
+                    return source.match(request).then(function (response) {
+                        return response ? target.put(request, response) : undefined;
+                    });
                 });
             }));
         });
@@ -357,6 +371,11 @@ function purgeAllContentCaches() {
  * `null` keeps nothing — the plain purge, on logout or on functional
  * consent being withdrawn.
  *
+ * The exact list and the pass record go with the copies (#883): they sit
+ * in the configuration cache, which this purge otherwise leaves alone, and
+ * the list names the account's own pages — the members linked to it among
+ * them. Only a list stored for the scope kept survives.
+ *
  * @param {string|null} keepScope
  * @returns {Promise<any>}
  */
@@ -373,7 +392,30 @@ function purgeContentCachesExcept(keepScope) {
                     return keptPrefix === null || !name.startsWith(keptPrefix);
                 })
                 .map(function (name) { return caches.delete(name); })
+                .concat(names.includes(CONFIG_CACHE_NAME) ? [forgetListsExcept(keepScope)] : [])
         );
+    });
+}
+
+/**
+ * Deletes the stored list and pass record unless they belong to
+ * `keepScope` (null keeps neither).
+ *
+ * @param {string|null} keepScope
+ * @returns {Promise<unknown>}
+ */
+function forgetListsExcept(keepScope) {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return Promise.all([LIST_URL, PASS_URL].map(function (url) {
+            return cache.match(url).then(function (response) {
+                return response ? response.json() : null;
+            }).catch(function () { return null; }).then(function (entry) {
+                if (keepScope !== null && entry && String(entry.scope) === keepScope) {
+                    return undefined;
+                }
+                return cache.delete(url);
+            });
+        }));
     });
 }
 

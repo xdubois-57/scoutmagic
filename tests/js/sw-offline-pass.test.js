@@ -262,14 +262,80 @@ describe('sw.js: adoptPreviousVersion() — an update no longer starts from noth
         expect(caches.stores.has('content-b-1')).toBe(true);
     });
 
-    it('keeps the current cache as it is when it already exists', async () => {
+    // The new cache exists as soon as a fetch has opened it — which any
+    // fetch does once the configuration naming the new version is stored,
+    // before the adoption runs. Existing is not « already adopted »: what
+    // it lacks is still copied, and what it holds, fresher, is kept.
+    it('still copies into a current cache that already exists, without replacing what it holds', async () => {
         await (await caches.open('content-a-1')).put('/', html('Ancienne'));
+        await (await caches.open('content-a-1')).put('/contact', html('Contact'));
         await (await caches.open('content-a-2')).put('/', html('Actuelle'));
 
         await sw.adoptPreviousVersion('a', '2');
 
         expect(await (await (await caches.open('content-a-2')).match('/')).text()).toContain('Actuelle');
+        expect(stored('content-a-2')).toEqual(['/', '/contact']);
         expect(caches.stores.has('content-a-1')).toBe(false);
+    });
+
+    // An empty current cache — opened by a fetch, nothing stored yet — is
+    // the case the review found: the copies were deleted, never copied.
+    it('copies into an empty current cache rather than losing the previous copies', async () => {
+        await (await caches.open('content-a-1')).put('/contact', html('Contact'));
+        await caches.open('content-a-2');
+
+        await sw.adoptPreviousVersion('a', '2');
+
+        expect(stored('content-a-2')).toEqual(['/contact']);
+        expect(caches.stores.has('content-a-1')).toBe(false);
+    });
+
+    it('takes a page from the newest previous version when two hold it', async () => {
+        await (await caches.open('content-a-1')).put('/', html('Plus ancienne'));
+        await (await caches.open('content-a-2')).put('/', html('Plus récente'));
+
+        await sw.adoptPreviousVersion('a', '3');
+
+        expect(await (await (await caches.open('content-a-3')).match('/')).text()).toContain('Plus récente');
+        expect(caches.stores.has('content-a-1')).toBe(false);
+        expect(caches.stores.has('content-a-2')).toBe(false);
+    });
+});
+
+describe('sw.js: the exact list goes with the copies it names (#883)', () => {
+    async function seedListAndPass(scope) {
+        await seed(CONFIG, {
+            [sw.LIST_URL]: { scope, pages: ['/members/12'], last: [] },
+            [sw.PASS_URL]: { scope, version: '1', startedAt: 1, completedAt: 2 },
+        });
+    }
+
+    function held() {
+        return [...(caches.stores.get('offline-config')?.keys() ?? [])].sort();
+    }
+
+    it('forgets the list and the pass record on logout or consent withdrawn, and keeps the configuration', async () => {
+        await seedListAndPass('a');
+
+        await sw.purgeAllContentCaches();
+
+        expect(held()).toEqual([CONFIG_URL]);
+    });
+
+    it('forgets another account\'s list when the scope changes', async () => {
+        await seedListAndPass('a');
+
+        await sw.purgeContentCachesExcept('b');
+
+        expect(held()).toEqual([CONFIG_URL]);
+    });
+
+    it('keeps the list of the scope being kept', async () => {
+        await seedListAndPass('a');
+
+        await sw.purgeContentCachesExcept('a');
+
+        expect(held()).toEqual([CONFIG_URL, sw.LIST_URL, sw.PASS_URL].sort());
     });
 });
 
