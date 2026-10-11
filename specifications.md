@@ -3510,9 +3510,15 @@ brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
 
 Une communication appartient à son auteur et aux administrateurs ; pour
 tout autre animateur, elle est « introuvable ». **Dès qu'une publication
-est partie vers une destination, elle ne change plus** : l'image, le titre
-et le texte sont figés, et une destination publiée ensuite reçoit
-exactement la même chose. Une tentative refusée avant tout envoi — une
+est partie vers une destination, elle ne change plus** : le texte est
+figé, et l'image aussi dès lors qu'il y a de quoi la figer — l'image que
+le navigateur a dessinée, conservée, ou les colonnes propres d'une
+communication qui a son image à elle. Il reste un cas où l'image est
+relue à la source à chaque envoi : un partage d'album ou d'actualité
+pour lequel aucune image n'a pu être conservée (un partage fait avant
+cette version du site, ou un navigateur qui n'a pas réussi à l'envoyer).
+Les pages qui promettent le contraire le disent alors, plutôt que de
+promettre « la même image » à tout le monde. Une tentative refusée avant tout envoi — une
 autorisation expirée, un texte trop long pour Instagram, une image
 manquante — ne fige rien : la communication reste modifiable, et c'est
 bien la prochaine image dessinée qui partira.
@@ -3535,9 +3541,11 @@ publié (avec sa date et « Voir »), échec (avec sa raison, conservée, et
 « Réessayer »), ou **non demandé**. « Voir » et « Réessayer » sont des
 icônes à la même place en bout de ligne ; une ligne sans action garde une
 case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
-ce qui repart (la même image et le même texte, vers cette destination
-seulement), que la destination déjà publiée n'est pas touchée, et la
-raison de l'échec précédent.
+ce qui repart — le même texte, vers cette destination seulement, et
+l'image soit telle qu'elle a été publiée, soit refaite à partir de
+l'album ou de l'actualité tel qu'il est aujourd'hui quand aucune image
+n'a pu être conservée —, que la destination déjà publiée n'est pas
+touchée, et la raison de l'échec précédent.
 
 ### 47.8 Le groupe de discussion comme destination
 
