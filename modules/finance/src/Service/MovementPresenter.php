@@ -149,8 +149,10 @@ final class MovementPresenter
             if ($fragment === '') {
                 continue;
             }
+            // Whole words only, both ways: « Camps » never eats into
+            // « Campsite », nor « Camp » vanish inside « CAMPING ».
             foreach ($kept as $already) {
-                if (mb_stripos($already, $fragment) !== false) {
+                if (preg_match(self::wholeWords($fragment), $already) === 1) {
                     continue 2;
                 }
                 // The other way round — « VIREMENT … JEAN DUPONT … » after
@@ -159,8 +161,7 @@ final class MovementPresenter
                 $fragment = trim((string) preg_replace(
                     '/\s+/u',
                     ' ',
-                    // Whole words only: « Camps » never eats into « Campsite ».
-                    (string) preg_replace('/(?<!\p{L})' . preg_quote($already, '/') . '(?!\p{L})/iu', ' ', $fragment)
+                    (string) preg_replace(self::wholeWords($already), ' ', $fragment)
                 ));
             }
             if (preg_match('/\p{L}/u', $fragment) !== 1) {
@@ -170,6 +171,15 @@ final class MovementPresenter
         }
 
         return self::bounded(implode(self::SEPARATOR, $kept));
+    }
+
+    /**
+     * A case-insensitive pattern matching $text only where no letter
+     * touches it on either side.
+     */
+    private static function wholeWords(string $text): string
+    {
+        return '/(?<!\p{L})' . preg_quote($text, '/') . '(?!\p{L})/iu';
     }
 
     /**
