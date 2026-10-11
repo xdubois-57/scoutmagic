@@ -1036,7 +1036,12 @@ export default function MaquetteFormulaireInscription() {
                 <Pill cls={LEVEL.yes.cls}>Oui</Pill> tant qu'il y a <b>{exYes <= 0 ? "0 place déjà occupée" : `au plus ${exYes} places déjà occupées`}</b>
               </li>
               <li>
-                <Pill cls={LEVEL.maybe.cls}>Peut-être</Pill> quand il y a <b>{exMaybe === exYes + 1 ? `${exMaybe} places déjà occupées` : `de ${exYes + 1} à ${exMaybe} places déjà occupées`}</b>
+                <Pill cls={LEVEL.maybe.cls}>Peut-être</Pill>{" "}
+                {exMaybe <= exYes ? (
+                  <b>jamais avec cette capacité : les deux limites tombent sur le même nombre de places</b>
+                ) : (
+                  <>quand il y a <b>{exMaybe === exYes + 1 ? `${exMaybe} places déjà occupées` : `de ${exYes + 1} à ${exMaybe} places déjà occupées`}</b></>
+                )}
               </li>
               <li>
                 <Pill cls={LEVEL.no.cls}>Non</Pill> à partir de <b>{exMaybe + 1} places déjà occupées</b>
