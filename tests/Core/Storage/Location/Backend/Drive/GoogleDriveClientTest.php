@@ -915,10 +915,24 @@ final class GoogleDriveClientTest extends TestCase
     {
         $client = $this->clientAnswering(fn (): array => [
             'status' => 200,
-            'body' => '{"id":"f","name":"Galeries","trashed":true}',
+            'body' => '{"id":"f","name":"Galeries","trashed":true,"mimeType":"application/vnd.google-apps.folder"}',
         ]);
 
-        $this->assertSame(['name' => 'Galeries', 'trashed' => true], $client->describeFile('token', 'f'));
+        $this->assertSame(
+            ['name' => 'Galeries', 'trashed' => true, 'folder' => true],
+            $client->describeFile('token', 'f')
+        );
+    }
+
+    /** A file is not a folder: attaching a location to it is refused on this (#832). */
+    public function testAFileIsDescribedAsNotAFolder(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => '{"id":"f","name":"photo.jpg","trashed":false,"mimeType":"image/jpeg"}',
+        ]);
+
+        $this->assertFalse($client->describeFile('token', 'f')['folder'] ?? true);
     }
 
     /**

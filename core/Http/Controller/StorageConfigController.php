@@ -36,6 +36,7 @@ use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRenameRefusedException;
+use Core\Storage\Location\StorageLocationTargetNotEmptyException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
@@ -496,18 +497,24 @@ class StorageConfigController extends AbstractController
         $type = StorageLocationType::tryFrom((string) $request->getBody('type', ''))
             ?? StorageLocationType::Local;
         $label = trim((string) $request->getBody('label', ''));
+        $config = null;
 
         try {
             if ($label === '') {
                 throw new StorageLocationException("Le nom de l'emplacement est obligatoire.");
             }
 
+            $config = $this->configFromRequest($type, $request, null);
             $id = $this->storageLocationService->create(
                 $type,
                 $label,
-                $this->configFromRequest($type, $request, null),
-                $this->secretFromRequest($type, $request, null)
+                $config,
+                $this->secretFromRequest($type, $request, null),
+                self::existingContentConfirmed($request)
             );
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            // Thrown by the save, so only once the configuration was read.
+            return $this->confirmExistingContent(null, $type, $label, $config ?? throw $e, $e);
         } catch (StorageLocationException $e) {
             $context = $this->formContext(null);
             $context['submit_error'] = $e->getMessage();
@@ -584,6 +591,7 @@ class StorageConfigController extends AbstractController
         $label = trim((string) $request->getBody('label', ''));
         $secret = $this->secretFromRequest($location->type, $request, $location);
         $secretChanged = $secret !== null;
+        $config = null;
 
         try {
             if ($label === '') {
@@ -593,7 +601,15 @@ class StorageConfigController extends AbstractController
             $config = $this->configFromRequest($location->type, $request, $location);
             $this->assertNoConsumerObjects($location, $config, $location->isDefault);
 
-            $folder = $this->storageLocationService->update($location->id, $label, $config, $secret);
+            $folder = $this->storageLocationService->update(
+                $location->id,
+                $label,
+                $config,
+                $secret,
+                self::existingContentConfirmed($request)
+            );
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            return $this->confirmExistingContent($location, $location->type, $label, $config ?? throw $e, $e);
         } catch (StorageLocationException $e) {
             if ($e instanceof StorageLocationRenameRefusedException) {
                 // The folder could not be renamed, so nothing was saved
@@ -1078,6 +1094,42 @@ class StorageConfigController extends AbstractController
         if ($objection !== null) {
             throw new StorageLocationException($objection);
         }
+    }
+
+    private static function existingContentConfirmed(Request $request): bool
+    {
+        return (string) $request->getBody('confirm_existing_content', '') === '1';
+    }
+
+    /**
+     * The form again, with what was typed and the question to confirm
+     * (#832): the target already holds files, and attaching the location
+     * to it is the administrator's call, made having seen it.
+     */
+    private function confirmExistingContent(
+        ?StorageLocation $location,
+        StorageLocationType $type,
+        string $label,
+        LocationConfig $config,
+        StorageLocationTargetNotEmptyException $e
+    ): Response {
+        $context = $this->formContext($location);
+        $context['values'] = new StorageLocation(
+            $location->id ?? 0,
+            $type,
+            $label,
+            $location->isDefault ?? false,
+            $config,
+            $location->secretConfigured ?? false,
+            null,
+            null,
+            null,
+            $location->createdAt ?? ''
+        );
+        $context['needs_confirmation'] = true;
+        $context['confirmation'] = $e->getMessage();
+
+        return $this->render('config/storage/location_form.html.twig', $context)->setStatusCode(409);
     }
 
     /**

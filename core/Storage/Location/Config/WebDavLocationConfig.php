@@ -77,6 +77,12 @@ final class WebDavLocationConfig implements LocationConfig
         ];
     }
 
+    /** The collection; the username is how it is reached, not where. */
+    public function target(): string
+    {
+        return $this->baseUrl;
+    }
+
     public function describe(): string
     {
         if ($this->baseUrl === '') {

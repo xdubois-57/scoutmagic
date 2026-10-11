@@ -91,11 +91,26 @@ class StorageLocationService
     }
 
     /**
+     * @param bool $existingContentConfirmed the administrator has seen that
+     *        the target already holds files, and attaches to it anyway
      * @throws StorageLocationException when the label is already taken
+     * @throws StorageLocationTargetNotEmptyException when the target holds
+     *         files and that was not confirmed
      */
-    public function create(StorageLocationType $type, string $label, LocationConfig $config, ?string $secret): int
-    {
+    public function create(
+        StorageLocationType $type,
+        string $label,
+        LocationConfig $config,
+        ?string $secret,
+        bool $existingContentConfirmed = false
+    ): int {
         $this->assertLabelFree($label, null);
+        if (!$existingContentConfirmed) {
+            $this->assertTargetEmpty(
+                new StorageLocation(0, $type, $label, false, $config, $secret !== null, null, null, null, ''),
+                $secret
+            );
+        }
 
         return $this->repository->create($type, $label, $config, $secret);
     }
@@ -117,7 +132,13 @@ class StorageLocationService
      *
      * Renaming never chooses another folder. The folder is found by its
      * id, which a rename never changes; attaching a location to a
-     * different folder is a separate, explicit act.
+     * different folder is a separate, explicit act
+     * ({@see attachDriveFolder()}).
+     *
+     * **Changing where a location points attaches it to another storage**
+     * (#832) — a local folder, a share, a bucket. When that target
+     * already holds files, the save waits for the administrator to have
+     * seen it: the site would read and write beside them from then on.
      *
      * Two cases save without asking Google, because there is no folder of
      * this location's own to rename: a Drive location never connected,
@@ -127,11 +148,36 @@ class StorageLocationService
      * @throws StorageLocationException when the label is already taken,
      *         or when the folder could not be renamed (its cause attached
      *         as the previous exception, for the journal)
+     * @throws StorageLocationTargetNotEmptyException when the new target
+     *         holds files and that was not confirmed
      */
-    public function update(int $id, string $label, LocationConfig $config, ?string $secret): RootFolderOutcome
-    {
+    public function update(
+        int $id,
+        string $label,
+        LocationConfig $config,
+        ?string $secret,
+        bool $existingContentConfirmed = false
+    ): RootFolderOutcome {
         $this->assertLabelFree($label, $id);
         $before = $this->repository->findById($id);
+
+        if ($before !== null && !$existingContentConfirmed && $before->config->target() !== $config->target()) {
+            $this->assertTargetEmpty(
+                new StorageLocation(
+                    $before->id,
+                    $before->type,
+                    $label,
+                    $before->isDefault,
+                    $config,
+                    $before->secretConfigured,
+                    null,
+                    null,
+                    null,
+                    $before->createdAt
+                ),
+                $secret
+            );
+        }
 
         $outcome = RootFolderOutcome::nothingToDo();
         $renamed = null;
@@ -197,6 +243,235 @@ class StorageLocationService
             // provider's answer underneath ScoutMagic's own words.
             new \RuntimeException((string) $failure->detail, 0, $cause)
         );
+    }
+
+    /**
+     * Refuses to attach $proposed to a target that already holds files,
+     * until the administrator confirms (#832). Reads one entry, writes
+     * nothing — a local folder that does not exist yet is not created.
+     *
+     * A target that cannot be read is let through: whether it is
+     * reachable is the health check's question, asked right after the
+     * save, and refusing here would only make an unreachable target
+     * impossible to correct. A Drive location never gets here: its
+     * folder changes only through {@see attachDriveFolder()} and
+     * {@see createDriveFolder()}.
+     *
+     * @throws StorageLocationTargetNotEmptyException
+     */
+    private function assertTargetEmpty(StorageLocation $proposed, ?string $secret): void
+    {
+        if ($proposed->type === StorageLocationType::GoogleDrive) {
+            return;
+        }
+
+        try {
+            $holdsFiles = $this->backendFactory->probe($proposed, $secret)->list('', null, 1)->objects !== [];
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($holdsFiles) {
+            throw new StorageLocationTargetNotEmptyException(
+                '« ' . $proposed->config->describe() . ' » contient déjà des fichiers. Si vous confirmez, cet '
+                    . 'emplacement s\'y rattache tel quel : rien n\'y est copié, déplacé ni effacé, et le site lira '
+                    . 'et écrira à côté de ce qui s\'y trouve.'
+            );
+        }
+    }
+
+    /**
+     * Attaches a Drive location to a folder that already exists — the
+     * repair after a restore brought back a folder id that no longer
+     * leads anywhere, or after the folder was recreated by hand (#832).
+     *
+     * **By id, never by name**: $reference is the folder's address as
+     * Google Drive shows it, or its bare id. Before anything is saved the
+     * folder is looked at with the location's own account: it must exist,
+     * be a folder, be out of the trash, and belong to no other location.
+     * One that already holds files is attached only once the administrator
+     * has confirmed it. Nothing in it is moved, renamed or deleted, and
+     * the location's label is not touched.
+     *
+     * @return string the folder's name, for the confirmation
+     * @throws StorageLocationException
+     * @throws StorageLocationTargetNotEmptyException
+     */
+    public function attachDriveFolder(int $id, string $reference, bool $existingContentConfirmed): string
+    {
+        [$location, $config] = $this->connectedDriveLocation($id);
+
+        $folderId = self::driveFolderIdFrom($reference);
+        if ($folderId === '') {
+            throw new StorageLocationException(
+                'Collez l\'adresse du dossier telle que Google Drive l\'affiche dans votre navigateur, ou son '
+                    . 'identifiant.'
+            );
+        }
+        if ($folderId === $config->folderId) {
+            throw new StorageLocationException('Cet emplacement est déjà rattaché à ce dossier.');
+        }
+        foreach ($this->repository->findAll() as $other) {
+            if ($other->id !== $id
+                && $other->config instanceof Config\GoogleDriveLocationConfig
+                && $other->config->folderId === $folderId
+            ) {
+                throw new StorageLocationException(
+                    "Ce dossier est déjà celui de l'emplacement « {$other->label} » : deux emplacements ne "
+                        . 'partagent jamais un dossier.'
+                );
+            }
+        }
+
+        $attached = new Config\GoogleDriveLocationConfig($config->clientId, $folderId, $config->connectedAt);
+        $proposed = new StorageLocation(
+            $location->id,
+            $location->type,
+            $location->label,
+            $location->isDefault,
+            $attached,
+            $location->secretConfigured,
+            null,
+            null,
+            null,
+            $location->createdAt
+        );
+
+        try {
+            $backend = $this->backendFactory->probe($proposed, null);
+            if (!$backend instanceof Backend\GoogleDriveBackend) {
+                throw new \LogicException('A Google Drive location built something else than a Drive backend.');
+            }
+            $folder = $backend->describeRootFolder();
+            $holdsFiles = $folder !== null && $folder['folder'] && !$folder['trashed']
+                && $backend->list('', null, 1)->objects !== [];
+        } catch (\Throwable $e) {
+            throw new StorageLocationException(
+                'Google Drive n\'a pas pu montrer ce dossier : rien n\'a été changé. '
+                    . UserFacingMessage::from($e, 'Réessayez dans un instant.'),
+                0,
+                $e
+            );
+        }
+
+        if ($folder === null) {
+            throw new StorageLocationException(
+                'Le compte raccordé ne voit aucun dossier à cette adresse. Ce site ne voit que les dossiers qu\'il '
+                    . 'a créés lui-même : choisissez un dossier rangé sous « '
+                    . Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' » dans le Drive de ce compte.'
+            );
+        }
+        if (!$folder['folder']) {
+            throw new StorageLocationException('Cette adresse désigne un fichier, pas un dossier.');
+        }
+        if ($folder['trashed']) {
+            throw new StorageLocationException(
+                "Le dossier « {$folder['name']} » est dans la corbeille de Google Drive : restaurez-le d'abord."
+            );
+        }
+        if ($holdsFiles && !$existingContentConfirmed) {
+            throw new StorageLocationTargetNotEmptyException(
+                "Le dossier « {$folder['name']} » contient déjà des fichiers. Si vous confirmez, cet emplacement "
+                    . 's\'y rattache tel quel : rien n\'y est copié, déplacé ni effacé, et le site lira et écrira '
+                    . 'à côté de ce qui s\'y trouve.'
+            );
+        }
+
+        $this->repository->update($id, $location->label, $attached, null);
+        unset($this->locationsById[$id]);
+
+        return $folder['name'];
+    }
+
+    /**
+     * Gives a Drive location a new, empty folder under `ScoutMagic/`, named
+     * after it (#832) — the explicit act that a restore, a reconnection
+     * or a rename never performs on their own.
+     *
+     * Refused while the location's folder is still there: what is in it
+     * would drop out of the site's sight without anything saying so. A
+     * second destination is a new location, not this one emptied.
+     *
+     * @throws StorageLocationException
+     */
+    public function createDriveFolder(int $id): void
+    {
+        [$location, $config] = $this->connectedDriveLocation($id);
+
+        try {
+            $backend = $this->backendFactory->probe($location, null);
+            if (!$backend instanceof Backend\GoogleDriveBackend) {
+                throw new \LogicException('A Google Drive location built something else than a Drive backend.');
+            }
+            $current = $config->folderId !== '' ? $backend->describeRootFolder() : null;
+            if ($current !== null && !$current['trashed']) {
+                throw new StorageLocationException(
+                    "Le dossier de cet emplacement existe toujours dans Google Drive (« {$current['name']} ») : "
+                        . 'aucun nouveau dossier n\'a été créé. Pour une seconde destination, créez un nouvel '
+                        . 'emplacement.'
+                );
+            }
+            $folderId = $backend->createRootFolder($location->label);
+        } catch (StorageLocationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new StorageLocationException(
+                'Google Drive n\'a pas pu créer le dossier : rien n\'a été changé. '
+                    . UserFacingMessage::from($e, 'Réessayez dans un instant.'),
+                0,
+                $e
+            );
+        }
+
+        $this->repository->update(
+            $id,
+            $location->label,
+            new Config\GoogleDriveLocationConfig($config->clientId, $folderId, $config->connectedAt),
+            null
+        );
+        unset($this->locationsById[$id]);
+    }
+
+    /**
+     * A Drive location with an account behind it — the only kind whose
+     * folder can be looked at, and so the only kind that can be attached
+     * to one or given one.
+     *
+     * @return array{StorageLocation, Config\GoogleDriveLocationConfig}
+     * @throws StorageLocationException
+     */
+    private function connectedDriveLocation(int $id): array
+    {
+        $location = $this->repository->findById($id);
+        if ($location === null || !$location->config instanceof Config\GoogleDriveLocationConfig) {
+            throw new StorageLocationException('Cet emplacement n\'est pas un emplacement Google Drive.');
+        }
+        if (!$location->config->isConnected()) {
+            throw new StorageLocationException(
+                'Raccordez d\'abord un compte Google à cet emplacement : son dossier ne peut pas être vérifié '
+                    . 'sans lui.'
+            );
+        }
+
+        return [$location, $location->config];
+    }
+
+    /**
+     * The folder id in what an administrator pasted: the address Drive
+     * shows (`…/drive/folders/<id>`, `…?id=<id>`) or the bare id. Empty
+     * when it is neither.
+     */
+    public static function driveFolderIdFrom(string $reference): string
+    {
+        $reference = trim($reference);
+        if (preg_match('~/folders/([A-Za-z0-9_-]{10,})~', $reference, $m) === 1
+            || preg_match('~[?&]id=([A-Za-z0-9_-]{10,})~', $reference, $m) === 1
+            || preg_match('~^([A-Za-z0-9_-]{10,})$~', $reference, $m) === 1
+        ) {
+            return $m[1];
+        }
+
+        return '';
     }
 
     public function setDefault(int $id): void
@@ -294,12 +569,20 @@ class StorageLocationService
      * renamed along with it. A failed rename changes nothing: the folder
      * is found by id.
      *
-     * **Otherwise a new one**: the shared `ScoutMagic` parent is found or
+     * **A new one only on a first connection**, when the location has
+     * never had a folder: the shared `ScoutMagic` parent is found or
      * created, and the location's own folder is always CREATED under it,
      * never looked up by name — two locations must never share a folder
-     * again, which is exactly what a lookup by name produced. A folder in
-     * the trash counts as gone: writing into it would put every file where
-     * Google empties it after thirty days.
+     * again, which is exactly what a lookup by name produced.
+     *
+     * **Null when the folder it had is gone** — deleted, in the trash, or
+     * out of sight of the account just authorised (#832). Creating one
+     * then would point the location at an empty folder while its files
+     * wait elsewhere: a restore that brought back an old folder id, or
+     * another account, is exactly when that happens. The caller keeps the
+     * grant and the old id, and says so; attaching an existing folder or
+     * creating a new one is then the administrator's explicit choice
+     * ({@see attachDriveFolder()}, {@see createDriveFolder()}).
      *
      * @throws Backend\Drive\DriveAccessException
      */
@@ -307,7 +590,7 @@ class StorageLocationService
         Backend\Drive\GoogleDriveClient $client,
         string $accessToken,
         StorageLocation $location
-    ): string {
+    ): ?string {
         $config = $location->config instanceof Config\GoogleDriveLocationConfig
             ? $location->config
             : new Config\GoogleDriveLocationConfig();
@@ -325,6 +608,8 @@ class StorageLocationService
 
                 return $config->folderId;
             }
+
+            return null;
         }
 
         $parentId = $client->ensureFolder($accessToken, Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME);

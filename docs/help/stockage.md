@@ -59,6 +59,24 @@ absolu** — un disque réseau, un second disque. Un dossier situé dans la
 partie servie par le serveur web est refusé : tout ce qui y serait
 déposé deviendrait téléchargeable par n'importe qui, sans contrôle.
 
+## Renommer n'est pas changer de cible
+
+Trois gestes différents, que le site ne confond jamais :
+
+- **Renommer** un emplacement change son nom, et rien d'autre : ses
+  fichiers restent où ils sont.
+- **Changer sa cible** — un autre dossier, une autre adresse de
+  partage, un autre bucket — le rattache à un autre stockage. Si
+  celui-ci contient déjà des fichiers, le site vous le dit et attend que
+  vous cochiez une case de confirmation. Il ne copie, ne déplace et
+  n'efface rien : il lira et écrira à côté de ce qui s'y trouve.
+- **Créer une nouvelle cible**, c'est choisir un dossier vide, ou un
+  nouvel emplacement. Le site ne le fait jamais de lui-même, ni après
+  une restauration, ni quand une cible ne répond plus.
+
+Pour Google Drive, la cible se choisit depuis la fiche de
+l'emplacement : voyez « Les dossiers du site dans votre Drive ».
+
 ## Tester un emplacement
 
 Tester écrit réellement un fichier témoin, le relit et le supprime.

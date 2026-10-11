@@ -1004,6 +1004,36 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         $this->client->renameFile($token, $this->config->folderId, $name);
     }
 
+    /**
+     * The location's folder as Google sees it — or null when Google knows
+     * no such folder, or will not show it to this application (#832).
+     * Read before a location is attached to a folder, so that a typo, a
+     * file or a folder in the trash is refused rather than saved.
+     *
+     * @return array{name: string, trashed: bool, folder: bool}|null
+     * @throws DriveAccessException
+     */
+    public function describeRootFolder(): ?array
+    {
+        return $this->client->describeFile($this->accessToken(), $this->rootFolderId());
+    }
+
+    /**
+     * Creates a new, empty folder for a location, under `ScoutMagic/`,
+     * and returns its id — without attaching anything to it: the caller
+     * saves the id (#832). Only ever on an administrator's explicit
+     * request: a folder that went missing is never replaced on its own.
+     *
+     * @throws DriveAccessException
+     */
+    public function createRootFolder(string $name): string
+    {
+        $token = $this->accessToken();
+        $parentId = $this->client->ensureFolder($token, GoogleDriveLocationConfig::PARENT_FOLDER_NAME);
+
+        return $this->client->createFolder($token, $name, $parentId);
+    }
+
     public function trashRootFolder(): void
     {
         if ($this->config->folderId === '') {

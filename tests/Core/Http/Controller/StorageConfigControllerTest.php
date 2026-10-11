@@ -399,6 +399,60 @@ class StorageConfigControllerTest extends TestCase
         $this->assertSame('Nouveau nom', $this->repository->findById($id)?->label);
     }
 
+    /**
+     * Pointing a location at a folder that holds files attaches it to
+     * them (#832): the form comes back with what was typed and a box to
+     * tick, and only the second, confirmed submission saves.
+     */
+    public function testPointingALocationAtAFolderThatHoldsFilesAsksFirst(): void
+    {
+        $id = $this->declareLocal('Disque', 'gallery');
+        mkdir($this->storagePath . '/archives', 0777, true);
+        file_put_contents($this->storagePath . '/archives/photo.jpg', 'octets');
+
+        $asked = $this->controller->update(
+            $this->formRequest(['label' => 'Disque', 'subdir' => 'archives']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(409, $asked->getStatusCode());
+        $html = (string) $asked->getBody();
+        $this->assertStringContainsString('name="confirm_existing_content"', $html);
+        $this->assertStringContainsString('contient déjà des fichiers', $html);
+        $this->assertStringContainsString('value="archives"', $html, 'what was typed must come back');
+        $this->assertSame('gallery', $this->localPathOf($this->repository->findById($id)));
+
+        $done = $this->controller->update(
+            $this->formRequest(['label' => 'Disque', 'subdir' => 'archives', 'confirm_existing_content' => '1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(302, $done->getStatusCode());
+        $this->assertSame('archives', $this->localPathOf($this->repository->findById($id)));
+        $this->assertSame('octets', file_get_contents($this->storagePath . '/archives/photo.jpg'));
+    }
+
+    /** Declaring one there is the same question, and the type chosen comes back too. */
+    public function testDeclaringALocationOnAFolderThatHoldsFilesAsksFirst(): void
+    {
+        mkdir($this->storagePath . '/archives', 0777, true);
+        file_put_contents($this->storagePath . '/archives/photo.jpg', 'octets');
+
+        $asked = $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Archives', 'subdir' => 'archives',
+        ]), []);
+
+        $this->assertSame(409, $asked->getStatusCode());
+        $this->assertStringContainsString('value="Archives"', (string) $asked->getBody());
+        $this->assertSame([], $this->repository->findAll());
+
+        $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Archives', 'subdir' => 'archives', 'confirm_existing_content' => '1',
+        ]), []);
+
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
     public function testUpdateRejectsAnInvalidCsrfToken(): void
     {
         $id = $this->declareLocal('Intact', 'gallery');

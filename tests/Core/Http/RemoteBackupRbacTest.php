@@ -71,6 +71,9 @@ final class RemoteBackupRbacTest extends TestCase
         ['POST', '/config/stockage/emplacements/{id}/google/identifiants'],
         ['GET', '/config/stockage/emplacements/{id}/google/raccordement'],
         ['POST', '/config/stockage/emplacements/{id}/google/deraccordement'],
+        ['GET', '/config/stockage/emplacements/{id}/google/dossier-existant'],
+        ['POST', '/config/stockage/emplacements/{id}/google/dossier-existant'],
+        ['POST', '/config/stockage/emplacements/{id}/google/nouveau-dossier'],
         // The one a browser arrives at from somewhere else.
         ['GET', '/config/stockage/google/retour'],
     ];

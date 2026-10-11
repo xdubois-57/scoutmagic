@@ -240,6 +240,11 @@ class GalleryControllerTest extends TestCase
             {
                 return true;
             }
+
+            public function target(): string
+            {
+                return 'inconnu';
+            }
         };
 
         return new StorageLocation(

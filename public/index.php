@@ -4767,6 +4767,33 @@ $router->addRoute(
     'disconnect',
     'superadmin',
 );
+// Repairing a location whose folder went missing (#832): attaching a
+// folder that exists, or creating a new one — two explicit acts, neither
+// of which a rename, a reconnection or a restore performs on its own.
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements/{id}/google/dossier-existant',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'attachFolderForm',
+    'superadmin',
+    ['label' => 'Rattacher un dossier existant', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Stockage', 'path' => '/config/stockage'],
+            ['label' => 'Emplacements', 'path' => '/config/stockage/emplacements']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/dossier-existant',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'attachFolder',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/nouveau-dossier',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'createFolder',
+    'superadmin',
+);
 
 // Member pages
 $router->addRoute(

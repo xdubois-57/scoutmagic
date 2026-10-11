@@ -65,9 +65,24 @@ class StorageBackendFactory
         return $this->backendsByLocationId[$location->id] ??= $this->build($location);
     }
 
-    private function build(StorageLocation $location): StorageBackendInterface
+    /**
+     * A backend on a configuration that is not saved yet — to look at a
+     * target before a location is attached to it (#832).
+     *
+     * Never cached, and never under the location's id: the backend the
+     * site actually uses stays the one built on the saved row. The secret
+     * is the one the configuration would be saved with; null reads the
+     * saved one, as a form left blank keeps it.
+     */
+    public function probe(StorageLocation $proposed, ?string $secret): StorageBackendInterface
+    {
+        return $this->build($proposed, $secret);
+    }
+
+    private function build(StorageLocation $location, ?string $secret = null): StorageBackendInterface
     {
         $config = $location->config;
+        $secretOf = fn (): ?string => $secret ?? $this->repository->getSecret($location->id);
 
         if ($config instanceof LocalLocationConfig) {
             return new LocalStorageBackend($this->resolveLocalDirectory($config));
@@ -79,7 +94,7 @@ class StorageBackendFactory
                 $config->region,
                 $config->bucket,
                 $config->accessKey,
-                $this->repository->getSecret($location->id) ?? '',
+                $secretOf() ?? '',
                 $config->publicUrl
             );
         }
@@ -114,7 +129,7 @@ class StorageBackendFactory
             return new WebDavBackend(
                 new WebDavClient(),
                 $config,
-                $this->repository->getSecret($location->id) ?? ''
+                $secretOf() ?? ''
             );
         }
 
@@ -127,7 +142,7 @@ class StorageBackendFactory
             return new GoogleDriveBackend(
                 $this->driveClient ?? new GoogleDriveClient(),
                 $config,
-                GoogleDriveSecret::fromStorage($this->repository->getSecret($location->id))
+                GoogleDriveSecret::fromStorage($secretOf())
             );
         }
 

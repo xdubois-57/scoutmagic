@@ -292,6 +292,7 @@ final class FakeDrive
                     'id' => $id,
                     'name' => $this->files[$id]['name'],
                     'trashed' => $this->isTrashed($id),
+                    'mimeType' => $this->files[$id]['mime'],
                 ])]
                 : ['status' => 404, 'body' => '{"error":{"message":"not found"}}'];
         }
