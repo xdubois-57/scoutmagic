@@ -216,8 +216,11 @@ class StorageLocationRepository
     public function update(int $id, string $label, LocationConfig $config, ?string $secret): void
     {
         if ($secret !== null && $secret !== '') {
+            // Saving is the administrator having looked at the location,
+            // which is all a restore's note asks for (#832).
             $stmt = $this->pdo->prepare(
-                'UPDATE storage_locations SET label = ?, config = ?, secret_encrypted = ? WHERE id = ?'
+                'UPDATE storage_locations SET label = ?, config = ?, secret_encrypted = ?, reconciliation_note = NULL
+                 WHERE id = ?'
             );
             $stmt->execute([
                 $label,
@@ -229,7 +232,9 @@ class StorageLocationRepository
             return;
         }
 
-        $stmt = $this->pdo->prepare('UPDATE storage_locations SET label = ?, config = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE storage_locations SET label = ?, config = ?, reconciliation_note = NULL WHERE id = ?'
+        );
         $stmt->execute([$label, self::encodeConfig($config), $id]);
     }
 
@@ -450,7 +455,8 @@ class StorageLocationRepository
             lastCheckedAt: $row['last_checked_at'] !== null ? (string) $row['last_checked_at'] : null,
             lastCheckOk: $row['last_check_ok'] !== null ? (bool) $row['last_check_ok'] : null,
             lastCheckError: $row['last_check_error'] !== null ? (string) $row['last_check_error'] : null,
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            reconciliationNote: isset($row['reconciliation_note']) ? (string) $row['reconciliation_note'] : null
         );
     }
 }

@@ -61,6 +61,16 @@
                     <div class="alert alert-danger small mt-2 mb-0">{{ location.lastCheckError }}</div>
                 {% endif %}
 
+                {# What the last restore did to this location (#832). It
+                   stays until somebody opens « Modifier » and saves: the
+                   note asks to be looked at, and that is the looking. #}
+                {% if location.reconciliationNote %}
+                    <div class="alert alert-warning small mt-2 mb-0" data-reconciliation-note>
+                        <strong>Après la restauration :</strong> {{ location.reconciliationNote }}
+                        Enregistrez l'emplacement depuis « Modifier » une fois vérifié.
+                    </div>
+                {% endif %}
+
                 {# **What no archive covers, said on the card that could act
                    on it.** Since D10 a file archive contains `storage/`
                    minus every declared location, so this is true of every
