@@ -356,6 +356,29 @@ final class CommunicationRepositoryTest extends TestCase
         $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
     }
 
+    /**
+     * Who wrote each of them, in one query — what « Ce qui est parti »
+     * needs to know whether to draw the share icon on thirty entries
+     * without thirty reads (issue #706, IT-05).
+     */
+    public function testTheAuthorsOfSeveralCommunicationsAreReadAtOnce(): void
+    {
+        $mine = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+        $theirs = $this->repository->create('', 'Autre texte', 8, $this->now, 'album', 3);
+        $orphan = $this->repository->create('Sans auteur', 'Texte', null, $this->now);
+
+        $this->assertSame(
+            [$mine => 7, $theirs => 8, $orphan => null],
+            $this->repository->creatorsOf([$mine, $theirs, $orphan])
+        );
+    }
+
+    /** No ids, no query — `WHERE id IN ()` is not valid SQL. */
+    public function testNoIdsIsAnsweredWithoutAQuery(): void
+    {
+        $this->assertSame([], $this->repository->creatorsOf([]));
+    }
+
     private function rows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();

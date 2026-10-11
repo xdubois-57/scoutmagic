@@ -1640,6 +1640,60 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **The share icon is offered only where it can work** (`Claude
+     * review` on PR #868).
+     *
+     * « Ce qui est parti » lists the whole unit's contents and every
+     * chief may read it, while the icon's two routes answer 404 to
+     * anybody but the author or an administrator. So a chief was shown
+     * the button on each of their colleagues' communications, and it
+     * refused every time — in a unit with more than one chief, that is
+     * every entry but their own.
+     */
+    public function testTheShareIconIsOfferedOnlyOnWhatThisChiefMayShare(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        $this->loginAuthor();
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 0],
+            [
+                'mine' => substr_count($html, '/medias-sociaux/' . $mine . '/lien'),
+                'theirs' => substr_count($html, '/medias-sociaux/' . $theirs . '/lien'),
+            ]
+        );
+    }
+
+    /**
+     * An administrator may share any of them, which is the other half of
+     * `editableCommunication()`'s rule — and the half a test of the
+     * author alone would have let drift.
+     */
+    public function testAnAdministratorIsOfferedTheIconOnEveryCommunication(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        AuthSession::login($this->author, 'claire@unite.be', 'admin');
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 1],
+            [
+                'mine' => substr_count($html, '/medias-sociaux/' . $mine . '/lien'),
+                'theirs' => substr_count($html, '/medias-sociaux/' . $theirs . '/lien'),
+            ]
+        );
+    }
+
+    /**
      * **Both JSON routes prove the request first** (issue #706, IT-05).
      *
      * They write — one mints a public page that can never be withdrawn,

@@ -185,6 +185,39 @@ class CommunicationRepository
      * carrying on with the old text — or crashing, which is what this did
      * before the hash moved.
      */
+    /**
+     * Who wrote each of these communications, keyed by id (issue #706,
+     * IT-05).
+     *
+     * One query for « Ce qui est parti », which lists up to thirty
+     * contents and has to know, for each, whether the chief looking at
+     * it may share it — asking row by row would be thirty reads on a
+     * page that already has its own.
+     *
+     * @param list<int> $ids
+     * @return array<int, ?int> an author of `null` is a row written
+     *         before authors were recorded, which belongs to nobody
+     */
+    public function creatorsOf(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT id, created_by FROM social_communications'
+            . ' WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')'
+        );
+        $statement->execute($ids);
+
+        $creators = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $creators[(int) $row['id']] = $row['created_by'] === null ? null : (int) $row['created_by'];
+        }
+
+        return $creators;
+    }
+
     public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): bool
     {
         try {

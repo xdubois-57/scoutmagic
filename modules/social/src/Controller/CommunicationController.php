@@ -172,10 +172,28 @@ final class CommunicationController extends AbstractController
         $names = $this->accounts->findNamesByIds($authorIds);
         $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
         $platforms = $this->platformsShown();
+        // **Which of these the chief looking at them may share.** This
+        // page lists the whole unit's contents and is open to every
+        // chief, while the share icon's two routes answer 404 to anyone
+        // but the author or an administrator — so the button has to be
+        // offered only where it can work (`Claude review` on PR #868).
+        // One query for the lot: asking row by row would be thirty reads
+        // on a page that already has its own.
+        $shareable = $this->sources->shareableAmong(
+            array_values(array_map(
+                static fn (array $group): int => (int) $group['id'],
+                array_filter(
+                    $groups,
+                    static fn (array $group): bool => $group['kind'] === ShareSource::KIND_COMMUNICATION
+                )
+            )),
+            AuthSession::getRole(),
+            (int) AuthSession::getUserAccountId()
+        );
 
         $entries = [];
         foreach ($groups as $group) {
-            $entries[] = $this->historyEntry($group, $platforms, $names, $staleBefore);
+            $entries[] = $this->historyEntry($group, $platforms, $names, $staleBefore, $shareable);
         }
 
         return $this->render('@social/communications/history.html.twig', ['entries' => $entries]);
@@ -1366,10 +1384,18 @@ final class CommunicationController extends AbstractController
      * @param array{kind: string, id: int, publications: array<string, Publication>} $group
      * @param list<SocialPlatform> $platforms
      * @param array<int, array{first_name: ?string, last_name: ?string}> $names
+     * @param array<int, true> $shareable the communications this caller
+     *        may share, as a set — the share icon is drawn for those and
+     *        for no others
      * @return array<string, mixed>
      */
-    private function historyEntry(array $group, array $platforms, array $names, \DateTimeImmutable $staleBefore): array
-    {
+    private function historyEntry(
+        array $group,
+        array $platforms,
+        array $names,
+        \DateTimeImmutable $staleBefore,
+        array $shareable
+    ): array {
         $publications = $group['publications'];
         $first = null;
         foreach ($publications as $publication) {
@@ -1437,11 +1463,17 @@ final class CommunicationController extends AbstractController
 
         return [
             'kind' => $group['kind'],
-            // The id the share icon posts to, and null for an entry with
-            // no communication behind it — a share recorded against an
-            // album's own key, from before the composer existed, has no
-            // public page to offer.
-            'share_id' => $group['kind'] === ShareSource::KIND_COMMUNICATION ? $group['id'] : null,
+            // The id the share icon posts to, and null where there is
+            // nothing to offer: an entry with no communication behind it
+            // — a share recorded against an album's own key, from before
+            // the composer existed — or a colleague's communication,
+            // which the two routes refuse. A button that always answers
+            // 404 is worse than no button, and in a unit with more than
+            // one chief it was every entry but one's.
+            'share_id' => $group['kind'] === ShareSource::KIND_COMMUNICATION
+                && isset($shareable[(int) $group['id']])
+                    ? $group['id']
+                    : null,
             'title' => $first->sourceTitle ?? '',
             'caption' => mb_strimwidth($first->caption ?? '', 0, 80, '…'),
             'date' => $first?->attemptedAt,

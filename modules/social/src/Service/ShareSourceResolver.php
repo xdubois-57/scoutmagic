@@ -235,6 +235,43 @@ final class ShareSourceResolver
     }
 
     /**
+     * Which of these communications this caller may share — the bulk
+     * form of {@see editableCommunication()}'s rule (issue #706, IT-05).
+     *
+     * « Ce qui est parti » is readable by every chief and lists the whole
+     * unit's contents, while the share icon's two routes answer 404 to
+     * anyone but the author or an administrator. Offering the button
+     * where it cannot work made it 404 on a colleague's communication in
+     * any unit with more than one chief; `Claude review` found it on PR
+     * #868.
+     *
+     * **The two methods must keep saying the same thing**, which is why
+     * this one lives here beside the other rather than in the controller
+     * that draws the page: an administrator may share anything, and
+     * anybody else only what they wrote.
+     *
+     * @param list<int> $communicationIds
+     * @return array<int, true> the ids this caller may share, as a set
+     */
+    public function shareableAmong(array $communicationIds, string $role, int $accountId): array
+    {
+        if ($communicationIds === [] || $this->communications === null) {
+            return [];
+        }
+        $creators = $this->communications->creatorsOf($communicationIds);
+        $admin = Role::fromString($role)->hasAccess(Role::ADMIN);
+
+        $shareable = [];
+        foreach ($communicationIds as $id) {
+            if ($admin || ($creators[$id] ?? null) === $accountId) {
+                $shareable[$id] = true;
+            }
+        }
+
+        return $shareable;
+    }
+
+    /**
      * The card the browser drew for this share, as stored, or null
      * (issue #706, IT-02).
      *

@@ -3698,6 +3698,12 @@ Sans JavaScript le bouton n'apparaît pas, plutôt que d'apparaître mort :
 l'adresse qu'il lui faut n'existe pas encore, elle est créée par la
 demande que le clic envoie.
 
+**Il n'apparaît pas non plus sur la communication d'un autre.** La liste
+montre tout ce que l'unité a publié, et chaque animateur la lit ; mais
+partager une communication reste réservé à son auteur et aux
+administrateurs, comme la modifier. Un bouton qui refuserait à chaque clic
+serait pire que pas de bouton.
+
 **Le partage fige la communication**, comme une publication : dès le
 premier, quel qu'il soit, l'image, le titre et le texte ne changent plus.
 Ce n'est pas une précaution de principe — les applications relisent la
