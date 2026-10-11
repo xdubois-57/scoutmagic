@@ -96,6 +96,12 @@
     var labelTimers = new WeakMap();
     /** @type {number|null} */
     var sheetCloseTimer = null;
+    /**
+     * Bumped each time the sheet is filled for a number. A copy remembers
+     * the value it started under, and its answer — which may come after the
+     * sheet was reopened for another number — is dropped when it changed.
+     */
+    var sheetGeneration = 0;
 
     /**
      * Put a flashed label back now, and forget its pending restore.
@@ -192,6 +198,7 @@
      * @param {string} kind
      */
     function fillSheet(sheet, international, display, kind) {
+        sheetGeneration++;
         if (sheetCloseTimer !== null) {
             window.clearTimeout(sheetCloseTimer);
             sheetCloseTimer = null;
@@ -286,7 +293,11 @@
         var sheetCopy = /** @type {HTMLElement|null} */ (target.closest('[data-phone-copy]'));
         if (sheetCopy) {
             var label = /** @type {HTMLElement|null} */ (sheetCopy.querySelector('[data-phone-copy-label]'));
+            var generation = sheetGeneration;
             copy(sheetCopy.dataset.phoneCopyValue || '').then(function () {
+                if (generation !== sheetGeneration) {
+                    return;
+                }
                 if (label) {
                     flash(label, 'Numéro copié', COPIED_DELAY);
                 }
@@ -302,7 +313,7 @@
                     }
                 }, SHEET_CLOSE_DELAY);
             }, function () {
-                if (label) {
+                if (label && generation === sheetGeneration) {
                     flash(label, 'Copie impossible', COPIED_DELAY);
                 }
             });
