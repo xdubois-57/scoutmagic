@@ -146,7 +146,7 @@ final class PublicationWording
         $date = self::read($publishedAt);
         if ($date !== null && $date <= ($now ?? new \DateTimeImmutable())) {
             $lines[] = 'Republiée, elle gardera sa date de publication du '
-                . self::longDate($date, null, withWeekday: false) . '.';
+                . self::longDate($date, $now, withWeekday: false) . '.';
         }
 
         return implode("\n", $lines);

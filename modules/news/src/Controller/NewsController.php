@@ -16,6 +16,7 @@ use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -348,7 +349,7 @@ class NewsController extends AbstractController
             $accountId
         );
 
-        $this->applyIntent($article, $intent, $accountId, $scheduleAt);
+        $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -449,7 +450,7 @@ class NewsController extends AbstractController
             $this->issueTicketsForExistingResponses($form, $accountId);
         }
 
-        $this->applyIntent($article, $intent, $accountId, $scheduleAt);
+        $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -975,6 +976,27 @@ class NewsController extends AbstractController
                 ['article_id' => $article->id],
                 $accountId
             );
+        }
+    }
+
+    /**
+     * applyIntent() once the article is saved. A scheduled time can pass
+     * between requestedScheduleMoment()'s check and schedule()'s own — a
+     * time picked for 10:01 and sent at 10:00:59 — and the refusal then
+     * comes AFTER the save. The article exists by now, so it is told on
+     * its own management page, never by the create form again, which
+     * would invite a second copy.
+     */
+    private function applyIntentAfterSave(
+        Article $article,
+        string $intent,
+        int $accountId,
+        ?\DateTimeImmutable $scheduleAt
+    ): void {
+        try {
+            $this->applyIntent($article, $intent, $accountId, $scheduleAt);
+        } catch (NewsException $e) {
+            FlashMessage::set('error', $e->getMessage());
         }
     }
 

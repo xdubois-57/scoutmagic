@@ -2816,6 +2816,29 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringNotContainsString('id="news-schedule-submit"', $again);
     }
 
+    /**
+     * The time can pass between the check made before the save and
+     * schedule()'s own, after it. The article is saved by then: the
+     * refusal is a message on its management page, never an error page
+     * that would send the author back to create it twice.
+     */
+    public function testAScheduleRefusedAfterTheSaveIsAMessageNotAnError(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+
+        $afterSave = new \ReflectionMethod($this->newsController, 'applyIntentAfterSave');
+        $afterSave->invoke($this->newsController, $article, 'schedule', $this->chiefAccountId, new \DateTimeImmutable('-1 minute'));
+
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette heure est déjà passée : choisissez un moment à venir.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(Article::STATUS_DRAFT, $this->articleRepository->findById($id)?->status);
+    }
+
     private function postSchedule(int $id, string $date, string $time, string $title = 'Camp'): \Core\Http\Response
     {
         $_FILES['image'] = $this->fakeUploadedImage();
