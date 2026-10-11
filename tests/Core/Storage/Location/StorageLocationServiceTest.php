@@ -344,22 +344,125 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * **The rename stands when the folder cannot follow.** The site finds
-     * the folder by id, so the operator loses nothing but a matching name,
-     * and the failure comes back to be journaled and shown.
+     * **A rename Google refuses is not saved** (#832). The location's
+     * folder is ScoutMagic's own, and a name accepted here but not there
+     * would leave the two disagreeing. The cause travels as the previous
+     * exception, for the journal.
      */
-    public function testARenameGoogleRefusesIsStillSavedAndTheFailureComesBack(): void
+    public function testARenameGoogleRefusesIsNotSavedAndTheLabelStays(): void
     {
         [$drive, $service, $id] = $this->connectedDriveLocation();
         $drive->failPatchesWith = 500;
 
-        $outcome = $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('A rename Google refused must not be saved.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('Le nom n\'a pas été changé', $e->getMessage());
+            $this->assertStringContainsString('500', (string) $e->getPrevious()?->getMessage());
+        }
 
-        $this->assertTrue($outcome->isFailed());
-        $this->assertNotSame('', (string) $outcome->reason);
-        $this->assertStringContainsString('500', (string) $outcome->detail);
-        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
         $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+    }
+
+    /**
+     * The case of the ticket: after a restore, the location points at a
+     * folder that is gone or in the trash. Google would rename a trashed
+     * folder without complaint, so the folder is looked at first — and
+     * renaming the location never stands in for repairing it.
+     */
+    public function testARenameOfALocationWhoseFolderIsInTheTrashIsRefused(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['trashed'] = true;
+
+        try {
+            $service->update($id, 'Drive 2', $this->driveConfig($drive), null);
+            $this->fail('A folder in the trash must not take a new name.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dans la corbeille', (string) $e->getPrevious()?->getMessage());
+        }
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+        $this->assertSame((string) $drive->folderId, $this->driveFolderOf($id), 'a rename must never change the folder');
+    }
+
+    /**
+     * Disconnected, the site has no grant to reach the folder with — so
+     * the name cannot be applied there, and is not accepted here either.
+     */
+    public function testARenameWhileDisconnectedIsRefused(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $disconnected = new GoogleDriveLocationConfig('client-1', (string) $drive->folderId, '');
+        $service->update($id, 'Photos des galeries', $disconnected, null);
+        $before = $drive->requests;
+
+        try {
+            $service->update($id, 'Galeries du groupe', $disconnected, null);
+            $this->fail('A disconnected location must not be renamed.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('plus raccordé à Google Drive', $e->getMessage());
+        }
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame($before, $drive->requests, 'nothing is asked of Google without a grant');
+    }
+
+    /**
+     * A client secret corrected in the same submission as a new label is
+     * the one the rename uses — so it goes through, and the correction is
+     * saved with it rather than lost to a refusal the stale one caused.
+     */
+    public function testARenameUsesTheClientSecretBeingSaved(): void
+    {
+        $drive = new FakeDrive();
+        $drive->acceptedClientSecret = 'secret-corrige';
+        $service = $this->serviceOn($drive);
+        $stale = new GoogleDriveSecret('secret-perime', 'refresh-1', 'unite@example.org');
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) $stale->toStorage()
+        );
+
+        $service->update(
+            $id,
+            'Galeries du groupe',
+            $this->driveConfig($drive),
+            (string) $stale->withClientSecret('secret-corrige')->toStorage()
+        );
+
+        $this->assertSame('Galeries du groupe', $drive->files['folder-1']['name']);
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame(
+            'secret-corrige',
+            GoogleDriveSecret::fromStorage($this->repository->getSecret($id))->clientSecret
+        );
+    }
+
+    /** A Drive location never connected has no folder: its label is free to change. */
+    public function testANeverConnectedDriveLocationIsRenamedWithoutAskingGoogle(): void
+    {
+        $drive = new FakeDrive();
+        $service = $this->serviceOn($drive);
+        $id = $service->create(StorageLocationType::GoogleDrive, 'Pas encore', new GoogleDriveLocationConfig('c'), null);
+
+        $outcome = $service->update($id, 'Toujours pas', new GoogleDriveLocationConfig('c'), null);
+
+        $this->assertFalse($outcome->isDone());
+        $this->assertSame('Toujours pas', $this->repository->findById($id)?->label);
+        $this->assertSame(0, $drive->requests);
+    }
+
+    private function driveFolderOf(int $id): string
+    {
+        $config = $this->repository->findById($id)?->config;
+
+        return $config instanceof GoogleDriveLocationConfig ? $config->folderId : '';
     }
 
     public function testDeletingADriveLocationPutsItsFolderInTheTrash(): void
@@ -449,10 +552,12 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * **A disconnected location is renamed and deleted without reaching
-     * Google** (#474 review). « Déraccorder » keeps the folder id so a
+     * **A disconnected location is deleted without reaching Google**
+     * (#474 review). « Déraccorder » keeps the folder id so a
      * reconnection finds it again, but with no grant left, asking Google
-     * would fail and report an ordinary state as a Drive fault.
+     * would fail and report an ordinary state as a Drive fault. (Its
+     * rename is refused instead since #832 — see
+     * testARenameWhileDisconnectedIsRefused().)
      */
     public function testADisconnectedLocationLeavesItsFolderWithoutClaimingAFault(): void
     {
@@ -461,10 +566,8 @@ class StorageLocationServiceTest extends TestCase
         $service->update($id, 'Photos des galeries', $disconnected, null);
         $before = $drive->requests;
 
-        $renamed = $service->update($id, 'Galeries du groupe', $disconnected, null);
         $deleted = $service->delete($id);
 
-        $this->assertTrue($renamed->isDisconnected());
         $this->assertTrue($deleted->isDisconnected());
         $this->assertFalse($deleted->isFailed());
         $this->assertNull($this->repository->findById($id));

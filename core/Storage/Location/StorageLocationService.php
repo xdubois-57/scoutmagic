@@ -105,38 +105,116 @@ class StorageLocationService
      * folder (a Google Drive location, #474), renames that folder to
      * match.
      *
-     * **The rename in ScoutMagic stands whatever the folder does.** The
-     * folder is found by its id, never by its name, so a folder left with
-     * the old name costs the operator a moment of confusion in their Drive
-     * and nothing else; refusing the rename because Google was unreachable
-     * would cost them the rename. The failure comes back for the caller
-     * to journal and to show.
+     * **The folder is renamed first, and the label saved only once it
+     * has been** (#832). A Drive location's folder is ScoutMagic's own:
+     * accepting a name here that Google refused would leave the two
+     * disagreeing, and an administrator who then looks for the folder in
+     * their Drive under the new name — or who renames a location to
+     * « repair » it after a restore, which a rename never does — finds
+     * nothing. So Google being unreachable, the folder gone or in the
+     * trash, the location disconnected, or a grant that cannot be read
+     * all refuse the whole save, and the location keeps its old label.
      *
-     * @throws StorageLocationException when the label is already taken
+     * Renaming never chooses another folder. The folder is found by its
+     * id, which a rename never changes; attaching a location to a
+     * different folder is a separate, explicit act.
+     *
+     * Two cases save without asking Google, because there is no folder of
+     * this location's own to rename: a Drive location never connected,
+     * and one that shares its folder with another (pre-#474), whose
+     * folder would be renamed along with it — the outcome says so.
+     *
+     * @throws StorageLocationException when the label is already taken,
+     *         or when the folder could not be renamed (its cause attached
+     *         as the previous exception, for the journal)
      */
     public function update(int $id, string $label, LocationConfig $config, ?string $secret): RootFolderOutcome
     {
         $this->assertLabelFree($label, $id);
         $before = $this->repository->findById($id);
-        $this->repository->update($id, $label, $config, $secret);
-        unset($this->locationsById[$id]);
 
-        if ($before === null || $before->label === $label) {
-            return RootFolderOutcome::nothingToDo();
-        }
-
-        $backend = $this->managedBackendOf($before);
-        if ($backend instanceof RootFolderOutcome) {
-            return $backend;
+        $outcome = RootFolderOutcome::nothingToDo();
+        $renamed = null;
+        if ($before !== null && $before->label !== $label) {
+            // Reached with what is being saved, not with the row as it
+            // was: a client secret corrected in the same submission is the
+            // one that can reach Google, and the stale one would refuse
+            // the rename — and with it the correction.
+            $backend = $this->managedBackendOf(
+                new StorageLocation(
+                    $before->id,
+                    $before->type,
+                    $before->label,
+                    $before->isDefault,
+                    $config,
+                    $before->secretConfigured,
+                    $before->lastCheckedAt,
+                    $before->lastCheckOk,
+                    $before->lastCheckError,
+                    $before->createdAt
+                ),
+                $secret
+            );
+            if ($backend instanceof ManagedRootFolderBackend) {
+                try {
+                    $backend->renameRootFolder($label);
+                } catch (\Throwable $e) {
+                    throw self::renameRefused(self::failure($e), $e);
+                }
+                $renamed = $backend;
+                $outcome = RootFolderOutcome::done();
+            } elseif ($backend->isDisconnected()) {
+                throw new StorageLocationException(
+                    "Le nom n'a pas été changé : cet emplacement n'est plus raccordé à Google Drive, et son "
+                        . 'dossier ne peut pas être renommé sans lui. Raccordez-le d\'abord, puis changez son nom.'
+                );
+            } elseif ($backend->isFailed()) {
+                throw self::renameRefused($backend, null);
+            } else {
+                $outcome = $backend;
+            }
         }
 
         try {
-            $backend->renameRootFolder($label);
+            $this->repository->update($id, $label, $config, $secret);
         } catch (\Throwable $e) {
-            return self::failure($e);
+            // The folder already carries the new name: put the old one
+            // back, so that a save which did not happen leaves nothing
+            // changed anywhere. Best effort — the save's own failure is
+            // what the administrator needs to read.
+            if ($renamed !== null) {
+                try {
+                    $renamed->renameRootFolder($before->label);
+                } catch (\Throwable) {
+                    // Found by id: a folder left with the new name breaks nothing.
+                }
+            }
+            throw $e;
         }
+        unset($this->locationsById[$id]);
 
-        return RootFolderOutcome::done();
+        return $outcome;
+    }
+
+    /**
+     * The refusal a failed folder rename becomes: the label stays, and
+     * the reason is said in French. The provider's own words travel as
+     * the previous exception, for the journal, never for the screen.
+     */
+    private static function renameRefused(
+        RootFolderOutcome $failure,
+        ?\Throwable $cause
+    ): StorageLocationRenameRefusedException {
+        return new StorageLocationRenameRefusedException(
+            "Le nom n'a pas été changé : le dossier de cet emplacement sur Google Drive n'a pas pu être renommé. "
+                . $failure->reason
+                . ' Renommer l\'emplacement ne choisit pas un autre dossier : si le sien a été supprimé ou '
+                . 'mis à la corbeille, récupérez-le dans Google Drive avant de le renommer.',
+            0,
+            // The detail rather than the cause itself: it carries the
+            // provider's answer underneath ScoutMagic's own words.
+            new \RuntimeException((string) $failure->detail, 0, $cause)
+        );
     }
 
     public function setDefault(int $id): void
@@ -304,8 +382,10 @@ class StorageLocationService
      * to report instead: nothing to do for every other kind, a failure
      * when the backend cannot even be built (an unreadable secret).
      */
-    private function managedBackendOf(StorageLocation $location): ManagedRootFolderBackend|RootFolderOutcome
-    {
+    private function managedBackendOf(
+        StorageLocation $location,
+        ?string $secret = null
+    ): ManagedRootFolderBackend|RootFolderOutcome {
         if ($location->type !== StorageLocationType::GoogleDrive) {
             // Asked of the type first: building a local backend creates
             // its directory, and an S3 one a client, for nothing.
@@ -332,7 +412,9 @@ class StorageLocationService
         }
 
         try {
-            $backend = $this->backendFactory->create($location);
+            // Built afresh, never from the factory's per-location cache: on
+            // an update, $location carries what is being saved.
+            $backend = $this->backendFactory->probe($location, $secret);
         } catch (\Throwable $e) {
             return self::failure($e);
         }

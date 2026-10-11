@@ -989,7 +989,19 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
             return;
         }
 
-        $this->client->renameFile($this->accessToken(), $this->config->folderId, $name);
+        $token = $this->accessToken();
+        // Google renames a folder in the trash as readily as any other, and
+        // a rename that « worked » there would have the site accept a name
+        // for a folder it can no longer use (#832). So the folder is
+        // looked at first, and one that is gone or in the trash is refused.
+        $folder = $this->client->describeFile($token, $this->config->folderId);
+        if ($folder === null || $folder['trashed']) {
+            throw DriveAccessException::of(
+                'Le dossier de cet emplacement n\'existe plus sur Google Drive, ou il est dans la corbeille.'
+            );
+        }
+
+        $this->client->renameFile($token, $this->config->folderId, $name);
     }
 
     public function trashRootFolder(): void
