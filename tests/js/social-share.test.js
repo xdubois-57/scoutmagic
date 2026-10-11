@@ -265,6 +265,60 @@ describe('with a share sheet', () => {
         expect(navigator.share).toHaveBeenCalledWith({ url: 'https://unite.example/partage/abc' });
     });
 
+    /**
+     * **Activation lost: the link goes to the clipboard, not nowhere**
+     * (`Claude review` on PR #868).
+     *
+     * `navigator.share()` needs transient user activation, and ours is
+     * spent crossing the network — the click mints the public page
+     * first, because there is no address to share before it exists.
+     * WebKit answers `NotAllowedError` for that gap, which would have
+     * surfaced as « Le partage n'a pas abouti. » on the very device the
+     * sheet exists for. The fallback is a safety net rather than the
+     * answer, and the history records what really happened: a copy.
+     */
+    it('falls back to the clipboard when the sheet refuses for lost activation', async () => {
+        const denied = new Error('not allowed');
+        denied.name = 'NotAllowedError';
+        navigator.share = vi.fn().mockRejectedValue(denied);
+
+        vi.useFakeTimers();
+        try {
+            await load();
+            button().click();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect([
+                navigator.clipboard.writeText.mock.calls.length,
+                posted.map((p) => p.url),
+                posted[1]?.body,
+                feedback().textContent,
+            ]).toEqual([
+                1,
+                ['/medias-sociaux/7/lien', '/medias-sociaux/7/partage'],
+                { kind: 'copy' },
+                'Lien copié',
+            ]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /** With no clipboard either, there is nothing to fall back to. */
+    it('says so when the sheet refuses and the clipboard is absent', async () => {
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        const denied = new Error('not allowed');
+        denied.name = 'NotAllowedError';
+        navigator.share = vi.fn().mockRejectedValue(denied);
+
+        await load();
+        button().click();
+        await settle();
+
+        expect([posted.map((p) => p.url), feedback().textContent])
+            .toEqual([['/medias-sociaux/7/lien'], 'Le partage n’a pas abouti.']);
+    });
+
     it('says so when the sheet fails for any other reason', async () => {
         navigator.share = vi.fn().mockRejectedValue(new Error('boom'));
 

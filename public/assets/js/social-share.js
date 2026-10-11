@@ -108,12 +108,59 @@
         if (url === null) {
             return null;
         }
+        if (!canShareSheet) {
+            return copied(url);
+        }
 
-        const given = canShareSheet
-            ? navigator.share(sheetPayload(url, title)).then(function () { return 'native'; })
-            : clipboard.writeText(url).then(function () { return 'copy'; });
+        return navigator.share(sheetPayload(url, title))
+            .then(function () { return 'native'; })
+            .catch(function (error) { return sheetRefused(url, error); });
+    }
 
-        return given.catch(refused);
+    /**
+     * The clipboard path: the desktop's own, and the sheet's fallback.
+     *
+     * @param {string} url
+     * @returns {Promise<?string>}
+     */
+    function copied(url) {
+        return clipboard.writeText(url).then(function () { return 'copy'; }).catch(refused);
+    }
+
+    /**
+     * **The sheet would not open — so the link goes to the clipboard
+     * instead of nowhere.**
+     *
+     * `navigator.share()` needs transient user activation, and ours is
+     * spent crossing the network: the click mints the public page first,
+     * because there is no address to share before it exists, and the
+     * sheet is only asked for afterwards. WebKit is strict about that
+     * gap and answers `NotAllowedError`, which would have surfaced as
+     * « Le partage n'a pas abouti. » on the very device the sheet exists
+     * for (`Claude review` on PR #868). A slow network can lose the
+     * activation on any browser, so this is not an iOS special case.
+     *
+     * Falling back is a safety net and not the answer: the chief still
+     * gets the link and the history still records the truth — « Lien
+     * copié », because that is what happened — but the sheet is what the
+     * chantier asks for on a phone. Whether the page should instead be
+     * minted BEFORE the click, which would make the call synchronous at
+     * the cost of IT-04's « born only from a share » rule, is on the
+     * pull request for the maintainer to decide.
+     *
+     * @param {string} url
+     * @param {?{name?: string}} error
+     * @returns {null|Promise<?string>}
+     */
+    function sheetRefused(url, error) {
+        if (error?.name === 'AbortError') {
+            return null;
+        }
+        if (error?.name === 'NotAllowedError' && clipboard) {
+            return copied(url);
+        }
+
+        return refused(error);
     }
 
     /**
