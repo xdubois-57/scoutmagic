@@ -40,6 +40,29 @@ refusaient de démarrer, et le hook de démarrage l'annonçait seulement par
 « phpunit: unavailable ». PHP 8.4 a été installé à la main (paquets Sury, mêmes
 extensions que la 8.3, plus `imap`) avant la première itération de code.
 
+**Divergences entre le document et la maquette** (relevées à la revue de la PR
+d'IT-00 ; le document dit lui-même que la maquette fait foi pour la hiérarchie
+de l'écran, les libellés et les états d'interaction, il est donc déposé tel
+quel et c'est la maquette qui l'emporte) :
+
+- **La ligne verrouillée « Limite : le nombre de places de l'année de
+  parcours ».** D5 et IT-03 la disent « en tête du classement » ; la maquette
+  la place **après** la zone « Classement », avec « Toujours appliquée, en fin
+  de classement ». C'est aussi ce que fait le moteur de la file : le
+  classement d'abord, la limite de places mord à la fin. IT-03 suit la
+  maquette.
+- **L'exemple d'explication d'IT-03** (« Oui — 6 places restent en 1re année
+  Louveteaux. Fratrie déjà présente dans l'unité. ») raisonne en places
+  restantes, alors que le modèle raisonne en pourcentage d'occupation et
+  qu'une demande « Toujours Oui » ne cite aucun chiffre de capacité. Les
+  explications suivent celles que construit `recommend()` dans la maquette
+  (« Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité. »,
+  « 1re demande classée sur 3 pour … Avant elle, N places sur C seraient
+  occupées (P %) … »).
+- Deux corrections de forme dans la maquette elle-même : les identifiants de
+  la page « fiche » passent en anglais (`detailId`, `RequestDetail`), et une
+  phrase de confirmation qui disait « Les 1 décision déjà prise » est accordée.
+
 **Faits à trancher en cours de route** (section « Faits vérifiés et pièges »
 du document) : R1 dans IT-02, R2 dans IT-02, R3 dans IT-05, R4 dans IT-03, R5
 dans IT-06, R6 dans IT-05, R7 dans IT-05, R8 à chaque itération qui touche

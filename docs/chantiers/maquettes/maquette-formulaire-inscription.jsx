@@ -897,7 +897,7 @@ export default function MaquetteFormulaireInscription() {
       lines.push(
         `Les e-mails d'acceptation et de refus partiront ${cfg.delay} h après chaque décision. Tant qu'ils ne sont pas partis, vous pouvez changer la décision et rien n'est envoyé.`
       );
-      lines.push("Oui, des e-mails vont partir : uniquement pour les décisions prises à partir de maintenant. Les 1 décision déjà prise sans envoi reste à envoyer à la main depuis sa fiche.");
+      lines.push("Oui, des e-mails vont partir : uniquement pour les décisions prises à partir de maintenant. La décision déjà prise sans envoi reste à envoyer à la main depuis sa fiche.");
     } else {
       lines.push("Non, aucun e-mail ne partira tout seul : chaque envoi se fait depuis la fiche de la demande.");
     }
