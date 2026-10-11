@@ -100,10 +100,13 @@ class CarpoolAgendaEnricher implements EventDescriptionEnricherInterface
                         $taken += $request->isAccepted() ? $request->passengerCount : 0;
                     }
                     // A count, never a name: who rides is for the page, not for a file kept in clear.
-                    $riders = $taken > 0 ? $taken . ($taken === 1 ? ' passager confirmé' : ' passagers confirmés') . ', ' : '';
+                    $free = CarpoolFormat::freeSeats($offer->seats - $taken);
+                    $seats = $taken > 0
+                        ? $taken . ($taken === 1 ? ' passager confirmé' : ' passagers confirmés') . ', ' . $free
+                        : ucfirst($free);
                     $lines[] = 'Covoiturage — vous conduisez ' . ($offer->isOutbound() ? 'à l\'aller' : 'au retour')
                         . ', ' . CarpoolFormat::time($offer->departureTime) . ', ' . $offer->endpoint . '. '
-                        . ($riders !== '' ? $riders . CarpoolFormat::freeSeats($offer->seats - $taken) : ucfirst(CarpoolFormat::freeSeats($offer->seats - $taken))) . '.';
+                        . $seats . '.';
                     continue;
                 }
                 $lines[] = 'Covoiturage — ' . self::direction($offer) . ' '
