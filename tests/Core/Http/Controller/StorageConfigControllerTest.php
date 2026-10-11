@@ -946,6 +946,24 @@ class StorageConfigControllerTest extends TestCase
         $this->assertNull($this->publicUrlOf($this->repository->findById($id)));
     }
 
+    /**
+     * That refusal carries its cause too, and is not a Drive folder that
+     * would not follow: the journal must not say it is (#832).
+     */
+    public function testAConsumerThatCannotBeAskedIsNotJournaledAsAFolderRename(): void
+    {
+        $id = $this->declareDrive();
+        $this->consumers->register($this->brokenConsumer());
+
+        $response = $this->driveController(new FakeDrive('dossier-1', 'Google Drive'))->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
+    }
+
     // ————— Promoting a default —————
 
     public function testSetDefaultPromotesTheGivenLocation(): void

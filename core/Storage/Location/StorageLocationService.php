@@ -183,9 +183,11 @@ class StorageLocationService
      * the reason is said in French. The provider's own words travel as
      * the previous exception, for the journal, never for the screen.
      */
-    private static function renameRefused(RootFolderOutcome $failure, ?\Throwable $cause): StorageLocationException
-    {
-        return new StorageLocationException(
+    private static function renameRefused(
+        RootFolderOutcome $failure,
+        ?\Throwable $cause
+    ): StorageLocationRenameRefusedException {
+        return new StorageLocationRenameRefusedException(
             "Le nom n'a pas été changé : le dossier de cet emplacement sur Google Drive n'a pas pu être renommé. "
                 . $failure->reason
                 . ' Renommer l\'emplacement ne choisit pas un autre dossier : si le sien a été supprimé ou '

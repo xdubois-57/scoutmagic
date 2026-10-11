@@ -35,6 +35,7 @@ use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
+use Core\Storage\Location\StorageLocationRenameRefusedException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
@@ -594,7 +595,7 @@ class StorageConfigController extends AbstractController
 
             $folder = $this->storageLocationService->update($location->id, $label, $config, $secret);
         } catch (StorageLocationException $e) {
-            if ($e->getPrevious() !== null) {
+            if ($e instanceof StorageLocationRenameRefusedException) {
                 // The folder could not be renamed, so nothing was saved
                 // (#832). The provider's words go to the journal only.
                 $this->journalService->log(
@@ -603,7 +604,7 @@ class StorageConfigController extends AbstractController
                     'warning',
                     "Renommage de l'emplacement « {$location->label} » refusé : son dossier Google Drive "
                         . "n'a pas pu être renommé",
-                    ['requested_label' => $label, 'detail' => $e->getPrevious()->getMessage()],
+                    ['requested_label' => $label, 'detail' => $e->getPrevious()?->getMessage()],
                     (int) AuthSession::getUserAccountId()
                 );
             }
