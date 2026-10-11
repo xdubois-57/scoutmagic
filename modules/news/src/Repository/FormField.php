@@ -78,6 +78,25 @@ final class FormField
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;
     }
 
+    /** The same field with $text in place of its text. */
+    public function withConfirmationText(?string $text): self
+    {
+        return new self(
+            $this->id,
+            $this->formId,
+            $this->sortOrder,
+            $this->fieldType,
+            $this->label,
+            $this->isRequired,
+            $this->optionsSource,
+            $this->optionsManual,
+            $this->capacityMax,
+            $this->pricePerUnit,
+            $text,
+            $this->capacityUsed
+        );
+    }
+
     public function isNonInput(): bool
     {
         return in_array($this->fieldType, self::NON_INPUT_TYPES, true);

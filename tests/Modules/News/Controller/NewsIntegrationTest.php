@@ -191,7 +191,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testPublicListRendersAnArticleCard(): void
     {
-        $this->articleRepository->create('Camp ete', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp ete', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->index(new Request('GET', '/news', [], [], [], []), []);
 
@@ -210,11 +210,11 @@ class NewsIntegrationTest extends TestCase
 
         // 30 per page: 31 public articles push one `identified` article
         // onto page 2, oldest last.
-        $reserved = $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
-        $this->pdo->exec("UPDATE news_articles SET created_at = '2020-01-01 10:00:00' WHERE id = {$reserved}");
+        $reserved = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2020-01-01 10:00:00', status = 'published', published_at = '2020-01-01 10:00:00' WHERE id = {$reserved}");
         for ($i = 1; $i <= 31; $i++) {
-            $id = $this->articleRepository->create('Public ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
-            $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-01 10:00:00' WHERE id = {$id}");
+            $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Public ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+            $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-01 10:00:00', status = 'published', published_at = '2026-01-01 10:00:00' WHERE id = {$id}");
         }
 
         $page2 = $this->newsController->index(new Request('GET', '/news', ['page' => '2'], [], [], []), []);
@@ -225,7 +225,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testPublicListNeverShowsDirectLinkArticles(): void
     {
-        $this->articleRepository->create('Secret', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->chiefAccountId);
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Secret', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->index(new Request('GET', '/news', [], [], [], []), []);
 
@@ -235,7 +235,7 @@ class NewsIntegrationTest extends TestCase
     public function testManageListRendersForChief(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $this->articleRepository->create('Article', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Article', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), []);
 
@@ -248,7 +248,7 @@ class NewsIntegrationTest extends TestCase
     public function testAManagedArticleRowLeadsToItsManagementPage(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId));
 
         $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
 
@@ -261,7 +261,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testAPublicArticleRowStillLeadsToThePublicArticle(): void
     {
-        $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         $body = $this->newsController->index(new Request('GET', '/news', [], [], [], []), [])->getBody();
 
@@ -271,7 +271,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheFormTabsAreTheSharedNavRailAndNoLongerPills(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $body = $this->newsController->edit(
@@ -292,7 +292,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheEditorShowsTheActionsOtherModulesContribute(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $registry = new \Modules\News\Service\ArticleActionRegistry();
         $registry->register(new class implements \Modules\News\Api\ArticleActionProviderInterface {
             public function actionsFor(int $articleId): array
@@ -324,13 +324,18 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('href="/medias-sociaux/nouvelle/article/' . $articleId . '"', $body);
         $this->assertStringContainsString('aria-label="Partager"', $body);
 
-        $this->assertStringNotContainsString('data-article-actions', $this->newsController->edit($request, ['id' => (string) $articleId])->getBody());
+        $this->assertStringNotContainsString('/medias-sociaux/nouvelle/article/', $this->newsController->edit($request, ['id' => (string) $articleId])->getBody());
+
+        // A draft offers none of them: nothing is shared before publication.
+        $this->articleService->unpublish($articleId);
+        $draft = $controller->edit($request, ['id' => (string) $articleId])->getBody();
+        $this->assertStringNotContainsString('/medias-sociaux/nouvelle/article/', $draft);
     }
 
     public function testTheEditorTabIsTheSelectedOneAndThePreviewTabIsNot(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         // Two views of ONE route, told apart by a query string the picker
@@ -359,7 +364,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheFinanceTabIsAbsentWithoutTheFinanceModule(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 3);
 
         // $this->newsController is built with no FinanceAccountInterface.
@@ -374,7 +379,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheFinanceTabIsTheRailsEndTabWhenTheModuleIsOnAndTheFormIsPaid(): void
     {
         [$controller] = $this->controllerWithFinanceAccounts();
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 42);
 
         $body = $controller->edit(
@@ -394,7 +399,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheFinanceTabIsAbsentOnAFormWithNoAccount(): void
     {
         [$controller] = $this->controllerWithFinanceAccounts();
-        $articleId = $this->articleRepository->create('Réunion', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Réunion', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $body = $controller->edit(
@@ -420,7 +425,7 @@ class NewsIntegrationTest extends TestCase
     public function testEditEditorPageRendersWithAnExistingFormAndFields(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Article avec formulaire', Article::VISIBILITY_PUBLIC, true, 'mots,cles', '2027-01-01', $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Article avec formulaire', Article::VISIBILITY_PUBLIC, true, 'mots,cles', '2027-01-01', $this->chiefAccountId));
         $this->articleRepository->setShortUrlCode($articleId, 'abc123');
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, '2026-01-01', '2026-12-31', false, 'chief', 'resume@unite.test', null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
@@ -445,7 +450,7 @@ class NewsIntegrationTest extends TestCase
         $this->twig->addGlobal('route_breadcrumb', ['label' => "Modifier l'article", 'parents' => ['Espace animateurs']]);
         $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace animateurs']]);
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Fête des familles', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Fête des familles', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/gerer', [], [], [], []), ['id' => (string) $articleId]);
 
@@ -478,7 +483,7 @@ class NewsIntegrationTest extends TestCase
     public function testEditEditorPreviewTabRendersWithAnExistingFormAndFields(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Article preview', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Article preview', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, 10, null, null);
 
@@ -535,7 +540,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testShowRendersArticleDetailWithoutForm(): void
     {
-        $id = $this->articleRepository->create('Titre article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Titre article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
 
@@ -558,7 +563,7 @@ class NewsIntegrationTest extends TestCase
         $this->twig->addGlobal('route_breadcrumb', ['label' => 'Actualité', 'parents' => ['Notre unité']]);
         $this->twig->addGlobal('menus', [['id' => 'notre_unite', 'label' => 'Notre unité']]);
 
-        $id = $this->articleRepository->create('Camp d\'été 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp d\'été 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
 
@@ -571,7 +576,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testShowMigratesLegacyBodyHtmlIntoContentWhenArticlePredatesTheMandatoryForm(): void
     {
-        $id = $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         // Simulates an article saved before the form became mandatory —
         // content lived in the generic editable-content store, no
         // news_forms row exists at all.
@@ -587,7 +592,7 @@ class NewsIntegrationTest extends TestCase
     public function testEditEditorPageMigratesLegacyBodyHtmlIntoADefaultTextField(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $id = $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Contenu historique.</p>', 'rich_text', $this->chiefAccountId);
 
         $response = $this->newsController->edit(new Request('GET', '/news/' . $id . '/gerer', [], [], [], []), ['id' => (string) $id]);
@@ -615,7 +620,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testShowRendersOpenGraphAndTwitterCardMetaTagsWithAbsoluteImageUrl(): void
     {
-        $id = $this->articleRepository->create('Camp d\'ete 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp d\'ete 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Camp d\'ete 2026', Article::VISIBILITY_PUBLIC, false, null, null, 'Un super camp cet ete !', 55);
         $this->articleRepository->setShortUrlCode($id, 'abc123');
         $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
@@ -643,7 +648,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testAnonymousGetsThePreviewOfAnIdentifiedArticleAndNoneOfItsContent(): void
     {
-        $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Un resume public.', 55);
         $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Le corps secret du camp.</p>', 'rich_text', $this->chiefAccountId);
         $this->formRepository->create($id, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
@@ -669,7 +674,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testAnAnonymousCrawlerReceivesTheOpenGraphTagsOfAnIdentifiedArticle(): void
     {
-        $id = $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Reserve aux membres.', 55);
         $this->articleRepository->setShortUrlCode($id, 'abc123');
         $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
@@ -691,7 +696,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testAnonymousStillGetsAFlat403OnAChiefArticle(): void
     {
-        $id = $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, 'Un secret de famille.', 55);
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
@@ -703,7 +708,7 @@ class NewsIntegrationTest extends TestCase
     public function testShowRendersIdentifiedArticleForASignedInMember(): void
     {
         AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
-        $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
 
@@ -713,7 +718,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testPublicListHidesIdentifiedArticleFromAnAnonymousVisitorAndShowsItToAMember(): void
     {
-        $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Reserve aux membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
 
         $anonymous = $this->newsController->index(new Request('GET', '/news', [], [], [], []), []);
         $this->assertStringNotContainsString('Reserve aux membres', $anonymous->getBody());
@@ -737,7 +742,7 @@ class NewsIntegrationTest extends TestCase
     public function testIdentifiedArticleExposesItsPreviewButStaysUnindexed(): void
     {
         AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
-        $id = $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Reserve aux membres.', 55);
         $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
 
@@ -757,7 +762,7 @@ class NewsIntegrationTest extends TestCase
     public function testChiefArticleExposesNoOpenGraphMetadataEvenToAReaderWhoMaySeeIt(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $id = $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId));
         $this->articleRepository->update($id, 'Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, 'Un secret de famille.', 55);
         $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
 
@@ -770,7 +775,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testShowReturns403ForChiefArticleWhenPublic(): void
     {
-        $id = $this->articleRepository->create('Réservé', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Réservé', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId));
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
 
@@ -779,7 +784,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testShowRendersOpenFormAndAcceptsASubmission(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -829,7 +834,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testCappedNumberFieldRendersARealMaxAttribute(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places', true, null, null, 2, null, null);
 
@@ -853,7 +858,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testFullRequiredNumberFieldRendersAsCompletAndTheFormStillSubmits(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $placesId = $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 2, null, null);
         $nameId = $this->fieldRepository->create($formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
@@ -889,7 +894,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testSubmitErrorRedisplayKeepsThePostedValues(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $nameId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $daysId = $this->fieldRepository->create($formId, 1, FormField::TYPE_CHECKBOX, 'Jours', false, FormField::OPTIONS_SOURCE_MANUAL, "Lundi\nMardi", null, null, null);
@@ -918,7 +923,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testSubmitRejectsClosedFormAndRedisplaysArticle(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
         // A form with zero real input fields has nothing to submit, so the
         // "closed" messaging only renders once there's at least one.
@@ -946,7 +951,7 @@ class NewsIntegrationTest extends TestCase
         $this->twig->addGlobal('route_breadcrumb', ['label' => 'Actualité', 'parents' => ['Notre unité']]);
         $this->twig->addGlobal('menus', [['id' => 'notre_unite', 'label' => 'Notre unité']]);
 
-        $articleId = $this->articleRepository->create('Sortie Ardennes', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Sortie Ardennes', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', null, null);
         $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -967,7 +972,7 @@ class NewsIntegrationTest extends TestCase
     public function testResponsesPageRendersForChiefAndListsSubmission(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
@@ -981,7 +986,7 @@ class NewsIntegrationTest extends TestCase
     public function testResponsesPageRejectsRoleBelowResponseRoleMin(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'identified');
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $response = $this->formController->responses(new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []), ['id' => (string) $articleId]);
@@ -1108,7 +1113,7 @@ class NewsIntegrationTest extends TestCase
 
     private function articleWithOneResponse(string $responseRoleMin = 'chief'): int
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, $responseRoleMin, null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
@@ -1126,7 +1131,7 @@ class NewsIntegrationTest extends TestCase
      */
     private function crossedEvent(): array
     {
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
             null, null, false, 'chief', null, 7, true, '2026-03-14', 'Salle'
@@ -1730,7 +1735,7 @@ class NewsIntegrationTest extends TestCase
     public function testExportResponsesReturnsAnXlsxFile(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
@@ -1751,7 +1756,7 @@ class NewsIntegrationTest extends TestCase
     public function testExportedAnswersAreWrittenAsTextNotFormulas(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -1780,7 +1785,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testEditResponsePageRendersForOwnerWhileOpen(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $responseId = $this->responseRepository->create($formId, 55, null, 'me@test.com', [$fieldId => 'Bob'], null, null);
@@ -1798,7 +1803,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testEditResponsePageRejectsADifferentAccount(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT, null, null, false, 'chief', null, null);
         $responseId = $this->responseRepository->create($formId, 55, null, 'me@test.com', [], null, null);
 
@@ -1819,7 +1824,7 @@ class NewsIntegrationTest extends TestCase
     public function testPosterDownloadReturnsAPdf(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $id = $this->articleRepository->create('Camp d\'été', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp d\'été', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $this->articleRepository->setShortUrlCode($id, 'abc123');
 
         $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
@@ -1838,7 +1843,7 @@ class NewsIntegrationTest extends TestCase
     public function testPosterIsRefusedForAnArticleTheViewerMayNotSee(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $id = $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.');
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.'));
         $this->articleRepository->setShortUrlCode($id, 'secret1');
 
         $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
@@ -1850,7 +1855,7 @@ class NewsIntegrationTest extends TestCase
     public function testPosterIsServedForTheSameArticleToARoleThatMaySeeIt(): void
     {
         AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
-        $id = $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.');
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.'));
         $this->articleRepository->setShortUrlCode($id, 'secret2');
 
         $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
@@ -1865,7 +1870,7 @@ class NewsIntegrationTest extends TestCase
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $fileId = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 5 * 1024 * 1024, 'public', 'news', $this->chiefAccountId);
 
-        $id = $this->articleRepository->create('Camp d\'été', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', $fileId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp d\'été', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', $fileId));
         $this->articleRepository->setShortUrlCode($id, 'abc124');
 
         $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
@@ -1961,7 +1966,7 @@ class NewsIntegrationTest extends TestCase
     public function testRaisingTheTicketSwitchBackfillsExistingResponsesAndSchedulesTheirTickets(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $first = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         $second = $this->responseRepository->create($formId, null, null, 'b@test.com', [], null, null);
@@ -1992,7 +1997,7 @@ class NewsIntegrationTest extends TestCase
     public function testSavingAnAlreadyTicketedFormSchedulesNothingAndReissuesNothing(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true);
         $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
@@ -2012,7 +2017,7 @@ class NewsIntegrationTest extends TestCase
     public function testLoweringTheTicketSwitchLeavesIssuedTicketsIntact(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true);
         $responseId = $this->responseRepository->create($formId, null, null, 'a@test.com', [], null, null);
         (new \Modules\News\Service\TicketService($this->responseRepository))->issueFor($this->responseRepository->findById($responseId));
@@ -2033,7 +2038,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheEventDateAndPlaceAreSavedOnTheForm(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
 
         $token = CsrfGuard::generateToken();
@@ -2055,7 +2060,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheIcsWarningAppearsOnlyOnceSomebodyHasAnswered(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null, true, '2026-03-14', 'Salle');
 
         $quiet = $this->newsController->edit(
@@ -2190,6 +2195,90 @@ class NewsIntegrationTest extends TestCase
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
     }
 
+    /**
+     * The images of an article's text get their derivatives at upload too,
+     * and the editor inserts the `md` rendition: the original never goes
+     * through the offline cache (#883), and it is a multi-megabyte
+     * photograph where a 1024px one does.
+     */
+    public function testABodyImageIsUploadedWithItsDerivativesAndInsertedAsItsMediumRendition(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ], [], []), []);
+
+        $payload = json_decode($response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertMatchesRegularExpression('~^/files/(\d+)/md$~', $payload['url']);
+        $file = $fileRepository->findById((int) explode('/', $payload['url'])[2]);
+        $this->assertNotNull($file);
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
+    }
+
+    /**
+     * An article written before #883 carries its text images as originals.
+     * The page shows the `md` rendition wherever it exists, and leaves an
+     * image without one alone: a heavy image beats a broken one.
+     */
+    public function testAStoredBodyImageIsShownAsItsMediumRenditionWhereItExists(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
+        $uploadHandler = new UploadHandler($fileRepository, sys_get_temp_dir());
+        $withMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
+        $variantService->generate($withMedium, 'md');
+        $withoutMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $controller->store(new Request('POST', '/news', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Souvenirs du camp',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'has_form' => '1',
+            'form_access' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'fields_json' => json_encode([[
+                'id' => null, 'field_type' => 'text', 'label' => null, 'is_required' => false,
+                'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null,
+                'confirmation_text' => '<p><img src="/files/' . $withMedium . '" alt="Feu"><img src="/files/' . $withoutMedium . '" alt="Tente"></p>',
+            ]]),
+        ], [], []), []);
+        $articleId = $this->articleRepository->findAll()[0]->id;
+
+        $html = $controller->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+
+        $this->assertStringContainsString('src="/files/' . $withMedium . '/md"', $html);
+        $this->assertStringContainsString('src="/files/' . $withoutMedium . '"', $html);
+        $this->assertStringNotContainsString('src="/files/' . $withMedium . '"', $html);
+    }
+
+    /**
+     * @return array{0: NewsController, 1: FileRepository, 2: \Core\Photo\ImageVariantService}
+     */
+    private function controllerWithImageVariants(): array
+    {
+        $fileRepository = new FileRepository($this->pdo);
+        $variantService = new \Core\Photo\ImageVariantService(
+            $fileRepository, new \Core\Photo\ImageVariantProcessor(), sys_get_temp_dir()
+        );
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler($fileRepository, sys_get_temp_dir()),
+            $fileRepository, sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), null, null, $variantService
+        );
+
+        return [$controller, $fileRepository, $variantService];
+    }
+
     public function testStoreCreatesArticleWithFormAndRedirects(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -2295,7 +2384,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testDeleteRejectsNonAuthorChief(): void
     {
-        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
 
         AuthSession::login(999, 'other-chief@test.com', 'chief');
         $csrfToken = CsrfGuard::generateToken();
@@ -2350,7 +2439,7 @@ class NewsIntegrationTest extends TestCase
     public function testUpdateJournalsTheArticleUpdate(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null));
         $csrfToken = CsrfGuard::generateToken();
 
         $this->journalService->expects($this->once())->method('log')
@@ -2372,7 +2461,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testUpdateResponseJournalsTheResponseUpdate(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $responseId = $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
@@ -2398,7 +2487,7 @@ class NewsIntegrationTest extends TestCase
 
     public function testSubmitJournalsTheResponseSubmission(): void
     {
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -2428,7 +2517,7 @@ class NewsIntegrationTest extends TestCase
      */
     public function testTheSameAnswerSentTwiceIsOneResponse(): void
     {
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -2455,7 +2544,7 @@ class NewsIntegrationTest extends TestCase
     /** A different answer from the same address is a different response. */
     public function testADifferentAnswerFromTheSameAddressIsStillANewResponse(): void
     {
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
@@ -2480,7 +2569,7 @@ class NewsIntegrationTest extends TestCase
     public function testTheResponsesPageIsPaginated(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'admin');
-        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         for ($i = 0; $i < 55; $i++) {
@@ -2512,7 +2601,7 @@ class NewsIntegrationTest extends TestCase
     public function testExportResponsesJournalsTheExport(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
-        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
         $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
@@ -2523,5 +2612,343 @@ class NewsIntegrationTest extends TestCase
         $response = $this->formController->exportResponses(new Request('GET', '/news/' . $articleId . '/form/responses/export', [], [], [], []), ['id' => (string) $articleId]);
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * Before publication, anybody but a manager gets « pas encore en
+     * ligne » — a 404 that shows nothing of the article — even holding
+     * the address of a « Lien direct » article (issue #845).
+     */
+    public function testANotOnlineArticleIsAnswered404WithNothingOfIt(): void
+    {
+        $id = $this->articleRepository->create('Souper secret', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->chiefAccountId, 'Résumé caché.', null);
+        $this->articleRepository->setPublication($id, Article::STATUS_PUBLISHED, '2999-01-20 08:00:00');
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+        $body = $response->getBody();
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringContainsString('Cette actualité n\'est pas encore en ligne.', $body);
+        $this->assertStringContainsString('Elle le sera le ', $body);
+        $this->assertStringContainsString('<meta name="robots" content="noindex">', $body);
+        $this->assertStringNotContainsString('Souper secret', $body);
+        $this->assertStringNotContainsString('Résumé caché.', $body);
+    }
+
+    /**
+     * The visibility is checked before the state: a visitor who could not
+     * read the article once published learns neither that it exists nor
+     * when it will be out — the same refusal as for the published one,
+     * and no link preview of an article that is not online.
+     */
+    public function testANotOnlineArticleBeyondTheReadersVisibilityIsRefusedNotAnnounced(): void
+    {
+        $chief = $this->articleRepository->create('Réunion des chefs', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->articleRepository->setPublication($chief, Article::STATUS_PUBLISHED, '2999-01-20 08:00:00');
+        $members = $this->articleRepository->create('Souper des membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->articleRepository->setPublication($members, Article::STATUS_PUBLISHED, '2999-01-20 08:00:00');
+
+        foreach ([$chief, $members] as $id) {
+            $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+            $this->assertSame(403, $response->getStatusCode());
+            $this->assertStringNotContainsString('Elle le sera le', $response->getBody());
+            $this->assertStringNotContainsString('og:title', $response->getBody());
+        }
+    }
+
+    /**
+     * A manager reads the draft as it will be, under a banner saying it is
+     * not online and why they see it; its form shows but takes nothing.
+     */
+    public function testAManagerReadsADraftUnderABanner(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $formId = $this->formRepository->create($id, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('data-news-not-live', $body);
+        $this->assertStringContainsString('Brouillon — non publiée', $body);
+        $this->assertStringContainsString('<fieldset disabled>', $body);
+        $this->assertStringContainsString('Le formulaire n\'accepte aucune réponse avant la publication.', $body);
+        $this->assertStringContainsString('<meta name="robots" content="noindex">', $body);
+        $this->assertStringNotContainsString('og:title', $body);
+    }
+
+    /**
+     * The form of an article that is not online refuses a submission on
+     * the server too — a manager's included.
+     */
+    public function testTheFormOfADraftRefusesASubmission(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $formId = $this->formRepository->create($id, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $nameId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $response = $this->formController->submit(new Request('POST', '/news/' . $id . '/form/submit', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'contact_email' => 'famille@test.com',
+            'field_' . $nameId => 'Bob',
+        ], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
+    }
+
+    /**
+     * « Publier » is the editor's save with intent=publish: saved, put
+     * online, and journalled as such.
+     */
+    public function testUpdateWithThePublishIntentPutsTheArticleOnline(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+
+        $events = [];
+        $this->journalService->method('log')->willReturnCallback(
+            function (string $module, string $event) use (&$events): void {
+                $events[] = $event;
+            }
+        );
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'publish',
+        ], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertTrue($this->articleService->isLive($article));
+        $this->assertSame(['article_updated', 'article_published'], $events);
+    }
+
+    public function testUpdateWithTheUnpublishIntentTakesTheArticleOffline(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null));
+
+        $events = [];
+        $this->journalService->method('log')->willReturnCallback(
+            function (string $module, string $event) use (&$events): void {
+                $events[] = $event;
+            }
+        );
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'unpublish',
+        ], [], []), ['id' => (string) $id]);
+
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertSame(Article::STATUS_DRAFT, $article->status);
+        $this->assertSame(['article_updated', 'article_unpublished'], $events);
+    }
+
+    /**
+     * The editor of a draft offers « Publier » with its question, and
+     * delete; the editor of an online article offers « Repasser en
+     * brouillon » and no delete.
+     */
+    public function testTheEditorsButtonsFollowTheState(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $request = new Request('GET', '/news/' . $id . '/gerer', [], [], [], []);
+
+        $draft = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('id="news-publish-btn"', $draft);
+        $this->assertStringContainsString('data-confirm-title="Publier pour tout le monde ?"', $draft);
+        $this->assertStringContainsString('Enregistrer le brouillon', $draft);
+        $this->assertStringNotContainsString('value="unpublish"', $draft);
+
+        $this->articleService->publish($id);
+        $online = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringNotContainsString('id="news-publish-btn"', $online);
+        $this->assertStringContainsString('value="unpublish"', $online);
+        $this->assertStringContainsString('Pour supprimer cette actualité, repassez-la d\'abord en brouillon.', $online);
+    }
+
+    public function testDeletingAnOnlineArticleIsRefused(): void
+    {
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $request = new RequestWithInput('DELETE', '/news/' . $id, [], [], [], [], json_encode(['_csrf_token' => CsrfGuard::generateToken()]));
+        $response = $this->newsController->delete($request, ['id' => (string) $id]);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertNotNull($this->articleRepository->findById($id));
+    }
+
+    /**
+     * « Programmer… » (issue #845, part 2): the editor's save with
+     * intent=schedule and the dialog's date and time — the article is
+     * saved, scheduled, the author's notice armed for that minute.
+     */
+    public function testUpdateWithTheScheduleIntentProgramsTheArticle(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $events = $this->recordJournal();
+        $at = new \DateTimeImmutable('+3 days 08:00');
+
+        $response = $this->postSchedule($id, $at->format('Y-m-d'), '08:00');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertSame(Article::STATE_SCHEDULED, $this->articleService->state($article));
+        $this->assertSame($at->format('Y-m-d') . ' 08:00:00', substr((string) $article->publishedAt, 0, 19));
+        $this->assertSame(['article_updated', 'article_scheduled'], $events->getArrayCopy());
+
+        $task = $this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id);
+        $this->assertNotNull($task);
+        $this->assertSame($at->format('Y-m-d') . ' 08:00:00', $task['run_at']);
+
+        // Moved: still one run, at the new time.
+        $this->postSchedule($id, $at->format('Y-m-d'), '18:30');
+        $this->assertSame($at->format('Y-m-d') . ' 18:30:00', $this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id)['run_at']);
+        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'publish_scheduled_articles' AND status = 'pending'")->fetchColumn());
+    }
+
+    /**
+     * A time already past is refused before anything is saved: the editor
+     * comes back with the message and the article is as it was.
+     */
+    public function testAPastScheduleIsRefusedAndNothingIsSaved(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+
+        $response = $this->postSchedule($id, (new \DateTimeImmutable('-1 day'))->format('Y-m-d'), '08:00', 'Camp renommé');
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Cette heure est déjà passée : choisissez un moment à venir.', $response->getBody());
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertSame('Camp', $article->title);
+        $this->assertSame(Article::STATUS_DRAFT, $article->status);
+    }
+
+    public function testPublishingAScheduledArticleNowWithdrawsItsNotice(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->postSchedule($id, (new \DateTimeImmutable('+3 days'))->format('Y-m-d'), '08:00');
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'publish',
+        ], [], []), ['id' => (string) $id]);
+
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertTrue($this->articleService->isLive($article));
+        $this->assertNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id));
+    }
+
+    /**
+     * A draft never online offers « Programmer… »; a scheduled article
+     * says when, with « Modifier l'heure » and « Publier maintenant »; a
+     * draft that has been online is published again, never scheduled.
+     */
+    public function testTheEditorOffersSchedulingWhereItApplies(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $request = new Request('GET', '/news/' . $id . '/gerer', [], [], [], []);
+
+        $draft = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('Programmer…', $draft);
+        $this->assertStringContainsString('id="news-schedule-submit"', $draft);
+
+        $this->articleService->schedule($id, new \DateTimeImmutable('2999-10-20 08:00'));
+        $scheduled = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('Programmée pour le dimanche 20 octobre 2999 à 8 h 00', $scheduled);
+        $this->assertStringContainsString('Pour les membres connectés. Elle apparaîtra d\'elle-même ; vous serez prévenu.', $scheduled);
+        $this->assertStringContainsString('Modifier l\'heure', $scheduled);
+        $this->assertStringContainsString('Publier maintenant', $scheduled);
+        $this->assertStringContainsString('value="2999-10-20"', $scheduled);
+
+        $this->articleService->publish($id);
+        $this->articleService->unpublish($id);
+        $again = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringNotContainsString('Programmer…', $again);
+        $this->assertStringNotContainsString('id="news-schedule-submit"', $again);
+    }
+
+    /**
+     * The time can pass between the check made before the save and
+     * schedule()'s own, after it. The article is saved by then: the
+     * refusal is a message on its management page, never an error page
+     * that would send the author back to create it twice.
+     */
+    public function testAScheduleRefusedAfterTheSaveIsAMessageNotAnError(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+
+        $afterSave = new \ReflectionMethod($this->newsController, 'applyIntentAfterSave');
+        $afterSave->invoke($this->newsController, $article, 'schedule', $this->chiefAccountId, new \DateTimeImmutable('-1 minute'));
+
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette heure est déjà passée : choisissez un moment à venir.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(Article::STATUS_DRAFT, $this->articleRepository->findById($id)?->status);
+    }
+
+    private function postSchedule(int $id, string $date, string $time, string $title = 'Camp'): \Core\Http\Response
+    {
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        return $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => $title,
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'schedule',
+            'schedule_date' => $date,
+            'schedule_time' => $time,
+        ], [], []), ['id' => (string) $id]);
+    }
+
+    /** @return \ArrayObject<int, string> the journal's event names, in order */
+    private function recordJournal(): \ArrayObject
+    {
+        $events = new \ArrayObject();
+        $this->journalService->method('log')->willReturnCallback(
+            function (string $module, string $event) use ($events): void {
+                $events->append($event);
+            }
+        );
+
+        return $events;
     }
 }

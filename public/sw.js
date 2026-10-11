@@ -1034,9 +1034,10 @@ function generatedOfflinePage(stalenessDays) {
  */
 function offlineConditions(stalenessDays) {
     const days = Number(stalenessDays);
-    const when = Number.isInteger(days) && days > 0
-        ? 'il y a moins de ' + days + (days === 1 ? ' jour' : ' jours')
-        : 'récemment';
+    let when = 'récemment';
+    if (Number.isInteger(days) && days > 0) {
+        when = 'il y a moins de ' + days + (days === 1 ? ' jour' : ' jours');
+    }
 
     return 'Une page n\'est disponible hors ligne que si les cookies fonctionnels sont activés '
         + '(depuis le pied de page, en ligne) et si vous l\'avez ouverte dans l\'application ' + when + '.';

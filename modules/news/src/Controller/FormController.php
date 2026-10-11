@@ -49,6 +49,14 @@ class FormController extends AbstractController
      * form whose own `response_role_min` is.
      */
     private const ARTICLE_NOT_VISIBLE_MESSAGE = "Cet article n'est pas visible avec votre compte.";
+    /**
+     * Before publication a form takes no response, from anybody — its
+     * managers included (issue #845): a test response would create a
+     * receivable or a ticket for nothing, and the editor's preview already
+     * shows the form.
+     */
+    private const NOT_LIVE_MESSAGE = "Cette actualité n'est pas encore en ligne : son formulaire n'accepte "
+        . 'aucune réponse avant la publication.';
     private const RESPONSES_RESERVED_MESSAGE = 'Les réponses à ce formulaire sont réservées à un '
         . 'rôle que votre compte ne porte pas.';
 
@@ -168,6 +176,12 @@ class FormController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         if (!$this->articleService->canView($article, $role)) {
             return $this->forbidden(self::ARTICLE_NOT_VISIBLE_MESSAGE, $request);
+        }
+        // Checked on its own rather than folded into the visibility gate:
+        // canView() lets a manager read a draft, and this must refuse the
+        // manager too.
+        if (!$this->articleService->isLive($article)) {
+            return $this->forbidden(self::NOT_LIVE_MESSAGE, $request);
         }
 
         $form = $this->formService->findByArticleId($article->id);
@@ -941,6 +955,8 @@ class FormController extends AbstractController
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
             'breadcrumb_current' => $article->title,
+            // Only an online article takes a submission at all (submit()).
+            'is_live' => true,
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
@@ -972,6 +988,14 @@ class FormController extends AbstractController
         $response = $form !== null ? $this->responseService->findById((int) $params['response_id']) : null;
 
         if ($article === null || $form === null || $response === null || $response->formId !== $form->id) {
+            return [null, null, null, new Response('Not Found', 404)];
+        }
+
+        // Editing a response is answering the form again: refused while the
+        // article is not online (issue #845), with the same 404 as above —
+        // these routes are public, and a different answer would tell anyone
+        // which articles exist unpublished.
+        if (!$this->articleService->isLive($article)) {
             return [null, null, null, new Response('Not Found', 404)];
         }
 

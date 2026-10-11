@@ -289,9 +289,8 @@ class PwaControllerTest extends TestCase
 
         $this->assertStringContainsString('cookies fonctionnels sont activés', $body);
         $this->assertStringContainsString('il y a moins de 14 jours', $body);
-        $this->assertStringContainsString('data-staleness-days="14"', $body);
         $this->assertMatchesRegularExpression('~id="offline-home-link" class="[^"]*\\bd-none\\b~', $body);
-        $this->assertStringContainsString('Aucune page n\'est encore enregistrée sur cet appareil.', $body);
+        $this->assertStringContainsString('La page d\'accueil n\'est pas enregistrée sur cet appareil.', $body);
     }
 
     public function testTheOfflinePageFallsBackToThirtyDaysAndSaysOneDayInTheSingular(): void
@@ -310,6 +309,22 @@ class PwaControllerTest extends TestCase
         $body = $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString('il y a moins de 1 jour.', preg_replace('~\s+~', ' ', $body));
+    }
+
+    // The setting is a plain number an admin can set to 0: the page says
+    // « récemment » then, as the service worker's own copy of the sentence.
+    public function testTheOfflinePageSaysRecentlyForASettingThatIsNotAPositiveNumberOfDays(): void
+    {
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 0);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+        $body = preg_replace('~\s+~', ' ', $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody());
+
+        $this->assertStringContainsString("ouverte dans l'application récemment.", $body);
+        $this->assertStringNotContainsString('moins de 0', $body);
     }
 
     /**

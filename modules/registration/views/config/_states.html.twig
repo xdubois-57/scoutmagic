@@ -1,0 +1,18 @@
+{# The state legend, always open (issue #843: nothing on these pages folds
+   away). The wording is the mockup's: a request « encodée dans Desk » is
+   one linked to a member, a word this module no longer replaces with
+   any other. #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">États d'une demande</h2>
+        <div class="row g-2 small">
+            <div class="col-12 col-md-6">{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %} à décider</div>
+            <div class="col-12 col-md-6">{% include 'partials/status_badge.html.twig' with { status: 'confirmed', label: 'Acceptée' } only %} acceptée, pas encore encodée dans Desk</div>
+            <div class="col-12 col-md-6">{% include 'partials/status_badge.html.twig' with { status: 'encoded', label: 'Encodée dans Desk' } only %} inscription reliée à un membre</div>
+            <div class="col-12 col-md-6">{% include 'partials/status_badge.html.twig' with { status: 'refused', label: 'Refusée' } only %} / {% include 'partials/status_badge.html.twig' with { status: 'cancelled', label: 'Retirée' } only %} états finaux</div>
+        </div>
+        <p class="text-body-secondary small mt-3 mb-0">
+            Important : la page de suivi de la famille n'affiche jamais une acceptation ou un refus tant que l'e-mail correspondant n'a pas réellement été envoyé — voir la colonne « E-mail de décision » de la liste.
+        </p>
+    </div>
+</div>

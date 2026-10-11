@@ -49,3 +49,7 @@ connexion ne se modifie pas soi-même : contactez l'unité.
 Certains articles sont réservés aux membres connectés ou accessibles
 seulement par leur lien direct (une affiche, un code QR) : la liste
 publique ne montre pas tout.
+
+Un code QR qui mène à « Cette actualité n'est pas encore en ligne » est
+celui d'un article préparé à l'avance : il s'ouvrira dès sa
+publication.

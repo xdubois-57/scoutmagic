@@ -36,9 +36,10 @@
    a copy older than that is never served (cachedCopy() in public/sw.js).
    A site-wide setting, not anything personal, so it may be baked into this
    precached page; it follows the version cached, which is the version
-   whose service worker applies it. #}
+   whose service worker applies it. A value that is not a positive number
+   of days says « récemment », as offlineConditions() in public/sw.js does. #}
 {% set staleness_days = offline_cache_staleness_days|default(30) %}
-<body data-staleness-days="{{ staleness_days }}">
+<body>
     <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height:100vh; padding:2rem;">
         <i class="bi bi-wifi-off" style="font-size:3rem;" aria-hidden="true"></i>
         <h1 class="h4 mt-3">Pas de connexion</h1>
@@ -52,13 +53,13 @@
         <p class="text-body-secondary small" id="offline-conditions" style="max-width:32rem;">
             Une page n'est disponible hors ligne que si les cookies fonctionnels sont activés
             (depuis le pied de page, en ligne) et si vous l'avez ouverte dans l'application
-            il y a moins de {{ staleness_days }} {{ staleness_days == 1 ? 'jour' : 'jours' }}.
+            {% if staleness_days > 0 %}il y a moins de {{ staleness_days }} {{ staleness_days == 1 ? 'jour' : 'jours' }}{% else %}récemment{% endif %}.
         </p>
         {# Shown by offline-page.js only once it has found a recent copy of
            the home page: without one, « Accueil » brought back this very
            screen and looked like a button that did nothing. #}
         <p class="text-body-secondary small d-none" id="offline-nothing-saved">
-            Aucune page n'est encore enregistrée sur cet appareil.
+            La page d'accueil n'est pas enregistrée sur cet appareil.
         </p>
         <div class="d-flex flex-column flex-sm-row gap-2 mt-2">
             <button type="button" id="offline-retry-btn" class="btn btn-primary">Réessayer</button>

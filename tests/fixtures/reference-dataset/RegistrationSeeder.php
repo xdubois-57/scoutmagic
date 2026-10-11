@@ -91,13 +91,37 @@ final class RegistrationSeeder
         $this->capacityRepository = new SlotCapacityRepository($pdo);
         $this->settingService = new SettingService(new SettingRepository($pdo));
         $this->scoutYearService = new ScoutYearService($pdo);
+        $roster = new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption);
+        $connection = \Core\Database\Connection::withPdo($pdo);
+        $sectionService = new \Core\Member\SectionService(
+            new \Core\Member\Repository\SectionRepository($connection),
+            new \Core\Member\Repository\MemberProfileRepository(
+                $connection,
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            )
+        );
         $this->slotService = new SlotService(
-            new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
+            $roster,
             new \Core\Config\ScoutYearService($pdo),
             $this->settingService,
             $this->bracketRepository,
             $this->capacityRepository,
             $this->requestRepository,
+            new \Modules\Registration\Service\ForecastService(
+                $roster,
+                $encryption,
+                $sectionService,
+                new \Modules\Registration\Service\PassageService(
+                    $roster,
+                    $encryption,
+                    $sectionService,
+                    new \Modules\Registration\Repository\SectionTransferRepository($pdo),
+                    $this->requestRepository,
+                    $this->bracketRepository
+                )
+            ),
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption),
         );
     }
 

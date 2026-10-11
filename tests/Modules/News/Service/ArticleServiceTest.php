@@ -157,9 +157,9 @@ class ArticleServiceTest extends TestCase
 
     public function testFindPublicListExcludesDirectLinkAndChiefArticles(): void
     {
-        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1)->id);
 
         $list = $this->service->findPublicList(Role::PUBLIC);
 
@@ -169,8 +169,8 @@ class ArticleServiceTest extends TestCase
 
     public function testFindPublicListHidesIdentifiedArticleFromAnonymousVisitor(): void
     {
-        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1)->id);
 
         $titles = array_map(fn(Article $a) => $a->title, $this->service->findPublicList(Role::PUBLIC));
 
@@ -179,8 +179,8 @@ class ArticleServiceTest extends TestCase
 
     public function testFindPublicListShowsIdentifiedArticleToSignedInReader(): void
     {
-        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1)->id);
 
         $titles = array_map(fn(Article $a) => $a->title, $this->service->findPublicList(Role::IDENTIFIED));
 
@@ -190,8 +190,8 @@ class ArticleServiceTest extends TestCase
 
     public function testFindPublicListPageCountsOnlyWhatTheReaderMaySee(): void
     {
-        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1)->id);
 
         $this->assertSame(1, $this->service->findPublicListPage(Role::PUBLIC, 10, 0)['total']);
         $this->assertSame(2, $this->service->findPublicListPage(Role::IDENTIFIED, 10, 0)['total']);
@@ -199,9 +199,9 @@ class ArticleServiceTest extends TestCase
 
     public function testHomeColumnFollowsTheSameRoleRule(): void
     {
-        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1);
-        $this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->authorId, 'Résumé.', 1)->id);
+        $this->service->publish($this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1)->id);
 
         $anonymous = array_column($this->service->getLatestVisibleArticles(10, 'public'), 'title');
         $identified = array_column($this->service->getLatestVisibleArticles(10, 'identified'), 'title');
@@ -357,5 +357,242 @@ class ArticleServiceTest extends TestCase
 
         $this->assertNull($this->articleRepository->findById($article->id));
         $this->assertSame('', $this->service->getBodyHtml($article->id));
+    }
+
+    /**
+     * A new article is a draft, with no publication date (issue #845):
+     * nobody but the news' managers sees it until « Publier ».
+     */
+    public function testANewArticleIsADraftWithNoPublicationDate(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->assertSame(Article::STATUS_DRAFT, $article->status);
+        $this->assertNull($article->publishedAt);
+        $this->assertFalse($this->service->isLive($article));
+        $this->assertSame(Article::STATE_DRAFT, $this->service->state($article));
+        $this->assertSame([], $this->service->findPublicList(Role::IDENTIFIED));
+    }
+
+    /**
+     * The three states are read from status and date: published with a
+     * date to come is « scheduled », and online at that date with nothing
+     * flipping it.
+     */
+    public function testTheStateIsDerivedFromStatusAndDate(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->articleRepository->setPublication($article->id, Article::STATUS_PUBLISHED, '2026-10-20 08:00:00');
+        $scheduled = $this->articleRepository->findById($article->id);
+        $this->assertNotNull($scheduled);
+
+        $before = new \DateTimeImmutable('2026-10-20 07:59:00');
+        $at = new \DateTimeImmutable('2026-10-20 08:00:00');
+        $this->assertSame(Article::STATE_SCHEDULED, $this->service->state($scheduled, $before));
+        $this->assertFalse($this->service->isLive($scheduled, $before));
+        $this->assertSame(Article::STATE_PUBLISHED, $this->service->state($scheduled, $at));
+        $this->assertTrue($this->service->isLive($scheduled, $at));
+    }
+
+    /**
+     * The public queries apply the same rule in SQL: a draft and a
+     * scheduled article are in no list, and the list is sorted by the
+     * publication date — not by when the article was written.
+     */
+    public function testListsHoldOnlyOnlineArticlesSortedByPublicationDate(): void
+    {
+        $old = $this->service->create('Écrit tôt, publié tard', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $new = $this->service->create('Écrit tard, publié tôt', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2026-01-01 10:00:00' WHERE id = {$old->id}");
+        $this->pdo->exec("UPDATE news_articles SET created_at = '2026-02-01 10:00:00' WHERE id = {$new->id}");
+        $this->articleRepository->setPublication($old->id, Article::STATUS_PUBLISHED, '2026-03-01 10:00:00');
+        $this->articleRepository->setPublication($new->id, Article::STATUS_PUBLISHED, '2026-02-15 10:00:00');
+        $this->service->create('Brouillon', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $scheduled = $this->service->create('Programmée', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->articleRepository->setPublication($scheduled->id, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+
+        $titles = array_map(fn(Article $a) => $a->title, $this->service->findPublicList(Role::PUBLIC));
+        $home = array_column($this->service->getLatestVisibleArticles(10, 'public'), 'title');
+
+        $this->assertSame(['Écrit tôt, publié tard', 'Écrit tard, publié tôt'], $titles);
+        $this->assertSame($titles, $home);
+        $this->assertSame(2, $this->service->findPublicListPage(Role::PUBLIC, 10, 0)['total']);
+        // The managers' list keeps them all.
+        $this->assertCount(4, $this->articleRepository->findForManager([Article::VISIBILITY_PUBLIC], $this->authorId));
+    }
+
+    public function testPublishDatesTheArticleNowTheFirstTime(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $now = new \DateTimeImmutable('2026-10-11 14:30:00');
+
+        $published = $this->service->publish($article->id, $now);
+
+        $this->assertSame(Article::STATUS_PUBLISHED, $published->status);
+        $this->assertSame('2026-10-11 14:30:00', substr((string) $published->publishedAt, 0, 19));
+        $this->assertTrue($this->service->isLive($published, $now));
+    }
+
+    /**
+     * Back to draft and published again, an article keeps the date it was
+     * first online — its place in the list does not jump to the top.
+     */
+    public function testUnpublishThenPublishKeepsThePublicationDate(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($article->id, new \DateTimeImmutable('2026-09-01 08:00:00'));
+
+        $draft = $this->service->unpublish($article->id, new \DateTimeImmutable('2026-10-01 08:00:00'));
+        $this->assertSame(Article::STATE_DRAFT, $this->service->state($draft));
+        $this->assertSame('2026-09-01 08:00:00', substr((string) $draft->publishedAt, 0, 19));
+
+        $again = $this->service->publish($article->id, new \DateTimeImmutable('2026-10-11 08:00:00'));
+        $this->assertSame('2026-09-01 08:00:00', substr((string) $again->publishedAt, 0, 19));
+    }
+
+    /**
+     * A scheduled article was never online: back to draft, it loses its
+     * date to come, and « Publier » puts it online now.
+     */
+    public function testUnpublishingAScheduledArticleForgetsItsDate(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->articleRepository->setPublication($article->id, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+
+        $this->assertNull($this->service->unpublish($article->id)->publishedAt);
+
+        $this->articleRepository->setPublication($article->id, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+        $now = new \DateTimeImmutable('2026-10-11 09:00:00');
+        $this->assertSame('2026-10-11 09:00:00', substr((string) $this->service->publish($article->id, $now)->publishedAt, 0, 19));
+    }
+
+    public function testOnlyADraftCanBeDeleted(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($article->id);
+
+        try {
+            $this->service->delete($article->id);
+            $this->fail('An online article must not be deleted.');
+        } catch (NewsException $e) {
+            $this->assertSame('Pour supprimer cette actualité, repassez-la d\'abord en brouillon.', $e->getMessage());
+        }
+        $this->assertNotNull($this->articleRepository->findById($article->id));
+
+        $this->service->unpublish($article->id);
+        $this->service->delete($article->id);
+        $this->assertNull($this->articleRepository->findById($article->id));
+    }
+
+    /**
+     * Before publication only the news' managers may open the page, even
+     * with its address in hand — a « Lien direct » article included.
+     */
+    public function testCanReadANotOnlineArticleOnlyWhenManagingTheNews(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->assertFalse($this->service->canRead($article, Role::PUBLIC));
+        $this->assertFalse($this->service->canRead($article, Role::IDENTIFIED));
+        $this->assertTrue($this->service->canRead($article, Role::CHIEF));
+
+        $online = $this->service->publish($article->id);
+        $this->assertTrue($this->service->canRead($online, Role::PUBLIC));
+    }
+
+    /**
+     * Only a public article may be indexed: any other visibility drops the
+     * indexing, its keywords and its stop date.
+     */
+    public function testOnlyAPublicArticleKeepsItsIndexing(): void
+    {
+        $public = $this->service->create('Public', Article::VISIBILITY_PUBLIC, true, 'camp', '2027-01-01', $this->authorId, 'Résumé.', 1);
+        $members = $this->service->create('Membres', Article::VISIBILITY_IDENTIFIED, true, 'camp', '2027-01-01', $this->authorId, 'Résumé.', 1);
+
+        $this->assertTrue($public->isIndexed);
+        $this->assertFalse($members->isIndexed);
+        $this->assertNull($members->seoKeywords);
+        $this->assertNull($members->seoStopDate);
+    }
+
+    /**
+     * « Programmer » (issue #845, part 2): published at a time to come, to
+     * the minute, with the author's notice raised.
+     */
+    public function testScheduleProgramsADraftToTheMinute(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+
+        $scheduled = $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00:42'), $now);
+
+        $this->assertSame('2026-10-20 08:00:00', substr((string) $scheduled->publishedAt, 0, 19));
+        $this->assertSame(Article::STATE_SCHEDULED, $this->service->state($scheduled, $now));
+        $this->assertTrue($this->articleRepository->claimPublicationNotice($article->id));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($article->id), 'claimed once only');
+    }
+
+    public function testAScheduledTimeCanBeChangedUntilItIsOnline(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+
+        $moved = $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-21 18:30'), $now);
+        $this->assertSame('2026-10-21 18:30:00', substr((string) $moved->publishedAt, 0, 19));
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Cette actualité est déjà en ligne.');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-25 08:00'), new \DateTimeImmutable('2026-10-22 08:00'));
+    }
+
+    public function testATimeAlreadyPastIsRefused(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Cette heure est déjà passée : choisissez un moment à venir.');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-11 09:59'), new \DateTimeImmutable('2026-10-11 10:00'));
+    }
+
+    /**
+     * An article that has been online keeps its first date: back in draft,
+     * it is published again, never scheduled.
+     */
+    public function testADraftThatWasOnlineIsNotScheduled(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($article->id, new \DateTimeImmutable('2026-09-01 08:00'));
+        $this->service->unpublish($article->id, new \DateTimeImmutable('2026-10-01 08:00'));
+
+        $this->expectException(NewsException::class);
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00'), new \DateTimeImmutable('2026-10-11 10:00'));
+    }
+
+    /** « Publier maintenant » and a return to draft both withdraw the notice. */
+    public function testAManualChangeWithdrawsTheNotice(): void
+    {
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+        $first = $this->service->create('Un', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $second = $this->service->create('Deux', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->schedule($first->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+        $this->service->schedule($second->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+
+        $published = $this->service->publish($first->id, $now);
+        $this->service->unpublish($second->id, $now);
+
+        $this->assertSame('2026-10-11 10:00:00', substr((string) $published->publishedAt, 0, 19));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($first->id));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($second->id));
+    }
+
+    public function testTheScheduleMomentIsADateAndATimeToTheMinute(): void
+    {
+        $this->assertSame('2026-10-20 08:05:00', ArticleService::readScheduleMoment('2026-10-20', '08:05')?->format('Y-m-d H:i:s'));
+        $this->assertNull(ArticleService::readScheduleMoment('', '08:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-10-20', ''));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-02-31', '08:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-10-20', '25:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('tomorrow', '08:00'));
     }
 }

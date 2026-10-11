@@ -34,11 +34,11 @@ use Modules\Registration\Repository\RegistrationRequest;
  *    reason.
  *
  * The declared requests give the Baladins' first year thirteen accepted
- * demands against a capacity of fifteen. Nothing feeds that slot (it is the
- * first year of the first branch, so `SlotMath::feederSlot()` returns null
- * and the projected headcount is zero), which makes the remaining count
- * exactly `15 − 13 = 2` — "limited" on the public page, and visibly near the
- * limit without a single branch being full.
+ * demands against a capacity of fifteen — 87 % of the places, beyond the
+ * default « Oui jusqu'à 70 % » and within « Peut-être jusqu'à 100 % »:
+ * « Limitée » on the public page, and visibly near the limit without a
+ * single branch being full. That slot is the first year of the first branch,
+ * so the projection can only add a child held back below the Baladins' age.
  *
  * All names, addresses and phone numbers are invented; the emails use the
  * RFC 2606 reserved domains, and the postal codes are real Belgian ones for

@@ -337,14 +337,44 @@ class ForecastServiceTest extends TestCase
      * capacityBreakdownForYear()'s flat row list — never recomputes
      * capacity/remaining itself — into per-branch groups in canonical
      * order, each row keeping its own (possibly negative, over-capacity)
-     * remaining count and tier untouched.
+     * remaining count and level untouched.
      */
     public function testGroupCapacityByBranchGroupsRowsByBranchInOrder(): void
     {
         $rows = [
-            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 1, 'capacity' => 10, 'projected' => 3, 'accepted' => 2, 'remaining' => 5, 'tier' => 'available'],
-            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 2, 'capacity' => 10, 'projected' => 8, 'accepted' => 1, 'remaining' => 1, 'tier' => 'heavy'],
-            ['age_branch_id' => $this->eclaireursBranchId, 'branch_label' => 'Éclaireurs', 'branch_sort_order' => 30, 'year_in_branch' => 1, 'capacity' => 8, 'projected' => 8, 'accepted' => 2, 'remaining' => -2, 'tier' => 'heavy'],
+            [
+                'age_branch_id' => $this->louveteauxBranchId,
+                'branch_label' => 'Louveteaux',
+                'branch_sort_order' => 20,
+                'year_in_branch' => 1,
+                'capacity' => 10,
+                'projected' => 3,
+                'accepted' => 2,
+                'remaining' => 5,
+                'level' => 'yes',
+            ],
+            [
+                'age_branch_id' => $this->louveteauxBranchId,
+                'branch_label' => 'Louveteaux',
+                'branch_sort_order' => 20,
+                'year_in_branch' => 2,
+                'capacity' => 10,
+                'projected' => 8,
+                'accepted' => 1,
+                'remaining' => 1,
+                'level' => 'no',
+            ],
+            [
+                'age_branch_id' => $this->eclaireursBranchId,
+                'branch_label' => 'Éclaireurs',
+                'branch_sort_order' => 30,
+                'year_in_branch' => 1,
+                'capacity' => 8,
+                'projected' => 8,
+                'accepted' => 2,
+                'remaining' => -2,
+                'level' => 'no',
+            ],
         ];
 
         $grouped = $this->service->groupCapacityByBranch($rows);
@@ -352,8 +382,14 @@ class ForecastServiceTest extends TestCase
         $this->assertCount(2, $grouped);
         $this->assertSame('Louveteaux', $grouped[0]['label']);
         $this->assertCount(2, $grouped[0]['rows']);
-        $this->assertSame(['year_in_branch' => 1, 'capacity' => 10, 'remaining' => 5, 'tier' => 'available'], $grouped[0]['rows'][0]);
-        $this->assertSame(['year_in_branch' => 2, 'capacity' => 10, 'remaining' => 1, 'tier' => 'heavy'], $grouped[0]['rows'][1]);
+        $this->assertSame(
+            ['year_in_branch' => 1, 'capacity' => 10, 'remaining' => 5, 'level' => 'yes'],
+            $grouped[0]['rows'][0]
+        );
+        $this->assertSame(
+            ['year_in_branch' => 2, 'capacity' => 10, 'remaining' => 1, 'level' => 'no'],
+            $grouped[0]['rows'][1]
+        );
 
         $this->assertSame('Éclaireurs', $grouped[1]['label']);
         // Over capacity — a real, negative remaining is never clamped away.
@@ -363,7 +399,17 @@ class ForecastServiceTest extends TestCase
     public function testGroupCapacityByBranchResolvesEachBranchsRepresentativeSectionColor(): void
     {
         $rows = [
-            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 1, 'capacity' => 10, 'projected' => 3, 'accepted' => 2, 'remaining' => 5, 'tier' => 'available'],
+            [
+                'age_branch_id' => $this->louveteauxBranchId,
+                'branch_label' => 'Louveteaux',
+                'branch_sort_order' => 20,
+                'year_in_branch' => 1,
+                'capacity' => 10,
+                'projected' => 3,
+                'accepted' => 2,
+                'remaining' => 5,
+                'level' => 'yes',
+            ],
         ];
 
         $grouped = $this->service->groupCapacityByBranch($rows);

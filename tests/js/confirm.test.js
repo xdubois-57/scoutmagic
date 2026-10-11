@@ -698,6 +698,19 @@ describe('the delegated data-confirm form handler', () => {
             expect(event.defaultPrevented).toBe(false);
             expect(document.getElementById('sm-confirm-modal-body')).toBeNull();
         });
+        it('takes its title and a non-destructive style from the button', async () => {
+            await loadConfirm();
+            const { form, publish } = twoButtons();
+            publish.setAttribute('data-confirm-title', 'Publier pour tout le monde ?');
+            publish.setAttribute('data-confirm-variant', 'primary');
+
+            submitWith(form, publish);
+
+            expect(document.getElementById('sm-confirm-modal-title').textContent)
+                .toBe('Publier pour tout le monde ?');
+            expect(buttonLabelled('Publier').className).toContain('btn-primary');
+            expect(buttonLabelled('Publier').className).not.toContain('btn-danger');
+        });
     });
 
     describe('with data-confirm-note', () => {

@@ -7,7 +7,7 @@ role_min: chief
 question: Comment publier une annonce sur le site de l'unité ?
 question: Comment créer un formulaire d'inscription à une activité ?
 paths: /news/manage, /news/create, /news/*/gerer
-related: actualites, reponses-au-formulaire, publipostage, finances
+related: actualites, brouillon-et-publication, reponses-au-formulaire, publipostage, finances
 ---
 
 La page « Actualités » de l'espace animateurs liste les articles avec

@@ -326,6 +326,13 @@ class PublicRegistrationController extends AbstractController
             static fn (int $count): bool => $count > 1
         ));
 
+        // Computed once and handed to both the birth-year grid and the
+        // birth-date preview: the projection behind the levels is the
+        // expensive part of this page, which anybody can open.
+        $publicLevels = $waitlistEnabled
+            ? $this->slotService->publicLevelsByBirthYear((int) $target['id'], $targetLabel, (int) $publicYear['id'])
+            : [];
+
         $identified = AuthSession::isAuthenticated();
         $siblingCandidates = [];
         if ($identified) {
@@ -349,19 +356,8 @@ class PublicRegistrationController extends AbstractController
             'target_year_label' => $targetLabel,
             'birth_years_by_branch' => $this->slotService->birthYearsByBranch($targetLabel),
             'waitlist_enabled' => $waitlistEnabled,
-            'waitlist_tiers' => $waitlistEnabled
-                ? $this->slotService->waitlistTiersByBirthYear(
-                    (int) $target['id'],
-                    $targetLabel,
-                    (int) $publicYear['id']
-                )
-                : [],
-            'birth_year_slots' => $this->slotService->birthYearSlotsForPublic(
-                (int) $target['id'],
-                $targetLabel,
-                (int) $publicYear['id'],
-                $waitlistEnabled
-            ),
+            'public_levels' => $publicLevels,
+            'birth_year_slots' => $this->slotService->birthYearSlotsForPublic($targetLabel, $publicLevels),
             'friend_wish_branch_labels' => $friendWishBranchLabels,
             'friend_wish_limit' => $this->friendWishLimit(),
             'form_open' => $availability['form_open'],

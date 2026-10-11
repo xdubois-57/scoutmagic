@@ -25,6 +25,7 @@
 //   4. Deletion is a JS-only verb (fetch DELETE from a Bootstrap modal).
 import { expect, test } from '@playwright/test';
 
+import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
@@ -85,7 +86,11 @@ test('an article is re-edited without losing its form, a member edits their resp
     await placesPanel.getByLabel('Limiter la capacité').check();
     await placesPanel.getByLabel('Capacité maximale').fill('5');
 
-    await page.getByRole('button', { name: 'Enregistrer' }).click();
+    // A new article is a draft (issue #845): « Publier » asks for whom,
+    // in the site's dialog, then saves and puts it online.
+    await waitForConfirmReady(page);
+    await page.getByRole('button', { name: 'Publier', exact: true }).click();
+    await answerConfirmation(page);
     await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
     const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
@@ -178,7 +183,13 @@ test('an article is re-edited without losing its form, a member edits their resp
     // Deletion: a fetch DELETE behind a Bootstrap confirm modal — the
     // only way this verb exists.
     // ---------------------------------------------------------------
+    // Only a draft is deleted: back to draft first, through its own
+    // question.
     await page.goto(`${articleUrl}/gerer`, { waitUntil: 'load' });
+    await waitForConfirmReady(page);
+    await page.getByRole('button', { name: 'Repasser en brouillon' }).click();
+    await answerConfirmation(page);
+    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'load' });
     const deleteModal = await openModal(page, 'news-delete-modal', () =>
         page.getByRole('button', { name: 'Supprimer', exact: true }).first().click());
     await deleteModal.locator('#news-delete-confirm-btn').click();

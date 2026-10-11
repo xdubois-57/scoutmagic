@@ -26,6 +26,7 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Modules\Registration\Service\RecurringMonthDay;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestExportService;
 use Modules\Registration\Service\RequestStatusService;
@@ -35,15 +36,27 @@ use Modules\Registration\Task\OpenRegistrationHandler;
 use Twig\Environment;
 
 /**
- * "Configuration > Inscriptions" — the module spec's "page de gestion":
- * capacities/year code (iteration 4) plus, since iteration 5, the whole
- * staff-facing overview of a scout year's requests — capacity verification
- * table, request list (searchable/filterable), the two encarts ("non
- * rapprochées" / "non clôturées"), and the two bulk actions. Age brackets
- * are read-only here (federation-fixed, see AgeBracketRepository) — there
- * is nothing to configure about them, only capacities per branch/year.
+ * « Formulaire d'inscription » (Espace chefs d'U) — the module spec's
+ * "page de gestion", in four sub-pages joined by one nav rail
+ * (views/config/_nav.html.twig, issue #843 D1):
+ *
+ * - **Tableau de bord** (`/config/inscriptions`, index()): four figures
+ *   and the capacity verification table of the target year;
+ * - **Demandes** (`/config/inscriptions/demandes`, requests()): the
+ *   staff's notes, the state legend, the request list of one scout year
+ *   (searchable, filterable, exportable) and the bulk actions over its
+ *   non-final requests;
+ * - **Gabarits** (`/config/inscriptions/gabarits`, templates());
+ * - **Réglages** (`/config/inscriptions/reglages`, settings()): opening
+ *   and the recurring schedule, the in-year code, the capacities.
+ *
+ * Every POST of this controller keeps the address it always had and sends
+ * the visitor back to the sub-page its form lives on. Age brackets are
+ * read-only here (federation-fixed, see AgeBracketRepository) — there is
+ * nothing to configure about them, only capacities per branch/year.
  * Row-level actions on a single request (accept/refuse/link/emails/notes...)
- * live in Controller\RegistrationRequestController's fiche instead.
+ * live in Controller\RegistrationRequestController's fiche instead, itself
+ * a sub-page of « Demandes ».
  */
 class RegistrationConfigController extends AbstractController
 {
@@ -62,17 +75,19 @@ class RegistrationConfigController extends AbstractController
      */
     private const NOTICE_CONTENT_KEY = 'registration_management_notice';
 
+    /** The sub-pages every POST below sends the visitor back to. */
+    private const PATH_REQUESTS = '/config/inscriptions/demandes';
+    private const PATH_SETTINGS = '/config/inscriptions/reglages';
+
     /**
-     * Waitlist management: the master switch, and the two ratio thresholds
-     * that only mean anything while it is on. All three are declared in
-     * module.json and stored in `settings` like any other — they are
-     * *surfaced* here, inside the capacity box they belong to, rather than
-     * owned here, exactly as the form's open/close state and the recurring
-     * schedule already are.
+     * Waitlist management: the master switch. It and the two occupancy
+     * thresholds it governs (Service\SlotService::SETTING_THRESHOLD_YES /
+     * SETTING_THRESHOLD_MAYBE) are declared in module.json and stored in
+     * `settings` like any other — they are *surfaced* here, inside the
+     * capacity box they belong to, rather than owned here, exactly as the
+     * form's open/close state and the recurring schedule already are.
      */
     private const SETTING_WAITLIST_ENABLED = 'registration_waitlist_enabled';
-    private const SETTING_THRESHOLD_AVAILABLE = 'registration_waitlist_threshold_available';
-    private const SETTING_THRESHOLD_LIMITED = 'registration_waitlist_threshold_limited';
 
     public function __construct(
         protected Environment $twig,
@@ -93,34 +108,111 @@ class RegistrationConfigController extends AbstractController
     }
 
     /**
-     * GET /config/inscriptions
+     * GET /config/inscriptions — « Tableau de bord »: four figures, then
+     * the capacity verification table of the target year.
+     *
+     * The figures cover the two scout years a decision can still be taken
+     * for — the current public year (in-year registrations made with the
+     * code) and the target year — never a past one, which is
+     * consultation-only (issue #843 R8). Their definitions live in
+     * Repository\RegistrationRequestRepository, not here.
      *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
-        // The module's default capacity is WRITTEN, not merely displayed:
-        // a slot that has no row yet gets one here, so the grid, the
-        // capacity-verification table and the public page all read the
-        // same stored number. Seeding on this page rather than at module
-        // activation is deliberate — `age_branches` is filled by the Desk
-        // import, which typically happens well after the module is
-        // switched on, so activation is simply too early to know which
-        // slots exist. It runs once per missing slot and never rewrites an
-        // existing row (Service\SlotService::seedMissingCapacities()), so
-        // a chief who cleared a box keeps their "pas de limite".
-        $this->slotService->seedMissingCapacities();
+        $this->seedDefaultCapacities();
 
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $targetYear = $this->resolveSelectableYears($publicYear)['target'];
+        $liveYearIds = array_values(array_unique([(int) $publicYear['id'], (int) $targetYear['id']]));
+
+        return $this->render('@registration/config/dashboard.html.twig', [
+            'registration_form_open' => $this->isFormOpen(),
+            'pending_count' => $this->requestRepository->countPendingForYears($liveYearIds),
+            'decision_emails_to_send_count' => $this->requestRepository->countDecisionEmailsToSendForYears(
+                $liveYearIds
+            ),
+            'accepted_not_in_desk_count' => $this->requestRepository->countAcceptedNotEncodedForYears($liveYearIds),
+
+            // The capacity verification, exactly as it was rendered before
+            // the page was split — same service call, same partial — on the
+            // target year, the one the public form registers for.
+            // `is_past_year` is false by construction: a past year's table
+            // has no projection to show, and this page never shows one.
+            'selected_year' => $targetYear,
+            'is_past_year' => false,
+            'capacity_breakdown' => $this->slotService->capacityBreakdownForYear(
+                (int) $targetYear['id'],
+                (string) $targetYear['label'],
+                (int) $publicYear['id']
+            ),
+            'waitlist_enabled' => $this->isWaitlistEnabled(),
+        ]);
+    }
+
+    /**
+     * GET /config/inscriptions/demandes — « Demandes »: notes, state
+     * legend, the request list of one scout year and its bulk actions.
+     *
+     * Declared in module.json BEFORE `/config/inscriptions/demandes/{id}`,
+     * although the two cannot collide anyway: `{id}` only ever matches
+     * digits (Core\Http\Router::placeholderPattern()).
+     *
+     * @param array<string, string> $params
+     */
+    public function requests(Request $request, array $params): Response
+    {
         [$requestedYearId, $statusFilter, $search] = $this->readListFilters($request);
 
         return $this->render(
-            '@registration/config.html.twig',
-            $this->buildPageContext(
-                $requestedYearId,
-                $statusFilter,
-                $search
-            )
+            '@registration/config/requests.html.twig',
+            $this->buildRequestsContext($requestedYearId, $statusFilter, $search)
         );
+    }
+
+    /**
+     * GET /config/inscriptions/gabarits — « Gabarits »: the sub-page that
+     * will hold the request e-mails' templates (issue #843, IT-07). Its
+     * title and breadcrumb exist now so the rail is complete.
+     *
+     * @param array<string, string> $params
+     */
+    public function templates(Request $request, array $params): Response
+    {
+        return $this->render('@registration/config/templates.html.twig', []);
+    }
+
+    /**
+     * GET /config/inscriptions/reglages — « Réglages »: the public form's
+     * opening and recurring schedule, the in-year code, the capacities.
+     *
+     * @param array<string, string> $params
+     */
+    public function settings(Request $request, array $params): Response
+    {
+        $this->seedDefaultCapacities();
+
+        return $this->render('@registration/config/settings.html.twig', $this->buildSettingsContext());
+    }
+
+    /**
+     * The module's default capacity is WRITTEN, not merely displayed: a
+     * slot that has no row yet gets one here, so the grid, the capacity-
+     * verification table and the public page all read the same stored
+     * number. Seeding when a chief opens these pages rather than at module
+     * activation is deliberate — `age_branches` is filled by the Desk
+     * import, which typically happens well after the module is switched
+     * on, so activation is simply too early to know which slots exist. It
+     * runs once per missing slot and never rewrites an existing row
+     * (Service\SlotService::seedMissingCapacities()), so a chief who
+     * cleared a box keeps their "pas de limite". Both the dashboard (whose
+     * table reads the capacities) and Réglages (whose grid edits them) do
+     * it, so neither ever shows a slot the other has not seeded.
+     */
+    private function seedDefaultCapacities(): void
+    {
+        $this->slotService->seedMissingCapacities();
     }
 
     /**
@@ -202,8 +294,9 @@ class RegistrationConfigController extends AbstractController
 
     /**
      * POST /config/inscriptions — saves the capacity box: the grid itself,
-     * the waitlist switch that governs it, and the two ratio thresholds
-     * that only mean anything while that switch is on. Age brackets (entry
+     * the waitlist switch that governs it, and the two occupancy thresholds
+     * (« Oui jusqu'à … % », « Peut-être jusqu'à … % ») that only mean
+     * anything while that switch is on. Age brackets (entry
      * age/duration per branch) are no longer configured here —
      * Repository\AgeBracketRepository resolves them directly from
      * Core\Member\MemberYearService::BRANCHES, the same central federation
@@ -220,7 +313,7 @@ class RegistrationConfigController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
             return $guard;
         }
 
@@ -232,36 +325,37 @@ class RegistrationConfigController extends AbstractController
         $capacities = $request->getBody('capacity', []);
         if (!is_array($capacities)) {
             FlashMessage::set('error', 'Données de capacité invalides.');
-            return $this->redirect('/config/inscriptions');
+            return $this->redirect(self::PATH_SETTINGS);
         }
 
         $waitlistEnabled = (string) $request->getBody('waitlist_enabled', '0') === '1';
 
-        // The two thresholds are rendered only while the switch is already
-        // on, so a submission that turns the waitlist OFF — and equally one
-        // that turns it back ON — carries neither of them. An ABSENT field
-        // is not an emptied one: the stored values are left exactly as they
-        // are, and come back unchanged. Only fields actually submitted are
-        // validated, and an inconsistent pair refuses the whole save rather
-        // than applying half of it.
+        // The two thresholds stay on the page while the switch is off, but
+        // DISABLED — a disabled field is not submitted. So a submission made
+        // with the switch off, and equally the one that turns it back on,
+        // carries neither of them. An ABSENT field is not an emptied one: the
+        // stored values are left exactly as they are, and come back
+        // unchanged. Only fields actually submitted are validated, and an
+        // invalid pair refuses the whole save rather than applying half of it.
         /** @var array<string, string> $thresholdWrites setting key => value, empty when nothing was submitted */
         $thresholdWrites = [];
-        $rawAvailable = $request->getBody('threshold_available', null);
-        $rawLimited = $request->getBody('threshold_limited', null);
-        if ($waitlistEnabled && ($rawAvailable !== null || $rawLimited !== null)) {
-            $available = self::parseThreshold($rawAvailable);
-            $limited = self::parseThreshold($rawLimited);
-            if ($available === null || $limited === null || $limited >= $available) {
+        $rawYes = $request->getBody('threshold_yes_percent', null);
+        $rawMaybe = $request->getBody('threshold_maybe_percent', null);
+        if ($waitlistEnabled && ($rawYes !== null || $rawMaybe !== null)) {
+            $yes = SlotMath::parseThresholdPercent($rawYes);
+            $maybe = SlotMath::parseThresholdPercent($rawMaybe);
+            if ($yes === null || $maybe === null || !SlotMath::isValidThresholdPair($yes, $maybe)) {
                 FlashMessage::set(
                     'error',
-                    'Seuils invalides : indiquez deux nombres entre 0 et 1, le seuil « attente limitée » '
-                    . 'devant être inférieur au seuil « places disponibles ». Rien n\'a été enregistré.'
+                    'Seuils invalides : indiquez deux nombres entiers de ' . SlotMath::THRESHOLD_MIN_PERCENT
+                    . ' à ' . SlotMath::THRESHOLD_MAX_PERCENT . ' %, le seuil « Oui » devant être inférieur au '
+                    . 'seuil « Peut-être ». Rien n\'a été enregistré.'
                 );
-                return $this->redirect('/config/inscriptions');
+                return $this->redirect(self::PATH_SETTINGS);
             }
             $thresholdWrites = [
-                self::SETTING_THRESHOLD_AVAILABLE => self::formatThreshold($available),
-                self::SETTING_THRESHOLD_LIMITED => self::formatThreshold($limited),
+                SlotService::SETTING_THRESHOLD_YES => (string) $yes,
+                SlotService::SETTING_THRESHOLD_MAYBE => (string) $maybe,
             ];
         }
 
@@ -285,7 +379,7 @@ class RegistrationConfigController extends AbstractController
         }
 
         FlashMessage::set('success', 'Configuration enregistrée.');
-        return $this->redirect('/config/inscriptions');
+        return $this->redirect(self::PATH_SETTINGS);
     }
 
     /**
@@ -312,37 +406,6 @@ class RegistrationConfigController extends AbstractController
     }
 
     /**
-     * A waitlist threshold is a ratio in [0, 1]. Null means "not a usable
-     * ratio", which save() turns into a refusal rather than into a number
-     * that would silently change how full every branch looks. A comma is
-     * accepted as the decimal separator — the field is French, and 0,5 is
-     * what a chief types.
-     */
-    private static function parseThreshold(mixed $value): ?float
-    {
-        if (!is_scalar($value)) {
-            return null;
-        }
-        $trimmed = str_replace(',', '.', trim((string) $value));
-        if ($trimmed === '' || !is_numeric($trimmed)) {
-            return null;
-        }
-        $ratio = (float) $trimmed;
-
-        return ($ratio < 0 || $ratio > 1) ? null : $ratio;
-    }
-
-    /**
-     * Back to the plain dot-decimal string the setting stores and
-     * Service\SlotService reads with a `(float)` cast — never a
-     * locale-formatted one.
-     */
-    private static function formatThreshold(float $ratio): string
-    {
-        return rtrim(rtrim(number_format($ratio, 4, '.', ''), '0'), '.') ?: '0';
-    }
-
-    /**
      * POST /config/inscriptions/code/regenerate — new active code for the
      * current public scout year.
      *
@@ -350,7 +413,7 @@ class RegistrationConfigController extends AbstractController
      */
     public function regenerateCode(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
             return $guard;
         }
 
@@ -358,7 +421,7 @@ class RegistrationConfigController extends AbstractController
         $this->yearCodeRepository->regenerate((int) $publicYear['id']);
 
         FlashMessage::set('success', 'Nouveau code généré.');
-        return $this->redirect('/config/inscriptions');
+        return $this->redirect(self::PATH_SETTINGS);
     }
 
     /**
@@ -369,7 +432,7 @@ class RegistrationConfigController extends AbstractController
      */
     public function deactivateCode(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
             return $guard;
         }
 
@@ -377,7 +440,7 @@ class RegistrationConfigController extends AbstractController
         $this->yearCodeRepository->deactivate((int) $publicYear['id']);
 
         FlashMessage::set('success', 'Code désactivé.');
-        return $this->redirect('/config/inscriptions');
+        return $this->redirect(self::PATH_SETTINGS);
     }
 
     /**
@@ -397,7 +460,7 @@ class RegistrationConfigController extends AbstractController
      */
     public function toggleOpen(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
             return $guard;
         }
 
@@ -414,61 +477,47 @@ class RegistrationConfigController extends AbstractController
         );
 
         FlashMessage::set('success', $isOpen ? 'Formulaire fermé.' : 'Formulaire ouvert.');
-        return $this->redirect('/config/inscriptions');
+        return $this->redirect(self::PATH_SETTINGS);
     }
 
     /**
-     * POST /config/inscriptions/schedule — saves the recurring MM-JJ
-     * open/close dates. Module.json-declared settings carry no validation
-     * regex (Module\ModuleManager::load()'s registration loop only passes
+     * POST /config/inscriptions/schedule — saves the recurring open/close
+     * dates. The page edits them with native date pickers showing the next
+     * occurrence; only the day and the month are stored, as "MM-DD"
+     * (Service\RecurringMonthDay::fromSubmitted(), which also accepts the
+     * bare "MM-DD" a browser without a date picker lets somebody type).
+     * Module.json-declared settings carry no validation regex
+     * (Module\ModuleManager::load()'s registration loop only passes
      * key/default/type/label/description/moduleId to SettingService::
-     * register()), so the MM-DD format is validated here instead.
+     * register()), so the date is validated here instead — both fields, or
+     * neither is saved.
      *
      * @param array<string, string> $params
      */
     public function saveSchedule(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
             return $guard;
         }
 
-        $openAt = trim((string) $request->getBody('scheduled_open_at', ''));
-        $closeAt = trim((string) $request->getBody('scheduled_close_at', ''));
+        $openAt = RecurringMonthDay::fromSubmitted((string) $request->getBody('scheduled_open_at', ''));
+        $closeAt = RecurringMonthDay::fromSubmitted((string) $request->getBody('scheduled_close_at', ''));
 
-        if (!$this->isValidMonthDayOrEmpty($openAt) || !$this->isValidMonthDayOrEmpty($closeAt)) {
+        if ($openAt === null || $closeAt === null) {
             FlashMessage::set(
                 'error',
-                'Date invalide : utilisez le format MM-JJ (ex. 09-30), ou laissez vide. '
-                . 'Le 29 février n\'est pas accepté — il n\'existe pas chaque année ; choisissez le 28.'
+                'Date invalide : choisissez une date existante, ou laissez le champ vide. '
+                . 'Le 29 février n\'est pas accepté — il n\'existe pas chaque année ; choisissez le 28 février '
+                . 'ou le 1er mars. Rien n\'a été enregistré.'
             );
-            return $this->redirect('/config/inscriptions');
+            return $this->redirect(self::PATH_SETTINGS);
         }
 
         $this->settingService->set('registration_scheduled_open_at', $openAt, 'registration');
         $this->settingService->set('registration_scheduled_close_at', $closeAt, 'registration');
 
         FlashMessage::set('success', 'Programmation enregistrée.');
-        return $this->redirect('/config/inscriptions');
-    }
-
-    private function isValidMonthDayOrEmpty(string $monthDay): bool
-    {
-        if ($monthDay === '') {
-            return true;
-        }
-        if (preg_match('/^(\d{2})-(\d{2})$/', $monthDay, $matches) !== 1) {
-            return false;
-        }
-
-        // 02-29 is refused outright: this is a RECURRING date, and the day
-        // simply doesn't exist three years out of four. It used to be
-        // accepted (checkdate against a leap reference year), so a schedule
-        // set on it silently never fired on a non-leap year.
-        if ($matches[1] === '02' && $matches[2] === '29') {
-            return false;
-        }
-
-        return checkdate((int) $matches[1], (int) $matches[2], 2023);
+        return $this->redirect(self::PATH_SETTINGS);
     }
 
     /**
@@ -498,13 +547,13 @@ class RegistrationConfigController extends AbstractController
     {
         $yearId = (int) $request->getBody('scout_year_id', '0');
 
-        if (($guard = $this->guardCsrf($request, '/config/inscriptions?year=' . $yearId)) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PATH_REQUESTS . '?year=' . $yearId)) !== null) {
             return $guard;
         }
 
         if ($yearId <= 0 || $this->isPastYear($yearId)) {
             FlashMessage::set('error', 'Action impossible : année invalide ou passée (consultation seule).');
-            return $this->redirect('/config/inscriptions?year=' . $yearId);
+            return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
         }
 
         $count = 0;
@@ -532,80 +581,30 @@ class RegistrationConfigController extends AbstractController
         );
 
         FlashMessage::set('success', $count . ' demande(s) traitée(s).');
-        return $this->redirect('/config/inscriptions?year=' . $yearId);
+        return $this->redirect(self::PATH_REQUESTS . '?year=' . $yearId);
     }
 
     /**
+     * « Demandes »: the request list of one scout year and what sits
+     * around it.
+     *
      * @return array<string, mixed>
      */
-    private function buildPageContext(?int $requestedYearId, ?string $statusFilter, ?string $search): array
+    private function buildRequestsContext(?int $requestedYearId, ?string $statusFilter, ?string $search): array
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $brackets = $this->ageBracketRepository->findAllOrdered();
-        $capacities = $this->slotCapacityRepository->findAllAsMap();
 
         $selectedYear = $this->resolveSelectedYear($requestedYearId);
         $selectedYearId = (int) $selectedYear['id'];
         $isPastYear = $selectedYear['start_date'] < $publicYear['start_date'];
 
-        $capacityBreakdown = $this->slotService->capacityBreakdownForYear(
-            $selectedYearId,
-            (string) $selectedYear['label'],
-            (int) $publicYear['id']
-        );
-
-        $requestRows = $this->buildFilteredRequestRows($selectedYearId, $selectedYear, $statusFilter, $search);
-
         $years = $this->resolveSelectableYears($publicYear);
 
         return [
-            'brackets' => $brackets,
-            'capacities' => $capacities,
-            'max_years_in_branch' => self::MAX_YEARS_IN_BRANCH,
             'csrf_token' => CsrfGuard::generateToken(),
-            'public_year_label' => $publicYear['label'],
-            'year_code' => $this->yearCodeRepository->findForYear((int) $publicYear['id']),
 
             'notice_content' => $this->editableContentService->get(self::NOTICE_CONTENT_KEY, ''),
             'notice_content_key' => self::NOTICE_CONTENT_KEY,
-
-            'registration_form_open' => $this->settingService->get(
-                'registration_form_open',
-                'registration',
-                '0'
-            ) === '1',
-            'scheduled_open_at' => (string) $this->settingService->get(
-                'registration_scheduled_open_at',
-                'registration',
-                ''
-            ),
-            'scheduled_close_at' => (string) $this->settingService->get(
-                'registration_scheduled_close_at',
-                'registration',
-                ''
-            ),
-
-            // Waitlist management, surfaced inside the capacity box rather
-            // than hidden away in Configuration > Réglages. When it is off,
-            // the two thresholds and the waitlist columns of the capacity
-            // table are not rendered at all — they describe a mechanism
-            // that is not running (their stored values are untouched).
-            'waitlist_enabled' => $this->settingService->get(
-                self::SETTING_WAITLIST_ENABLED,
-                'registration',
-                '1'
-            ) === '1',
-            'threshold_available' => (string) $this->settingService->get(
-                self::SETTING_THRESHOLD_AVAILABLE,
-                'registration',
-                '0.5'
-            ),
-            'threshold_limited' => (string) $this->settingService->get(
-                self::SETTING_THRESHOLD_LIMITED,
-                'registration',
-                '0.1'
-            ),
-            'default_capacity' => SlotService::DEFAULT_CAPACITY,
 
             'selectable_years' => $years['selectable'],
             'target_year_id' => (int) $years['target']['id'],
@@ -613,15 +612,98 @@ class RegistrationConfigController extends AbstractController
             'selected_year' => $selectedYear,
             'is_past_year' => $isPastYear,
 
-            'capacity_breakdown' => $capacityBreakdown,
-
-            'request_rows' => $requestRows,
+            'request_rows' => $this->buildFilteredRequestRows($selectedYearId, $selectedYear, $statusFilter, $search),
             'status_filter' => $statusFilter,
             'search' => $search,
 
-            'unreconciled' => $this->requestRepository->findUnreconciledAcceptedForYear($selectedYearId),
             'non_final_count' => count($this->requestRepository->findNonFinalForYear($selectedYearId)),
         ];
+    }
+
+    /**
+     * « Réglages »: the form's opening and schedule, the in-year code and
+     * the capacity box.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildSettingsContext(): array
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+
+        return [
+            'brackets' => $this->ageBracketRepository->findAllOrdered(),
+            'capacities' => $this->slotCapacityRepository->findAllAsMap(),
+            'max_years_in_branch' => self::MAX_YEARS_IN_BRANCH,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'public_year_label' => $publicYear['label'],
+            'year_code' => $this->yearCodeRepository->findForYear((int) $publicYear['id']),
+
+            'registration_form_open' => $this->isFormOpen(),
+            'scheduled_open' => $this->scheduleField(
+                'registration_scheduled_open_at',
+                'registration_scheduled_open_applied_on'
+            ),
+            'scheduled_close' => $this->scheduleField(
+                'registration_scheduled_close_at',
+                'registration_scheduled_close_applied_on'
+            ),
+
+            // Waitlist management, surfaced inside the capacity box rather
+            // than hidden away in Configuration > Réglages. When it is off,
+            // the waitlist columns of the capacity table are not rendered,
+            // and the two thresholds stay visible but disabled — they
+            // describe a mechanism that is not running, and their stored
+            // values are untouched.
+            'waitlist_enabled' => $this->isWaitlistEnabled(),
+            // The pair the levels are actually computed with — the stored
+            // one, or the defaults when the stored pair is unusable — so the
+            // fields never show a number the page does not apply.
+            'level_thresholds' => $this->slotService->levelThresholds(),
+            'level_thresholds_unusable' => $this->slotService->storedThresholdsAreUnusable(),
+            'threshold_min_percent' => SlotMath::THRESHOLD_MIN_PERCENT,
+            'threshold_max_percent' => SlotMath::THRESHOLD_MAX_PERCENT,
+            'default_capacity' => SlotService::DEFAULT_CAPACITY,
+        ];
+    }
+
+    /**
+     * One date picker of the recurring schedule: the stored "MM-DD" turned
+     * into the real date the scheduled task will next act on
+     * (Service\RecurringMonthDay::nextTransition()) — that is what a
+     * native date picker can show — plus the two cases the page has to
+     * spell out: a date that has just passed and is still to be applied
+     * (`pending`), and a 29th of February stored through the generic
+     * settings page (`leap_day`), which this form refuses to save back.
+     * Trimmed exactly as the handlers trim it.
+     *
+     * @return array{date: ?\DateTimeImmutable, pending: bool, leap_day: bool}
+     */
+    private function scheduleField(string $scheduleKey, string $appliedOnKey): array
+    {
+        $monthDay = trim((string) $this->settingService->get($scheduleKey, 'registration', ''));
+        $now = new \DateTimeImmutable();
+        $date = RecurringMonthDay::nextTransition(
+            $monthDay,
+            $now,
+            trim((string) $this->settingService->get($appliedOnKey, 'registration', '')),
+            OpenRegistrationHandler::catchUpDays($this->settingService)
+        );
+
+        return [
+            'date' => $date,
+            'pending' => $date !== null && $date->format('Y-m-d') < $now->format('Y-m-d'),
+            'leap_day' => $monthDay === '02-29',
+        ];
+    }
+
+    private function isFormOpen(): bool
+    {
+        return $this->settingService->get('registration_form_open', 'registration', '0') === '1';
+    }
+
+    private function isWaitlistEnabled(): bool
+    {
+        return $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1';
     }
 
     /**

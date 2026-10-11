@@ -9,7 +9,50 @@
       where its views, its responses and its door screen are reached from,
       which is also why its route reads /gerer rather than /edit.
     #}
-    {% include 'partials/page_header.html.twig' with { title: article ? article.title : 'Nouvel article' } only %}
+    {#
+      The publication state beside the title, solid so it stands out
+      (issue #845) — the same badge as on the list — and, under it, what
+      that state means for a reader.
+    #}
+    {% set state_badge = state == 'scheduled' ? 'Programmée' : (state == 'published' ? 'Publiée' : 'Brouillon') %}
+    {% include 'partials/page_header.html.twig' with {
+        title: article ? article.title : 'Nouvel article',
+        badge: state_badge,
+        badge_solid: state == 'scheduled' ? 'primary' : (state == 'published' ? 'success' : 'dark'),
+    } only %}
+    {% if state == 'published' %}
+        <p class="text-body-secondary small mt-n3 mb-4" data-news-publication-line>
+            Publiée le {{ published_on }} · pour {{ audience }} · <a href="/news/{{ article.id }}">Voir la page</a>
+        </p>
+    {% elseif state == 'scheduled' %}
+        {# Programmed (issue #845, part 2): when, for whom, and the two
+           ways to change it. The buttons belong to the editor's form
+           (form="news-editor-form"): like every other one, they save what
+           is on the page first. In the preview tab there is no form, so
+           only the sentence. #}
+        <div class="alert alert-info d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between mt-n2 mb-4" data-news-scheduled>
+            <div class="d-flex gap-2">
+                <i class="bi bi-clock fs-5" aria-hidden="true"></i>
+                <div>
+                    <strong class="d-block">Programmée pour le {{ scheduled_for }}</strong>
+                    <span class="small">Pour {{ audience }}. Elle apparaîtra d'elle-même ; vous serez prévenu.</span>
+                </div>
+            </div>
+            {% if not (preview is defined and preview) %}
+                {% set publish_question = publish_questions[article.visibility] ?? publish_questions['public'] %}
+                <div class="d-flex flex-column flex-sm-row gap-2 flex-shrink-0">
+                    <button type="button" class="btn btn-outline-primary" data-news-schedule>Modifier l'heure</button>
+                    <button type="submit" form="news-editor-form" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
+                            data-confirm="{{ publish_question.message|replace({'{titre}': article.title}) }}"
+                            data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier maintenant</button>
+                </div>
+            {% endif %}
+        </div>
+    {% elseif state == 'draft' %}
+        <p class="text-body-secondary small mt-n3 mb-4" data-news-publication-line>
+            Visible seulement de ceux qui gèrent les actualités, tant qu'elle n'est pas publiée.
+        </p>
+    {% endif %}
 
     {% include '@news/partials/_form_tabs.html.twig' with {
         article_id: article ? article.id : null,
@@ -35,6 +78,11 @@
               data-ics-already-sent="{{ ics_already_sent|default(false) ? '1' : '0' }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="fields_json" id="fields_json_input" value="">
+            {# The form's DEFAULT button — the one Enter in a text field
+               presses — is a plain save, never « Publier » (issue #845).
+               Hidden, first in the form, and out of the tab order: the
+               visible buttons are below. #}
+            <button type="submit" name="intent" value="save" hidden tabindex="-1" aria-hidden="true"></button>
 
             {% if submit_error %}<div class="alert alert-danger">{{ submit_error }}</div>{% endif %}
 
@@ -133,14 +181,30 @@
                 </div>
             </div>
 
+            {#
+              Always shown; only a PUBLIC article may be indexed (issue #845),
+              so for any other visibility the controls are disabled, with the
+              reason under them, and come back the moment « Public » is
+              chosen (news-form-builder.js). The server forces the same rule
+              whatever is posted (Service\ArticleService::enforceSeoRules()).
+            #}
             <div class="card mb-3" id="news-seo-section">
                 <div class="card-body">
                     <h2 class="h6">Référencement</h2>
                     <div class="form-check form-switch mb-2">
                         <input class="form-check-input" type="checkbox" role="switch" name="is_indexed" id="is_indexed" value="1"
+                               {{ is_indexed_value ? 'checked' : '' }}
                                aria-checked="{{ is_indexed_value ? 'true' : 'false' }}">
                         <label class="form-check-label" for="is_indexed">Indexer cette page dans les moteurs de recherche</label>
                     </div>
+                    <p class="form-text d-none" id="news-seo-public-only">
+                        Seule une actualité publique peut être indexée. Choisissez « Public » dans la visibilité pour l'activer.
+                    </p>
+                    {% if not is_live %}
+                        <p class="form-text d-none" id="news-seo-not-live">
+                            En brouillon ou programmée, le réglage est enregistré ; les moteurs de recherche ne voient la page qu'une fois l'actualité en ligne.
+                        </p>
+                    {% endif %}
                     <div id="news-seo-fields" class="{{ is_indexed_value ? '' : 'd-none' }}">
                         <div class="mb-2">
                             <label class="form-label" for="seo_keywords">Mots-clés</label>
@@ -167,30 +231,40 @@
                         <h2 class="h6">Affiche &amp; QR code</h2>
                         {% if short_url %}
                             <p class="mb-2">Affiche A4 avec QR code vers {{ short_url }}</p>
-                            <a href="/news/{{ article.id }}/poster" class="btn btn-outline-secondary">
-                                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Télécharger le PDF
-                            </a>
                         {% else %}
                             <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>
                         {% endif %}
-                        {# Contributed by other modules (Service\ArticleActionRegistry).
-                           An icon-only action carries its label as its accessible
-                           name and its tooltip, at design.md §7.2's touch target. #}
-                        {% if article_actions|default([]) %}
-                            <div class="d-flex flex-wrap gap-2 mt-2" data-article-actions>
-                                {% for action in article_actions %}
-                                    {% if action.iconOnly %}
-                                        <a class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center contributed-action-icon"
-                                           href="{{ action.url }}" aria-label="{{ action.label }}" title="{{ action.label }}">
-                                            <i class="bi {{ action.icon }}" aria-hidden="true"></i>
-                                        </a>
-                                    {% else %}
-                                        <a class="btn btn-outline-secondary" href="{{ action.url }}">
-                                            <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
-                                        </a>
-                                    {% endif %}
-                                {% endfor %}
-                            </div>
+                        {# Every button of the block in ONE container (issue
+                           #845): on one line on a computer, wrapping on a
+                           phone when there is no room. The PDF is available
+                           in every state — preparing the poster of a
+                           scheduled article in advance is the point. The
+                           buttons other modules contribute
+                           (Service\ArticleActionRegistry) are offered once
+                           the article is online only. An icon-only action
+                           carries its label as its accessible name and its
+                           tooltip, at design.md §7.2's touch target. #}
+                        <div class="d-flex flex-wrap gap-2" data-article-actions>
+                            {% if short_url %}
+                                <a href="/news/{{ article.id }}/poster" class="btn btn-outline-secondary">
+                                    <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Télécharger le PDF
+                                </a>
+                            {% endif %}
+                            {% for action in article_actions|default([]) %}
+                                {% if action.iconOnly %}
+                                    <a class="btn btn-outline-secondary d-inline-flex align-items-center justify-content-center contributed-action-icon"
+                                       href="{{ action.url }}" aria-label="{{ action.label }}" title="{{ action.label }}">
+                                        <i class="bi {{ action.icon }}" aria-hidden="true"></i>
+                                    </a>
+                                {% else %}
+                                    <a class="btn btn-outline-secondary" href="{{ action.url }}">
+                                        <i class="bi {{ action.icon }}" aria-hidden="true"></i> {{ action.label }}
+                                    </a>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% if share_pending_note %}
+                            <p class="small text-body-secondary mt-2 mb-0" data-share-pending>{{ share_pending_note }}</p>
                         {% endif %}
                         {# Why a module is offering nothing (Api\ArticleNote). #}
                         {% for note in article_notes|default([]) %}
@@ -203,15 +277,60 @@
                 </div>
             {% endif %}
 
-            <div class="d-flex flex-column flex-sm-row gap-2 justify-content-between">
-                <button type="submit" class="btn btn-primary">Enregistrer</button>
-                {% if article %}
-                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#news-delete-modal">Supprimer</button>
-                {% endif %}
-            </div>
+            {#
+              The buttons follow the state (issue #845). Each one saves the
+              article first, through the same checks — a draft needs its
+              title, summary and image too — then does what it says, which
+              its `intent` tells the server.
+
+              « Publier » asks first, in the site's dialog, for whom it
+              publishes: the question follows the visibility chosen above
+              (news-publication.js, from publish_questions). « Repasser en
+              brouillon » says what disappears and what is kept.
+
+              Only a draft is deleted; elsewhere a line says how.
+            #}
+            {% if can_schedule %}
+                {# What the « Programmer la publication » dialog fills in
+                   before submitting through the hidden button below
+                   (news-publication.js). #}
+                <input type="hidden" name="schedule_date" id="news-schedule-date" value="{{ schedule_date }}">
+                <input type="hidden" name="schedule_time" id="news-schedule-time" value="{{ schedule_time }}">
+                <button type="submit" name="intent" value="schedule" id="news-schedule-submit" hidden tabindex="-1" aria-hidden="true"></button>
+            {% endif %}
+            {% if state == 'draft' %}
+                <div class="d-flex flex-column flex-sm-row gap-2 justify-content-between">
+                    <div class="d-flex flex-column flex-sm-row gap-2">
+                        {# The question for the visibility saved, already in
+                           the page: news-publication.js only follows the
+                           radio and the title as they change. #}
+                        {% set publish_question = publish_questions[article ? article.visibility : 'public'] ?? publish_questions['public'] %}
+                        <button type="submit" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
+                                data-confirm="{{ publish_question.message|replace({'{titre}': article ? article.title : 'Cette actualité'}) }}"
+                                data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier</button>
+                        {% if can_schedule %}
+                            <button type="button" class="btn btn-outline-primary" data-news-schedule>
+                                <i class="bi bi-clock" aria-hidden="true"></i> Programmer…
+                            </button>
+                        {% endif %}
+                        <button type="submit" class="btn btn-outline-primary" name="intent" value="save">Enregistrer le brouillon</button>
+                    </div>
+                    {% if article %}
+                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#news-delete-modal">Supprimer</button>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="d-flex flex-column flex-sm-row gap-2">
+                    <button type="submit" class="btn btn-primary" name="intent" value="save">Enregistrer</button>
+                    <button type="submit" class="btn btn-outline-secondary" name="intent" value="unpublish"
+                            data-confirm="{{ unpublish_question }}" data-confirm-title="Repasser en brouillon ?"
+                            data-confirm-label="Repasser en brouillon">Repasser en brouillon</button>
+                </div>
+                <p class="form-text mb-0 mt-2">Pour supprimer cette actualité, repassez-la d'abord en brouillon.</p>
+            {% endif %}
         </form>
 
-        {% if article %}
+        {% if article and state == 'draft' %}
             {# article_id rides along in the embed context: with `only`, the
                blocks below no longer see this template's own variables. #}
             {% embed 'partials/modal.html.twig' with { id: 'news-delete-modal', title: 'Confirmer la suppression', article_id: article.id } only %}
@@ -243,6 +362,8 @@
         capacity_max: f.capacityMax, price_per_unit: f.pricePerUnit,
         confirmation_text: f.confirmationText
     }),
+    publishQuestions: publish_questions,
+    scheduleMessages: schedule_messages,
     financeAvailable: finance_available,
     financeAccounts: finance_accounts,
     form: form ? {
@@ -256,4 +377,5 @@
 </script>
 <script src="{{ asset('/assets/js/news-form-builder.js') }}" defer></script>
 <script src="{{ asset('/assets/js/news-event-details.js') }}" defer></script>
+<script src="{{ asset('/assets/js/news-publication.js') }}" defer></script>
 {% endblock %}

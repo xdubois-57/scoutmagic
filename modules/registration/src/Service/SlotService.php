@@ -10,17 +10,20 @@ namespace Modules\Registration\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
-use Core\Import\AgeBranchRepository;
 use Core\Member\MemberYearService;
+use Modules\Registration\Repository\AgeBracket;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\PassageRosterRepository;
+use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 
 /**
- * Orchestrates Service\SlotMath against real data: configured brackets/
- * capacities, the current scout year's member_years (for projected
- * headcount), and pending requests (for the waitlist-tier adjustment).
+ * Orchestrates Service\SlotMath against real data: configured brackets and
+ * capacities, the module's one projection of next year's animés
+ * (Service\ForecastService, the same rows the Prévisions page counts), and
+ * the accepted requests — into the occupancy of each slot and the level the
+ * two thresholds give it.
  *
  * **A slot with no recorded capacity is UNLIMITED, never full.** The
  * database says so with a NULL (schema.sql's own comment on
@@ -41,13 +44,25 @@ class SlotService
      */
     public const DEFAULT_CAPACITY = 15;
 
+    /**
+     * « Oui jusqu'à … % de places occupées » and « Peut-être jusqu'à … %
+     * de places occupées », as module.json declares them — the defaults
+     * here and there are the same numbers.
+     */
+    public const SETTING_THRESHOLD_YES = 'registration_threshold_yes_percent';
+    public const SETTING_THRESHOLD_MAYBE = 'registration_threshold_maybe_percent';
+    public const DEFAULT_YES_PERCENT = 70;
+    public const DEFAULT_MAYBE_PERCENT = 100;
+
     public function __construct(
         private PassageRosterRepository $roster,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private AgeBracketRepository $ageBracketRepository,
         private SlotCapacityRepository $slotCapacityRepository,
-        private RegistrationRequestRepository $requestRepository
+        private RegistrationRequestRepository $requestRepository,
+        private ForecastService $forecastService,
+        private ReenrollmentRepository $reenrollmentRepository
     ) {
     }
 
@@ -128,81 +143,96 @@ class SlotService
     }
 
     /**
-     * The public page's three waitlist baskets — only meaningful content
-     * when the module's waitlist display setting is on (the caller decides
-     * whether to show this at all).
+     * The two thresholds every level of the module is read through —
+     * « Oui jusqu'à X % » and « Peut-être jusqu'à Y % » of the places
+     * occupied (`registration_threshold_yes_percent` /
+     * `registration_threshold_maybe_percent`).
      *
-     * @return array<string, array<int>> tier => birth years (deduplicated, sorted)
+     * A stored pair that is not usable — a value outside 1–120, or Oui not
+     * strictly below Peut-être, which Configuration > Réglages can save
+     * since it validates each key on its own — falls back to the manifest
+     * defaults as a PAIR. Mixing one stored value with one default could
+     * produce exactly the inverted pair the validation exists to refuse.
+     * storedThresholdsAreUnusable() is what lets the capacity box say so
+     * rather than show 70 / 100 as if a chief had chosen them.
+     *
+     * @return array{yes: int, maybe: int}
      */
-    public function waitlistTiersByBirthYear(
+    public function levelThresholds(): array
+    {
+        return $this->storedThresholds()
+            ?? ['yes' => self::DEFAULT_YES_PERCENT, 'maybe' => self::DEFAULT_MAYBE_PERCENT];
+    }
+
+    public function storedThresholdsAreUnusable(): bool
+    {
+        return $this->storedThresholds() === null;
+    }
+
+    /**
+     * @return array{yes: int, maybe: int}|null null when the stored pair is unusable
+     */
+    private function storedThresholds(): ?array
+    {
+        $yes = SlotMath::parseThresholdPercent($this->settingService->get(
+            self::SETTING_THRESHOLD_YES,
+            'registration',
+            (string) self::DEFAULT_YES_PERCENT
+        ));
+        $maybe = SlotMath::parseThresholdPercent($this->settingService->get(
+            self::SETTING_THRESHOLD_MAYBE,
+            'registration',
+            (string) self::DEFAULT_MAYBE_PERCENT
+        ));
+
+        return $yes !== null && $maybe !== null && SlotMath::isValidThresholdPair($yes, $maybe)
+            ? ['yes' => $yes, 'maybe' => $maybe]
+            : null;
+    }
+
+    /**
+     * The public page's three baskets of birth years — only meaningful
+     * when waitlists are managed (the caller decides whether to show this
+     * at all). Keys are SlotMath's levels: `yes` reads « Disponible »,
+     * `maybe` « Limitée », `no` « Complet ».
+     *
+     * @return array<string, array<int>> level => birth years (deduplicated, sorted)
+     */
+    public function publicLevelsByBirthYear(
         int $targetScoutYearId,
         string $targetScoutYearLabel,
         int $currentScoutYearId
     ): array
     {
-        $availableThreshold = (float) $this->settingService->get(
-            'registration_waitlist_threshold_available',
-            'registration',
-            '0.5'
-        );
-        $limitedThreshold = (float) $this->settingService->get(
-            'registration_waitlist_threshold_limited',
-            'registration',
-            '0.1'
-        );
+        $levels = [SlotMath::LEVEL_YES => [], SlotMath::LEVEL_MAYBE => [], SlotMath::LEVEL_NO => []];
 
-        $brackets = $this->ageBracketRepository->findAllOrdered();
-        $capacities = $this->slotCapacityRepository->findAllAsMap();
-        $referenceYear = SlotMath::referenceCalendarYear(
-            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
-            $this->referenceMonthDay()
-        );
-
-        $projected = $this->projectedHeadcountBySlot($currentScoutYearId, $brackets);
-        $accepted = $this->acceptedCountBySlot($targetScoutYearId, $brackets, $referenceYear);
-
-        $tiers = [SlotMath::TIER_AVAILABLE => [], SlotMath::TIER_LIMITED => [], SlotMath::TIER_HEAVY => []];
-
-        foreach ($brackets as $bracket) {
-            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
-                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? null;
-                $remaining = $capacity === null
-                    ? null
-                    : $capacity - ($projected[$slotKey] ?? 0) - ($accepted[$slotKey] ?? 0);
-
-                // An unlimited slot has no tier of its own. Publicly it
-                // reads as TIER_AVAILABLE — "inscription immédiate" is
-                // exactly what no limit means to a family — and it must
-                // never land in TIER_LIMITED or TIER_HEAVY, which is what
-                // reading its missing capacity as 0 used to do.
-                $tier = SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold, $limitedThreshold)
-                    ?? SlotMath::TIER_AVAILABLE;
-                $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
-                $tiers[$tier][] = $birthYear;
-            }
+        $rows = $this->capacityBreakdownForYear($targetScoutYearId, $targetScoutYearLabel, $currentScoutYearId);
+        foreach ($rows as $row) {
+            $levels[$row['level']][] = $row['birth_year'];
         }
 
-        foreach ($tiers as $tier => $years) {
+        foreach ($levels as $level => $years) {
             $years = array_values(array_unique($years));
             sort($years);
-            $tiers[$tier] = $years;
+            $levels[$level] = $years;
         }
 
-        return $tiers;
+        return $levels;
     }
 
     /**
      * Per-birth-year slot info for the public page's birth-date preview:
      * which (branch, year-in-branch) a birth year falls into, and its
-     * waitlist tier — reuses birthYearsByBranch()'s own bracket iteration
-     * and waitlistTiersByBirthYear()'s own tier computation rather than
-     * a third copy of either, and deliberately never exposes the raw
-     * capacity/projected/accepted counts capacityBreakdownForYear()
-     * itself carries (Controller\RegistrationConfigController's
-     * staff-only "Vérification des capacités" table) — a visitor gets
-     * only the same available/limited/heavy tier the "Disponibilité des
-     * places" section already shows, never the numbers behind it.
+     * public level — reuses birthYearsByBranch()'s own bracket iteration,
+     * and takes the levels publicLevelsByBirthYear() already computed
+     * rather than computing them again: the projection behind them is the
+     * expensive part of the page, and a page anybody can open must not run
+     * it twice. Deliberately never exposes the raw capacity/projected/
+     * accepted counts capacityBreakdownForYear() carries
+     * (Controller\RegistrationConfigController's staff-only "Vérification
+     * des capacités" table) — a visitor gets only the same « Disponible » /
+     * « Limitée » / « Complet » the birth-year grid already shows, never
+     * the numbers behind it.
      *
      * `age_branch_id` is here for the « Section souhaitée » list, which
      * has to keep only the sections of the branch the birth date lands
@@ -216,16 +246,13 @@ class SlotService
      * `<option data-branch-id>` — so it exposes nothing a visitor cannot
      * already read in the markup.
      *
+     * @param array<string, array<int>> $publicLevels publicLevelsByBirthYear()'s
+     *        answer, or [] when waitlists are not managed (every level null)
      * @return array<int, array{
-     *   birth_year: int, age_branch_id: int, branch_label: string, year_in_branch: int, tier: ?string
+     *   birth_year: int, age_branch_id: int, branch_label: string, year_in_branch: int, level: ?string
      * }>
      */
-    public function birthYearSlotsForPublic(
-        int $targetScoutYearId,
-        string $targetScoutYearLabel,
-        int $currentScoutYearId,
-        bool $waitlistEnabled
-    ): array
+    public function birthYearSlotsForPublic(string $targetScoutYearLabel, array $publicLevels): array
     {
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $referenceYear = SlotMath::referenceCalendarYear(
@@ -233,16 +260,10 @@ class SlotService
             $this->referenceMonthDay()
         );
 
-        $tierByBirthYear = [];
-        if ($waitlistEnabled) {
-            foreach ($this->waitlistTiersByBirthYear(
-                $targetScoutYearId,
-                $targetScoutYearLabel,
-                $currentScoutYearId
-            ) as $tier => $years) {
-                foreach ($years as $year) {
-                    $tierByBirthYear[$year] = $tier;
-                }
+        $levelByBirthYear = [];
+        foreach ($publicLevels as $level => $years) {
+            foreach ($years as $year) {
+                $levelByBirthYear[$year] = $level;
             }
         }
 
@@ -255,7 +276,7 @@ class SlotService
                     'age_branch_id' => $bracket->ageBranchId,
                     'branch_label' => $bracket->branchLabel,
                     'year_in_branch' => $yearInBranch,
-                    'tier' => $tierByBirthYear[$birthYear] ?? null,
+                    'level' => $levelByBirthYear[$birthYear] ?? null,
                 ];
             }
         }
@@ -264,22 +285,33 @@ class SlotService
     }
 
     /**
-     * The admin capacity table's own row set (module spec: "capacité,
-     * effectif projeté, demandes acceptées, restant, et le niveau tel
-     * qu'il apparaît au public") — same underlying numbers as
-     * waitlistTiersByBirthYear(), just returned per-slot rather than
-     * bucketed into birth years, so a chief can verify the public tier
-     * isn't a black box.
+     * The capacity check's own row set (module spec: "capacité, effectif
+     * projeté, demandes acceptées, restant, et le niveau tel qu'il apparaît
+     * au public") — the numbers publicLevelsByBirthYear() is computed from,
+     * returned per slot rather than bucketed into birth years, so a chief
+     * can verify the public level isn't a black box.
      *
-     * `capacity`, `remaining` and `tier` are all nullable together: a slot
-     * with no recorded capacity has no remaining count and no public level
-     * to report, and the table renders that as "sans limite" rather than
-     * as a zero — the one place a chief would otherwise read an
-     * unconfigured branch as a full one.
+     * - `projected` — the children Service\ForecastService expects in this
+     *   slot next year: Desk's own rows for that year when it already has
+     *   them, otherwise the current animés projected forward through
+     *   `scout_year_offset`, those changing branch included. A child whose
+     *   family has not answered the reenrollment yet is counted as staying;
+     *   only a departure (`member_years.leaving`, set by the family's answer
+     *   or by the staff) takes them out. `silent` is how many of
+     *   `projected` are such unanswered children (« dont N sans réponse »).
+     * - `accepted` — the accepted requests, encoded in Desk or not: each
+     *   occupies ONE place, never two and never zero (R1, see
+     *   occupancyBySlot()).
+     * - `occupied` = `projected` + `accepted`, the number the level reads.
+     *
+     * `capacity` and `remaining` are nullable together: a slot with no
+     * recorded capacity has no remaining count, and the table renders that
+     * as "sans limite" rather than as a zero. Its level is always Oui.
      *
      * @return array<int, array{
      *   age_branch_id: int, branch_label: string, branch_sort_order: int, year_in_branch: int,
-     *   capacity: ?int, projected: int, accepted: int, remaining: ?int, tier: ?string
+     *   birth_year: int, capacity: ?int, projected: int, silent: int, accepted: int, occupied: int,
+     *   remaining: ?int, level: string
      * }>
      */
     public function capacityBreakdownForYear(
@@ -288,17 +320,7 @@ class SlotService
         int $currentScoutYearId
     ): array
     {
-        $availableThreshold = (float) $this->settingService->get(
-            'registration_waitlist_threshold_available',
-            'registration',
-            '0.5'
-        );
-        $limitedThreshold = (float) $this->settingService->get(
-            'registration_waitlist_threshold_limited',
-            'registration',
-            '0.1'
-        );
-
+        $thresholds = $this->levelThresholds();
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
         $referenceYear = SlotMath::referenceCalendarYear(
@@ -306,32 +328,33 @@ class SlotService
             $this->referenceMonthDay()
         );
 
-        $projected = $this->projectedHeadcountBySlot($currentScoutYearId, $brackets);
-        $accepted = $this->acceptedCountBySlot($targetScoutYearId, $brackets, $referenceYear);
+        $occupancy = $this->occupancyBySlot($targetScoutYearId, $targetScoutYearLabel, $currentScoutYearId, $brackets);
 
         $rows = [];
         foreach ($brackets as $bracket) {
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
                 $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
                 $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? null;
-                $projectedCount = $projected[$slotKey] ?? 0;
-                $acceptedCount = $accepted[$slotKey] ?? 0;
-                $remaining = $capacity === null ? null : $capacity - $projectedCount - $acceptedCount;
+                $counts = $occupancy[$slotKey] ?? ['projected' => 0, 'silent' => 0, 'accepted' => 0];
+                $occupied = $counts['projected'] + $counts['accepted'];
 
                 $rows[] = [
                     'age_branch_id' => $bracket->ageBranchId,
                     'branch_label' => $bracket->branchLabel,
                     'branch_sort_order' => $bracket->branchSortOrder,
                     'year_in_branch' => $yearInBranch,
+                    'birth_year' => SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear),
                     'capacity' => $capacity,
-                    'projected' => $projectedCount,
-                    'accepted' => $acceptedCount,
-                    'remaining' => $remaining,
-                    'tier' => SlotMath::tierForRemaining(
+                    'projected' => $counts['projected'],
+                    'silent' => $counts['silent'],
+                    'accepted' => $counts['accepted'],
+                    'occupied' => $occupied,
+                    'remaining' => $capacity === null ? null : $capacity - $occupied,
+                    'level' => SlotMath::levelForOccupancy(
                         $capacity,
-                        $remaining ?? 0,
-                        $availableThreshold,
-                        $limitedThreshold
+                        $occupied,
+                        $thresholds['yes'],
+                        $thresholds['maybe']
                     ),
                 ];
             }
@@ -341,105 +364,122 @@ class SlotService
     }
 
     /**
-     * ANIMÉS currently one rank below each slot (or at the last rank of
-     * the previous branch, for a branch's first slot) in the CURRENT scout
-     * year, excluding anyone marked leaving (Core\Member\DepartureService)
-     * and anyone on the staff — the animés who will occupy that slot next
-     * year if nothing changes.
-     * Ages are computed exclusively via Core\Member\MemberYearService::
-     * getEffectiveAge() (never a parallel calculation, per the module's
-     * own "never recompute an age by hand" rule).
+     * Who occupies each slot next year, from the module's ONE projection
+     * (Service\ForecastService::projectedRows() — the same rows the
+     * Prévisions page and Api\ProjectedPopulationProvider count). Nothing
+     * here computes an age: every row already carries the branch and
+     * year-in-branch ForecastService derived through
+     * MemberYearService::getEffectiveAge(), `scout_year_offset` included.
      *
-     * @param array<\Modules\Registration\Repository\AgeBracket> $orderedBrackets
-     * @return array<string, int> "{ageBranchId}:{yearInBranch}" => projected headcount for THAT slot
+     * The rule this method owns is R1 — **an accepted request occupies one
+     * place, never two, never zero, whether or not it is encoded in Desk**:
+     *
+     * - accepted, not encoded: ForecastService's registration row, counted
+     *   in `accepted`;
+     * - encoded, and the projection holds the member it was linked to (the
+     *   target year's Desk row, or the current-year row projected forward):
+     *   that member's row, moved from `projected` to `accepted` — the same
+     *   child, counted once, in the column that says why the place is taken;
+     * - encoded, and the projection does not hold that member (a manual
+     *   link to a member last seen in an earlier year, or a target-year
+     *   Desk row the animé roster does not read — no section yet, say):
+     *   the request's own birth date, in `accepted`.
+     *
+     * The one thing that takes an encoded request out is Desk saying the
+     * child is not there next year: a target-year row that is inactive or
+     * marked leaving.
+     *
+     * @param array<AgeBracket> $brackets
+     * @return array<string, array{projected: int, silent: int, accepted: int}> "{ageBranchId}:{yearInBranch}" => counts
      */
-    private function projectedHeadcountBySlot(int $currentScoutYearId, array $orderedBrackets): array
-    {
-        $memberYearService = new MemberYearService();
-        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($this->scoutYearLabel($currentScoutYearId));
+    private function occupancyBySlot(
+        int $targetScoutYearId,
+        string $targetScoutYearLabel,
+        int $currentScoutYearId,
+        array $brackets
+    ): array {
+        $referenceMonthDay = $this->referenceMonthDay();
+        $rows = $this->forecastService->projectedRows(
+            $currentScoutYearId,
+            $this->scoutYearLabel($currentScoutYearId),
+            $targetScoutYearId,
+            $targetScoutYearLabel,
+            $referenceMonthDay
+        );
 
-        // Non-staff only — the same role filter every other aggregation in
-        // this module applies (Repository\PassageRosterRepository, behind
-        // Service\PassageService::getAnimeMemberYears() and Service\
-        // ForecastService's counts, and Core\Member\SectionService::
-        // getSectionAnimes()). Without it, a leader whose effective age
-        // still falls inside the 6-17 range was counted as a projected
-        // animé, which shrank "restant" and could push the availability
-        // tier shown TO THE PUBLIC down a level. One entry per member_year,
-        // however many functions it holds.
-        $animeAges = $this->roster->findAnimeAges($currentScoutYearId);
+        $encodedByMemberId = [];
+        foreach ($this->requestRepository->findEncodedForYear($targetScoutYearId) as $request) {
+            if ($request->linkedMemberId !== null) {
+                $encodedByMemberId[$request->linkedMemberId] = $request;
+            }
+        }
+        $answered = array_fill_keys($this->reenrollmentRepository->answeredMemberIds($targetScoutYearId), true);
 
-        // Feeder slot => headcount currently sitting there.
-        $currentBySlot = [];
-        foreach ($animeAges as $age) {
-            if ($age['birth_date'] === null) {
+        /** @var array<string, array{projected: int, silent: int, accepted: int}> $occupancy */
+        $occupancy = [];
+
+        $placedMemberIds = [];
+        foreach ($rows as $row) {
+            $bracket = $row['branch_sort_order'] !== null
+                ? $this->findBracketBySortOrder($brackets, $row['branch_sort_order'])
+                : null;
+            if ($bracket === null || $row['year_in_branch'] === null) {
                 continue;
             }
-            $birthYear = MemberYearService::extractBirthYear($age['birth_date']);
-            $effective = $memberYearService->getEffectiveAge(
-                $birthYear,
-                $age['scout_year_offset'],
-                $referenceYear
-            );
-            if ($effective->branchName === null || $effective->yearInBranch === null) {
-                continue;
+            $key = $bracket->ageBranchId . ':' . $row['year_in_branch'];
+            $memberId = $row['member_id'];
+
+            if ($row['request_id'] !== null) {
+                self::tally($occupancy, $key, 'accepted');
+            } elseif ($memberId !== null && isset($encodedByMemberId[$memberId])) {
+                $placedMemberIds[$memberId] = true;
+                self::tally($occupancy, $key, 'accepted');
+            } else {
+                self::tally($occupancy, $key, 'projected');
+                // Desk's own target-year rows are facts, not a guess about
+                // who stays: only a projected current-year animé can be
+                // « sans réponse ».
+                if (!$row['certain'] && $memberId !== null && !isset($answered[$memberId])) {
+                    self::tally($occupancy, $key, 'silent');
+                }
             }
-            $sortOrder = AgeBranchRepository::canonicalSortOrder($effective->branchName);
-            $bracket = $this->findBracketBySortOrder($orderedBrackets, $sortOrder);
-            if ($bracket === null) {
-                continue;
-            }
-            $key = $bracket->ageBranchId . ':' . $effective->yearInBranch;
-            $currentBySlot[$key] = ($currentBySlot[$key] ?? 0) + 1;
         }
 
-        // Re-key by the TARGET slot each of those feeds into.
-        $projected = [];
-        foreach ($orderedBrackets as $bracket) {
-            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                $feeder = SlotMath::feederSlot($orderedBrackets, $bracket->ageBranchId, $yearInBranch);
-                if ($feeder === null) {
+        $unplaced = array_diff_key($encodedByMemberId, $placedMemberIds);
+        if ($unplaced !== []) {
+            $deskTargetYear = $this->roster->findStayingStates(array_keys($unplaced), $targetScoutYearId);
+            $referenceYear = SlotMath::referenceCalendarYear(
+                MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
+                $referenceMonthDay
+            );
+            foreach ($unplaced as $memberId => $request) {
+                if (($deskTargetYear[$memberId] ?? true) === false) {
                     continue;
                 }
-                $feederKey = $feeder['age_branch_id'] . ':' . $feeder['year_in_branch'];
-                $targetKey = $bracket->ageBranchId . ':' . $yearInBranch;
-                $projected[$targetKey] = $currentBySlot[$feederKey] ?? 0;
+                $slot = SlotMath::slotForBirthDate($brackets, $request->birthDate, $referenceYear);
+                if ($slot !== null) {
+                    self::tally($occupancy, $slot['age_branch_id'] . ':' . $slot['year_in_branch'], 'accepted');
+                }
             }
         }
 
-        return $projected;
+        return $occupancy;
     }
 
     /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $orderedBrackets
-     * @return array<string, int> "{ageBranchId}:{yearInBranch}" => accepted request count
+     * @param array<string, array{projected: int, silent: int, accepted: int}> $occupancy
+     * @param 'projected'|'silent'|'accepted' $column
      */
-    private function acceptedCountBySlot(
-        int $targetScoutYearId,
-        array $orderedBrackets,
-        int $referenceCalendarYear
-    ): array
+    private static function tally(array &$occupancy, string $slotKey, string $column): void
     {
-        $counts = [];
-        foreach ($this->requestRepository->findAcceptedForYear($targetScoutYearId) as $request) {
-            $slot = SlotMath::slotForBirthDate($orderedBrackets, $request->birthDate, $referenceCalendarYear);
-            if ($slot === null) {
-                continue;
-            }
-            $key = $slot['age_branch_id'] . ':' . $slot['year_in_branch'];
-            $counts[$key] = ($counts[$key] ?? 0) + 1;
-        }
-
-        return $counts;
+        $occupancy[$slotKey] ??= ['projected' => 0, 'silent' => 0, 'accepted' => 0];
+        $occupancy[$slotKey][$column]++;
     }
 
     /**
-     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
+     * @param array<AgeBracket> $brackets
      */
-    private function findBracketBySortOrder(
-        array $brackets,
-        int $sortOrder
-    ): ?\Modules\Registration\Repository\AgeBracket
+    private function findBracketBySortOrder(array $brackets, int $sortOrder): ?AgeBracket
     {
         foreach ($brackets as $bracket) {
             if ($bracket->branchSortOrder === $sortOrder) {

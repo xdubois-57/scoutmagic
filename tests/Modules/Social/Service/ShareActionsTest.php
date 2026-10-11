@@ -42,17 +42,20 @@ final class ShareActionsTest extends TestCase
     }
 
     /**
-     * The icon alone, with the label left to carry it as accessible name
-     * and tooltip: « Partager » sits beside the controls that matter more
-     * on both pages.
+     * On an album, the icon alone, with the label left to carry it as
+     * accessible name and tooltip: « Partager » sits beside the controls
+     * that matter more. In an article's editor, the icon WITH its word
+     * (issue #845): there it shares one row with « Télécharger le PDF »,
+     * and every button of that row says what it does.
      */
-    public function testTheButtonIsTheIconAlone(): void
+    public function testTheAlbumButtonIsTheIconAloneAndTheArticleOneSaysPartager(): void
     {
         $album = (new AlbumShareAction($this->sharing(true), $this->chief()))->actionsFor(3);
         $article = (new ArticleShareAction($this->sharing(true), $this->chief()))->actionsFor(5);
 
         $this->assertTrue($album[0]->iconOnly);
-        $this->assertTrue($article[0]->iconOnly);
+        $this->assertFalse($article[0]->iconOnly);
+        $this->assertSame('Partager', $article[0]->label);
         $this->assertSame(['bi-share', 'bi-share'], [$album[0]->icon, $article[0]->icon]);
     }
 

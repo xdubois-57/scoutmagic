@@ -9219,6 +9219,15 @@ if ($isEnabled('news')) {
         $fileRepository,
         $financeExpectedReceivableForOthers
     );
+    // A cover belongs to its article, and is refused while the article is
+    // not online except to whoever manages the news (issue #845) — decided
+    // at each request for the image, so a scheduled article's cover opens
+    // at the very minute the article does. Registered before the guard is
+    // built, further down.
+    $fileOwnershipCheckers[] = new \Modules\News\File\NewsCoverOwnershipChecker(
+        $newsArticleRepo,
+        $newsArticleService
+    );
     $newsFormService = new \Modules\News\Service\FormService(
         $newsFormRepo,
         $newsFieldRepo,
@@ -11195,6 +11204,39 @@ if ($isEnabled('registration')) {
         $encryptionService
     );
 
+    // Iteration 6 — Passage (own PassageService + SectionTransferRepository
+    // storage), and iteration 7 — "Prévisions" (own ForecastService,
+    // reusing PassageService::getAnimeMemberYears()/getBranchChanges()/
+    // getNewRegistrations() rather than recomputing any of them). Built
+    // before the SlotService because the slot capacities read the SAME
+    // projection (chantier #843, IT-02): one projection for the whole
+    // module, never a second one that could disagree with the Prévisions
+    // page. « Départs » and the Passage controller are registered further
+    // down; DepartureService is core and constructed once, up top, since
+    // Core\Http\Controller\MemberController's own departure endpoint needs
+    // it whether or not this module is even enabled.
+    $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
+    $registrationPassageService = new \Modules\Registration\Service\PassageService(
+        $registrationPassageRosterRepo,
+        $encryptionService,
+        $sectionService,
+        $registrationSectionTransferRepo,
+        $registrationRequestRepo,
+        $registrationAgeBracketRepo,
+    );
+    $registrationForecastService = new \Modules\Registration\Service\ForecastService(
+        $registrationPassageRosterRepo,
+        $encryptionService,
+        $sectionService,
+        $registrationPassageService
+    );
+    // The families' reenrollment answers — read by the slot capacities
+    // (« dont N sans réponse ») as well as by the IT-14 services below.
+    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository(
+        $pdo,
+        $encryptionService
+    );
+
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
         $registrationPassageRosterRepo,
         $scoutYearService,
@@ -11202,6 +11244,8 @@ if ($isEnabled('registration')) {
         $registrationAgeBracketRepo,
         $registrationSlotCapacityRepo,
         $registrationRequestRepo,
+        $registrationForecastService,
+        $registrationReenrollmentRepository,
     );
     $registrationService = new \Modules\Registration\Service\RegistrationService(
         $registrationRequestRepo,
@@ -11322,26 +11366,14 @@ if ($isEnabled('registration')) {
         )
     );
 
-    // Iteration 6 — Passage (own PassageService + SectionTransferRepository
-    // storage). « Départs » is registered further down, once the
-    // reenrollment link it now renders exists; it reuses the one core
-    // section-staff authorization service built up top, never a second
-    // instance, and DepartureService is also core but constructed once,
-    // up top, since Core\Http\Controller\MemberController's own departure
-    // endpoint needs it whether or not this module is even enabled.
-
-    $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
-    $registrationPassageService = new \Modules\Registration\Service\PassageService(
-        $registrationPassageRosterRepo,
-        $encryptionService,
-        $sectionService,
-        $registrationSectionTransferRepo,
-        $registrationRequestRepo,
-        $registrationAgeBracketRepo,
-    );
-    // PassageController is registered further down, once the projection
-    // exists: IT-12's statistics box reads Api\ProjectedPopulationProvider,
-    // which is a façade over the ForecastService built below.
+    // Passage: PassageService was built above with the projection.
+    // « Départs » is registered further down, once the reenrollment link it
+    // now renders exists; it reuses the one core section-staff
+    // authorization service built up top, never a second instance.
+    // PassageController is registered further down too, once the projection
+    // façade exists: IT-12's statistics box reads
+    // Api\ProjectedPopulationProvider, a façade over the ForecastService
+    // built above.
 
     // Iteration 7 — the year-transition veto (Api\
     // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
@@ -11367,15 +11399,7 @@ if ($isEnabled('registration')) {
         $scoutYearService
     );
 
-    // Iteration 7 — "Prévisions" (own ForecastService, reusing
-    // PassageService::getAnimeMemberYears()/getBranchChanges()/
-    // getNewRegistrations() rather than recomputing any of them).
-    $registrationForecastService = new \Modules\Registration\Service\ForecastService(
-        $registrationPassageRosterRepo,
-        $encryptionService,
-        $sectionService,
-        $registrationPassageService
-    );
+    // Iteration 7 — "Prévisions", on the ForecastService built above.
     $frontController->registerController(
         \Modules\Registration\Controller\ForecastController::class,
         new \Modules\Registration\Controller\ForecastController(
@@ -11391,7 +11415,7 @@ if ($isEnabled('registration')) {
     // projection as a public contract, so the Passage statistics box and
     // mass_mail's future-year audiences can read it without either of them
     // importing anything else from this module. A façade over the
-    // ForecastService built just above — deliberately the SAME instance, so
+    // ForecastService built above — deliberately the SAME instance, so
     // there is one projection and not two that could disagree.
     //
     // Nothing consumes it yet, and that is the point of the iteration: the
@@ -11419,11 +11443,10 @@ if ($isEnabled('registration')) {
     // the whole module, never a second one that could disagree with the
     // Passage statistics box reading the same numbers. The two controllers
     // that need these services are registered immediately below, so the
-    // move costs nothing but this comment.
-    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository(
-        $pdo,
-        $encryptionService
-    );
+    // move costs nothing but this comment. (The answers' repository itself,
+    // $registrationReenrollmentRepository, is built above with the
+    // projection: the slot capacities read it too.)
+    //
     // IT-17 — the staff's own entry on the Passage page, kept apart from
     // the family's answer so a chief typing a note never fabricates one.
     $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository(

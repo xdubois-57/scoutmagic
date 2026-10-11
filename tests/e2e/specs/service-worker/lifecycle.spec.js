@@ -114,7 +114,7 @@ test('a navigation with the network down is answered from the cache', async ({ p
         await expect(page.locator('#offline-conditions')).toContainText('il y a moins de 30 jours');
         // No home page saved on this device: no « Accueil » leading back here.
         await expect(page.locator('#offline-home-link')).toBeHidden();
-        await expect(page.getByText('Aucune page n\'est encore enregistrée sur cet appareil.')).toBeVisible();
+        await expect(page.getByText('La page d\'accueil n\'est pas enregistrée sur cet appareil.')).toBeVisible();
     } finally {
         await context.setOffline(false);
     }

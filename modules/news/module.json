@@ -394,6 +394,24 @@
     {
       "key": "send_pending_tickets",
       "handler": "Modules\\News\\Task\\SendPendingTicketsHandler"
+    },
+    {
+      "key": "publish_scheduled_articles",
+      "handler": "Modules\\News\\Task\\PublishScheduledArticlesHandler"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "news.article_published",
+      "label": "Actualité en ligne",
+      "description": "Quand une actualité que vous avez programmée est mise en ligne.",
+      "group": "Actualités",
+      "role_min": "chief",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "off"
+      }
     }
   ],
   "storage": {

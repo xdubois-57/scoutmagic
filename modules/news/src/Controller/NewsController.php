@@ -16,6 +16,7 @@ use Core\File\FileRepository;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -29,17 +30,21 @@ use Core\Security\HumanCheck\HumanCheckChallenge;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Core\View\SectionPickerHelper;
 use Modules\Finance\Api\FinanceAccountInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
+use Modules\News\Service\BodyImageVariants;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
+use Modules\News\Service\PublicationWording;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\SeoKeywordService;
 use Modules\News\Service\TicketService;
+use Modules\News\Task\PublishScheduledArticlesHandler;
 use Modules\News\Task\SendPendingTicketsHandler;
 use Modules\News\Task\SendResponseDigestHandler;
 use Twig\Environment;
@@ -54,6 +59,18 @@ class NewsController extends AbstractController
     private const NOT_VISIBLE_MESSAGE = "Cet article n'est pas visible avec votre compte.";
     private const NOT_THE_AUTHOR_MESSAGE = "Seul l'auteur de cet article, ou un chef d'unité, "
         . 'peut le modifier.';
+
+    /**
+     * What the editor's submit buttons ask for, besides saving (issue
+     * #845) — the `intent` they post. Every one of them saves the
+     * article first, through the same validation: a draft needs its
+     * title, summary and cover like any other.
+     */
+    private const INTENT_SAVE = 'save';
+    private const INTENT_PUBLISH = 'publish';
+    private const INTENT_UNPUBLISH = 'unpublish';
+    /** « Programmer… » and « Modifier l'heure »: with schedule_date and schedule_time. */
+    private const INTENT_SCHEDULE = 'schedule';
 
     /**
      * Cards per page on /news and /news/manage — and so how many articles
@@ -276,7 +293,55 @@ class NewsController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
-        return $this->json(['success' => true, 'url' => '/files/' . $fileId]);
+        // The derivatives, as for the cover (#883): the text then carries
+        // the 1024px `md` rendition — what the offline cache may store,
+        // where the original never goes (SECURITY.md, public/sw.js) — and
+        // not the multi-megabyte photograph. generate() never throws; an
+        // image it could not render keeps its original address, which
+        // still shows online.
+        if ($this->imageVariantService !== null) {
+            foreach (\Core\Photo\ImageVariantService::VARIANTS as $variant) {
+                $this->imageVariantService->generate($fileId, $variant);
+            }
+        }
+
+        return $this->json([
+            'success' => true,
+            'url' => '/files/' . $fileId . ($this->hasMediumRendition($fileId) ? '/md' : ''),
+        ]);
+    }
+
+    /** Whether file $fileId has its `md` rendition on disk. */
+    private function hasMediumRendition(int $fileId): bool
+    {
+        if ($this->imageVariantService === null) {
+            return false;
+        }
+        $file = $this->fileRepository->findById($fileId);
+
+        return $file !== null && $this->imageVariantService->resolvePath($file->relativePath, 'md') !== null;
+    }
+
+    /**
+     * The text blocks of an article, their images pointed at the `md`
+     * rendition where it exists — see Service\BodyImageVariants. On the
+     * page and in the editor alike, so the next save stores the address
+     * the page shows.
+     *
+     * @param FormField[] $fields
+     * @return FormField[]
+     */
+    private function withMediumBodyImages(array $fields): array
+    {
+        $hasMedium = fn (int $fileId): bool => $this->hasMediumRendition($fileId);
+
+        return array_map(
+            static fn (FormField $field): FormField => $field->fieldType === FormField::TYPE_TEXT
+                && $field->confirmationText !== null
+                ? $field->withConfirmationText(BodyImageVariants::rewrite($field->confirmationText, $hasMedium))
+                : $field,
+            $fields
+        );
     }
 
     /**
@@ -295,7 +360,10 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
 
+        $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
+
         try {
+            $scheduleAt = $this->requestedScheduleMoment($request, $intent, null);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
             $article = $this->articleService->create(
@@ -332,6 +400,8 @@ class NewsController extends AbstractController
             ['article_id' => $article->id],
             $accountId
         );
+
+        $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -394,7 +464,10 @@ class NewsController extends AbstractController
             (bool) $formSettings['issues_ticket']
         );
 
+        $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
+
         try {
+            $scheduleAt = $this->requestedScheduleMoment($request, $intent, $article);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
             $article = $this->articleService->update(
@@ -429,6 +502,8 @@ class NewsController extends AbstractController
             $this->issueTicketsForExistingResponses($form, $accountId);
         }
 
+        $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
+
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
 
@@ -455,7 +530,13 @@ class NewsController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
-        $this->articleService->delete($article->id);
+        try {
+            $this->articleService->delete($article->id);
+        } catch (NewsException $e) {
+            // Not a draft (issue #845) — refused here whoever asks, the
+            // editor not offering the button being only a convenience.
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 409);
+        }
 
         $this->journalService->log(
             'news',
@@ -529,17 +610,33 @@ class NewsController extends AbstractController
         }
 
         $role = Role::fromString(AuthSession::getRole());
+        $isLive = $this->articleService->isLive($article);
+
+        // The visibility first, whatever the state: a reader who could not
+        // see this article once published must not learn, from the page
+        // below, that it exists or when it will be out.
         if (!$this->articleService->canView($article, $role)) {
             // A shareable article answers the caller its preview rather
-            // than a bare 403 — see renderSocialPreview(). Everything
+            // than a bare 403 — see renderSocialPreview() — but only once
+            // it is online: nothing of it is shown before. Everything
             // else is refused as before.
-            return $this->articleService->isSociallyShareable($article)
+            return $isLive && $this->articleService->isSociallyShareable($article)
                 ? $this->renderSocialPreview($article)
                 : $this->forbidden(self::NOT_VISIBLE_MESSAGE, $request);
         }
 
+        // Before publication (issue #845), only those who manage the news
+        // may open the page — a « Lien direct » article included: holding
+        // the address is not enough yet. Everybody else allowed to read it
+        // once out is told it is not online yet, and shown nothing of it.
+        if (!$isLive && !ArticleService::managesNews($role)) {
+            return $this->renderNotOnline($article);
+        }
+
         $form = $this->formService->findByArticleId($article->id);
-        $fields = $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article);
+        $fields = $this->withMediumBodyImages(
+            $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article)
+        );
         $hasRealInput = $this->hasRealInputField($fields);
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
         $accountId = AuthSession::getUserAccountId();
@@ -565,6 +662,19 @@ class NewsController extends AbstractController
 
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
+            // Not online: the page a manager reads before publishing — a
+            // banner says so, the form takes no response, and nothing
+            // about it is offered to a crawler (issue #845).
+            'is_live' => $isLive,
+            'state' => $this->articleService->state($article),
+            'scheduled_for' => $article->publishedAt !== null
+                ? PublicationWording::longDateTime($article->publishedAt)
+                : '',
+            'can_edit' => $this->articleService->canEdit(
+                $article,
+                $role,
+                (int) AuthSession::getUserAccountId()
+            ),
             'breadcrumb_current' => $article->title,
             'author_name' => $author->firstName ?? $author?->email,
             'form' => $form,
@@ -607,6 +717,27 @@ class NewsController extends AbstractController
      * the body, the form, the author, or anything else the page shows a
      * member — views/preview.html.twig says the same, next to the markup.
      */
+    /**
+     * What anybody but a manager is shown of an article that is not online
+     * yet (issue #845): that it is not, and — for a scheduled one — when it
+     * will be. Nothing of the article itself: no title, no summary, no
+     * image. It is what scanning the QR code of a poster printed in advance
+     * shows.
+     *
+     * A 404 with that body, so nothing indexes it and nothing previews it.
+     */
+    private function renderNotOnline(Article $article): Response
+    {
+        $scheduledFor = $this->articleService->state($article) === Article::STATE_SCHEDULED
+            && $article->publishedAt !== null
+            ? PublicationWording::longDateTime($article->publishedAt)
+            : '';
+
+        return $this->render('@news/not_online.html.twig', [
+            'scheduled_for' => $scheduledFor,
+        ])->setStatusCode(404);
+    }
+
     private function renderSocialPreview(Article $article): Response
     {
         return $this->render('@news/preview.html.twig', [
@@ -636,7 +767,11 @@ class NewsController extends AbstractController
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return [
-            'social_preview' => $this->articleService->isSociallyShareable($article),
+            // Never for an article that is not online (issue #845): the
+            // page a manager reads before publishing is no link anybody
+            // should be previewing yet.
+            'social_preview' => $this->articleService->isLive($article)
+                && $this->articleService->isSociallyShareable($article),
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
@@ -669,8 +804,17 @@ class NewsController extends AbstractController
             $form = $this->formService->findByArticleId($article->id);
             $author = $currentAccountId !== null ? $this->userAccountRepository->findById($article->createdBy) : null;
 
+            $state = $this->articleService->state($article);
+
             return [
                 'article' => $article,
+                'state' => $state,
+                // The publication date, or a draft's creation date — the
+                // one the list also sorts on (issue #845).
+                'date' => $article->displayDate(),
+                'scheduled_for' => $state === Article::STATE_SCHEDULED && $article->publishedAt !== null
+                    ? PublicationWording::longDateTime($article->publishedAt)
+                    : '',
                 // Single-line summary (module usability review) — the
                 // mandatory one-sentence Article::$summary, never the old
                 // stripped-body excerpt, so the list never shows leftover
@@ -689,7 +833,9 @@ class NewsController extends AbstractController
     private function editorContext(?Article $article): array
     {
         $form = $article !== null ? $this->formService->findByArticleId($article->id) : null;
-        $fields = $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article);
+        $fields = $this->withMediumBodyImages(
+            $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article)
+        );
 
         $financeAccounts = $this->financeAccount?->getConfiguredAccounts() ?? [];
 
@@ -764,13 +910,211 @@ class NewsController extends AbstractController
             // leaving both blank (forever-open, easy to forget about).
             'default_opens_at' => $form->opensAt ?? (new \DateTimeImmutable())->format('Y-m-d'),
             'default_closes_at' => $form->closesAt ?? (new \DateTimeImmutable('+6 months'))->format('Y-m-d'),
-            'article_actions' => $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [],
-            'article_notes' => $article !== null ? ($this->articleActions?->notes($article->id) ?? []) : [],
+            ...$this->publicationContext($article, $form),
             'short_url' => $article?->shortUrlCode !== null
                 ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode
                 : null,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
+    }
+
+    /**
+     * The editor's half of issue #845: which state the article is in,
+     * which buttons that state offers, and what each of them asks before
+     * doing anything.
+     *
+     * A new article is a draft that does not exist yet — the same buttons,
+     * minus « Supprimer ».
+     *
+     * The buttons other modules add (« Partager ») are offered only once
+     * the article is online: a draft or a scheduled article is not shared
+     * anywhere yet, and the sentence that replaces them says when it will
+     * be possible.
+     *
+     * @return array<string, mixed>
+     */
+    private function publicationContext(?Article $article, ?NewsForm $form): array
+    {
+        $state = $article !== null ? $this->articleService->state($article) : Article::STATE_DRAFT;
+        $isLive = $state === Article::STATE_PUBLISHED;
+        $actions = $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [];
+        $scheduledAt = $state === Article::STATE_SCHEDULED ? DateInput::fromStorage($article?->publishedAt) : null;
+
+        return [
+            'state' => $state,
+            'is_live' => $isLive,
+            'article_actions' => $isLive ? $actions : [],
+            'article_notes' => $isLive && $article !== null ? ($this->articleActions?->notes($article->id) ?? []) : [],
+            'share_pending_note' => !$isLive && $actions !== []
+                ? 'Le partage sur les médias sociaux sera disponible une fois l\'actualité '
+                    . ($state === Article::STATE_SCHEDULED ? 'en ligne.' : 'publiée.')
+                : '',
+            'published_on' => $isLive && $article?->publishedAt !== null
+                ? PublicationWording::dayMonthYear($article->publishedAt)
+                : '',
+            'audience' => PublicationWording::audience($article->visibility ?? Article::VISIBILITY_PUBLIC),
+            'publish_questions' => PublicationWording::publishQuestions($article?->publishedAt),
+            // Part 2: only a draft never online is scheduled — a
+            // republication keeps its first date — and a scheduled one
+            // has its time changed until it is out.
+            'can_schedule' => $state === Article::STATE_SCHEDULED
+                || ($state === Article::STATE_DRAFT && $article?->publishedAt === null),
+            'scheduled_for' => $state === Article::STATE_SCHEDULED
+                ? PublicationWording::longDateTime((string) $article?->publishedAt)
+                : '',
+            'schedule_messages' => PublicationWording::scheduleMessages(),
+            // What the dialog opens on: the time already set, or
+            // tomorrow at 8:00.
+            'schedule_date' => ($scheduledAt ?? new \DateTimeImmutable('tomorrow'))->format('Y-m-d'),
+            'schedule_time' => $scheduledAt !== null ? $scheduledAt->format('H:i') : '08:00',
+            'unpublish_question' => $article !== null
+                ? PublicationWording::unpublishQuestion(
+                    $article->title,
+                    $form !== null ? $this->formService->countResponses($form->id) : 0,
+                    $article->publishedAt
+                )
+                : '',
+        ];
+    }
+
+    /**
+     * Applies what the button that was pressed asked for, once the article
+     * is saved — and journals it, since a publication is what makes an
+     * article reach people.
+     *
+     * A scheduling also arms the author's notice for its time
+     * (Task\PublishScheduledArticlesHandler); any other change of
+     * publication withdraws it — a manual publication is not announced.
+     */
+    private function applyIntent(
+        Article $article,
+        string $intent,
+        int $accountId,
+        ?\DateTimeImmutable $scheduleAt = null
+    ): void {
+        if ($intent === self::INTENT_SCHEDULE && $scheduleAt !== null) {
+            $article = $this->articleService->schedule($article->id, $scheduleAt);
+            $this->armPublicationNotice($article);
+            $this->journalService->log(
+                'news',
+                'article_scheduled',
+                'info',
+                "Article « {$article->title} » programmé pour le "
+                    . PublicationWording::longDateTime((string) $article->publishedAt),
+                ['article_id' => $article->id, 'published_at' => $article->publishedAt],
+                $accountId
+            );
+            return;
+        }
+
+        if ($intent === self::INTENT_PUBLISH) {
+            $article = $this->articleService->publish($article->id);
+            $this->withdrawPublicationNotice($article->id);
+            $this->journalService->log(
+                'news',
+                'article_published',
+                'info',
+                "Article « {$article->title} » publié",
+                ['article_id' => $article->id],
+                $accountId
+            );
+            return;
+        }
+
+        if ($intent === self::INTENT_UNPUBLISH) {
+            $article = $this->articleService->unpublish($article->id);
+            $this->withdrawPublicationNotice($article->id);
+            $this->journalService->log(
+                'news',
+                'article_unpublished',
+                'info',
+                "Article « {$article->title} » repassé en brouillon",
+                ['article_id' => $article->id],
+                $accountId
+            );
+        }
+    }
+
+    /**
+     * applyIntent() once the article is saved. A scheduled time can pass
+     * between requestedScheduleMoment()'s check and schedule()'s own — a
+     * time picked for 10:01 and sent at 10:00:59 — and the refusal then
+     * comes AFTER the save. The article exists by now, so it is told on
+     * its own management page, never by the create form again, which
+     * would invite a second copy.
+     */
+    private function applyIntentAfterSave(
+        Article $article,
+        string $intent,
+        int $accountId,
+        ?\DateTimeImmutable $scheduleAt
+    ): void {
+        try {
+            $this->applyIntent($article, $intent, $accountId, $scheduleAt);
+        } catch (NewsException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * The moment a scheduling asks for, checked BEFORE anything is saved:
+     * a refused time must not leave the article half-changed behind the
+     * error. ArticleService::schedule() checks the same again.
+     */
+    private function requestedScheduleMoment(Request $request, string $intent, ?Article $article): ?\DateTimeImmutable
+    {
+        if ($intent !== self::INTENT_SCHEDULE) {
+            return null;
+        }
+
+        $at = ArticleService::readScheduleMoment(
+            (string) $request->getBody('schedule_date', ''),
+            (string) $request->getBody('schedule_time', '')
+        );
+        if ($at === null) {
+            throw new NewsException('Choisissez une date et une heure de publication.');
+        }
+        if ($at <= new \DateTimeImmutable()) {
+            throw new NewsException('Cette heure est déjà passée : choisissez un moment à venir.');
+        }
+        if ($article !== null && $this->articleService->state($article) === Article::STATE_PUBLISHED) {
+            throw new NewsException('Cette actualité est déjà en ligne.');
+        }
+        if ($article !== null && $article->status === Article::STATUS_DRAFT && $article->publishedAt !== null) {
+            throw new NewsException(
+                'Cette actualité a déjà été en ligne : publiez-la, elle garde sa date de publication.'
+            );
+        }
+
+        return $at;
+    }
+
+    /** One run, at the article's time — moved, not added, when the time changes. */
+    private function armPublicationNotice(Article $article): void
+    {
+        $runAt = DateInput::fromStorage($article->publishedAt);
+        if ($runAt === null) {
+            return;
+        }
+
+        $reference = PublishScheduledArticlesHandler::referenceFor($article->id);
+        $this->schedulerService->cancelPending('news', PublishScheduledArticlesHandler::TASK_KEY, $reference);
+        $this->schedulerService->schedule(
+            'news',
+            PublishScheduledArticlesHandler::TASK_KEY,
+            $runAt,
+            ['article_id' => $article->id],
+            $reference
+        );
+    }
+
+    private function withdrawPublicationNotice(int $articleId): void
+    {
+        $this->schedulerService->cancelPending(
+            'news',
+            PublishScheduledArticlesHandler::TASK_KEY,
+            PublishScheduledArticlesHandler::referenceFor($articleId)
+        );
     }
 
     /**
