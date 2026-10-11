@@ -657,6 +657,18 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(focus.mock.invocationCallOrder[0]).toBeGreaterThan(execCommand.mock.invocationCallOrder[0]);
     });
 
+    // An item left empty on purpose (Enter twice) is a line like any other:
+    // skipped, it stayed a bullet among the new blocks.
+    it('takes an empty item a selection crosses out of the list with the others', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li><br></li><li>deux</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h2');
+
+        expect(surface.querySelector('li')).toBeNull();
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2><br></h2><h2>deux</h2>');
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');

@@ -1404,17 +1404,17 @@
     }
 
     /**
-     * Whether $node shows nothing: no text but whitespace, and no image.
+     * Whether $node is markup indentation: a text node of whitespace only.
+     * Any element counts as content — an image, and a `<br>` too: an item
+     * the author left empty on purpose is a line of its own, and skipping
+     * it would leave its bullet behind among the new blocks, for the
+     * canonical form to drop on save.
      *
      * @param {ChildNode} node
      * @returns {boolean}
      */
     function isBlank(node) {
-        if ((node.textContent || '').trim() !== '') {
-            return false;
-        }
-
-        return node.nodeName !== 'IMG' && !(node instanceof Element && node.querySelector('img'));
+        return node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim() === '';
     }
 
     /**
