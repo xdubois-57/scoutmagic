@@ -192,6 +192,7 @@ export default function MaquetteApplicationsConnectees() {
 
   const openApp = (id) => {
     const a = apps.find((x) => x.id === id);
+    if (!a) { setScreen("list"); return; }
     setCurrentId(id);
     setDraft({ ...a, redirects: [...a.redirects], scopes: [...a.scopes] });
     setFlash(null);
@@ -214,7 +215,7 @@ export default function MaquetteApplicationsConnectees() {
       return;
     }
     if (draft.id === null) {
-      const id = Math.max(...apps.map((a) => a.id)) + 1;
+      const id = apps.reduce((max, a) => Math.max(max, a.id), 0) + 1;
       const created = { ...draft, id, clientId: "sm_" + String(id).padStart(10, "0") };
       setApps([...apps, created]);
       setCurrentId(id);
@@ -415,8 +416,10 @@ export default function MaquetteApplicationsConnectees() {
   }
 
   function ConsentScreen() {
-    const app = apps[0];
-    const already = consentExtended ? ["openid", "profile", "email"] : [];
+    const app = trackedApp();
+    if (!app) return NoAppScreen();
+    // In the "scopes étendus" variant, the role-and-sections scope is the one newly asked for.
+    const already = consentExtended ? app.scopes.filter((s) => s !== "scoutmagic") : [];
     return (
       <AuthShell>
         <h1 className="text-xl font-semibold mb-1">{app.name}</h1>
@@ -451,7 +454,8 @@ export default function MaquetteApplicationsConnectees() {
   }
 
   function DeniedScreen() {
-    const app = apps[0];
+    const app = trackedApp();
+    if (!app) return NoAppScreen();
     return (
       <AuthShell>
         <h1 className="text-xl font-semibold mb-2">Accès refusé</h1>
@@ -463,6 +467,18 @@ export default function MaquetteApplicationsConnectees() {
         <div className="flex justify-end">
           <Btn variant="secondary">Retourner sur {app.name}</Btn>
         </div>
+      </AuthShell>
+    );
+  }
+
+  function trackedApp() {
+    return apps.find((a) => a.id === currentId) ?? apps[0] ?? null;
+  }
+
+  function NoAppScreen() {
+    return (
+      <AuthShell>
+        <p className="text-gray-700">Aucune application n'est déclarée : cet écran n'a rien à montrer.</p>
       </AuthShell>
     );
   }
@@ -481,6 +497,7 @@ export default function MaquetteApplicationsConnectees() {
             <div className="divide-y">
               {consents.map((c) => {
                 const app = apps.find((a) => a.id === c.appId);
+                if (!app) return null;
                 return (
                   <div key={c.appId} className="py-3 flex items-start gap-3 flex-wrap">
                     <div className="flex-1 min-w-[200px]">
@@ -546,7 +563,11 @@ export default function MaquetteApplicationsConnectees() {
         {confirm === "delete" && (
           <Modal title="Supprimer l'application ?" onClose={() => setConfirm(null)}
             footer={<><Btn variant="secondary" onClick={() => setConfirm(null)}>Annuler</Btn>
-              <Btn variant="dangerSolid" onClick={() => { setApps(apps.filter((a) => a.id !== draft.id)); setConfirm(null); setScreen("list"); }}>Supprimer</Btn></>}>
+              <Btn variant="dangerSolid" onClick={() => {
+                setApps(apps.filter((a) => a.id !== draft.id));
+                setConsents(consents.filter((c) => c.appId !== draft.id));
+                setCurrentId(null); setDraft(null); setConfirm(null); setScreen("list");
+              }}>Supprimer</Btn></>}>
             <p className="text-sm text-gray-700"><strong>{draft?.name}</strong> sera supprimée, avec les {draft?.users} autorisations données. Cette action est définitive.</p>
           </Modal>
         )}
@@ -587,7 +608,11 @@ export default function MaquetteApplicationsConnectees() {
 
   const go = (id) => {
     setFlash(null);
-    if (id === "detail") { openApp(currentId ?? apps[0].id); return; }
+    if (id === "detail") {
+      const target = trackedApp();
+      if (target) openApp(target.id); else newApp();
+      return;
+    }
     setScreen(id);
   };
 
