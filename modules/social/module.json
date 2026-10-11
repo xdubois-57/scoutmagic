@@ -93,7 +93,13 @@
       "action": "show",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": {
+        "label": "Publication partagée",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/partage/{token}/carte.jpg",

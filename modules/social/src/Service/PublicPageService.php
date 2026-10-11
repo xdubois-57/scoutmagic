@@ -99,6 +99,15 @@ final class PublicPageService
      * would leave a permanent public address behind a draft nobody ever
      * published.
      *
+     * **And after the destination was claimed**, which is what keeps a
+     * page from outliving an attempt that never happened: `publish()`
+     * refuses a destination — no usable connection, a caption over
+     * Instagram's limit, an album with no cover — before `claim()`
+     * records anything, and `send()` only runs once a row exists. The
+     * page therefore comes into being exactly where the freeze does, on
+     * a recorded attempt, succeeded or failed; a retry of a failed one
+     * finds the page already there and publishes the same address.
+     *
      * Null when the site does not know its own address, and then nothing
      * is minted either: a token whose URL cannot be built authorises
      * nothing and would only be in the way the day `base_url` is filled

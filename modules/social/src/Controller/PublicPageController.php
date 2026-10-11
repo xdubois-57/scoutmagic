@@ -15,6 +15,7 @@ use Core\Http\Response;
 use Modules\Gallery\Api\AlbumShareSourceInterface;
 use Modules\News\Api\ArticleShareSourceInterface;
 use Modules\Social\Repository\Communication;
+use Modules\Social\Repository\Publication;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\ShareSource;
@@ -111,13 +112,25 @@ final class PublicPageController extends AbstractController
             'og_url' => $this->pages->urlFor($communication),
             // No image rather than an address that 404s: a card is
             // stored for every share the browser drew one for, and a
-            // share from before that — or one whose file has gone — has
-            // nothing to show. An `og:image` pointing at a 404 is worse
-            // than none, since Facebook caches the failure.
+            // share from before the browser drew any has nothing to
+            // show. An `og:image` pointing at a 404 is worse than none,
+            // since Facebook caches the failure.
+            //
+            // The ROW is what is checked, not the file behind it: proving
+            // the bytes are still readable would mean decrypting the card
+            // on every page view, for a crawler that may not ask for the
+            // image at all. A file lost under its row is a storage
+            // failure, and then the image answers 404 and the preview
+            // simply has none.
             'og_image_url' => $communication->cardFileId === null
                 ? null
                 : $this->pages->imageUrlFor($communication),
             'source_path' => $this->sourcePath($communication),
+            // What the visitor will find behind that button, which only
+            // an album needs said: the view branches on the kind rather
+            // than carrying the sentence, so the rule lives next to the
+            // markup that shows it.
+            'source_kind' => $communication->sourceKind,
         ]);
     }
 
@@ -153,25 +166,62 @@ final class PublicPageController extends AbstractController
     }
 
     /**
-     * What was actually published — the first destination's title and
-     * text, which every later destination received too.
+     * What was actually published: the title and text **the first
+     * destination that received it** was given.
      *
-     * The row's own columns are the fallback and not the answer: a chief
-     * may have typed on in the composer after publishing, and this page
-     * is read by someone who followed a link to what left.
+     * Not any row, and not the row's own columns. A chief may have typed
+     * on in the composer after publishing, and this page is read by
+     * someone who followed a link to what left — the row says what the
+     * draft became, the publication says what left. For a source-backed
+     * share the row's title is empty anyway, by design: nothing of the
+     * album is copied into the communication.
+     *
+     * **Why the earliest publication and not simply the first row.**
+     * Every destination of one « Publier » records the same title and
+     * caption, but a destination retried days later re-reads the
+     * source — so an album renamed in between leaves two rows that
+     * disagree. The card the page shows was drawn once, before the first
+     * destination, with the title of that moment; taking the earliest
+     * `publishedAt` is what keeps the heading and the image telling the
+     * same story. An attempt that never succeeded has none, and is only
+     * a fallback for a page whose publications all failed.
      *
      * @return array{title: string, caption: string}
      */
     private function published(Communication $communication): array
     {
+        $first = null;
         foreach ($this->publications->forSource(ShareSource::KIND_COMMUNICATION, $communication->id) as $publication) {
-            return [
-                'title' => $publication->sourceTitle !== '' ? $publication->sourceTitle : $communication->title,
-                'caption' => $publication->caption !== '' ? $publication->caption : $communication->body,
-            ];
+            if (self::precedes($publication, $first)) {
+                $first = $publication;
+            }
         }
 
-        return ['title' => $communication->title, 'caption' => $communication->body];
+        if ($first === null) {
+            return ['title' => $communication->title, 'caption' => $communication->body];
+        }
+
+        return [
+            'title' => $first->sourceTitle !== '' ? $first->sourceTitle : $communication->title,
+            'caption' => $first->caption !== '' ? $first->caption : $communication->body,
+        ];
+    }
+
+    /**
+     * Whether this publication came before the best one so far — a
+     * successful one before any other, and the earlier of two
+     * successful ones.
+     */
+    private static function precedes(Publication $candidate, ?Publication $best): bool
+    {
+        if ($best === null) {
+            return true;
+        }
+        if ($candidate->publishedAt === null) {
+            return false;
+        }
+
+        return $best->publishedAt === null || $candidate->publishedAt < $best->publishedAt;
     }
 
     /**

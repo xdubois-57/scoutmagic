@@ -3456,18 +3456,26 @@ page ne répond pas « introuvable » : elle s'ouvre en disant que ce qui
 publier : la source voyage dans le formulaire, et le serveur la redécrit,
 par le module propriétaire, avant d'écrire quoi que ce soit.
 
-**Ce qui part.** Un album part en publication d'image sur la Page et sur
-Instagram. Une actualité part **en lien** sur la Page — Facebook en
-affiche l'aperçu à partir de la page de l'actualité — et en image sur
-Instagram, qui n'accepte jamais de lien. **Et le composeur le dit** : la
-phrase sous l'image promet « exactement ce qui sera publié » seulement là
-où c'est vrai ; dès que la source porte un lien, elle annonce que
-Facebook fabriquera son propre aperçu depuis la page — image de
-couverture, titre et résumé — et n'affichera donc pas cette image. Les
-deux ne se ressemblent pas : celle du composeur porte le titre écrit
-dessus et l'adresse du site. Seule une actualité publique,
-en lien direct ou réservée aux membres identifiés peut quitter le site :
-ce sont les visibilités dont l'image est déjà un fichier public.
+**Ce qui part.** Sur la Page, un album comme une actualité partent **en
+lien**, et c'est Facebook qui fabrique l'aperçu ; sur Instagram, qui
+n'accepte jamais de lien, c'est l'image. Le lien d'une actualité mène à
+la page de l'actualité, dont Facebook lit la couverture, le titre et le
+résumé. Celui d'un album mène à **la page publique de la communication**
+(§ 47.9), qui montre l'image du composeur, son titre et son texte —
+l'album, lui, reste à sa visibilité, et cette page n'en montre rien
+d'autre. Une communication écrite de rien n'a pas de page à offrir et
+part en image.
+
+**Et le composeur le dit**, sous l'image, en distinguant les deux : pour
+une actualité, que Facebook fabriquera son propre aperçu depuis la page
+de l'article et n'affichera donc pas cette image — les deux ne se
+ressemblent pas, celle du composeur portant le titre écrit dessus et
+l'adresse du site ; pour un album, que le lien mène à une page de ce site
+qui montre cette image, et que l'album reste réservé aux membres. La
+phrase ne promet « exactement ce qui sera publié » que là où c'est vrai.
+Seule une actualité publique, en lien direct ou réservée aux membres
+identifiés peut quitter le site : ce sont les visibilités dont l'image est
+déjà un fichier public.
 
 **Une seule fois par destination.** Le serveur refuse une deuxième
 publication du même album ou de la même actualité au même endroit, même
@@ -3589,6 +3597,44 @@ actualité et la communication libre proposent une destination de plus,
   partage ne se glisse pas sous ces règles.
 
 Sans le module Groupes, la destination n'apparaît simplement pas.
+
+### 47.9 La page publique d'une communication
+
+**Pourquoi elle existe.** Facebook ne publie pas une image et une légende
+pour un album : il publie un lien, et fabrique son aperçu à partir des
+balises Open Graph de la page visée. L'album, lui, reste à sa visibilité
+— un robot d'aperçu ne se connecte nulle part, et les photos de l'unité
+ne deviennent pas publiques parce que l'une d'elles a été partagée. Cette
+page est ce que Facebook, WhatsApp ou Messenger peuvent lire.
+
+**Ce qu'elle montre** : l'image qui a été publiée, le titre et le texte
+que la première destination a reçus, et un bouton **« Voir sur le
+site »** qui mène à la source. Rien d'autre — ni les autres photos de
+l'album, ni le corps d'une actualité. Si la source a été supprimée
+depuis, le bouton disparaît et la page continue d'afficher ce qui a été
+publié.
+
+**Son adresse est un jeton**, 32 octets tirés au hasard, jamais un
+identifiant qu'un passant pourrait incrémenter : `/partage/{jeton}`
+itérable donnerait de quoi récolter toutes les communications jamais
+partagées. L'image a la sienne sous le même jeton,
+`/partage/{jeton}/carte.jpg`, et c'est **l'image stable** — pas l'adresse
+éphémère d'une heure qui sert Instagram : Facebook met l'aperçu en cache
+et revient relire la page des jours plus tard.
+
+**Elle naît au premier partage qui en a besoin**, et à aucun autre
+moment : ouvrir le composeur n'en crée pas. Elle **reste en ligne**
+ensuite, sans retrait possible, même si la source est supprimée — un lien
+déjà publié n'est plus à personne.
+
+**Elle n'est pas indexée.** L'adresse est l'autorisation, et un résultat
+de recherche la donnerait à des gens à qui personne ne l'a partagée. Un
+aperçu de lien restitue une adresse que quelqu'un a choisi de publier,
+ce qui est un autre acte.
+
+`SECURITY.md` § 6 décrit l'exception que cette page et son image font à
+« tout téléchargement passe par `/files/{id}` », et pourquoi elle est
+étroite.
 
 
 ## 48. Finances — l'import des extraits bancaires (module finance)

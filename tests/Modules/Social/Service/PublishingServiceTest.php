@@ -72,7 +72,18 @@ final class PublishingServiceTest extends TestCase
         }
     }
 
-    public function testAnAlbumGoesAsTheSameBlurredCardToBothDestinations(): void
+    /**
+     * **A RAW album shape**, which since IT-04 means one thing only: a
+     * retry of a share made before the composer existed, reached through
+     * `…/reessayer/album/{albumId}/…`, where `id` is the album's own and
+     * no communication row stands behind it. That share keeps going to
+     * the Page as a photo, as it always has.
+     *
+     * A share saved by the composer carries
+     * `kind = KIND_COMMUNICATION`, and goes as a link to its public page
+     * instead — {@see testASavedAlbumShareGoesToFacebookAsALinkToItsPublicPage()}.
+     */
+    public function testALegacyAlbumShapeStillGoesAsTheSameBlurredCardToBothDestinations(): void
     {
         $outcomes = $this->publish($this->album(), [SocialPlatform::Facebook, SocialPlatform::Instagram]);
 
@@ -309,6 +320,130 @@ final class PublishingServiceTest extends TestCase
             new PublicPageService(new CommunicationRepository($this->pdo), $this->settings, $journal),
             new MetaClient($this->meta, static function (int $seconds): void {
             })
+        );
+    }
+
+    /**
+     * **What a saved album share receives on the Page: a link to its own
+     * public page** (issue #706, IT-04).
+     *
+     * Not a photo post, because Facebook builds a far better preview
+     * from a page's Open Graph tags — and not a link to the album, which
+     * stays « Membres connectés » where no crawler can follow. The page
+     * is minted at this instant, by this publication: it did not exist
+     * when the composer was open.
+     *
+     * Instagram still receives the card, at the hour-long address. The
+     * two destinations get different things on purpose, and the composer
+     * says so before the chief presses « Publier ».
+     */
+    public function testASavedAlbumShareGoesToFacebookAsALinkToItsPublicPage(): void
+    {
+        $id = $this->savedAlbumShare();
+
+        $outcomes = $this->publish(
+            $this->communicationBackedAlbum($id),
+            [SocialPlatform::Facebook, SocialPlatform::Instagram]
+        );
+
+        $this->assertTrue($outcomes[0]->published && $outcomes[1]->published);
+        $token = (string) (new CommunicationRepository($this->pdo))->find($id)?->publicToken;
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $token);
+        $this->assertSame(
+            'https://unite.example/partage/' . $token,
+            $this->request('/feed')['fields']['link'] ?? null
+        );
+        $this->assertNull($this->request('/photos'), 'No image post for a saved album share on the Page.');
+        // Instagram's own fetchable address is still issued, and it is
+        // the ephemeral one — the public page serves the same bytes from
+        // a durable address, but Instagram is handed neither the page nor
+        // a lasting image.
+        $this->assertStringStartsWith(
+            'https://unite.example/partage/carte/',
+            $this->request('/media')['fields']['image_url'] ?? ''
+        );
+    }
+
+    /**
+     * **A publication that needs no page leaves none behind.** The
+     * roadmap says the public page is created at the first share that
+     * needs it, « pas avant », and a page once created stays online for
+     * good: minting one for an Instagram-only publication would leave a
+     * permanent public address nobody was ever given.
+     */
+    public function testAnInstagramOnlyPublicationLeavesNoPublicPage(): void
+    {
+        $id = $this->savedAlbumShare();
+
+        $this->publish($this->communicationBackedAlbum($id), [SocialPlatform::Instagram]);
+
+        $this->assertNull((new CommunicationRepository($this->pdo))->find($id)?->publicToken);
+    }
+
+    /**
+     * **A destination refused in advance mints no page.** `publish()`
+     * turns one down before `claim()` records anything, and `send()` —
+     * the only caller of `ensureUrlFor()` — runs after that row exists.
+     * So a public page cannot outlive an attempt that never happened:
+     * it comes into being exactly where the freeze does.
+     */
+    public function testADestinationRefusedInAdvanceLeavesNoPublicPage(): void
+    {
+        $id = $this->savedAlbumShare();
+        $withoutCover = new ShareSource(
+            ShareSource::KIND_COMMUNICATION,
+            $id,
+            'Camp',
+            null,
+            true,
+            null,
+            'unite.example/gallery/3',
+            'x',
+            '/medias-sociaux/' . $id,
+            null,
+            'https://unite.example/gallery/3',
+            ShareSource::KIND_ALBUM
+        );
+
+        $outcomes = $this->publish($withoutCover, [SocialPlatform::Facebook]);
+
+        $this->assertFalse($outcomes[0]->published);
+        $this->assertSame('Cet album n\'a pas encore de photo de couverture.', $outcomes[0]->message);
+        $this->assertNull((new CommunicationRepository($this->pdo))->find($id)?->publicToken);
+    }
+
+    /** A row for the share, so the page it mints belongs to something. */
+    private function savedAlbumShare(): int
+    {
+        return (new CommunicationRepository($this->pdo))->create(
+            '',
+            'Les photos sont en ligne',
+            7,
+            new \DateTimeImmutable(),
+            ShareSource::KIND_ALBUM,
+            3
+        );
+    }
+
+    /**
+     * An album share as the composer saves it: recorded against the
+     * communication, speaking as an album.
+     */
+    private function communicationBackedAlbum(int $id): ShareSource
+    {
+        return new ShareSource(
+            ShareSource::KIND_COMMUNICATION,
+            $id,
+            'Camp',
+            H::groupPhoto(),
+            true,
+            null,
+            'unite.example/gallery/3',
+            'x',
+            '/medias-sociaux/' . $id,
+            null,
+            'https://unite.example/gallery/3',
+            ShareSource::KIND_ALBUM
         );
     }
 

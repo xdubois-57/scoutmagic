@@ -57,9 +57,23 @@
                    the page then shows what was published with no button.
                    Where it leads applies its own rule to whoever follows
                    it: an album is « Membres connectés », so a visitor
-                   with no account is asked to sign in — which is the
-                   point, not an oversight. #}
+                   with no account is asked to sign in. #}
                 <a href="{{ source_path }}" class="btn btn-primary">Voir sur le site</a>
+
+                {% if source_kind == 'album' %}
+                    {# **The sentence the mockup puts under that button**
+                       (docs/chantiers/maquettes/medias-sociaux.html).
+                       Said BEFORE the click, not discovered after it: the
+                       button leads to a sign-in page, and a visitor who
+                       came from Facebook has no reason to expect one. Only
+                       for an album — an article may well be public, and
+                       promising a wall in front of a page that has none
+                       would turn readers away. #}
+                    <p class="small text-body-secondary mt-3 mb-0">
+                        Les photos de l'album sont réservées aux membres de l'unité : il faut se
+                        connecter pour les voir.
+                    </p>
+                {% endif %}
             {% endif %}
         </div>
     </div>
