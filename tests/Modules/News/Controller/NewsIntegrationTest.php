@@ -2190,6 +2190,90 @@ class NewsIntegrationTest extends TestCase
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
     }
 
+    /**
+     * The images of an article's text get their derivatives at upload too,
+     * and the editor inserts the `md` rendition: the original never goes
+     * through the offline cache (#883), and it is a multi-megabyte
+     * photograph where a 1024px one does.
+     */
+    public function testABodyImageIsUploadedWithItsDerivativesAndInsertedAsItsMediumRendition(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ], [], []), []);
+
+        $payload = json_decode($response->getBody(), true);
+        $this->assertTrue($payload['success']);
+        $this->assertMatchesRegularExpression('~^/files/(\d+)/md$~', $payload['url']);
+        $file = $fileRepository->findById((int) explode('/', $payload['url'])[2]);
+        $this->assertNotNull($file);
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
+        $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
+    }
+
+    /**
+     * An article written before #883 carries its text images as originals.
+     * The page shows the `md` rendition wherever it exists, and leaves an
+     * image without one alone: a heavy image beats a broken one.
+     */
+    public function testAStoredBodyImageIsShownAsItsMediumRenditionWhereItExists(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
+        $uploadHandler = new UploadHandler($fileRepository, sys_get_temp_dir());
+        $withMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
+        $variantService->generate($withMedium, 'md');
+        $withoutMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $controller->store(new Request('POST', '/news', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Souvenirs du camp',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'has_form' => '1',
+            'form_access' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'fields_json' => json_encode([[
+                'id' => null, 'field_type' => 'text', 'label' => null, 'is_required' => false,
+                'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null,
+                'confirmation_text' => '<p><img src="/files/' . $withMedium . '" alt="Feu"><img src="/files/' . $withoutMedium . '" alt="Tente"></p>',
+            ]]),
+        ], [], []), []);
+        $articleId = $this->articleRepository->findAll()[0]->id;
+
+        $html = $controller->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+
+        $this->assertStringContainsString('src="/files/' . $withMedium . '/md"', $html);
+        $this->assertStringContainsString('src="/files/' . $withoutMedium . '"', $html);
+        $this->assertStringNotContainsString('src="/files/' . $withMedium . '"', $html);
+    }
+
+    /**
+     * @return array{0: NewsController, 1: FileRepository, 2: \Core\Photo\ImageVariantService}
+     */
+    private function controllerWithImageVariants(): array
+    {
+        $fileRepository = new FileRepository($this->pdo);
+        $variantService = new \Core\Photo\ImageVariantService(
+            $fileRepository, new \Core\Photo\ImageVariantProcessor(), sys_get_temp_dir()
+        );
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler($fileRepository, sys_get_temp_dir()),
+            $fileRepository, sys_get_temp_dir(), $this->journalService,
+            new \Modules\News\Service\TicketService($this->responseRepository), null, null, $variantService
+        );
+
+        return [$controller, $fileRepository, $variantService];
+    }
+
     public function testStoreCreatesArticleWithFormAndRedirects(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
