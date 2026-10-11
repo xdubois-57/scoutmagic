@@ -256,13 +256,19 @@ hors site, son journal. Ces éléments sont **mis de côté avant que la base so
 tels quels** une fois le schéma restauré à jour — sur le modèle de `StorageBindingSnapshot` (#832),
 pour la restauration ordinaire, la restauration portable et « Configuration seule ».
 
-**Les tâches planifiées, elles, ne sont pas gardées : elles repartent d'un état propre** (point 5).
-Ni les tâches ponctuelles en attente à la date restaurée, ni celles en attente aujourd'hui ne
+**Les tâches planifiées, elles, ne sont pas gardées : elles repartent d'un état propre** (point 5),
+pour la restauration ordinaire et la portable. Ni les tâches ponctuelles en attente à la date restaurée, ni celles en attente aujourd'hui ne
 s'exécutent après la restauration ; seules les chaînes récurrentes sont ré-amorcées, d'après les
 réglages. Une tâche ponctuelle d'aujourd'hui — une sauvegarde manuelle ou un envoi demandés juste
 avant — est donc abandonnée : c'est voulu, une tâche préparée contre l'état d'avant n'a plus de sens
 contre l'état restauré. Le journal le dit : avant le remplacement, le nombre de tâches ponctuelles
 en attente est relevé par tâche, et l'événement du point 5 le reprend.
+
+**« Configuration seule » ne touche pas aux tâches** : elle ne remplace que `settings` et l'état des
+modules (partie 2), les données de l'unité ne bougent pas, et une tâche préparée contre elles garde
+donc son sens. Les tâches en attente aujourd'hui restent et s'exécutent ; le point 5 ne s'applique pas.
+Seule exception : une tâche d'un module que la restauration désactive est annulée et comptée dans le
+journal, comme au point 5.
 
 ### La mise de côté
 
@@ -444,7 +450,8 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   créée) ; archive déclarée mais introuvable refusée au lieu d'une restauration de la base seule ;
 - **« Configuration seule »**, en aller-retour MariaDB : membres et autres tables intacts ; `settings`
   restauré sauf les réglages hors site ; état d'activation des modules restauré, `installed_version`
-  jamais ; dump contenant d'autres données refusé ;
+  jamais ; dump contenant d'autres données refusé ; tâche ponctuelle en attente gardée et exécutée,
+  sauf celle d'un module désactivé par la restauration, annulée et comptée ;
 - **état gardé**, en aller-retour MariaDB (`RestoreBackupRoundTripTest`, toutes les passes de reprise),
   pour la restauration ordinaire et la portable : liste des sauvegardes identique, mêmes identifiants,
   copie de sécurité présente ; ligne `files` d'une sauvegarde dont l'identifiant est pris par un fichier
