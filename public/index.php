@@ -10955,6 +10955,11 @@ if ($isEnabled('social')) {
             // $uploadHandler, which would re-encode it.
             $encryptedFileStorageService,
             $userAccountRepo,
+            // Where « Partager » and « Copier le lien » on the history
+            // get their address (issue #706, IT-05) — the same instance
+            // the publishing service asks, so one page per
+            // communication whichever path creates it.
+            $socialPublicPages,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds
         )

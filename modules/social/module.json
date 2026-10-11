@@ -228,6 +228,24 @@
       "label": ""
     },
     {
+      "path": "/medias-sociaux/{id}/lien",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "link",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/medias-sociaux/{id}/partage",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "share",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/medias-sociaux/{id}/apercu",
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CommunicationController",

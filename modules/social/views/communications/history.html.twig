@@ -21,7 +21,28 @@
                screen reader's heading list is how one skims this page.
                At h2 they read as siblings of the section rather than its
                contents. The visual size stays `h6`. #}
-            <h3 class="h6 mb-1">{{ entry.title }}</h3>
+            <div class="d-flex align-items-start gap-2">
+                <h3 class="h6 mb-1 flex-grow-1">{{ entry.title }}</h3>
+                {% if entry.share_id %}
+                    {# **One icon, two behaviours, decided by the device**
+                       (issue #706, IT-05): the phone's share sheet where
+                       there is one, the clipboard everywhere else.
+                       `public/assets/js/social-share.js` reads these
+                       attributes and unhides the button; with no
+                       JavaScript it stays hidden rather than rendered
+                       dead, because nothing here degrades to a working
+                       link — the address it needs does not exist until a
+                       POST creates it. #}
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                            data-share-communication
+                            data-share-link-url="/medias-sociaux/{{ entry.share_id }}/lien"
+                            data-share-record-url="/medias-sociaux/{{ entry.share_id }}/partage"
+                            hidden
+                            aria-label="Partager « {{ entry.title }} »" title="Partager">
+                        <i class="bi bi-share" aria-hidden="true"></i>
+                    </button>
+                {% endif %}
+            </div>
             {% if entry.caption %}
                 <p class="small text-body-secondary mb-1">{{ entry.caption }}</p>
             {% endif %}
@@ -35,7 +56,15 @@
                         <span class="flex-grow-1">
                             {{ row.label }}
                             <br>
-                            {% if row.state == 'published' %}
+                            {% if row.direct %}
+                                {# Dated, and never « Publié » or
+                                   « envoyé » (issue #706, IT-05): the site
+                                   handed the link to the phone or to the
+                                   clipboard, and what happened next never
+                                   came back to it. The label above
+                                   already says which gesture it was. #}
+                                <span class="small text-body-secondary">Le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>
+                            {% elseif row.state == 'published' %}
                                 <span class="small text-body-secondary">Publié le {{ row.publication.publishedAt|french_date }} à {{ row.publication.publishedAt|time_fr }}</span>
                             {% elseif row.state == 'failed' %}
                                 <span class="small text-danger">Échec : {{ row.publication.errorMessage|default('la publication a été interrompue.') }}</span>
@@ -68,8 +97,17 @@
     <div class="alert alert-secondary">Rien n'est encore parti vers Facebook ou Instagram.</div>
 {% endfor %}
 
+{# Where the script announces « Lien copié ». An `output` is a live
+   region by default, so a screen reader says it without the page
+   moving. #}
+<output class="d-block small text-success mb-2" data-share-feedback hidden></output>
+
 <p class="small text-body-secondary">
     Un contenu ne part qu'une fois vers une destination donnée. Seule une destination en échec peut être
     relancée ; retirer une publication se fait sur Facebook ou Instagram.
 </p>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/social-share.js') }}" defer></script>
 {% endblock %}

@@ -18,6 +18,7 @@ use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\UserAccountRepository;
 use Modules\Gallery\Api\PhotoPickerInterface;
+use Modules\Social\Api\DirectShare;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
@@ -30,6 +31,7 @@ use Modules\Social\Repository\Publication;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\GroupPublishingService;
+use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\PublishRequest;
 use Modules\Social\Service\ShareSource;
@@ -119,6 +121,12 @@ final class CommunicationController extends AbstractController
          */
         private readonly EncryptedFileStorageService $cardFiles,
         private readonly UserAccountRepository $accounts,
+        /**
+         * Where the link a chief copies or hands to the phone comes from
+         * (issue #706, IT-05) — and the only thing that creates that
+         * page, which is why the route answering it is a POST.
+         */
+        private readonly PublicPageService $publicPages,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
     ) {
@@ -617,6 +625,116 @@ final class CommunicationController extends AbstractController
         return $this->redirect(self::HISTORY_PATH);
     }
 
+    // ————— Sharing by hand, from the history —————
+
+    /**
+     * **The address of this communication's public page, creating it if
+     * this is the first share that needs one** (issue #706, IT-05).
+     *
+     * Answered to the share icon of the history, which needs the link
+     * before it can hand it to the phone's share sheet or to the
+     * clipboard. A POST and not a GET, because answering it CREATES the
+     * page.
+     *
+     * **It records nothing and freezes nothing**, and that is why it is a
+     * second route rather than one: a share sheet the chief dismisses is
+     * not a share, and the chantier says so in as many words. The history
+     * row and the freeze come from {@see share()}, called once the
+     * gesture has gone through.
+     *
+     * The page it mints for a sheet nobody completed stays online,
+     * unreachable by anyone who was never handed the token — the cost of
+     * asking for a link, and the reason nothing but an explicit gesture
+     * reaches this.
+     *
+     * @param array<string, string> $params
+     */
+    public function link(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
+        }
+        $communication = $this->mine($params);
+        if ($communication === null) {
+            return $this->json(['success' => false, 'error' => 'Communication introuvable.'], 404);
+        }
+
+        $url = $this->publicPages->ensureUrlFor($communication->id, new \DateTimeImmutable());
+        if ($url === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.',
+            ], 409);
+        }
+
+        return $this->json(['success' => true, 'url' => $url]);
+    }
+
+    /**
+     * **This share happened** — the sheet was carried through, or the
+     * link reached the clipboard (issue #706, IT-05).
+     *
+     * Recorded as a publication like any other, against its own
+     * destination key, which is what makes the history show it AND what
+     * freezes the communication: `isFrozen()` is « this communication has
+     * at least one publication ». The chantier asks for every share to
+     * freeze, the link copy included — the applications re-read the
+     * public page at every display, so a card changed afterwards would
+     * not be the one the recipients were sent.
+     *
+     * Called only after the browser's own promise resolved, so a
+     * dismissed sheet reaches nothing here. The site never claims the
+     * message was SENT: it knows the link left, and no answer comes back.
+     *
+     * @param array<string, string> $params
+     */
+    public function share(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
+        }
+        $communication = $this->mine($params);
+        $kind = DirectShare::tryFrom((string) $request->getBody('kind', ''));
+        if ($communication === null || $kind === null) {
+            return $this->json(['success' => false, 'error' => 'Partage inconnu.'], 404);
+        }
+
+        $now = new \DateTimeImmutable();
+        // The caption and title are frozen with the rest, so the row
+        // carries what the public page shows rather than the draft's
+        // current text.
+        $claimed = $this->publications->claim(
+            ShareSource::KIND_COMMUNICATION,
+            $communication->id,
+            $kind->value,
+            false,
+            AuthSession::getUserAccountId(),
+            $now,
+            $now->modify('-' . PublishingService::STALE_MINUTES . ' minutes'),
+            $this->frozenTitle($communication) ?? $communication->title,
+            $this->frozenCaption($communication) ?? $communication->body
+        );
+
+        // Already there: the same communication shared the same way
+        // twice. The history said it once, and saying it again would be
+        // the same message at the same place — the one thing this module
+        // always refuses.
+        if (!$claimed) {
+            return $this->json(['success' => true, 'recorded' => false]);
+        }
+
+        $this->publications->markPublished(
+            ShareSource::KIND_COMMUNICATION,
+            $communication->id,
+            $kind->value,
+            '',
+            $now,
+            $now
+        );
+
+        return $this->json(['success' => true, 'recorded' => true]);
+    }
+
     // ————— Internals —————
 
     /**
@@ -984,6 +1102,20 @@ final class CommunicationController extends AbstractController
     }
 
     /**
+     * The title the first destination received, which every later one
+     * receives too — the album's name as it stood then, for a
+     * source-backed share whose own column stays empty by design.
+     */
+    private function frozenTitle(Communication $communication): ?string
+    {
+        foreach ($this->publications->forSource(ShareSource::KIND_COMMUNICATION, $communication->id) as $publication) {
+            return $publication->sourceTitle;
+        }
+
+        return null;
+    }
+
+    /**
      * The text the first destination received, which every later one
      * receives too.
      */
@@ -1151,6 +1283,17 @@ final class CommunicationController extends AbstractController
                 $destinations[$key] = [$publication->destinationLabel ?? 'Groupe de discussion', 'bi-people'];
             }
         }
+        // And one per share the chief made by hand (issue #706, IT-05),
+        // on the same footing and for the same reason: a share sheet or a
+        // copied link is something that HAPPENED, not a standing
+        // destination, so it has no « Jamais partagé ici » state to show
+        // and appears only once it exists.
+        foreach ($publications as $key => $publication) {
+            $direct = DirectShare::tryFrom($key);
+            if ($direct !== null) {
+                $destinations[$key] = [$direct->label(), $direct->icon()];
+            }
+        }
 
         $rows = [];
         foreach ($destinations as $key => [$label, $icon]) {
@@ -1166,15 +1309,32 @@ final class CommunicationController extends AbstractController
                     default => 'pending',
                 },
                 'publication' => $publication,
-                // Unencoded: the router matches the raw path, and a
-                // destination key (`group:3`) is valid in one as it is.
-                'retry_path' => self::HISTORY_PATH . '/reessayer/'
-                    . $group['kind'] . '/' . $group['id'] . '/' . $key,
+                // Said plainly so the view does not have to read the key:
+                // a hand-made share is dated, never « Publié ».
+                'direct' => DirectShare::tryFrom($key) !== null,
+                // **No retry for a share made by hand** (issue #706,
+                // IT-05): nothing failed, and nothing could be resent —
+                // the site handed a link to the phone or to the
+                // clipboard and never learnt what followed. The view
+                // needs the null to leave the button out rather than
+                // offer an address that would answer 404.
+                'retry_path' => DirectShare::tryFrom($key) !== null
+                    ? null
+                    // Unencoded: the router matches the raw path, and a
+                    // destination key (`group:3`) is valid in one as it
+                    // is.
+                    : self::HISTORY_PATH . '/reessayer/'
+                        . $group['kind'] . '/' . $group['id'] . '/' . $key,
             ];
         }
 
         return [
             'kind' => $group['kind'],
+            // The id the share icon posts to, and null for an entry with
+            // no communication behind it — a share recorded against an
+            // album's own key, from before the composer existed, has no
+            // public page to offer.
+            'share_id' => $group['kind'] === ShareSource::KIND_COMMUNICATION ? $group['id'] : null,
             'title' => $first->sourceTitle ?? '',
             'caption' => mb_strimwidth($first->caption ?? '', 0, 80, '…'),
             'date' => $first?->attemptedAt,

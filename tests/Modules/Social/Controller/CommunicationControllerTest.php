@@ -168,8 +168,9 @@ final class CommunicationControllerTest extends TestCase
         // Deliberately a count and not a comment: a route added to the
         // manifest without a thought for who may reach it fails HERE,
         // before the two tests below have anything to say. 14 since
-        // IT-02 added the card's two background routes.
-        self::assertCount(14, $cases);
+        // IT-02 added the card's two background routes, 16 since IT-05
+        // added the link and the share a chief makes by hand.
+        self::assertCount(16, $cases);
 
         return $cases;
     }
@@ -195,6 +196,12 @@ final class CommunicationControllerTest extends TestCase
         }
         AuthSession::login($this->author, 'claire@unite.be', 'chief');
         $body = $method === 'POST' ? ['_csrf_token' => $this->csrf()] : [];
+        if (str_ends_with($path, '/partage')) {
+            // Which gesture it was: this route answers 404 without it,
+            // like any other route missing what it is about, and that
+            // 404 is not the refusal this test is looking for.
+            $body['kind'] = 'copy';
+        }
 
         $response = $this->route($method, $path, $action, $body, null, $id);
 
@@ -1420,6 +1427,144 @@ final class CommunicationControllerTest extends TestCase
             (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
             'a second message about the same album was refused'
         );
+    }
+
+    // ————— Sharing by hand, from the history —————
+
+    /**
+     * **The link route creates the page and records nothing** (issue
+     * #706, IT-05).
+     *
+     * Two routes rather than one, and this is the half that explains why:
+     * the share sheet needs the address before it can offer it, and a
+     * sheet the chief then dismisses is not a share. So asking for the
+     * link must leave the history and the freeze untouched.
+     */
+    public function testAskingForTheLinkMintsThePageAndRecordsNothing(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        $token = (string) $this->communications->find($id)?->publicToken;
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $token);
+        $this->assertSame('https://unite.example/partage/' . $token, $answer['url'] ?? null);
+        $this->assertSame(
+            [],
+            $this->publications->forSource('communication', $id),
+            'asking for a link is not a share'
+        );
+    }
+
+    /** Asked twice, it is the same page: one communication, one address. */
+    public function testAskingTwiceGivesTheSameAddress(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $first = json_decode(
+            $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id])->getBody(),
+            true
+        );
+        $second = json_decode(
+            $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id])->getBody(),
+            true
+        );
+
+        $this->assertSame($first['url'], $second['url']);
+    }
+
+    /**
+     * **A share made by hand freezes the communication**, which is the
+     * chantier's rule and the reason these rows are publications rather
+     * than a table of their own: `isFrozen()` is « this communication has
+     * at least one publication ».
+     *
+     * It matters beyond tidiness. The applications re-read the public
+     * page at every display, so a card the chief changed after copying
+     * the link would not be the card the recipients were sent.
+     */
+    public function testARecordedShareFreezesTheCommunication(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->share(
+            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'copy']),
+            ['id' => (string) $id]
+        );
+
+        $publication = $this->publications->forSource('communication', $id)['copy'] ?? null;
+        $this->assertNotNull($publication);
+        $this->assertTrue($publication->isPublished());
+        // Frozen: the composer refuses to change the text now, which is
+        // what the editor's own `frozen` flag drives.
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('readonly', $html);
+    }
+
+    /**
+     * The history says which gesture it was, and **never that anything
+     * was sent**: the site handed a link to the clipboard, and no answer
+     * ever came back to it.
+     */
+    public function testTheHistoryNamesTheGestureAndClaimsNothingMore(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+        $this->controller()->share(
+            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'native']),
+            ['id' => (string) $id]
+        );
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertStringContainsString('Partagé depuis le téléphone', $flat);
+        $this->assertStringNotContainsString('Publié le', $flat);
+        $this->assertStringNotContainsString('envoyé', $flat);
+        // And nothing to retry: nothing failed, and nothing could be
+        // resent.
+        $this->assertStringNotContainsString('Réessayer la publication sur Partagé', $flat);
+    }
+
+    /**
+     * **The same communication shared the same way twice is refused**, by
+     * the same unique key that refuses a second publication to a
+     * destination already served. The history said it once.
+     */
+    public function testTheSameGestureTwiceIsRecordedOnce(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+        $body = ['_csrf_token' => $this->csrf(), 'kind' => 'copy'];
+
+        $this->controller()->share($this->post($body), ['id' => (string) $id]);
+        $second = $this->controller()->share($this->post($body), ['id' => (string) $id]);
+
+        $this->assertSame(200, $second->getStatusCode());
+        $this->assertFalse(json_decode($second->getBody(), true)['recorded'] ?? true);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM social_publications WHERE destination = 'copy'")
+                ->fetchColumn()
+        );
+    }
+
+    /** An unknown gesture is refused rather than recorded as something. */
+    public function testAnUnknownGestureIsRefused(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->share(
+            $this->post(['_csrf_token' => $this->csrf(), 'kind' => 'carrier-pigeon']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->publications->forSource('communication', $id));
     }
 
     /**
@@ -2768,13 +2913,17 @@ final class CommunicationControllerTest extends TestCase
         $cards = new CardService(new CardRepository($this->pdo), new CardRenderer(), $settings, $journal, $this->storage . '/cards');
         $files = new FileRepository($this->pdo);
         $reader = new StoredFileReader($files, new EncryptedFileStorageService($files, H::encryption(), $this->storage), $this->storage);
+        // One instance, shared by the publisher and the controller, so a
+        // page minted by « Publier » is the same page « Copier le lien »
+        // hands over (issue #706, IT-05).
+        $publicPages = new PublicPageService($this->communications, $settings, $journal);
         $publishing = new PublishingService(
             $this->connections,
             $this->publications,
             $cards,
             $settings,
             $journal,
-            new PublicPageService($this->communications, $settings, $journal),
+            $publicPages,
             new MetaClient($this->meta, static function (int $seconds): void {
             })
         );
@@ -2807,6 +2956,7 @@ final class CommunicationControllerTest extends TestCase
             // publish a card and then check what reached a destination.
             new EncryptedFileStorageService($files, H::encryption(), $this->storage),
             new UserAccountRepository($this->pdo, H::encryption()),
+            $publicPages,
             $this->picker,
             []
         );
