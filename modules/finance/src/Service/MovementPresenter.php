@@ -195,6 +195,16 @@ final class MovementPresenter
             static fn(array $match): string => StructuredCommunicationService::isValid($match[0]) ? ' ' : $match[0],
             $text
         );
+        // One glued inside a longer run of digits — the window extract()
+        // also finds — takes the whole run with it.
+        $text = (string) preg_replace_callback(
+            '/\d{13,}/',
+            static fn(array $match): string => array_filter(
+                StructuredCommunicationService::extract($match[0]),
+                static fn(string $candidate): bool => StructuredCommunicationService::isValid($candidate)
+            ) !== [] ? ' ' : $match[0],
+            $text
+        );
         $text = trim((string) preg_replace('/\s+/u', ' ', $text));
 
         return preg_match('/\p{L}/u', $text) === 1 ? $text : null;

@@ -27,8 +27,10 @@ use Modules\Finance\Repository\TransactionRepository;
  * split shows at once.
  *
  * One query per kind of fact, never one per movement: receipts,
- * categories, allocations, receivables, their labels, and — only for the
- * accounts that need it — the counterparty history.
+ * categories, allocations, receivables, debtor names, and — only for the
+ * accounts that need it — the counterparty history. A receivable's source
+ * is named by its module's describer, which the Api\ contract asks one
+ * instance at a time: once per distinct campaign or booking, then.
  */
 final class MovementDescriptionService
 {

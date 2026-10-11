@@ -184,6 +184,13 @@ class MovementPresenterTest extends TestCase
         $movement = $this->transaction('Camp été +++123/4567/89002+++', amount: -45.0);
 
         $this->assertSame('Camp été', MovementPresenter::description($movement, null));
+
+        // Glued to another digit, it still goes — and an ordinary long
+        // number that holds none stays.
+        $glued = $this->transaction('VIREMENT SEPA 1234567890025 DUPONT JEAN', amount: -45.0);
+        $this->assertSame('VIREMENT SEPA DUPONT JEAN', MovementPresenter::description($glued, null));
+        $plain = $this->transaction('FACTURE 1111111111111 DUPONT', amount: -45.0);
+        $this->assertSame('FACTURE 1111111111111 DUPONT', MovementPresenter::description($plain, null));
     }
 
     /**

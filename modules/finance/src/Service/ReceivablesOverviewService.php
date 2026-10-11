@@ -410,14 +410,16 @@ class ReceivablesOverviewService
     {
         $names = $this->debtorNames($receivables);
 
+        // Many receivables share one source — a campaign, a booking — so
+        // its describer is asked once per instance, not once per receivable.
+        $instances = [];
         $labels = [];
         foreach ($receivables as $receivable) {
             $debtor = $receivable->label
                 ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
-            $labels[$receivable->id] = self::joinFragments([
-                $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId),
-                $debtor,
-            ]);
+            $instance = $receivable->sourceModule . '#' . $receivable->sourceReferenceId;
+            $instances[$instance] ??= $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId);
+            $labels[$receivable->id] = self::joinFragments([$instances[$instance], $debtor]);
         }
 
         return $labels;

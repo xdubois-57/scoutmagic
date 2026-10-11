@@ -461,6 +461,31 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame(-5000, $linked[0]['amount_cents']);
     }
 
+    /**
+     * Two receivables of one booking: its describer is asked once.
+     */
+    public function testASourceSharedByTwoReceivablesIsDescribedOnce(): void
+    {
+        $deposit = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution', $this->categoryId);
+        $rent = $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'Loyer', $this->categoryId);
+        $calls = 0;
+
+        $labels = $this->linkedService(
+            new FakeReceivableSourceDescriberWithDestination(
+                'rental',
+                static function (int $id) use (&$calls): string {
+                    $calls++;
+                    return 'Location LOC-D4E5F6';
+                },
+                static fn(): ?ReceivableDestination => null
+            )
+        )->labelsFor($this->repository->findByIds([$deposit, $rent]));
+
+        $this->assertSame(1, $calls);
+        $this->assertSame('Location LOC-D4E5F6 — Caution', $labels[$deposit]);
+        $this->assertSame('Location LOC-D4E5F6 — Loyer', $labels[$rent]);
+    }
+
     public function testAMovementThatPaysNothingListsNothing(): void
     {
         $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));
