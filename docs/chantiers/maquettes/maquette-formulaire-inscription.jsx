@@ -586,7 +586,7 @@ function DecideDialog({ r, cfg, order, onClose, flash }) {
 
 export default function MaquetteFormulaireInscription() {
   const [page, setPage] = useState("dashboard");
-  const [ficheId, setFicheId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
   const [mobile, setMobile] = useState(false);
   const [deciding, setDeciding] = useState(null);
   const [confirm, setConfirm] = useState(null);
@@ -629,10 +629,10 @@ export default function MaquetteFormulaireInscription() {
     ["templates", "Gabarits"],
     ["settings", "Réglages"],
   ];
-  const pickerCurrent = page === "fiche" ? "requests" : page;
+  const pickerCurrent = page === "detail" ? "requests" : page;
   const crumbs =
-    page === "fiche"
-      ? ["Espace chefs d'U", "Formulaire d'inscription", "Demandes", `Demande #${ficheId}`]
+    page === "detail"
+      ? ["Espace chefs d'U", "Formulaire d'inscription", "Demandes", `Demande #${detailId}`]
       : ["Espace chefs d'U", "Formulaire d'inscription", pages.find((p) => p[0] === page)[1]];
 
   /* ----------------------------------------------------------- dashboard */
@@ -780,7 +780,7 @@ export default function MaquetteFormulaireInscription() {
                   <tr key={r.id} className="border-t align-top">
                     <td className="py-2">{r.date}</td>
                     <td>
-                      <button className="text-blue-700 underline" onClick={() => { setFicheId(r.id); setPage("fiche"); }}>
+                      <button className="text-blue-700 underline" onClick={() => { setDetailId(r.id); setPage("detail"); }}>
                         {r.child}
                       </button>
                       {r.dupOf && (
@@ -1119,11 +1119,11 @@ export default function MaquetteFormulaireInscription() {
     </>
   );
 
-  /* --------------------------------------------------------------- fiche */
+  /* ------------------------------------------------------- request detail */
 
   const [mailScenario, setMailScenario] = useState("planned");
-  const Fiche = () => {
-    const r = REQUESTS.find((x) => x.id === ficheId);
+  const RequestDetail = () => {
+    const r = REQUESTS.find((x) => x.id === detailId);
     const slot = SLOTS.find((s) => s.id === r.slot);
     const decision = r.status === "refused" ? "refus" : "acceptation";
     const scenarios = {
@@ -1267,7 +1267,7 @@ export default function MaquetteFormulaireInscription() {
           {pages.map(([k, l]) => (
             <button
               key={k}
-              onClick={() => { setPage(k); setFicheId(null); }}
+              onClick={() => { setPage(k); setDetailId(null); }}
               className={`min-h-[44px] shrink-0 border-b-2 px-4 text-sm ${pickerCurrent === k ? "border-blue-600 font-semibold text-blue-700" : "border-transparent text-slate-600"}`}
             >
               {l}
@@ -1279,7 +1279,7 @@ export default function MaquetteFormulaireInscription() {
         {page === "requests" && Requests()}
         {page === "templates" && Templates()}
         {page === "settings" && Settings()}
-        {page === "fiche" && Fiche()}
+        {page === "detail" && RequestDetail()}
 
         {deciding && <DecideDialog r={deciding} cfg={cfg} order={order} onClose={() => setDeciding(null)} flash={flash} />}
         {confirm && ConfirmModal()}
