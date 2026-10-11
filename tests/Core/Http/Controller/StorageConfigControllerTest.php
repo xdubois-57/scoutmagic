@@ -797,20 +797,27 @@ class StorageConfigControllerTest extends TestCase
         $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
     }
 
-    public function testARenameTheFolderCannotFollowIsSavedJournaledAndShown(): void
+    /**
+     * #832: the folder could not be renamed, so nothing is saved — the
+     * form comes back with the reason and the location keeps its label.
+     * The provider's own words go to the journal, never to the screen.
+     */
+    public function testARenameTheFolderCannotFollowIsRefusedJournaledAndShown(): void
     {
         $drive = new FakeDrive('dossier-1', 'Google Drive');
         $drive->failPatchesWith = 500;
         $id = $this->declareDrive();
 
-        $this->driveController($drive)->update(
+        $response = $this->driveController($drive)->update(
             $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
             ['id' => (string) $id]
         );
 
-        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Google Drive', $this->repository->findById($id)?->label);
+        $this->assertSame('Google Drive', $drive->files['dossier-1']['name']);
         $this->assertSame(1, $this->journalCount('storage_location_folder_rename_failed'));
-        $this->assertStringContainsString('n\'a pas pu être renommé', $this->flashMessage());
+        $this->assertStringContainsString('Le nom n&#039;a pas été changé', (string) $response->getBody());
     }
 
     /** The confirmation before deleting a Drive location announces the trash. */

@@ -594,6 +594,19 @@ class StorageConfigController extends AbstractController
 
             $folder = $this->storageLocationService->update($location->id, $label, $config, $secret);
         } catch (StorageLocationException $e) {
+            if ($e->getPrevious() !== null) {
+                // The folder could not be renamed, so nothing was saved
+                // (#832). The provider's words go to the journal only.
+                $this->journalService->log(
+                    'storage',
+                    'storage_location_folder_rename_failed',
+                    'warning',
+                    "Renommage de l'emplacement « {$location->label} » refusé : son dossier Google Drive "
+                        . "n'a pas pu être renommé",
+                    ['requested_label' => $label, 'detail' => $e->getPrevious()->getMessage()],
+                    (int) AuthSession::getUserAccountId()
+                );
+            }
             $context = $this->formContext($location);
             $context['submit_error'] = $e->getMessage();
 
@@ -632,39 +645,15 @@ class StorageConfigController extends AbstractController
             );
         }
 
-        // **The rename stands; the folder that did not follow is said.**
-        // A Drive location's folder is renamed with it (#474), and the
-        // site finds it by id, so one left with the old name breaks
-        // nothing — but an administrator who later looks for it in their
-        // Drive under the new name deserves to know why it is not there.
-        if ($folder->isFailed()) {
-            $this->journalService->log(
-                'storage',
-                'storage_location_folder_rename_failed',
-                'warning',
-                "Dossier Google Drive de l'emplacement « {$label} » non renommé",
-                ['error' => $folder->reason, 'detail' => $folder->detail],
-                (int) AuthSession::getUserAccountId()
-            );
-            FlashMessage::set(
-                'warning',
-                "Le nom « {$label} » est enregistré, mais le dossier de cet emplacement sur Google Drive n'a pas pu "
-                . "être renommé : {$folder->reason} Le site le retrouve quand même ; vous pouvez le renommer "
-                . 'vous-même dans Google Drive.'
-            );
-        } elseif ($folder->isShared()) {
-            // Not a fault, but the folder did not follow either: renaming
-            // it would have renamed another location's folder too.
+        // A Drive folder that could not be renamed refused the save above
+        // (#832), so the one case left to say is the folder that was
+        // deliberately left alone: renaming it would have renamed another
+        // location's folder too.
+        if ($folder->isShared()) {
             FlashMessage::set(
                 'success',
                 "Le nom « {$label} » est enregistré. Son dossier sur Google Drive est aussi celui de "
                 . "l'emplacement « {$folder->reason} » : il garde son nom."
-            );
-        } elseif ($folder->isDisconnected()) {
-            FlashMessage::set(
-                'success',
-                "Le nom « {$label} » est enregistré. L'emplacement n'est plus raccordé à Google Drive : son "
-                . 'dossier y garde son ancien nom, et le site le retrouvera quand même à la reconnexion.'
             );
         }
 

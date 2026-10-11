@@ -15,11 +15,15 @@ namespace Core\Storage\Location;
  * **Three answers, because the screen says three different things.**
  * Nothing to do (a local folder, a bucket, a Drive location never
  * connected) says nothing; done says where the folder went (« placé dans
- * la corbeille »); failed says that the rename or the deletion in
- * ScoutMagic stands anyway and what the operator may want to do by hand.
- * A failure never undoes the decision it follows: the label is the
- * administrator's, and a Drive that is unreachable for an hour must not
- * refuse them a rename or keep a location alive.
+ * la corbeille »); failed says that the deletion in ScoutMagic stands
+ * anyway and what the operator may want to do by hand — a Drive that is
+ * unreachable for an hour must not keep a location alive.
+ *
+ * **A rename is the other way round** (#832): a folder that could not be
+ * renamed refuses the rename itself, and the location keeps its old
+ * label ({@see StorageLocationService::update()}). So the rename never
+ * reports a failure here; it reports done, nothing to do, or a folder
+ * shared with another location that was deliberately left alone.
  *
  * `$reason` is a French sentence fit for the screen; `$detail` is what the
  * journal keeps beside it — the provider's own words, never displayed.

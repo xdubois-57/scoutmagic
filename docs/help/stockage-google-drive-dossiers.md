@@ -52,6 +52,12 @@ retrouve par son identifiant, pas par son nom. Mais inutile de le
 renommer vous-même : renommez plutôt l'emplacement dans **Modifier**, et
 le dossier suit.
 
+Le nouveau nom n'est enregistré que si Google Drive a bien renommé le
+dossier. Si Google ne répond pas, si le dossier est dans la corbeille ou
+n'existe plus, ou si l'emplacement n'est plus raccordé, le nom reste
+inchangé et un message explique pourquoi. Renommer un emplacement ne lui
+fait jamais choisir un autre dossier : il garde le sien.
+
 ## Quand l'emplacement est supprimé
 
 Le bouton **Supprimer** place le dossier de l'emplacement dans la
