@@ -36,6 +36,7 @@ class NewsTestHelper
             short_url_code TEXT NULL,
             status TEXT NOT NULL DEFAULT "published",
             published_at TEXT NULL DEFAULT CURRENT_TIMESTAMP,
+            publication_notice_pending INTEGER NOT NULL DEFAULT 0,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

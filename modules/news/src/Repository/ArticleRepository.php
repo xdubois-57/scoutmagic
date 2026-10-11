@@ -247,11 +247,30 @@ class ArticleRepository
      * Writes the publication state — Service\ArticleService decides what
      * the two values are, this only stores them.
      */
-    public function setPublication(int $id, string $status, ?string $publishedAt): void
+    /**
+     * $announce raises the author's « est en ligne » notice — a
+     * scheduling's, and only that; every other change of publication
+     * lowers it (issue #845).
+     */
+    public function setPublication(int $id, string $status, ?string $publishedAt, bool $announce = false): void
     {
-        $stmt = $this->pdo->prepare('UPDATE news_articles SET status = ?, published_at = ?, updated_at = ? '
-            . 'WHERE id = ?');
-        $stmt->execute([$status, $publishedAt, date('Y-m-d H:i:s'), $id]);
+        $stmt = $this->pdo->prepare('UPDATE news_articles SET status = ?, published_at = ?, '
+            . 'publication_notice_pending = ?, updated_at = ? WHERE id = ?');
+        $stmt->execute([$status, $publishedAt, $announce ? 1 : 0, date('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Takes the article's pending notice, if it still has one: true for
+     * exactly one caller, however many ask. The flag goes from 1 to 0, so
+     * the row CHANGES and rowCount() means the same on every engine.
+     */
+    public function claimPublicationNotice(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('UPDATE news_articles SET publication_notice_pending = 0 '
+            . 'WHERE id = ? AND publication_notice_pending = 1');
+        $stmt->execute([$id]);
+
+        return $stmt->rowCount() === 1;
     }
 
     public function setHasForm(int $id, bool $hasForm): void

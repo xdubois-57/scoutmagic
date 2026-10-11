@@ -29,6 +29,7 @@ use Core\Security\HumanCheck\HumanCheckChallenge;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Core\View\SectionPickerHelper;
 use Modules\Finance\Api\FinanceAccountInterface;
 use Modules\News\Repository\Article;
@@ -41,6 +42,7 @@ use Modules\News\Service\PublicationWording;
 use Modules\News\Service\ResponseService;
 use Modules\News\Service\SeoKeywordService;
 use Modules\News\Service\TicketService;
+use Modules\News\Task\PublishScheduledArticlesHandler;
 use Modules\News\Task\SendPendingTicketsHandler;
 use Modules\News\Task\SendResponseDigestHandler;
 use Twig\Environment;
@@ -65,6 +67,8 @@ class NewsController extends AbstractController
     private const INTENT_SAVE = 'save';
     private const INTENT_PUBLISH = 'publish';
     private const INTENT_UNPUBLISH = 'unpublish';
+    /** « Programmer… » and « Modifier l'heure »: with schedule_date and schedule_time. */
+    private const INTENT_SCHEDULE = 'schedule';
 
     /** Cards per page on /news and /news/manage. */
     private const LIST_PER_PAGE = 30;
@@ -303,7 +307,10 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
 
+        $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
+
         try {
+            $scheduleAt = $this->requestedScheduleMoment($request, $intent, null);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
             $article = $this->articleService->create(
@@ -341,7 +348,7 @@ class NewsController extends AbstractController
             $accountId
         );
 
-        $this->applyIntent($article, (string) $request->getBody('intent', self::INTENT_SAVE), $accountId);
+        $this->applyIntent($article, $intent, $accountId, $scheduleAt);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -404,7 +411,10 @@ class NewsController extends AbstractController
             (bool) $formSettings['issues_ticket']
         );
 
+        $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
+
         try {
+            $scheduleAt = $this->requestedScheduleMoment($request, $intent, $article);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
             $article = $this->articleService->update(
@@ -439,7 +449,7 @@ class NewsController extends AbstractController
             $this->issueTicketsForExistingResponses($form, $accountId);
         }
 
-        $this->applyIntent($article, (string) $request->getBody('intent', self::INTENT_SAVE), $accountId);
+        $this->applyIntent($article, $intent, $accountId, $scheduleAt);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -866,6 +876,7 @@ class NewsController extends AbstractController
         $state = $article !== null ? $this->articleService->state($article) : Article::STATE_DRAFT;
         $isLive = $state === Article::STATE_PUBLISHED;
         $actions = $article !== null ? ($this->articleActions?->collect($article->id) ?? []) : [];
+        $scheduledAt = $state === Article::STATE_SCHEDULED ? DateInput::fromStorage($article?->publishedAt) : null;
 
         return [
             'state' => $state,
@@ -881,6 +892,17 @@ class NewsController extends AbstractController
                 : '',
             'audience' => PublicationWording::audience($article->visibility ?? Article::VISIBILITY_PUBLIC),
             'publish_questions' => PublicationWording::publishQuestions($article?->publishedAt),
+            // Part 2: only a draft never online is scheduled — a
+            // republication keeps its first date — and a scheduled one
+            // has its time changed until it is out.
+            'can_schedule' => $state === Article::STATE_SCHEDULED
+                || ($state === Article::STATE_DRAFT && $article?->publishedAt === null),
+            'scheduled_for' => $state === Article::STATE_SCHEDULED
+                ? PublicationWording::longDateTime((string) $article?->publishedAt)
+                : '',
+            'schedule_messages' => PublicationWording::scheduleMessages(),
+            'schedule_date' => $scheduledAt !== null ? $scheduledAt->format('Y-m-d') : (new \DateTimeImmutable('tomorrow'))->format('Y-m-d'),
+            'schedule_time' => $scheduledAt !== null ? $scheduledAt->format('H:i') : '08:00',
             'unpublish_question' => $article !== null
                 ? PublicationWording::unpublishQuestion(
                     $article->title,
@@ -895,11 +917,35 @@ class NewsController extends AbstractController
      * Applies what the button that was pressed asked for, once the article
      * is saved — and journals it, since a publication is what makes an
      * article reach people.
+     *
+     * A scheduling also arms the author's notice for its time
+     * (Task\PublishScheduledArticlesHandler); any other change of
+     * publication withdraws it — a manual publication is not announced.
      */
-    private function applyIntent(Article $article, string $intent, int $accountId): void
-    {
+    private function applyIntent(
+        Article $article,
+        string $intent,
+        int $accountId,
+        ?\DateTimeImmutable $scheduleAt = null
+    ): void {
+        if ($intent === self::INTENT_SCHEDULE && $scheduleAt !== null) {
+            $article = $this->articleService->schedule($article->id, $scheduleAt);
+            $this->armPublicationNotice($article);
+            $this->journalService->log(
+                'news',
+                'article_scheduled',
+                'info',
+                "Article « {$article->title} » programmé pour le "
+                    . PublicationWording::longDateTime((string) $article->publishedAt),
+                ['article_id' => $article->id, 'published_at' => $article->publishedAt],
+                $accountId
+            );
+            return;
+        }
+
         if ($intent === self::INTENT_PUBLISH) {
             $article = $this->articleService->publish($article->id);
+            $this->withdrawPublicationNotice($article->id);
             $this->journalService->log(
                 'news',
                 'article_published',
@@ -913,6 +959,7 @@ class NewsController extends AbstractController
 
         if ($intent === self::INTENT_UNPUBLISH) {
             $article = $this->articleService->unpublish($article->id);
+            $this->withdrawPublicationNotice($article->id);
             $this->journalService->log(
                 'news',
                 'article_unpublished',
@@ -922,6 +969,67 @@ class NewsController extends AbstractController
                 $accountId
             );
         }
+    }
+
+    /**
+     * The moment a scheduling asks for, checked BEFORE anything is saved:
+     * a refused time must not leave the article half-changed behind the
+     * error. ArticleService::schedule() checks the same again.
+     */
+    private function requestedScheduleMoment(Request $request, string $intent, ?Article $article): ?\DateTimeImmutable
+    {
+        if ($intent !== self::INTENT_SCHEDULE) {
+            return null;
+        }
+
+        $at = ArticleService::readScheduleMoment(
+            (string) $request->getBody('schedule_date', ''),
+            (string) $request->getBody('schedule_time', '')
+        );
+        if ($at === null) {
+            throw new NewsException('Choisissez une date et une heure de publication.');
+        }
+        if ($at <= new \DateTimeImmutable()) {
+            throw new NewsException('Cette heure est déjà passée : choisissez un moment à venir.');
+        }
+        if ($article !== null && $this->articleService->state($article) === Article::STATE_PUBLISHED) {
+            throw new NewsException('Cette actualité est déjà en ligne.');
+        }
+        if ($article !== null && $article->status === Article::STATUS_DRAFT && $article->publishedAt !== null) {
+            throw new NewsException(
+                'Cette actualité a déjà été en ligne : publiez-la, elle garde sa date de publication.'
+            );
+        }
+
+        return $at;
+    }
+
+    /** One run, at the article's time — moved, not added, when the time changes. */
+    private function armPublicationNotice(Article $article): void
+    {
+        $runAt = DateInput::fromStorage($article->publishedAt);
+        if ($runAt === null) {
+            return;
+        }
+
+        $reference = PublishScheduledArticlesHandler::referenceFor($article->id);
+        $this->schedulerService->cancelPending('news', PublishScheduledArticlesHandler::TASK_KEY, $reference);
+        $this->schedulerService->schedule(
+            'news',
+            PublishScheduledArticlesHandler::TASK_KEY,
+            $runAt,
+            ['article_id' => $article->id],
+            $reference
+        );
+    }
+
+    private function withdrawPublicationNotice(int $articleId): void
+    {
+        $this->schedulerService->cancelPending(
+            'news',
+            PublishScheduledArticlesHandler::TASK_KEY,
+            PublishScheduledArticlesHandler::referenceFor($articleId)
+        );
     }
 
     /**

@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- have it changed. NULL for a draft that was never published. It is
     -- the date the site shows and sorts on.
     published_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Whether the author is still owed « Votre actualité est en ligne »
+    -- (issue #845, part 2): raised by a scheduling, lowered by whoever
+    -- claims it first — Task\PublishScheduledArticlesHandler at the time,
+    -- or a manual « Publier maintenant » / return to draft, which owe
+    -- nothing. Claiming it is what makes a replayed or doubled run
+    -- notify once.
+    publication_notice_pending BOOLEAN NOT NULL DEFAULT FALSE,
     seo_keywords TEXT NULL,
     seo_stop_date DATE NULL,
     short_url_code VARCHAR(10) NULL,

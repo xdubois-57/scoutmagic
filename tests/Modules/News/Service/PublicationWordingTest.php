@@ -94,4 +94,16 @@ final class PublicationWordingTest extends TestCase
             PublicationWording::unpublishQuestion('Souper', 0, null, $this->now)
         );
     }
+
+    public function testTheScheduleDialogSaysForWhomAndThatTheAuthorWillBeTold(): void
+    {
+        $messages = PublicationWording::scheduleMessages();
+
+        $this->assertSame(Article::VISIBILITIES, array_keys($messages));
+        $this->assertSame(
+            'À l\'heure choisie, « {titre} » apparaîtra pour les membres connectés, et son formulaire '
+            . 's\'ouvrira aux réponses. Vous serez prévenu.',
+            $messages[Article::VISIBILITY_IDENTIFIED]
+        );
+    }
 }

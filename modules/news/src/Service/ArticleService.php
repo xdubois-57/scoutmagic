@@ -128,6 +128,53 @@ class ArticleService implements HomeNewsProvider
     }
 
     /**
+     * Programs the article to go online at $at (issue #845, part 2) — the
+     * date it will show from then on. Only a draft that has never been
+     * online may be scheduled (a republication keeps its first date), and
+     * a scheduled article may have its time changed until it is online.
+     *
+     * Raises the author's notice: Task\PublishScheduledArticlesHandler
+     * tells them when the article is out. Nothing else waits for the
+     * time — the lists, the page and the cover read the date themselves.
+     */
+    public function schedule(int $id, \DateTimeImmutable $at, ?\DateTimeImmutable $now = null): Article
+    {
+        $article = $this->requireArticle($id);
+        $now ??= new \DateTimeImmutable();
+
+        $state = $this->state($article, $now);
+        if ($state === Article::STATE_PUBLISHED) {
+            throw new NewsException('Cette actualité est déjà en ligne.');
+        }
+        if ($state === Article::STATE_DRAFT && $article->publishedAt !== null) {
+            throw new NewsException(
+                'Cette actualité a déjà été en ligne : publiez-la, elle garde sa date de publication.'
+            );
+        }
+        if ($at <= $now) {
+            throw new NewsException('Cette heure est déjà passée : choisissez un moment à venir.');
+        }
+
+        $this->articleRepository->setPublication(
+            $id,
+            Article::STATUS_PUBLISHED,
+            $at->format('Y-m-d H:i:00'),
+            announce: true
+        );
+
+        return $this->requireArticle($id);
+    }
+
+    /**
+     * The moment the « Programmer » dialog sends: a date and a time, to the
+     * minute. Null when either is missing or is not a real one.
+     */
+    public static function readScheduleMoment(string $date, string $time): ?\DateTimeImmutable
+    {
+        return DateInput::parse('!Y-m-d H:i', trim($date) . ' ' . trim($time));
+    }
+
+    /**
      * Takes the article off the site until it is published again.
      * Nothing attached to it is touched: its form's responses, their
      * receivables and their tickets stay as they are — the form only

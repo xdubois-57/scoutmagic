@@ -14,6 +14,13 @@
 // file puts the one matching the selected radio on the button, again on
 // every change. The article's title, which the author may be typing, is
 // filled into it the same way.
+//
+// « Programmer… » and « Modifier l'heure » (part 2) open the same dialog's
+// form: a date and a native time field, to the minute. What it returns
+// goes into the editor form's two hidden fields, and the form is
+// submitted through its hidden « schedule » button — the article is saved
+// first like with every other button, and the server refuses a time
+// already past.
 (function () {
     /**
      * The question « Publier » asks for this visibility and this title —
@@ -36,22 +43,78 @@
         };
     }
 
-    function init() {
-        const button = document.getElementById('news-publish-btn');
-        if (!button) return;
+    /**
+     * The sentence under the dialog's date and time, for this visibility
+     * and this title.
+     *
+     * @param {Object<string, string>} messages
+     * @param {string} visibility
+     * @param {string} title
+     * @returns {string}
+     */
+    function scheduleMessageFor(messages, visibility, title) {
+        const message = messages[visibility] || messages.public || '';
+        const name = title.trim() === '' ? 'Cette actualité' : title.trim();
 
+        return message.split('{titre}').join(name);
+    }
+
+    function selectedVisibility() {
+        const selected = /** @type {HTMLInputElement|null} */ (
+            document.querySelector('input[name="visibility"]:checked')
+        );
+        return selected ? selected.value : 'public';
+    }
+
+    /**
+     * @param {Object<string, string>} messages
+     * @param {HTMLInputElement|null} titleInput
+     */
+    function initSchedule(messages, titleInput) {
+        const form = /** @type {HTMLFormElement|null} */ (document.getElementById('news-editor-form'));
+        const date = /** @type {HTMLInputElement|null} */ (document.getElementById('news-schedule-date'));
+        const time = /** @type {HTMLInputElement|null} */ (document.getElementById('news-schedule-time'));
+        const submit = /** @type {HTMLButtonElement|null} */ (document.getElementById('news-schedule-submit'));
+        if (!form || !date || !time || !submit) return;
+
+        document.querySelectorAll('[data-news-schedule]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const confirm = /** @type {any} */ (window).ScoutMagicConfirm;
+                if (!confirm) return;
+
+                confirm.form({
+                    title: 'Programmer la publication',
+                    message: scheduleMessageFor(messages, selectedVisibility(), titleInput ? titleInput.value : ''),
+                    fields: [
+                        { name: 'schedule_date', label: 'Date', inputType: 'date', value: date.value },
+                        { name: 'schedule_time', label: 'Heure', inputType: 'time', value: time.value },
+                    ],
+                    confirmLabel: 'Programmer',
+                }).then(function (/** @type {Object<string, string>|null} */ values) {
+                    if (!values) return;
+                    date.value = values.schedule_date || '';
+                    time.value = values.schedule_time || '';
+                    form.requestSubmit(submit);
+                });
+            });
+        });
+    }
+
+    function init() {
         const data = window.ScoutMagicApi?.pageData('news-editor-data') || {};
         /** @type {Object<string, {title: string, message: string}>} */
         const questions = data.publishQuestions || {};
         const titleInput = /** @type {HTMLInputElement|null} */ (document.getElementById('news-title'));
 
+        initSchedule(data.scheduleMessages || {}, titleInput);
+
+        const button = document.getElementById('news-publish-btn');
+        if (!button) return;
+
         function update() {
-            const selected = /** @type {HTMLInputElement|null} */ (
-                document.querySelector('input[name="visibility"]:checked')
-            );
             const question = questionFor(
                 questions,
-                selected ? selected.value : 'public',
+                selectedVisibility(),
                 titleInput ? titleInput.value : ''
             );
             if (!question || !button) return;
@@ -67,8 +130,11 @@
         update();
     }
 
-    // Test seam: the one pure decision of this file.
-    /** @type {any} */ (globalThis).ScoutMagicNewsPublication = { questionFor: questionFor };
+    // Test seam: the pure decisions of this file.
+    /** @type {any} */ (globalThis).ScoutMagicNewsPublication = {
+        questionFor: questionFor,
+        scheduleMessageFor: scheduleMessageFor,
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

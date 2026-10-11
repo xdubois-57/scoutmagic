@@ -24,6 +24,30 @@
         <p class="text-body-secondary small mt-n3 mb-4" data-news-publication-line>
             Publiée le {{ published_on }} · pour {{ audience }} · <a href="/news/{{ article.id }}">Voir la page</a>
         </p>
+    {% elseif state == 'scheduled' %}
+        {# Programmed (issue #845, part 2): when, for whom, and the two
+           ways to change it. The buttons belong to the editor's form
+           (form="news-editor-form"): like every other one, they save what
+           is on the page first. In the preview tab there is no form, so
+           only the sentence. #}
+        <div class="alert alert-info d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between mt-n2 mb-4" data-news-scheduled>
+            <div class="d-flex gap-2">
+                <i class="bi bi-clock fs-5" aria-hidden="true"></i>
+                <div>
+                    <strong class="d-block">Programmée pour le {{ scheduled_for }}</strong>
+                    <span class="small">Pour {{ audience }}. Elle apparaîtra d'elle-même ; vous serez prévenu.</span>
+                </div>
+            </div>
+            {% if not (preview is defined and preview) %}
+                {% set publish_question = publish_questions[article.visibility] ?? publish_questions['public'] %}
+                <div class="d-flex flex-column flex-sm-row gap-2 flex-shrink-0">
+                    <button type="button" class="btn btn-outline-primary" data-news-schedule>Modifier l'heure</button>
+                    <button type="submit" form="news-editor-form" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
+                            data-confirm="{{ publish_question.message|replace({'{titre}': article.title}) }}"
+                            data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier maintenant</button>
+                </div>
+            {% endif %}
+        </div>
     {% elseif state == 'draft' %}
         <p class="text-body-secondary small mt-n3 mb-4" data-news-publication-line>
             Visible seulement de ceux qui gèrent les actualités, tant qu'elle n'est pas publiée.
@@ -266,6 +290,14 @@
 
               Only a draft is deleted; elsewhere a line says how.
             #}
+            {% if can_schedule %}
+                {# What the « Programmer la publication » dialog fills in
+                   before submitting through the hidden button below
+                   (news-publication.js). #}
+                <input type="hidden" name="schedule_date" id="news-schedule-date" value="{{ schedule_date }}">
+                <input type="hidden" name="schedule_time" id="news-schedule-time" value="{{ schedule_time }}">
+                <button type="submit" name="intent" value="schedule" id="news-schedule-submit" hidden tabindex="-1" aria-hidden="true"></button>
+            {% endif %}
             {% if state == 'draft' %}
                 <div class="d-flex flex-column flex-sm-row gap-2 justify-content-between">
                     <div class="d-flex flex-column flex-sm-row gap-2">
@@ -276,6 +308,11 @@
                         <button type="submit" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
                                 data-confirm="{{ publish_question.message|replace({'{titre}': article ? article.title : 'Cette actualité'}) }}"
                                 data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier</button>
+                        {% if can_schedule %}
+                            <button type="button" class="btn btn-outline-primary" data-news-schedule>
+                                <i class="bi bi-clock" aria-hidden="true"></i> Programmer…
+                            </button>
+                        {% endif %}
                         <button type="submit" class="btn btn-outline-primary" name="intent" value="save">Enregistrer le brouillon</button>
                     </div>
                     {% if article %}
@@ -326,6 +363,7 @@
         confirmation_text: f.confirmationText
     }),
     publishQuestions: publish_questions,
+    scheduleMessages: schedule_messages,
     financeAvailable: finance_available,
     financeAccounts: finance_accounts,
     form: form ? {

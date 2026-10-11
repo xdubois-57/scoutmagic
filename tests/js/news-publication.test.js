@@ -39,6 +39,73 @@ describe('news-publication.js: questionFor()', () => {
     });
 });
 
+describe('news-publication.js: scheduleMessageFor()', () => {
+    it('picks the visibility\'s sentence and fills the title in', async () => {
+        const { scheduleMessageFor } = await loadPublication();
+        const messages = { public: 'Pour tous : « {titre} ».', chief: 'Pour les animateurs : « {titre} ».' };
+
+        expect(scheduleMessageFor(messages, 'chief', 'Souper')).toBe('Pour les animateurs : « Souper ».');
+        expect(scheduleMessageFor(messages, 'unknown', '')).toBe('Pour tous : « Cette actualité ».');
+    });
+});
+
+describe('news-publication.js: « Programmer… »', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <script type="application/json" id="news-editor-data">${JSON.stringify({
+                publishQuestions: QUESTIONS,
+                scheduleMessages: { public: 'À l\'heure choisie, « {titre} » apparaîtra pour tout le monde.' },
+            })}</script>
+            <form id="news-editor-form">
+                <input id="news-title" value="Souper">
+                <input type="radio" name="visibility" value="public" checked>
+                <input type="hidden" name="schedule_date" id="news-schedule-date" value="2026-10-12">
+                <input type="hidden" name="schedule_time" id="news-schedule-time" value="08:00">
+                <button type="submit" name="intent" value="schedule" id="news-schedule-submit" hidden></button>
+                <button type="button" data-news-schedule>Programmer…</button>
+            </form>`;
+    });
+
+    it('asks a date and a time, then submits them through the schedule button', async () => {
+        const form = vi.fn().mockResolvedValue({ schedule_date: '2026-10-20', schedule_time: '18:30' });
+        window.ScoutMagicConfirm = { form };
+        await loadPublication();
+        const editor = /** @type {HTMLFormElement} */ (document.getElementById('news-editor-form'));
+        const replay = vi.fn();
+        editor.requestSubmit = replay;
+
+        document.querySelector('[data-news-schedule]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const asked = form.mock.calls[0][0];
+        expect(asked.title).toBe('Programmer la publication');
+        expect(asked.message).toBe('À l\'heure choisie, « Souper » apparaîtra pour tout le monde.');
+        expect(asked.fields.map((f) => [f.name, f.inputType, f.value])).toEqual([
+            ['schedule_date', 'date', '2026-10-12'],
+            ['schedule_time', 'time', '08:00'],
+        ]);
+        expect(document.getElementById('news-schedule-date').value).toBe('2026-10-20');
+        expect(document.getElementById('news-schedule-time').value).toBe('18:30');
+        expect(replay).toHaveBeenCalledWith(document.getElementById('news-schedule-submit'));
+    });
+
+    it('submits nothing when the dialog is dismissed', async () => {
+        window.ScoutMagicConfirm = { form: vi.fn().mockResolvedValue(null) };
+        await loadPublication();
+        const editor = /** @type {HTMLFormElement} */ (document.getElementById('news-editor-form'));
+        const replay = vi.fn();
+        editor.requestSubmit = replay;
+
+        document.querySelector('[data-news-schedule]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(replay).not.toHaveBeenCalled();
+        expect(document.getElementById('news-schedule-time').value).toBe('08:00');
+    });
+});
+
 describe('news-publication.js: the button', () => {
     beforeEach(() => {
         document.body.innerHTML = `

@@ -94,6 +94,23 @@ final class ArticleRepositoryOnMysqlTest extends TestCase
     }
 
     /**
+     * The notice is claimed through rowCount(), which MySQL and MariaDB
+     * count as rows CHANGED: the claim flips the flag, so the first caller
+     * changes the row and the second changes nothing — the same answer
+     * SQLite gives by counting rows matched.
+     */
+    public function testTheScheduledNoticeIsClaimedOnceOnThisEngine(): void
+    {
+        $id = $this->repository->create('Programmée', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $this->assertFalse($this->repository->claimPublicationNotice($id), 'a new article owes no notice');
+
+        $this->repository->setPublication($id, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00', announce: true);
+
+        $this->assertTrue($this->repository->claimPublicationNotice($id));
+        $this->assertFalse($this->repository->claimPublicationNotice($id));
+    }
+
+    /**
      * @param Article[] $articles
      * @return string[]
      */

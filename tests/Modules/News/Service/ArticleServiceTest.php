@@ -514,4 +514,85 @@ class ArticleServiceTest extends TestCase
         $this->assertNull($members->seoKeywords);
         $this->assertNull($members->seoStopDate);
     }
+
+    /**
+     * « Programmer » (issue #845, part 2): published at a time to come, to
+     * the minute, with the author's notice raised.
+     */
+    public function testScheduleProgramsADraftToTheMinute(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+
+        $scheduled = $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00:42'), $now);
+
+        $this->assertSame('2026-10-20 08:00:00', substr((string) $scheduled->publishedAt, 0, 19));
+        $this->assertSame(Article::STATE_SCHEDULED, $this->service->state($scheduled, $now));
+        $this->assertTrue($this->articleRepository->claimPublicationNotice($article->id));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($article->id), 'claimed once only');
+    }
+
+    public function testAScheduledTimeCanBeChangedUntilItIsOnline(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+
+        $moved = $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-21 18:30'), $now);
+        $this->assertSame('2026-10-21 18:30:00', substr((string) $moved->publishedAt, 0, 19));
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Cette actualité est déjà en ligne.');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-25 08:00'), new \DateTimeImmutable('2026-10-22 08:00'));
+    }
+
+    public function testATimeAlreadyPastIsRefused(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Cette heure est déjà passée : choisissez un moment à venir.');
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-11 09:59'), new \DateTimeImmutable('2026-10-11 10:00'));
+    }
+
+    /**
+     * An article that has been online keeps its first date: back in draft,
+     * it is published again, never scheduled.
+     */
+    public function testADraftThatWasOnlineIsNotScheduled(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->publish($article->id, new \DateTimeImmutable('2026-09-01 08:00'));
+        $this->service->unpublish($article->id, new \DateTimeImmutable('2026-10-01 08:00'));
+
+        $this->expectException(NewsException::class);
+        $this->service->schedule($article->id, new \DateTimeImmutable('2026-10-20 08:00'), new \DateTimeImmutable('2026-10-11 10:00'));
+    }
+
+    /** « Publier maintenant » and a return to draft both withdraw the notice. */
+    public function testAManualChangeWithdrawsTheNotice(): void
+    {
+        $now = new \DateTimeImmutable('2026-10-11 10:00:00');
+        $first = $this->service->create('Un', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $second = $this->service->create('Deux', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->schedule($first->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+        $this->service->schedule($second->id, new \DateTimeImmutable('2026-10-20 08:00'), $now);
+
+        $published = $this->service->publish($first->id, $now);
+        $this->service->unpublish($second->id, $now);
+
+        $this->assertSame('2026-10-11 10:00:00', substr((string) $published->publishedAt, 0, 19));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($first->id));
+        $this->assertFalse($this->articleRepository->claimPublicationNotice($second->id));
+    }
+
+    public function testTheScheduleMomentIsADateAndATimeToTheMinute(): void
+    {
+        $this->assertSame('2026-10-20 08:05:00', ArticleService::readScheduleMoment('2026-10-20', '08:05')?->format('Y-m-d H:i:s'));
+        $this->assertNull(ArticleService::readScheduleMoment('', '08:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-10-20', ''));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-02-31', '08:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('2026-10-20', '25:00'));
+        $this->assertNull(ArticleService::readScheduleMoment('tomorrow', '08:00'));
+    }
 }

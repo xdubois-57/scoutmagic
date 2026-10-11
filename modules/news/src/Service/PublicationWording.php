@@ -109,6 +109,24 @@ final class PublicationWording
     }
 
     /**
+     * What the « Programmer la publication » dialog says under its date
+     * and time, for each visibility — chosen and filled in by the page,
+     * like publishQuestions().
+     *
+     * @return array<string, string>
+     */
+    public static function scheduleMessages(): array
+    {
+        $messages = [];
+        foreach (Article::VISIBILITIES as $visibility) {
+            $messages[$visibility] = 'À l\'heure choisie, « {titre} » apparaîtra pour ' . self::audience($visibility)
+                . ', et son formulaire s\'ouvrira aux réponses. Vous serez prévenu.';
+        }
+
+        return $messages;
+    }
+
+    /**
      * What « Repasser en brouillon » asks: what disappears, what is kept,
      * and — for an article that has been online — that it keeps its date.
      */

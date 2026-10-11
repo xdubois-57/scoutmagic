@@ -2691,4 +2691,135 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(409, $response->getStatusCode());
         $this->assertNotNull($this->articleRepository->findById($id));
     }
+
+    /**
+     * « Programmer… » (issue #845, part 2): the editor's save with
+     * intent=schedule and the dialog's date and time — the article is
+     * saved, scheduled, the author's notice armed for that minute.
+     */
+    public function testUpdateWithTheScheduleIntentProgramsTheArticle(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $events = $this->recordJournal();
+        $at = new \DateTimeImmutable('+3 days 08:00');
+
+        $response = $this->postSchedule($id, $at->format('Y-m-d'), '08:00');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertSame(Article::STATE_SCHEDULED, $this->articleService->state($article));
+        $this->assertSame($at->format('Y-m-d') . ' 08:00:00', substr((string) $article->publishedAt, 0, 19));
+        $this->assertSame(['article_updated', 'article_scheduled'], $events->getArrayCopy());
+
+        $task = $this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id);
+        $this->assertNotNull($task);
+        $this->assertSame($at->format('Y-m-d') . ' 08:00:00', $task['run_at']);
+
+        // Moved: still one run, at the new time.
+        $this->postSchedule($id, $at->format('Y-m-d'), '18:30');
+        $this->assertSame($at->format('Y-m-d') . ' 18:30:00', $this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id)['run_at']);
+        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'publish_scheduled_articles' AND status = 'pending'")->fetchColumn());
+    }
+
+    /**
+     * A time already past is refused before anything is saved: the editor
+     * comes back with the message and the article is as it was.
+     */
+    public function testAPastScheduleIsRefusedAndNothingIsSaved(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+
+        $response = $this->postSchedule($id, (new \DateTimeImmutable('-1 day'))->format('Y-m-d'), '08:00', 'Camp renommé');
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Cette heure est déjà passée : choisissez un moment à venir.', $response->getBody());
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertSame('Camp', $article->title);
+        $this->assertSame(Article::STATUS_DRAFT, $article->status);
+    }
+
+    public function testPublishingAScheduledArticleNowWithdrawsItsNotice(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->postSchedule($id, (new \DateTimeImmutable('+3 days'))->format('Y-m-d'), '08:00');
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'publish',
+        ], [], []), ['id' => (string) $id]);
+
+        $article = $this->articleRepository->findById($id);
+        $this->assertNotNull($article);
+        $this->assertTrue($this->articleService->isLive($article));
+        $this->assertNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id));
+    }
+
+    /**
+     * A draft never online offers « Programmer… »; a scheduled article
+     * says when, with « Modifier l'heure » and « Publier maintenant »; a
+     * draft that has been online is published again, never scheduled.
+     */
+    public function testTheEditorOffersSchedulingWhereItApplies(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $request = new Request('GET', '/news/' . $id . '/gerer', [], [], [], []);
+
+        $draft = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('Programmer…', $draft);
+        $this->assertStringContainsString('id="news-schedule-submit"', $draft);
+
+        $this->articleService->schedule($id, new \DateTimeImmutable('2999-10-20 08:00'));
+        $scheduled = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('Programmée pour le dimanche 20 octobre 2999 à 8 h 00', $scheduled);
+        $this->assertStringContainsString('Pour les membres connectés. Elle apparaîtra d\'elle-même ; vous serez prévenu.', $scheduled);
+        $this->assertStringContainsString('Modifier l\'heure', $scheduled);
+        $this->assertStringContainsString('Publier maintenant', $scheduled);
+        $this->assertStringContainsString('value="2999-10-20"', $scheduled);
+
+        $this->articleService->publish($id);
+        $this->articleService->unpublish($id);
+        $again = $this->newsController->edit($request, ['id' => (string) $id])->getBody();
+        $this->assertStringNotContainsString('Programmer…', $again);
+        $this->assertStringNotContainsString('id="news-schedule-submit"', $again);
+    }
+
+    private function postSchedule(int $id, string $date, string $time, string $title = 'Camp'): \Core\Http\Response
+    {
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        return $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => $title,
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'schedule',
+            'schedule_date' => $date,
+            'schedule_time' => $time,
+        ], [], []), ['id' => (string) $id]);
+    }
+
+    /** @return \ArrayObject<int, string> the journal's event names, in order */
+    private function recordJournal(): \ArrayObject
+    {
+        $events = new \ArrayObject();
+        $this->journalService->method('log')->willReturnCallback(
+            function (string $module, string $event) use ($events): void {
+                $events->append($event);
+            }
+        );
+
+        return $events;
+    }
 }
