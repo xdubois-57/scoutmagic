@@ -906,7 +906,9 @@ class NewsController extends AbstractController
                 ? PublicationWording::longDateTime((string) $article?->publishedAt)
                 : '',
             'schedule_messages' => PublicationWording::scheduleMessages(),
-            'schedule_date' => $scheduledAt !== null ? $scheduledAt->format('Y-m-d') : (new \DateTimeImmutable('tomorrow'))->format('Y-m-d'),
+            // What the dialog opens on: the time already set, or
+            // tomorrow at 8:00.
+            'schedule_date' => ($scheduledAt ?? new \DateTimeImmutable('tomorrow'))->format('Y-m-d'),
             'schedule_time' => $scheduledAt !== null ? $scheduledAt->format('H:i') : '08:00',
             'unpublish_question' => $article !== null
                 ? PublicationWording::unpublishQuestion(
