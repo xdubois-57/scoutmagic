@@ -608,6 +608,55 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
     });
 
+    // A selection counted in children of the list itself: once the list is
+    // cut in two, it no longer has the third child the end pointed after.
+    it('survives a selection whose offsets no longer fit the list it was cut from, and still tells the form', async () => {
+        const { surface, press, afterCommand } = await editing('<ul><li>un</li><li>deux</li><li>trois</li><li>quatre</li></ul>', 'un');
+        const list = surface.querySelector('ul');
+        const range = document.createRange();
+        range.setStart(list, 1);
+        range.setEnd(list, 3);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h2>deux</h2><h2>trois</h2><ul><li>quatre</li></ul>');
+        expect(afterCommand).toHaveBeenCalledTimes(1);
+    });
+
+    // Two editors on one form: the caret left in the other one must not
+    // receive the command of this one's toolbar.
+    it('brings the selection to its own editor before running a command, when it was in another', async () => {
+        const { surface, press } = await editing('<p>ici</p>', 'ici');
+        const other = document.createElement('div');
+        other.contentEditable = 'true';
+        other.textContent = 'ailleurs';
+        document.body.appendChild(other);
+        const range = document.createRange();
+        range.setStart(/** @type {Text} */ (other.firstChild), 2);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        const focus = vi.spyOn(surface, 'focus');
+
+        press('h2');
+
+        expect(focus).toHaveBeenCalled();
+        expect(focus.mock.invocationCallOrder[0]).toBeLessThan(execCommand.mock.invocationCallOrder[0]);
+    });
+
+    it('keeps a selection already in its own editor, without focusing it first', async () => {
+        const { surface, press } = await editing('<p>ici</p>', 'ici');
+        const focus = vi.spyOn(surface, 'focus');
+
+        press('h2');
+
+        // Once, after the command — as before.
+        expect(focus).toHaveBeenCalledTimes(1);
+        expect(focus.mock.invocationCallOrder[0]).toBeGreaterThan(execCommand.mock.invocationCallOrder[0]);
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');

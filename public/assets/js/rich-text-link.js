@@ -1634,8 +1634,12 @@
             return lineToBlock(line, surface, tag);
         });
 
+        // The ends as they were, while they still exist and their offsets
+        // still fit: a list cut in two can keep a node and lose the
+        // children an offset counted, and setEnd() would then throw before
+        // the caller had told the form anything had changed.
         var restored = document.createRange();
-        if (surface.contains(bounds.start) && surface.contains(bounds.end)) {
+        if (stillFits(bounds.start, bounds.startOffset, surface) && stillFits(bounds.end, bounds.endOffset, surface)) {
             restored.setStart(bounds.start, bounds.startOffset);
             restored.setEnd(bounds.end, bounds.endOffset);
         } else {
@@ -1644,6 +1648,36 @@
         }
 
         return { range: restored, engine: engine };
+    }
+
+    /**
+     * Whether a boundary at $offset in $node can still be set: $node is in
+     * $surface, and the offset is within what it holds now.
+     *
+     * @param {Node} node
+     * @param {number} offset
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function stillFits(node, offset, surface) {
+        if (!surface.contains(node)) {
+            return false;
+        }
+        var size = node.nodeType === Node.TEXT_NODE ? (node.textContent || '').length : node.childNodes.length;
+
+        return offset <= size;
+    }
+
+    /**
+     * Whether the selection lies in $surface.
+     *
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function selectionIsIn(surface) {
+        var selection = window.getSelection();
+
+        return !!selection && selection.rangeCount > 0 && surface.contains(selection.getRangeAt(0).commonAncestorContainer);
     }
 
     /**
@@ -1696,6 +1730,14 @@
                         if (afterCommand) afterCommand();
                     });
                     return;
+                }
+
+                // The command acts on the selection, wherever it is: with the
+                // caret left in another editor of the same form, this
+                // button would format that one. Focusing first brings the
+                // selection here; a selection already here is kept as is.
+                if (!selectionIsIn(surface)) {
+                    surface.focus();
                 }
 
                 var moved = null;
