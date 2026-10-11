@@ -176,6 +176,16 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
         expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
     });
 
+    it('does not count a copy dated ahead of this device\'s clock, as the service worker does not', async () => {
+        const anHourAhead = new Date(Date.now() + 3600000).toUTCString();
+        globalThis.caches = storage({ 'content-7-1.0': { '/': anHourAhead } });
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+    });
+
     it('leaves both hidden when Cache Storage cannot be read', async () => {
         globalThis.caches = { open: vi.fn(() => Promise.reject(new Error('SecurityError'))) };
 

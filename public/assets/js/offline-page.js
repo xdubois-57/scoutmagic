@@ -78,7 +78,11 @@
         }
         const copy = await (await caches.open(name)).match('/');
         const at = copy ? Date.parse(copy.headers.get('Date') || '') : Number.NaN;
+        const age = Date.now() - at;
 
-        return !Number.isNaN(at) && Date.now() - at <= days * 86400000;
+        // Both of cachedCopy()'s bounds: a Date more than five minutes
+        // ahead of this device's clock (CLOCK_SKEW_TOLERANCE_MS) is a copy
+        // of unknown age, and the worker will not serve it either.
+        return !Number.isNaN(at) && age >= -5 * 60 * 1000 && age <= days * 86400000;
     }
 })();
