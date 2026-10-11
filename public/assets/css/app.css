@@ -205,6 +205,16 @@
         padding-bottom: 0.5rem;
     }
 
+    /* A phone number (Core\View\PhoneExtension) is the one target of its
+       cell and opens the sheet of actions (D10, D11 of
+       docs/chantiers/CHANTIER-telephone.md). Without touch it has become
+       text with « Copier », so nothing here grows a desktop table row. */
+    .phone-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+    }
+
     /* Pagination links */
     .pagination .page-link {
         min-height: 44px;
@@ -803,6 +813,29 @@ body.cookie-banner-visible {
         border-left: var(--bs-border-width) solid var(--bs-border-color-translucent);
         transform: translateX(100%);
     }
+}
+
+/* A phone number (Core\View\PhoneExtension, public/assets/js/phone-link.js,
+   docs/chantiers/CHANTIER-telephone.md). The number's own 44px touch
+   target is in the pointer:coarse block at the top of this file. The
+   sheet's rows are 48px, as in the mock-up; the sheet keeps its content
+   height rather than Bootstrap's fixed 30vh. */
+.phone-sheet {
+    --bs-offcanvas-height: auto;
+}
+.phone-sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 48px;
+}
+.phone-sheet-item[hidden] {
+    display: none;
+}
+.phone-sheet-item .bi {
+    font-size: 1.25rem;
+    width: 1.5rem;
+    text-align: center;
 }
 
 /* The help search field carries its own clear button (the × before the

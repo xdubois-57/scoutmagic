@@ -224,6 +224,13 @@
        the window with no way back (issue #502). The server cannot do this
        one: such a link never reaches it. #}
     <script src="{{ asset('/assets/js/installed-app-links.js') }}" defer></script>
+    {# Every phone number rendered by phone() (Core\View\PhoneExtension):
+       the sheet a tap opens on a touch screen, and the script that fills
+       it — or turns the number into text with « Copier » elsewhere. On
+       every page, public ones included: a booking's tracking page shows
+       the manager's number to a tenant who has no account. #}
+    {% include 'partials/phone_sheet.html.twig' %}
+    <script src="{{ asset('/assets/js/phone-link.js') }}" defer></script>
     {# partials/select_bar.html.twig's JS — mode:multi toggling plus
        closing an open panel on an outside click/Escape. mode:single
        needs none of it (its rows are plain <a href>). Loads

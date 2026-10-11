@@ -55,3 +55,49 @@ commun, la propriété dont dépend la recherche.
   indicatif.
 - **Un fixe belge spécial (`0800 …`) ne reçoit pas de message**, par la même
   règle que tout numéro belge hors `4[5-9]` sur neuf chiffres.
+
+---
+
+## IT-02 — Le composant
+
+**Livré.**
+
+- **La fonction Twig `phone(numéro, classes)`** (`Core\View\PhoneExtension`).
+  Elle rend un vrai lien `tel:` portant le texte affiché, le numéro
+  international, et la nature en `data-*` (`mobile`, `landline` ou
+  `foreign`, lue par `PhoneNumber::kind()`). Un numéro vide ne rend rien.
+- **La feuille** (`partials/phone_sheet.html.twig`), un `offcanvas-bottom`
+  inclus une fois par `base.html.twig`. Elle propose les entrées de D2 avec
+  les icônes du chantier ; un fixe belge n'y garde que « Appeler » et
+  « Copier le numéro », avec la phrase qui dit pourquoi.
+- **`public/assets/js/phone-link.js`.** Sur écran tactile, un tap ouvre la
+  feuille. Ailleurs, le lien devient le numéro en texte suivi de « Copier ».
+  `linksFor()` est le seul endroit où les formats de D4 existent.
+- Le script est précaché par `sw.js` : une page en cache garde ses
+  numéros utilisables hors ligne.
+
+**Décisions autonomes.**
+
+- **La nature d'un numéro étranger s'affiche « Numéro étranger »**, pas
+  « Mobile » comme dans la maquette. On ne sait pas s'il est fixe (D7) ;
+  l'appeler « Mobile » serait affirmer ce qu'on ignore. Toutes les actions
+  lui restent proposées.
+- **`installed-app-links.js` respecte désormais `rel="noreferrer"`.** Dans
+  l'application installée, ce script rouvre tout lien externe par
+  `window.open(…, 'noopener')`, qui envoie le `Referer` que D12 interdit.
+  Il passe maintenant `noopener,noreferrer` pour un lien qui le demande ;
+  un test le vérifie.
+- **La copie copie le texte affiché** (`+32 472 54 67 71`), comme la
+  maquette. Un refus du presse-papiers s'affiche « Copie impossible » au
+  lieu de prétendre avoir copié.
+- **La cible tactile de 44 px vit dans le bloc `@media (pointer: coarse)`
+  existant d'`app.css`.** `UxConventionsTest` l'exige ; l'itération l'avait
+  d'abord mise dans un bloc à elle.
+- **`ScoutMagicPhone.enhance(racine)`** est exposé pour un contenu ajouté
+  après le chargement ; un numéro n'est traité qu'une fois.
+
+**À tester sur de vrais appareils — non fait.** Cet environnement n'a ni
+iOS ni Android. Le comportement de `wa.me` et `signal.me` depuis la PWA
+installée, sur iOS Safari et Android Chrome, n'a été vérifié que par la
+lecture du code et les tests jsdom. Il reste à essayer sur téléphone, en
+onglet et en application installée.

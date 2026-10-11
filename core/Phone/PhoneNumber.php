@@ -50,6 +50,22 @@ final class PhoneNumber
     }
 
     /**
+     * What the number is, as far as this reading can tell: a Belgian
+     * `mobile`, a Belgian `landline`, or a `foreign` number, whose kind
+     * nothing here can know.
+     *
+     * @return 'mobile'|'landline'|'foreign'
+     */
+    public function kind(): string
+    {
+        if (!str_starts_with($this->international, '+' . self::BELGIUM)) {
+            return 'foreign';
+        }
+
+        return $this->canReceiveMessages ? 'mobile' : 'landline';
+    }
+
+    /**
      * Null when the text holds no digit at all — nothing to show, nothing
      * to call.
      */

@@ -49,6 +49,18 @@ describe('installed-app-links', () => {
         expect(window.open).toHaveBeenCalledWith('https://www.lesscouts.be/fr', '_blank', 'noopener');
     });
 
+    it('keeps withholding the referrer of a link that says noreferrer', () => {
+        // The phone sheet's WhatsApp and Signal links (D12 of
+        // docs/chantiers/CHANTIER-telephone.md): window.open() would send
+        // the page's address unless asked not to.
+        pretendStandalone(true);
+        document.body.innerHTML = '<a id="wa" href="https://wa.me/32472546771" target="_blank" rel="noopener noreferrer">WhatsApp</a>';
+
+        click('wa');
+
+        expect(window.open).toHaveBeenCalledWith('https://wa.me/32472546771', '_blank', 'noopener,noreferrer');
+    });
+
     it('catches a link written with target _blank too', () => {
         // iOS handles target="_blank" inside the installed window anyway.
         pretendStandalone(true);
