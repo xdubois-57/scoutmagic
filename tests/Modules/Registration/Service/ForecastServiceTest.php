@@ -102,7 +102,7 @@ class ForecastServiceTest extends TestCase
         string $birthDate,
         int $sectionId,
         bool $leaving = false,
-        string $gender = 'M',
+        string $gender = 'H',
         ?int $memberId = null,
         ?string $street = null,
         ?string $postalCode = null,
@@ -148,7 +148,7 @@ class ForecastServiceTest extends TestCase
     /**
      * @return array{id: int}
      */
-    private function createRequest(string $firstName, string $birthDate, ?int $intendedSectionId, string $gender = 'M'): int
+    private function createRequest(string $firstName, string $birthDate, ?int $intendedSectionId, string $gender = 'H'): int
     {
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'Parent', 'child_last_name' => 'Nouveau', 'child_first_name' => $firstName,
@@ -301,7 +301,7 @@ class ForecastServiceTest extends TestCase
         $stmt->execute([
             $intendantMemberId, $this->currentYearId,
             $this->encryption->encrypt('Intendant', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
-            $this->encryption->encrypt('1990-01-01', 'member_years.birth_date'), $this->encryption->encrypt('M', 'member_years.gender'),
+            $this->encryption->encrypt('1990-01-01', 'member_years.birth_date'), $this->encryption->encrypt('H', 'member_years.gender'),
         ]);
         $intendantMemberYearId = (int) $this->pdo->lastInsertId();
 

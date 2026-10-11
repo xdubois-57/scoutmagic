@@ -363,7 +363,7 @@ class ProjectedPopulationServiceTest extends TestCase
         string $firstName,
         string $birthDate,
         int $sectionId,
-        string $gender = 'M',
+        string $gender = 'H',
         ?int $memberId = null
     ): array {
         if ($memberId === null) {
@@ -402,7 +402,7 @@ class ProjectedPopulationServiceTest extends TestCase
         $stmt->execute([$this->encryption->encrypt($email, 'member_years.email'), $memberYearId]);
     }
 
-    private function createRequest(string $firstName, string $birthDate, ?int $intendedSectionId, string $gender = 'M'): int
+    private function createRequest(string $firstName, string $birthDate, ?int $intendedSectionId, string $gender = 'H'): int
     {
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'Parent', 'child_last_name' => 'Nouveau', 'child_first_name' => $firstName,
