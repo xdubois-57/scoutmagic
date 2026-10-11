@@ -224,6 +224,24 @@
     }
 
     /**
+     * A number field commits its draft when it is left, or on Enter.
+     *
+     * @param {HTMLInputElement} field
+     * @param {() => void} commit
+     */
+    function commitOnLeave(field, commit) {
+        field.addEventListener('blur', commit);
+        field.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                // Enter commits the draft — the form is sent with the
+                // button, never by a keystroke in a half-typed field.
+                event.preventDefault();
+                commit();
+            }
+        });
+    }
+
+    /**
      * The thresholds sub-box: slider, fields and example kept in step.
      *
      * @param {HTMLElement} box
@@ -287,22 +305,6 @@
         yesHandle.addEventListener('input', function () { move('yes', Number(yesHandle.value)); });
         maybeHandle.addEventListener('input', function () { move('maybe', Number(maybeHandle.value)); });
 
-        /**
-         * @param {HTMLInputElement} field
-         * @param {() => void} commit
-         */
-        function commitOnLeave(field, commit) {
-            field.addEventListener('blur', commit);
-            field.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter') {
-                    // Enter commits the draft — the form is sent with the
-                    // button, never by a keystroke in a half-typed field.
-                    event.preventDefault();
-                    commit();
-                }
-            });
-        }
-
         commitOnLeave(yesField, function () {
             move('yes', commitNumber(yesField.value, pair.yes, bounds.min, pair.maybe - 1));
         });
@@ -359,7 +361,10 @@
         toggle.addEventListener('change', function () {
             var wanted = toggle.checked;
             toggle.disabled = true;
-            window.ScoutMagicApi.postJson(WAITLIST_URL, { enabled: wanted }).then(function (res) {
+            // postJson() never rejects (api.js: every failure is an
+            // envelope with ok false), so the chain needs no catch of its
+            // own: the refusal branch below is the failure handling.
+            void window.ScoutMagicApi.postJson(WAITLIST_URL, { enabled: wanted }).then(function (res) {
                 toggle.disabled = false;
                 var data = res.data || {};
                 if (data.success) {
@@ -445,7 +450,8 @@
         // On a small screen the empty « Désactivés » zone points at the
         // menu, not at a drag nobody can do with a finger.
         var offList = /** @type {HTMLElement|null} */ (form.querySelector('.list-editor[data-group-key="off"]'));
-        var touchEmpty = offList?.closest('[data-touch-empty-label]')?.getAttribute('data-touch-empty-label');
+        var touchZone = /** @type {HTMLElement|null|undefined} */ (offList?.closest('[data-touch-empty-label]'));
+        var touchEmpty = touchZone?.dataset.touchEmptyLabel;
         var offEmpty = offList?.querySelector('.list-editor-empty');
         if (offEmpty && touchEmpty && window.matchMedia && !window.matchMedia('(min-width: 992px)').matches) {
             offEmpty.textContent = touchEmpty;
@@ -497,7 +503,7 @@
             if (!target || target === from) return;
             var empty = target.querySelector('.list-editor-empty');
             if (empty) {
-                target.insertBefore(row, empty);
+                empty.before(row);
             } else {
                 target.appendChild(row);
             }

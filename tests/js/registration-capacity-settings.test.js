@@ -36,7 +36,7 @@ function thresholdsBox({ yes = 70, maybe = 100, disabled = false } = {}) {
     </form>`;
 }
 
-const SWITCH = '<input type="checkbox" role="switch" id="waitlist_enabled" checked data-waitlist-switch>';
+const SWITCH = '<input type="checkbox" id="waitlist_enabled" checked data-waitlist-switch>';
 
 function priorityRow(zone, id, canAlways = true) {
     return `<div class="list-editor-item" draggable="true" data-id="${id}">

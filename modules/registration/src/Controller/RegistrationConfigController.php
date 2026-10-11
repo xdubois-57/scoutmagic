@@ -880,15 +880,16 @@ class RegistrationConfigController extends AbstractController
 
         $result = [];
         foreach ($order->toZones() as $zone => $criteria) {
-            $result[] = $zones[$zone] + [
-                'key' => $zone,
-                'items' => array_map(static fn(string $criterion): array => [
+            $items = [];
+            foreach ($criteria as $criterion) {
+                $items[] = [
                     'id' => $criterion,
                     'label' => PriorityOrder::CRITERIA[$criterion]['label'],
                     'help' => PriorityOrder::CRITERIA[$criterion]['help'],
                     'can_always' => PriorityOrder::CRITERIA[$criterion]['can_always'],
-                ], $criteria),
-            ];
+                ];
+            }
+            $result[] = $zones[$zone] + ['key' => $zone, 'items' => $items];
         }
 
         return $result;

@@ -24,10 +24,9 @@ première visite.
 
 Une place est occupée par un animé de l'effectif projeté ou par une
 demande acceptée, encodée dans Desk ou non — chaque enfant compte une
-seule fois. L'effectif projeté est celui des prévisions, années réelles
-comprises. Un animé dont la famille n'a pas répondu à la réinscription
-compte comme restant. La « Vérification des capacités » détaille ces
-nombres.
+seule fois. L'effectif projeté est celui des prévisions. Un animé dont
+la famille n'a pas répondu à la réinscription compte comme restant. La
+« Vérification des capacités » détaille ces nombres.
 
 ## Les seuils
 
@@ -43,12 +42,12 @@ valeurs sont conservées.
 
 ## La recommandation et les priorités
 
-Chaque demande en attente reçoit une recommandation Oui, Peut-être ou
-Non, calculée par année du parcours dans l'ordre de l'encart
-« Priorités » :
+Listes d'attente gérées, le site calcule pour chaque demande en attente
+une recommandation Oui, Peut-être ou Non, réservée au Staff d'U, par
+année du parcours, dans l'ordre de l'encart « Priorités » :
 
-- « Toujours Oui » : ces demandes passent en premier, sont toujours Oui
-  et peuvent dépasser la capacité (par défaut, la fratrie) ;
+- « Toujours Oui » : ces demandes passent en premier, toujours Oui,
+  même au-delà de la capacité (par défaut, la fratrie) ;
 - « Classement » : les autres sont classées par ces critères, de haut en
   bas, puis par date de dépôt ;
 - « Désactivés » : critères ignorés.
@@ -59,9 +58,9 @@ demande » ne peut que classer. « Ancienne demande restée sans place »
 retient un enfant refusé une année précédente avec le motif « Pas de
 place ».
 
-> Un doublon possible (même nom et même date de naissance la même
-> année) n'a pas de recommandation, sauf une demande : la plus ancienne,
-> ou celle déjà acceptée ; un enfant hors des tranches d'âge non plus.
-> Aucune recommandation n'est calculée quand les listes d'attente ne
-> sont pas gérées, ni pour une année passée, et les familles n'en voient
-> jamais aucune.
+> Doublon possible (même nom, même date de naissance, même année) : une
+> seule demande de l'enfant sert de référence, la plus ancienne ou celle
+> déjà acceptée ou encodée. En attente, elle seule reçoit une
+> recommandation ; les autres demandes de l'enfant, non, ni un enfant
+> hors des tranches d'âge. Rien n'est calculé sans listes d'attente
+> gérées, ni pour une année passée ; les familles n'en voient rien.

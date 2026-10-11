@@ -1451,6 +1451,17 @@
     border: 3px solid var(--bs-primary);
     cursor: pointer;
 }
+.registration-dual-slider-handle:focus-visible {
+    outline: none;
+}
+/* appearance: none takes the native focus ring away: give the keyboard one
+   back, on the thumb that moves. */
+.registration-dual-slider-handle:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
+}
+.registration-dual-slider-handle:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.35);
+}
 .registration-dual-slider-handle:disabled::-webkit-slider-thumb {
     cursor: not-allowed;
 }

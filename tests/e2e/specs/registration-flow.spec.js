@@ -158,7 +158,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // « Réglages », the table on the dashboard.
     // ---------------------------------------------------------------
     await expect(
-        page.getByRole('switch', { name: "Gérer les listes d'attente" }),
+        page.getByRole('checkbox', { name: "Gérer les listes d'attente" }),
         'the waitlist switch lives in the capacity box it governs, and is on by default',
     ).toBeChecked();
 

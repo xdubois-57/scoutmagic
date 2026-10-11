@@ -82,7 +82,7 @@ async function setWaitlist(page, on) {
         (response) => response.url().endsWith('/config/inscriptions/listes-attente')
             && response.request().method() === 'POST',
     );
-    const toggle = page.getByRole('switch', { name: "Gérer les listes d'attente" });
+    const toggle = page.getByRole('checkbox', { name: "Gérer les listes d'attente" });
     await (on ? toggle.check() : toggle.uncheck());
     const response = await saved;
     expect(response.status(), 'the waitlist switch saved').toBe(200);

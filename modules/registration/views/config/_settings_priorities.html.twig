@@ -76,7 +76,9 @@
             </div>
         {% endfor %}
 
-        <div class="alert alert-warning small mt-3 mb-0 d-none" role="status" data-priority-notice></div>
+        {# <output> carries the status role (and its polite announcement)
+           of its own. #}
+        <output class="alert alert-warning small mt-3 mb-0 d-block d-none" data-priority-notice></output>
         <button type="submit" class="btn btn-primary mt-3">Enregistrer</button>
     </div>
 </form>
