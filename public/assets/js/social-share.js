@@ -36,6 +36,12 @@
 
     const api = window.ScoutMagicApi;
     const feedback = document.querySelector('[data-share-feedback]');
+    /**
+     * How long « Lien copié » stays on screen before the reload takes
+     * the page away, in milliseconds. `registration-passage.js` waits
+     * the same beat for the same reason.
+     */
+    const READ_DELAY_MS = 1200;
     const canShareSheet = typeof navigator.share === 'function';
     const clipboard = navigator.clipboard;
 
@@ -147,6 +153,18 @@
      * has started refusing. It happens only if the recording did: a
      * reload over a refusal would wipe the message saying so.
      *
+     * **And where there IS a message, the reload waits for it to be
+     * read.** « Lien copié » is the only confirmation a copy gets — the
+     * sheet is its own receipt, the clipboard is silent — and an
+     * immediate reload wiped it with the rest of the DOM before anybody
+     * could see it. The help page promises that sentence
+     * (`modules/social/help/partager-soi-meme.md`: « elle copie le lien
+     * et vous le dit »), so it has to be visible. `Claude review` found
+     * it on PR #868, and noted that the failure branch above had already
+     * been fixed for exactly this reason while the success one had not.
+     * The delay is `registration-passage.js`'s, which solved the same
+     * problem the same way.
+     *
      * @param {string} recordUrl
      * @param {string} kind
      * @returns {Promise<void>}
@@ -163,10 +181,14 @@
 
                 return;
             }
-            if (kind === 'copy') {
-                announce('Lien copié', true);
+            if (kind !== 'copy') {
+                window.location.reload();
+
+                return;
             }
-            window.location.reload();
+
+            announce('Lien copié', true);
+            window.setTimeout(function () { window.location.reload(); }, READ_DELAY_MS);
         });
     }
 

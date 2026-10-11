@@ -161,6 +161,34 @@ describe('without a share sheet', () => {
         expect(feedback().hidden).toBe(false);
     });
 
+    /**
+     * **The reload waits for « Lien copié » to be read** (`Claude review`
+     * on PR #868).
+     *
+     * It is the only confirmation a copy gets — the share sheet is its
+     * own receipt, the clipboard is silent — and the help page promises
+     * it in words. An immediate reload took the message away with the
+     * rest of the DOM, which no test could see while `reload` is a
+     * no-op double: hence the fake timers here, which make the ORDER
+     * assertable rather than the fact of reloading.
+     */
+    it('lets the message be read before taking the page away', async () => {
+        vi.useFakeTimers();
+        try {
+            await load();
+            button().click();
+            await vi.advanceTimersByTimeAsync(0);
+
+            const beforeTheWait = window.location.reload.mock.calls.length;
+            await vi.advanceTimersByTimeAsync(1200);
+
+            expect([beforeTheWait, feedback().textContent, window.location.reload.mock.calls.length])
+                .toEqual([0, 'Lien copié', 1]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('records nothing when the clipboard refuses', async () => {
         navigator.clipboard.writeText.mockRejectedValue(new Error('denied'));
 
@@ -194,6 +222,9 @@ describe('with a share sheet', () => {
         expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
         expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien', '/medias-sociaux/7/partage']);
         expect(posted[1].body).toEqual({ kind: 'native' });
+        // No wait here, and none wanted: the sheet was its own receipt,
+        // so there is no message the reload could wipe.
+        expect(window.location.reload).toHaveBeenCalledTimes(1);
     });
 
     /**
