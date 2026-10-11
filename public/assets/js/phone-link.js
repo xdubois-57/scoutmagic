@@ -86,6 +86,34 @@
     }
 
     /**
+     * The pending « put the label back » of each element, and the sheet's
+     * pending close after a copy. The sheet is one element reused for every
+     * number: a timer left over from the previous number must not rename
+     * or close the sheet a new one has just opened.
+     *
+     * @type {WeakMap<HTMLElement, number>}
+     */
+    var labelTimers = new WeakMap();
+    /** @type {number|null} */
+    var sheetCloseTimer = null;
+
+    /**
+     * Put a flashed label back now, and forget its pending restore.
+     *
+     * @param {HTMLElement} element
+     */
+    function restore(element) {
+        var timer = labelTimers.get(element);
+        if (timer !== undefined) {
+            window.clearTimeout(timer);
+            labelTimers.delete(element);
+        }
+        if (element.dataset.phoneOriginalLabel !== undefined) {
+            element.textContent = element.dataset.phoneOriginalLabel;
+        }
+    }
+
+    /**
      * Swap a label for a moment, then put it back.
      *
      * @param {HTMLElement} element
@@ -93,12 +121,12 @@
      * @param {number} delay
      */
     function flash(element, text, delay) {
-        var original = element.dataset.phoneOriginalLabel || element.textContent || '';
-        element.dataset.phoneOriginalLabel = original;
+        restore(element);
+        element.dataset.phoneOriginalLabel = element.textContent || '';
         element.textContent = text;
-        window.setTimeout(function () {
-            element.textContent = original;
-        }, delay);
+        labelTimers.set(element, window.setTimeout(function () {
+            restore(element);
+        }, delay));
     }
 
     /**
@@ -164,6 +192,15 @@
      * @param {string} kind
      */
     function fillSheet(sheet, international, display, kind) {
+        if (sheetCloseTimer !== null) {
+            window.clearTimeout(sheetCloseTimer);
+            sheetCloseTimer = null;
+        }
+        var copyLabel = /** @type {HTMLElement|null} */ (sheet.querySelector('[data-phone-copy-label]'));
+        if (copyLabel) {
+            restore(copyLabel);
+        }
+
         var links = linksFor(international);
         var landline = kind === 'landline';
 
@@ -253,7 +290,11 @@
                 if (label) {
                     flash(label, 'Numéro copié', COPIED_DELAY);
                 }
-                window.setTimeout(function () {
+                if (sheetCloseTimer !== null) {
+                    window.clearTimeout(sheetCloseTimer);
+                }
+                sheetCloseTimer = window.setTimeout(function () {
+                    sheetCloseTimer = null;
                     var copiedSheet = sheetElement();
                     var copiedPanel = copiedSheet ? offcanvas(copiedSheet) : null;
                     if (copiedPanel) {

@@ -212,6 +212,29 @@ describe('phone-link.js', () => {
             expect(document.querySelector('[data-phone-copy-label]').textContent).toBe('Copier le numéro');
         });
 
+        it('a copy on one number neither renames nor closes the sheet opened for the next', async () => {
+            vi.useFakeTimers();
+            document.body.innerHTML = SHEET
+                + phoneLink('a', '+32472546771', '+32 472 54 67 71', 'mobile')
+                + phoneLink('b', '+32478123456', '+32 478 12 34 56', 'mobile');
+            click(document.getElementById('a'));
+            click(document.querySelector('[data-phone-copy]'));
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(document.querySelector('[data-phone-copy-label]').textContent).toBe('Numéro copié');
+
+            // Dismissed by hand, then the next number tapped before the
+            // first copy's timers ran out.
+            vi.advanceTimersByTime(300);
+            click(document.getElementById('b'));
+
+            expect(document.querySelector('[data-phone-copy-label]').textContent).toBe('Copier le numéro');
+            vi.advanceTimersByTime(2000);
+            expect(offcanvas.hide).not.toHaveBeenCalled();
+            expect(document.querySelector('[data-phone-sheet-number]').textContent).toBe('+32 478 12 34 56');
+            expect(document.querySelector('[data-phone-copy-label]').textContent).toBe('Copier le numéro');
+        });
+
         it('leaves the tel: link to call when the sheet cannot open', () => {
             /** @type {any} */ (window).bootstrap = undefined;
             document.body.innerHTML = SHEET + phoneLink('n', '+32472546771', '+32 472 54 67 71', 'mobile');
