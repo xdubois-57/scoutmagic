@@ -54,6 +54,25 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame([], $this->messagesOf($this->validateFile($this->fixturePath)));
     }
 
+    /**
+     * A row a spreadsheet emptied but kept is a line of separators only. It
+     * is as blank as an empty line: skipped, not refused as nine empty
+     * columns.
+     */
+    public function testALineOfSeparatorsOnlyIsSkippedLikeABlankLine(): void
+    {
+        $empty = array_fill(0, count($this->header()), '');
+
+        $errors = $this->validateLines([
+            $this->line($this->row([])),
+            $this->line($empty),
+            $this->line([...$empty, '']),
+            '  ' . $this->line($empty) . '  ',
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
     /** Rule 7: the three values Desk writes all go through. */
     public function testEveryGenderDeskWritesIsAccepted(): void
     {

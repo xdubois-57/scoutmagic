@@ -138,6 +138,13 @@ class DeskCsvParser
             }
 
             $fields = str_getcsv($line, $delimiter, '"', '');
+            // A line of separators only (`;;;;` — a row a spreadsheet emptied
+            // but kept) is as blank as an empty one: skipped here, it never
+            // reaches DeskImportValidator, which would refuse the whole file
+            // over nine « vide » errors on a line that carries nothing.
+            if (implode('', array_map(static fn($cell): string => trim((string) $cell), $fields)) === '') {
+                continue;
+            }
             $row = [];
             foreach ($headers as $idx => $header) {
                 $row[$header] = isset($fields[$idx]) ? trim($fields[$idx]) : '';
