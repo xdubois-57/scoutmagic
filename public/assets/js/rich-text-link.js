@@ -1319,21 +1319,51 @@
     var ITEM_WRAPPERS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 
     /**
-     * The `<li>` holding the caret, if it is inside $surface.
+     * The list items the selection reaches in $surface, in document order:
+     * the one holding the caret, or every item whose own content — nested
+     * lists aside — the selection touches. A selection that starts in a
+     * paragraph above a list and ends inside it reaches its first items
+     * too: leaving those to the engine is the very bug of #885.
      *
      * @param {HTMLElement} surface
-     * @returns {HTMLLIElement|null}
+     * @returns {{items: HTMLLIElement[], range: Range|null}}
      */
-    function listItemAtCaret(surface) {
+    function listItemsInSelection(surface) {
         var selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) {
-            return null;
+            return { items: [], range: null };
         }
-        var node = selection.getRangeAt(0).startContainer;
+        var range = selection.getRangeAt(0);
+        if (range.collapsed) {
+            var node = range.startContainer;
+            var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
+            var item = element?.closest('li') ?? null;
+            var inside = item && surface.contains(item) && item !== surface;
+
+            return { items: inside ? [/** @type {HTMLLIElement} */ (item)] : [], range: range };
+        }
+
+        var items = Array.from(surface.querySelectorAll('li')).filter(function (li) {
+            return Array.from(li.childNodes).some(function (child) {
+                return child.nodeName !== 'UL' && child.nodeName !== 'OL' && range.intersectsNode(child);
+            });
+        });
+
+        return { items: /** @type {HTMLLIElement[]} */ (items), range: range };
+    }
+
+    /**
+     * Whether $node lies inside a list item of $surface.
+     *
+     * @param {Node} node
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function isInListItem(node, surface) {
         var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
         var item = element?.closest('li') ?? null;
 
-        return item && surface.contains(item) && item !== surface ? /** @type {HTMLLIElement} */ (item) : null;
+        return !!item && surface.contains(item) && item !== surface;
     }
 
     /**
@@ -1376,7 +1406,10 @@
             if (after.hasChildNodes()) {
                 block.after(after);
             }
-            if (!item.hasChildNodes() || item.textContent === '' && !item.querySelector('img')) {
+            // Whitespace counts as empty — the canonical form drops such an
+            // item on save, so the screen must not keep an empty bullet —
+            // but an item still holding an image or a nested list is kept.
+            if (!item.hasChildNodes() || (item.textContent || '').trim() === '' && !item.querySelector('img, ul, ol')) {
                 item.remove();
             }
             if (!list.querySelector(':scope > li')) {
@@ -1407,31 +1440,16 @@
     }
 
     /**
-     * Makes the list item holding the caret a $tag block of its own. Does
-     * nothing, and says so, when the caret is not in a list item.
+     * Makes $item a $tag block of its own, out of every list.
      *
+     * @param {HTMLLIElement} item
      * @param {HTMLElement} surface
      * @param {'h2'|'h3'|'p'} tag
-     * @returns {Range|null} where the caret now is, to put back once the
-     *          surface has focus again; null when there was no item
+     * @returns {HTMLElement} the new block
      */
-    function listItemToBlock(surface, tag) {
-        var item = listItemAtCaret(surface);
-        if (!item) {
-            return null;
-        }
-
-        // The caret is restored on the same nodes afterwards: they are moved,
-        // never copied, so the text it sat in is still the text it sits in.
-        var selection = window.getSelection();
-        var range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-        var caret = range
-            ? { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset }
-            : null;
-
+    function itemToBlock(item, surface, tag) {
         var block = document.createElement(tag);
-        var first = item.firstChild;
-        item.insertBefore(block, first);
+        item.insertBefore(block, item.firstChild);
         while (block.nextSibling && block.nextSibling.nodeName !== 'UL' && block.nextSibling.nodeName !== 'OL') {
             var next = /** @type {ChildNode} */ (block.nextSibling);
             if (ITEM_WRAPPERS.has(next.nodeName)) {
@@ -1454,16 +1472,47 @@
 
         liftOutOfLists(block, surface);
 
+        return block;
+    }
+
+    /**
+     * Makes every list item the selection reaches a $tag block of its own.
+     * Does nothing when it reaches none.
+     *
+     * The nodes are moved, never copied, so the selection is put back on
+     * the same text once the items have moved. When it also reached
+     * content outside the list — a paragraph above it — that part is still
+     * the engine's: `engine` says so, and the caller runs formatBlock on
+     * the restored selection, which no longer holds any list item.
+     *
+     * @param {HTMLElement} surface
+     * @param {'h2'|'h3'|'p'} tag
+     * @returns {{range: Range, engine: boolean}|null} the selection to put
+     *          back once the surface has focus again; null when no item
+     */
+    function listItemsToBlocks(surface, tag) {
+        var found = listItemsInSelection(surface);
+        if (found.items.length === 0 || !found.range) {
+            return null;
+        }
+        var range = found.range;
+        var bounds = { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset };
+        var engine = !range.collapsed && (!isInListItem(bounds.start, surface) || !isInListItem(bounds.end, surface));
+
+        var blocks = found.items.map(function (item) {
+            return itemToBlock(item, surface, tag);
+        });
+
         var restored = document.createRange();
-        if (caret && block.contains(caret.start) && block.contains(caret.end)) {
-            restored.setStart(caret.start, caret.startOffset);
-            restored.setEnd(caret.end, caret.endOffset);
+        if (surface.contains(bounds.start) && surface.contains(bounds.end)) {
+            restored.setStart(bounds.start, bounds.startOffset);
+            restored.setEnd(bounds.end, bounds.endOffset);
         } else {
-            restored.selectNodeContents(block);
-            restored.collapse(false);
+            restored.setStartBefore(blocks[0]);
+            restored.setEndAfter(blocks[blocks.length - 1]);
         }
 
-        return restored;
+        return { range: restored, engine: engine };
     }
 
     // ————— The toolbar —————
@@ -1506,13 +1555,13 @@
                     return;
                 }
 
-                var caret = null;
+                var moved = null;
+                var tag = blockTagFor(button.dataset.value);
                 if (command === 'formatBlock') {
-                    var tag = blockTagFor(button.dataset.value);
                     // In a list item, never the engine's formatBlock: it
                     // wraps the whole list (#885, above).
-                    caret = listItemToBlock(surface, tag);
-                    if (!caret) {
+                    moved = listItemsToBlocks(surface, tag);
+                    if (!moved) {
                         // The argument editable.js never passed at all — it
                         // sent null, and a formatBlock with no block to
                         // format is a button that does nothing. The angle
@@ -1526,11 +1575,16 @@
                 }
 
                 surface.focus();
-                if (caret) {
+                if (moved) {
                     // After the focus, which may itself move the caret.
                     var selection = window.getSelection();
                     selection?.removeAllRanges();
-                    selection?.addRange(caret);
+                    selection?.addRange(moved.range);
+                    if (moved.engine) {
+                        // What the selection held outside the list — no
+                        // list item left in it now for the engine to wrap.
+                        document.execCommand('formatBlock', false, '<' + tag + '>');
+                    }
                 }
                 if (afterCommand) afterCommand();
             });

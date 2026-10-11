@@ -560,6 +560,66 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(surface.innerHTML).toBe('<ul><li>haut</li></ul><h2>bas</h2><ul><li>après</li></ul>');
     });
 
+    /** The text node of $surface whose text is exactly $text. */
+    function textNode(surface, text) {
+        const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node && node.textContent !== text) {
+            node = walker.nextNode();
+        }
+        return node;
+    }
+
+    function select(surface, fromText, toText) {
+        const range = document.createRange();
+        range.setStart(textNode(surface, fromText), 1);
+        range.setEnd(textNode(surface, toText), 1);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+    }
+
+    // A selection that starts in a paragraph above the list and ends in it
+    // used to reach the engine whole — which wrapped the list in a heading.
+    it('takes the items a selection reaches out of the list, and leaves the paragraph above to the engine', async () => {
+        const { surface, press } = await editing('<p>avant</p><ul><li>un</li><li>deux</li></ul>', 'avant');
+        select(surface, 'avant', 'un');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<p>avant</p><h2>un</h2><ul><li>deux</li></ul>');
+        // The engine gets what is left, with no list item left in the selection.
+        expect(execCommand).toHaveBeenCalledTimes(1);
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.startContainer.textContent).toBe('avant');
+        expect(range.endContainer.textContent).toBe('un');
+    });
+
+    it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h3');
+
+        expect(surface.innerHTML).toBe('<h3>un</h3><h3>deux</h3><ul><li>trois</li></ul>');
+        expect(execCommand).not.toHaveBeenCalled();
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.collapsed).toBe(false);
+        expect(range.startContainer.textContent).toBe('un');
+        expect(range.endContainer.textContent).toBe('deux');
+    });
+
+    // The canonical form drops a whitespace-only item on save: the screen
+    // must not keep it as an empty bullet.
+    it('leaves no empty bullet behind when the item above held only whitespace', async () => {
+        const { rt, surface, press } = await editing('<ul><li> <ul><li>bas</li></ul></li></ul>', 'bas');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>bas</h2>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
     it('makes a paragraph of any block it was not built to offer, never an element named by the attribute', async () => {
         const { surface } = await editing('<ul><li>un</li></ul>', 'un');
         const odd = document.querySelector('[data-value="h2"]');
