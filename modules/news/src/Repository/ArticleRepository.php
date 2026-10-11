@@ -13,7 +13,10 @@ class ArticleRepository
     /**
      * The sort key every list uses — the date an article is shown with
      * (Repository\Article::displayDate()): its publication date, or its
-     * creation date while it is a draft.
+     * creation date while it is a draft. Every ORDER BY on it, or on
+     * published_at, ends with `id DESC`: the articles that existed before
+     * #845 all share the instant the column was added, and a page cut
+     * through tied rows is otherwise free to repeat or skip one.
      */
     private const DISPLAY_DATE_SQL = "CASE WHEN status = 'draft' OR published_at IS NULL THEN created_at "
         . 'ELSE published_at END';
@@ -61,7 +64,7 @@ class ArticleRepository
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM news_articles ORDER BY ' . self::DISPLAY_DATE_SQL . ' DESC');
+        $stmt = $this->pdo->query('SELECT * FROM news_articles ORDER BY ' . self::DISPLAY_DATE_SQL . ' DESC, id DESC');
         return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
     }
 
@@ -79,7 +82,7 @@ class ArticleRepository
 
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare("SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) AND "
-            . self::liveCondition() . ' ORDER BY published_at DESC');
+            . self::liveCondition() . ' ORDER BY published_at DESC, id DESC');
         $stmt->execute([...$visibilities, self::now($now)]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -105,7 +108,7 @@ class ArticleRepository
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare(
             "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) AND " . self::liveCondition()
-                . ' ORDER BY published_at DESC LIMIT ? OFFSET ?'
+                . ' ORDER BY published_at DESC, id DESC LIMIT ? OFFSET ?'
         );
         foreach (array_values($visibilities) as $index => $visibility) {
             $stmt->bindValue($index + 1, $visibility);
@@ -156,7 +159,7 @@ class ArticleRepository
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare(
             "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) AND " . self::liveCondition()
-                . ' ORDER BY published_at DESC LIMIT ?'
+                . ' ORDER BY published_at DESC, id DESC LIMIT ?'
         );
         foreach (array_values($visibilities) as $index => $visibility) {
             $stmt->bindValue($index + 1, $visibility);
@@ -183,7 +186,7 @@ class ArticleRepository
         $placeholders = implode(',', array_fill(0, count($visibilities), '?'));
         $stmt = $this->pdo->prepare(
             "SELECT * FROM news_articles WHERE visibility IN ({$placeholders}) OR (visibility = 'direct_link' AND "
-                . 'created_by = ?) ORDER BY ' . self::DISPLAY_DATE_SQL . ' DESC'
+                . 'created_by = ?) ORDER BY ' . self::DISPLAY_DATE_SQL . ' DESC, id DESC'
         );
         $stmt->execute([...$visibilities, $authorId]);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));

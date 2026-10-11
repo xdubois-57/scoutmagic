@@ -179,4 +179,26 @@ class ArticleRepositoryTest extends TestCase
         // a `WHERE visibility IN ()` would be a syntax error anyway.
         $this->assertSame([], $this->repository->findLatestByVisibilities([], 10));
     }
+
+    /**
+     * Articles sharing one publication date — every article older than
+     * issue #845 does — are paged in a fixed order, newest id first, so
+     * no page repeats or skips one.
+     */
+    public function testTiedPublicationDatesArePagedInAFixedOrder(): void
+    {
+        $ids = [];
+        for ($i = 1; $i <= 3; $i++) {
+            $ids[] = $id = $this->repository->create('Ancienne ' . $i, Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+            $this->pdo->exec("UPDATE news_articles SET status = 'published', published_at = '2026-01-01 10:00:00' WHERE id = {$id}");
+        }
+        $visibilities = [Article::VISIBILITY_PUBLIC];
+
+        $paged = array_merge(
+            $this->repository->findByVisibilitiesPage($visibilities, 2, 0),
+            $this->repository->findByVisibilitiesPage($visibilities, 2, 2)
+        );
+
+        $this->assertSame(array_reverse($ids), array_map(fn(Article $a) => $a->id, $paged));
+    }
 }

@@ -2552,6 +2552,28 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * The visibility is checked before the state: a visitor who could not
+     * read the article once published learns neither that it exists nor
+     * when it will be out — the same refusal as for the published one,
+     * and no link preview of an article that is not online.
+     */
+    public function testANotOnlineArticleBeyondTheReadersVisibilityIsRefusedNotAnnounced(): void
+    {
+        $chief = $this->articleRepository->create('Réunion des chefs', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->articleRepository->setPublication($chief, Article::STATUS_PUBLISHED, '2999-01-20 08:00:00');
+        $members = $this->articleRepository->create('Souper des membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->articleRepository->setPublication($members, Article::STATUS_PUBLISHED, '2999-01-20 08:00:00');
+
+        foreach ([$chief, $members] as $id) {
+            $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+            $this->assertSame(403, $response->getStatusCode());
+            $this->assertStringNotContainsString('Elle le sera le', $response->getBody());
+            $this->assertStringNotContainsString('og:title', $response->getBody());
+        }
+    }
+
+    /**
      * A manager reads the draft as it will be, under a banner saying it is
      * not online and why they see it; its form shows but takes nothing.
      */

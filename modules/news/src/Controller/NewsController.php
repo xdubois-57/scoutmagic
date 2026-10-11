@@ -558,21 +558,26 @@ class NewsController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         $isLive = $this->articleService->isLive($article);
-        // Before publication (issue #845), only those who manage the news
-        // may open the page — a « Lien direct » article included: holding
-        // the address is not enough yet. Everybody else is told it is not
-        // online, and shown nothing of it.
-        if (!$isLive && !ArticleService::managesNews($role)) {
-            return $this->renderNotOnline($article);
-        }
 
+        // The visibility first, whatever the state: a reader who could not
+        // see this article once published must not learn, from the page
+        // below, that it exists or when it will be out.
         if (!$this->articleService->canView($article, $role)) {
             // A shareable article answers the caller its preview rather
-            // than a bare 403 — see renderSocialPreview(). Everything
+            // than a bare 403 — see renderSocialPreview() — but only once
+            // it is online: nothing of it is shown before. Everything
             // else is refused as before.
-            return $this->articleService->isSociallyShareable($article)
+            return $isLive && $this->articleService->isSociallyShareable($article)
                 ? $this->renderSocialPreview($article)
                 : $this->forbidden(self::NOT_VISIBLE_MESSAGE, $request);
+        }
+
+        // Before publication (issue #845), only those who manage the news
+        // may open the page — a « Lien direct » article included: holding
+        // the address is not enough yet. Everybody else allowed to read it
+        // once out is told it is not online yet, and shown nothing of it.
+        if (!$isLive && !ArticleService::managesNews($role)) {
+            return $this->renderNotOnline($article);
         }
 
         $form = $this->formService->findByArticleId($article->id);
