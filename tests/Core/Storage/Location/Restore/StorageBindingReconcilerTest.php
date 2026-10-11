@@ -292,7 +292,7 @@ final class StorageBindingReconcilerTest extends TestCase
 
     private function reconciler(): StorageBindingReconciler
     {
-        return new StorageBindingReconciler(new StorageBindingRepository($this->pdo), $this->keys);
+        return new StorageBindingReconciler(new StorageBindingRepository($this->pdo, $this->keys));
     }
 
     private function snapshot(): StorageBindingSnapshot

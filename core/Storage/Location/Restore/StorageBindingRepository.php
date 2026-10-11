@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Restore;
 
+use Core\Security\EncryptionService;
+
 /**
  * `storage_locations` as raw rows, for the one job that has to handle them
  * that way: carrying today's bindings across a restore (#832).
@@ -21,8 +23,38 @@ namespace Core\Storage\Location\Restore;
  */
 class StorageBindingRepository
 {
-    public function __construct(private \PDO $pdo)
+    public function __construct(
+        private \PDO $pdo,
+        /**
+         * Only to answer {@see isReadable()} — the one question about a
+         * secret this class asks, and asked here because only a repository
+         * calls EncryptionService (SECURITY.md, Encryption at rest). Null
+         * when the caller only reads or moves rows.
+         */
+        private ?EncryptionService $encryption = null
+    ) {
+    }
+
+    /**
+     * Whether this ciphertext opens with the keys the site now holds — a
+     * portable restore installs the archive's. The plaintext is discarded:
+     * the binding moves as ciphertext, never read.
+     */
+    public function isReadable(?string $secret): bool
     {
+        if ($secret === null) {
+            return true;
+        }
+        if ($this->encryption === null) {
+            throw new \LogicException('Asking whether a secret is readable needs the encryption service.');
+        }
+        try {
+            $this->encryption->decrypt($secret, 'storage_locations.secret');
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

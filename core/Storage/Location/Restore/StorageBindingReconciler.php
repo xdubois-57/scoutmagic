@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Restore;
 
-use Core\Security\EncryptionService;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -65,10 +64,8 @@ final class StorageBindingReconciler
 
     private const RESTORED_SUFFIX = ' (avant restauration)';
 
-    public function __construct(
-        private StorageBindingRepository $repository,
-        private EncryptionService $encryption
-    ) {
+    public function __construct(private StorageBindingRepository $repository)
+    {
     }
 
     /**
@@ -142,7 +139,7 @@ final class StorageBindingReconciler
      */
     private function rebind(array $restored, array $current, array &$labels): ?string
     {
-        $readable = $this->readable($current['secret']);
+        $readable = $this->repository->isReadable($current['secret']);
         $secret = $readable ? $current['secret'] : $restored['secret'];
         $label = $restored['label'];
         // Its own label, differently cased, is no collision: it frees as
@@ -193,7 +190,7 @@ final class StorageBindingReconciler
         }
         $labels[self::labelKey($label)] = true;
 
-        $readable = $this->readable($current['secret']);
+        $readable = $this->repository->isReadable($current['secret']);
         $this->repository->insert(
             $id,
             $current['type'],
@@ -216,20 +213,5 @@ final class StorageBindingReconciler
     private static function labelKey(string $label): string
     {
         return TextNormalizerService::fold($label);
-    }
-
-    /** Whether this ciphertext opens with the keys the site now holds. */
-    private function readable(?string $secret): bool
-    {
-        if ($secret === null) {
-            return true;
-        }
-        try {
-            $this->encryption->decrypt($secret, 'storage_locations.secret');
-
-            return true;
-        } catch (\Throwable) {
-            return false;
-        }
     }
 }

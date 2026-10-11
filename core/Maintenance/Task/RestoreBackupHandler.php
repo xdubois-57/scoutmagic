@@ -349,8 +349,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             }
 
             $report = (new StorageBindingReconciler(
-                new StorageBindingRepository($context->connection->getPdo()),
-                $context->encryption
+                new StorageBindingRepository($context->connection->getPdo(), $context->encryption)
             ))->reconcile($before, ($payload['storage_bindings_same_installation'] ?? false) === true);
 
             if ($report !== []) {
