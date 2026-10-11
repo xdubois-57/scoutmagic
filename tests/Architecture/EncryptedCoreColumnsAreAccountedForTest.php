@@ -145,7 +145,7 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // Encrypted, and NOT the reader's personal data. Each of these is a
         // secret or an address the unit itself owns, and the reason is the
         // decision this list exists to record.
-        'storage_locations' => [10, 'none: `secret_encrypted` is a remote storage credential'],
+        'storage_locations' => [11, 'none: `secret_encrypted` is a remote storage credential'],
         'mail_return_probes' => [8, 'none: the address is the site\'s own, never a member\'s'],
         // Rule 35 « Boîtes témoins de délivrabilité » documents this table at
         // length — the hosting providers as full sub-processors, the copy

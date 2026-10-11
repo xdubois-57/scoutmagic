@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Actualités : brouillon, publication et programmation</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#f1f3f5;color:#212529;font-family:system-ui,-apple-system,"Segoe UI",Helvetica,sans-serif}
+a{color:#0a58ca}
+.page{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
+h1.doc{font-size:28px;line-height:1.2;margin:0 0 8px}
+.lede{font-size:15px;color:#495057;margin:0 0 12px;max-width:72ch;line-height:1.5}
+.legende{background:#fff4e5;border:1px solid #b45309;border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.55;max-width:72ch;margin:0 0 28px;color:#3d1d00}
+.ecran{margin:0 0 40px}
+.ecran>h2{font-size:19px;margin:0 0 12px}
+.cadre{width:390px;max-width:100%;border:1px solid #ced4da;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sommaire{margin:0 0 28px;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.sommaire a{display:inline-block;padding:8px 12px;background:#fff;border:1px solid #ced4da;border-radius:999px;text-decoration:none;font-size:14px}
+input[type=checkbox][role=switch]{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:40px;height:22px;border-radius:999px;background:#adb5bd;position:relative;margin:0;border:0}
+input[type=checkbox][role=switch]:checked{background:#0d6efd}
+input[type=checkbox][role=switch]::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:999px;background:#ffffff}
+input[type=checkbox][role=switch]:checked::after{left:20px}
+</style>
+</head>
+<body>
+<div class="page">
+<h1 class="doc">Actualités : brouillon, publication et programmation</h1>
+<p class="lede">Maquette de référence du chantier <code>CHANTIER-actualites-brouillon.md</code> (issue #845). Elle fait autorité sur la hiérarchie des écrans, les libellés français et les états — pas sur le style : les styles sont en ligne pour rendre le fichier autonome, le produit suit Bootstrap 5 et <code>design.md</code>. Largeur de référence : 390 px.</p>
+<p class="legende"><strong>Ces maquettes sont partielles.</strong> Chaque zone porte une étiquette : <strong>NOUVEAU</strong> = à créer ; <strong>MODIFIÉ</strong> = seul ce que dit l'étiquette change ; <strong>INCHANGÉ</strong> = ne pas toucher, même si la zone est abrégée ou seulement nommée dans un encadré en pointillé. Tout ce qui n'est pas dessiné reste exactement comme aujourd'hui.</p>
+<ul class="sommaire">
+<li><a href="#ecran-Main">Éditeur — brouillon</a></li>
+<li><a href="#ecran-Programmee">Éditeur — programmée</a></li>
+<li><a href="#ecran-Publiee">Éditeur — publiée</a></li>
+<li><a href="#ecran-Referencement">Référencement selon la visibilité</a></li>
+<li><a href="#ecran-Liste">Liste de gestion</a></li>
+<li><a href="#ecran-Page">Page d&#x27;un brouillon, vue par un gestionnaire</a></li>
+<li><a href="#ecran-PasEncore">Page vue par un visiteur avant la mise en ligne</a></li>
+<li><a href="#ecran-Publier">Confirmation — Publier</a></li>
+<li><a href="#ecran-Programmer">Dialogue — Programmer</a></li>
+<li><a href="#ecran-RetourBrouillon">Confirmation — Repasser en brouillon</a></li>
+</ul>
+<section class="ecran" id="ecran-Main">
+<h2>Éditeur — brouillon</h2>
+<div class="cadre">
+<div style="width: 390px; height: 1240px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — badge d'état et phrase ajoutés</span>
+    <a href="#ecran-Liste" style="font-size: 14px;">Actualités</a>
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Souper d'unité 2026</h1>
+      <span style="font-size: 13px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #5c636a; color: #ffffff;">Brouillon</span>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Visible seulement de ceux qui gèrent les actualités, tant qu'elle n'est pas publiée.</div>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé — abrégé ici</span>
+    <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Informations générales</h2>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="titre" style="font-size: 14px;">Titre</label>
+      <input id="titre" type="text" value="Souper d'unité 2026" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="resume" style="font-size: 14px;">Résumé en une phrase</label>
+      <textarea id="resume" rows="2" style="border: 1px solid #ced4da; border-radius: 6px; padding: 8px 10px; font-size: 15px; font-family: inherit; resize: vertical;">Le grand souper de l'unité revient le 14 novembre : inscrivez-vous avant le 7.</textarea>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div aria-hidden="true" style="width: 72px; height: 54px; border-radius: 6px; background: #c9d6c3;"></div>
+      <span style="font-size: 13px; color: #5c636a;">Image de l'article</span>
+    </div>
+  </div>
+
+  <fieldset style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; margin: 0; display: flex; flex-direction: column; gap: 10px;">
+    <legend style="font-size: 15px; font-weight: 600; padding: 0 4px;">Visibilité</legend>
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+      <label style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid #0d6efd; color: #0a58ca; border-radius: 6px; font-size: 14px;"><input type="radio" name="vis" style="margin: 0 6px 0 0;">Public</label>
+      <label style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid #0d6efd; background: #0d6efd; color: #ffffff; border-radius: 6px; font-size: 14px;"><input type="radio" name="vis" checked style="margin: 0 6px 0 0;">Membres connectés</label>
+      <label style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid #0d6efd; color: #0a58ca; border-radius: 6px; font-size: 14px;"><input type="radio" name="vis" style="margin: 0 6px 0 0;">Animateurs</label>
+      <label style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid #0d6efd; color: #0a58ca; border-radius: 6px; font-size: 14px;"><input type="radio" name="vis" style="margin: 0 6px 0 0;">Chefs d'Unité</label>
+      <label style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid #0d6efd; color: #0a58ca; border-radius: 6px; font-size: 14px;"><input type="radio" name="vis" style="margin: 0 6px 0 0;">Lien direct</label>
+    </div>
+  </fieldset>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; background: #f8f9fa;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé — non dessiné</span>
+    <span style="font-size: 13px; color: #495057; line-height: 1.5;">Le bloc « Article » avec ses onglets et le constructeur de formulaire, et « Paramètres du formulaire » restent exactement comme aujourd'hui, à la même place. « Référencement » change : voir l'écran qui lui est consacré.</span>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — Partager masqué tant qu'elle n'est pas en ligne</span>
+    <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Affiche &amp; QR code</h2>
+    <span style="font-size: 13px; color: #212529;">Affiche A4 avec QR code vers 25sv.be/s/k7mjp</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 14px; font-family: inherit;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z"></path><path d="M9.5 1.5v3h3"></path></svg>Télécharger le PDF</button>
+    </div>
+    <span style="font-size: 13px; color: #5c636a;">Le partage sur les médias sociaux sera disponible une fois l'actualité publiée.</span>
+  </div>
+
+  <div style="margin-top: auto; border-top: 1px solid #dee2e6; padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — remplace « Enregistrer »</span>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <a href="#ecran-Publier" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; text-decoration: none;">Publier</a>
+      <a href="#ecran-Programmer" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #0d6efd; color: #0a58ca; font-size: 15px; text-decoration: none;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8V8l2.2 1.4"></path></svg>
+        Programmer…
+      </a>
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 15px; font-family: inherit;">Enregistrer le brouillon</button>
+    </div>
+    <button type="button" style="align-self: flex-start; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #b02a37; background: #ffffff; color: #b02a37; font-size: 15px; font-family: inherit;">Supprimer</button>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Programmee">
+<h2>Éditeur — programmée</h2>
+<div class="cadre">
+<div style="width: 390px; height: 1240px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — badge d'état ajouté</span>
+    <a href="#ecran-Liste" style="font-size: 14px;">Actualités</a>
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Souper d'unité 2026</h1>
+      <span style="font-size: 13px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #0a58ca; color: #ffffff;">Programmée</span>
+    </div>
+  </div>
+
+  <div style="border: 1px solid #9ec5fe; background: #e7f1ff; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; color: #052c65;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau</span>
+    <div style="display: flex; gap: 10px; align-items: flex-start;">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 1px;"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8V8l2.2 1.4"></path></svg>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <strong style="font-size: 15px;">Programmée pour le mardi 20 octobre à 8 h 00</strong>
+        <span style="font-size: 13px;">Pour les membres connectés. Elle apparaîtra d'elle-même ; vous serez prévenu.</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <a href="#ecran-Programmer" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #0d6efd; background: #ffffff; color: #0a58ca; font-size: 14px; text-decoration: none;">Modifier l'heure</a>
+      <a href="#ecran-Publier" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 14px; text-decoration: none;">Publier maintenant</a>
+    </div>
+  </div>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; background: #f8f9fa;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé — non dessiné</span>
+    <span style="font-size: 13px; color: #495057; line-height: 1.5;">« Informations générales », « Visibilité », le bloc « Article » avec ses onglets et le constructeur de formulaire, et « Paramètres du formulaire » restent exactement comme aujourd'hui, à la même place. « Référencement » change : voir l'écran qui lui est consacré.</span>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — Partager masqué tant qu'elle n'est pas en ligne</span>
+    <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Affiche &amp; QR code</h2>
+    <span style="font-size: 13px; color: #212529;">Affiche A4 avec QR code vers 25sv.be/s/k7mjp</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 14px; font-family: inherit;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z"></path><path d="M9.5 1.5v3h3"></path></svg>Télécharger le PDF</button>
+    </div>
+    <span style="font-size: 13px; color: #5c636a;">Le partage sur les médias sociaux sera disponible une fois l'actualité en ligne.</span>
+  </div>
+
+  <div style="margin-top: auto; border-top: 1px solid #dee2e6; padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — « Repasser en brouillon » ajouté, « Supprimer » retiré</span>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 6px; border: 0; background: #0d6efd; color: #ffffff; font-size: 15px; font-family: inherit;">Enregistrer</button>
+      <a href="#ecran-RetourBrouillon" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Repasser en brouillon</a>
+    </div>
+    <span style="font-size: 13px; color: #5c636a;">Pour supprimer cette actualité, repassez-la d'abord en brouillon.</span>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Publiee">
+<h2>Éditeur — publiée</h2>
+<div class="cadre">
+<div style="width: 390px; height: 1240px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — badge d'état et ligne de publication ajoutés</span>
+    <a href="#ecran-Liste" style="font-size: 14px;">Actualités</a>
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600;">Souper d'unité 2026</h1>
+      <span style="font-size: 13px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #146c43; color: #ffffff;">Publiée</span>
+    </div>
+    <div style="font-size: 13px; color: #5c636a;">Publiée le 20 octobre 2026 · pour les membres connectés · <a href="#ecran-Page">Voir la page</a></div>
+  </div>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; background: #f8f9fa;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé — non dessiné</span>
+    <span style="font-size: 13px; color: #495057; line-height: 1.5;">« Informations générales », « Visibilité », le bloc « Article » avec ses onglets et le constructeur de formulaire, et « Paramètres du formulaire » restent exactement comme aujourd'hui, à la même place. « Référencement » change : voir l'écran qui lui est consacré.</span>
+  </div>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — Partager avec son texte, boutons sur une seule ligne</span>
+    <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Affiche &amp; QR code</h2>
+    <span style="font-size: 13px; color: #212529;">Affiche A4 avec QR code vers 25sv.be/s/k7mjp</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <button type="button" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 14px; font-family: inherit;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.5h5.5L12.5 4.5v10h-8.5z"></path><path d="M9.5 1.5v3h3"></path></svg>Télécharger le PDF</button>
+      <a href="#partager" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 14px; text-decoration: none;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="15" cy="4.5" r="2.3"></circle><circle cx="5" cy="10" r="2.3"></circle><circle cx="15" cy="15.5" r="2.3"></circle><path d="M7 8.9l6-3.3"></path><path d="M7 11.1l6 3.3"></path></svg>Partager</a>
+    </div>
+    <span style="font-size: 12px; color: #6c757d;">Sur ordinateur, les deux boutons tiennent sur une ligne ; sur téléphone, ils passent à la ligne si besoin.</span>
+  </div>
+
+  <div style="margin-top: auto; border-top: 1px solid #dee2e6; padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — « Repasser en brouillon » ajouté, « Supprimer » retiré</span>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 6px; border: 0; background: #0d6efd; color: #ffffff; font-size: 15px; font-family: inherit;">Enregistrer</button>
+      <a href="#ecran-RetourBrouillon" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Repasser en brouillon</a>
+    </div>
+    <span style="font-size: 13px; color: #5c636a;">Pour supprimer cette actualité, repassez-la d'abord en brouillon.</span>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Referencement">
+<h2>Référencement selon la visibilité</h2>
+<div class="cadre">
+<div style="width: 390px; height: 900px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — même bloc, mêmes champs ; seul leur état actif change</span>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <span style="font-size: 13px; font-weight: 600; color: #5c636a;">Visibilité « Public » — brouillon, programmée ou publiée</span>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Référencement</h2>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="checkbox" role="switch" id="idx-on" checked>
+        <label for="idx-on" style="font-size: 14px; flex-grow: 1;">Indexer cette page dans les moteurs de recherche</label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label for="kw-on" style="font-size: 14px;">Mots-clés</label>
+        <input id="kw-on" type="text" value="souper, unité, inscription" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label for="stop-on" style="font-size: 14px;">Arrêter l'indexation le</label>
+        <input id="stop-on" type="date" value="2026-11-15" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+      </div>
+      <span style="font-size: 13px; color: #5c636a;">En brouillon ou programmée, le réglage est enregistré ; les moteurs de recherche ne voient la page qu'une fois l'actualité en ligne.</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <span style="font-size: 13px; font-weight: 600; color: #5c636a;">Toute autre visibilité</span>
+    <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: #f8f9fa;">
+      <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Référencement</h2>
+      <div style="display: flex; align-items: center; gap: 10px; opacity: 0.6;">
+        <input type="checkbox" role="switch" id="idx-off" disabled aria-describedby="idx-off-why">
+        <label for="idx-off" style="font-size: 14px; flex-grow: 1;">Indexer cette page dans les moteurs de recherche</label>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px; opacity: 0.6;">
+        <label for="kw-off" style="font-size: 14px;">Mots-clés</label>
+        <input id="kw-off" type="text" disabled style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px; opacity: 0.6;">
+        <label for="stop-off" style="font-size: 14px;">Arrêter l'indexation le</label>
+        <input id="stop-off" type="date" disabled style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef;">
+      </div>
+      <span id="idx-off-why" style="font-size: 13px; color: #41464b;">Seule une actualité publique peut être indexée. Choisissez « Public » dans la visibilité pour l'activer.</span>
+    </div>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Liste">
+<h2>Liste de gestion</h2>
+<div class="cadre">
+<div style="width: 390px; height: 1060px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 14px; background: #ffffff; color: #212529;">
+
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; flex-grow: 1;">Actualités</h1>
+    <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 14px; text-decoration: none;">Nouvelle actualité</a>
+  </div>
+
+  <div style="border: 1px dashed #adb5bd; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: #f8f9fa;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé sauf deux points</span>
+    <span style="font-size: 13px; color: #495057; line-height: 1.5;">La page, ses cartes et les badges de visibilité et de formulaire restent comme aujourd'hui. Seuls changent : le badge d'état ajouté en tête des badges, et la date de la carte — date de publication, ou « Créée le » pour un brouillon —, qui est aussi celle du tri.</span>
+  </div>
+
+  <a href="#ecran-Main" style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 12px; text-decoration: none; color: inherit;">
+    <div aria-hidden="true" style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; background: #e3d6c1;"></div>
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Inscriptions au camp d'été</span>
+      <span style="font-size: 13px; color: #5c636a;">Créée le 9 octobre · Xavier Dubois</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        <span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #5c636a; color: #ffffff;">Brouillon</span>
+        <span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #f8f9fa; color: #41464b; border: 1px solid #dee2e6;">Public</span>
+      </div>
+    </div>
+  </a>
+
+  <a href="#ecran-Programmee" style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 12px; text-decoration: none; color: inherit;">
+    <div aria-hidden="true" style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; background: #c9d6c3;"></div>
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Souper d'unité 2026</span>
+      <span style="font-size: 13px; color: #5c636a;">Xavier Dubois</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        <span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #0a58ca; color: #ffffff;">Programmée le 20 octobre à 8 h 00</span>
+        <span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #f8f9fa; color: #41464b; border: 1px solid #dee2e6;">Membres connectés</span>
+      </div>
+    </div>
+  </a>
+
+  <a href="#ecran-Publiee" style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 12px; text-decoration: none; color: inherit;">
+    <div aria-hidden="true" style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; background: #c7d4e2;"></div>
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Rentrée des Baladins</span>
+      <span style="font-size: 13px; color: #5c636a;">Publiée le 2 octobre · Marie Lambert</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        <span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #146c43; color: #ffffff;">Publiée</span>
+        <span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #f8f9fa; color: #41464b; border: 1px solid #dee2e6;">Public</span>
+        <span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #d1e7dd; color: #0a3622; border: 1px solid #a3cfbb;">Formulaire ouvert</span>
+      </div>
+    </div>
+  </a>
+
+  <a href="#ecran-Publiee" style="border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; display: flex; gap: 12px; text-decoration: none; color: inherit;">
+    <div aria-hidden="true" style="flex: 0 0 auto; width: 64px; height: 64px; border-radius: 6px; background: #d9cfe2;"></div>
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Réunion des chefs du 26 septembre</span>
+      <span style="font-size: 13px; color: #5c636a;">Publiée le 22 septembre · Xavier Dubois</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        <span style="font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: #146c43; color: #ffffff;">Publiée</span>
+        <span style="font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #f8f9fa; color: #41464b; border: 1px solid #dee2e6;">Chefs</span>
+      </div>
+    </div>
+  </a>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Page">
+<h2>Page d&#x27;un brouillon, vue par un gestionnaire</h2>
+<div class="cadre">
+<div style="width: 390px; height: 1060px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <div role="status" style="border: 1px solid #ced4da; background: #f1f3f5; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau</span>
+    <strong style="font-size: 15px;">Brouillon — non publiée</strong>
+    <span style="font-size: 13px; color: #41464b;">Vous la voyez parce que vous gérez les actualités. Personne d'autre ne peut l'ouvrir, même avec le lien.</span>
+    <a href="#ecran-Main" style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #6c757d; background: #ffffff; color: #343a40; font-size: 14px; text-decoration: none;">Ouvrir l'éditeur</a>
+  </div>
+
+  <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px dashed #6c757d; color: #495057; border-radius: 4px; padding: 2px 6px;">Inchangé — la page de l'actualité, abrégée ici</span>
+
+  <div aria-hidden="true" style="width: 100%; height: 196px; border-radius: 8px; background: #c9d6c3;"></div>
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <h1 style="margin: 0; font-size: 24px; line-height: 1.2; font-weight: 600;">Souper d'unité 2026</h1>
+    <span style="font-size: 13px; color: #5c636a;">Xavier Dubois</span>
+  </div>
+
+  <p style="margin: 0; font-size: 15px; line-height: 1.55;">Le grand souper de l'unité revient le 14 novembre à la salle du Petit Ry. Au menu : boulettes sauce tomate, version végétarienne sur demande. Inscrivez-vous avant le 7 novembre.</p>
+
+  <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid #b45309; background: #fff4e5; color: #7a3500; border-radius: 4px; padding: 2px 6px;">Modifié — désactivé et phrase ajoutée, champs inchangés</span>
+    <h2 style="margin: 0; font-size: 17px; font-weight: 600;">Inscription</h2>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <label for="nb" style="font-size: 14px;">Nombre de personnes</label>
+      <input id="nb" type="number" value="2" disabled style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #e9ecef;">
+    </div>
+    <button type="button" disabled style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; border: 0; background: #0d6efd; color: #ffffff; font-size: 15px; font-family: inherit; opacity: 0.5;">S'inscrire</button>
+    <span style="font-size: 13px; color: #5c636a;">Le formulaire n'accepte aucune réponse avant la publication.</span>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-PasEncore">
+<h2>Page vue par un visiteur avant la mise en ligne</h2>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: #ffffff; color: #212529;">
+
+  <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau — dans la mise en page habituelle du site</span>
+
+  <div style="margin-top: 120px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 0 12px;">
+    <svg width="48" height="48" viewBox="0 0 16 16" fill="none" stroke="#5c636a" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 4.6V8l2.3 1.5"></path></svg>
+    <h1 style="margin: 0; font-size: 22px; line-height: 1.25; font-weight: 600;">Cette actualité n'est pas encore en ligne.</h1>
+    <p style="margin: 0; font-size: 16px; line-height: 1.5; color: #41464b;">Elle le sera le mardi 20 octobre à 8 h 00.</p>
+    <a href="#actualites" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Voir les actualités</a>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Publier">
+<h2>Confirmation — Publier</h2>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: rgba(33,37,41,0.55); color: #212529;">
+
+  <div role="dialog" aria-modal="true" aria-labelledby="pub-titre" style="background: #ffffff; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau — dialogue partagé du site</span>
+    <h2 id="pub-titre" style="margin: 0; font-size: 18px; font-weight: 600;">Publier pour les membres connectés ?</h2>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5;">« Souper d'unité 2026 » apparaîtra tout de suite dans les actualités et sur la page d'accueil des animés, de leurs parents et du staff, une fois connectés. Son formulaire s'ouvrira aux réponses.</p>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">Sa date de publication sera celle d'aujourd'hui, et ne changera plus.</p>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Annuler</a>
+      <a href="#ecran-Publiee" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; text-decoration: none;">Publier</a>
+    </div>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-Programmer">
+<h2>Dialogue — Programmer</h2>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: rgba(33,37,41,0.55); color: #212529;">
+
+  <div role="dialog" aria-modal="true" aria-labelledby="prog-titre" style="background: #ffffff; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau</span>
+    <h2 id="prog-titre" style="margin: 0; font-size: 18px; font-weight: 600;">Programmer la publication</h2>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px;">
+        <label for="prog-date" style="font-size: 14px;">Date</label>
+        <input id="prog-date" type="date" value="2026-10-20" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit;">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 120px;">
+        <label for="prog-heure" style="font-size: 14px;">Heure</label>
+        <input id="prog-heure" type="time" value="08:00" style="min-height: 44px; border: 1px solid #ced4da; border-radius: 6px; padding: 0 10px; font-size: 15px; font-family: inherit; background: #ffffff;">
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5;">Le mardi 20 octobre à 8 h 00, « Souper d'unité 2026 » apparaîtra pour <strong>les membres connectés</strong>, et son formulaire s'ouvrira aux réponses. Vous serez prévenu.</p>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Annuler</a>
+      <a href="#ecran-Programmee" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #0d6efd; color: #ffffff; font-size: 15px; text-decoration: none;">Programmer</a>
+    </div>
+  </div>
+
+</div>
+</div>
+</section>
+<section class="ecran" id="ecran-RetourBrouillon">
+<h2>Confirmation — Repasser en brouillon</h2>
+<div class="cadre">
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; justify-content: center; background: rgba(33,37,41,0.55); color: #212529;">
+
+  <div role="dialog" aria-modal="true" aria-labelledby="rb-titre" style="background: #ffffff; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.2);">
+    <span style="align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; background: #5a32a3; color: #ffffff; border-radius: 4px; padding: 2px 6px;">Nouveau — dialogue partagé du site</span>
+    <h2 id="rb-titre" style="margin: 0; font-size: 18px; font-weight: 600;">Repasser en brouillon ?</h2>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5;">« Souper d'unité 2026 » disparaîtra des pages du site jusqu'à sa republication.</p>
+    <div style="border: 1px solid #ffe69c; background: #fff3cd; border-radius: 8px; padding: 12px; font-size: 14px; line-height: 1.5; color: #664d03;">
+      Son formulaire a reçu <strong>12 réponses</strong>. Elles sont conservées, avec leurs paiements et leurs billets, mais le formulaire sera fermé jusqu'à la republication.
+    </div>
+    <p style="margin: 0; font-size: 13px; color: #5c636a;">Republiée, elle gardera sa date de publication du 20 octobre.</p>
+    <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+      <a href="#ecran-Publiee" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #6c757d; color: #343a40; font-size: 15px; text-decoration: none;">Annuler</a>
+      <a href="#ecran-Main" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 6px; background: #343a40; color: #ffffff; font-size: 15px; text-decoration: none;">Repasser en brouillon</a>
+    </div>
+  </div>
+
+</div>
+</div>
+</section>
+</div>
+</body>
+</html>
