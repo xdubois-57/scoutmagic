@@ -1,0 +1,66 @@
+{# The public page of a shared communication (issue #706, IT-04) —
+   Controller\PublicPageController::show().
+
+   What Facebook, WhatsApp and Messenger read to build the preview of a
+   link somebody posted, and what a human following that link lands on.
+
+   **It carries exactly what was published**: the card the browser drew,
+   the title and the text the first destination received. Never the album
+   the communication came from, never its other photos, never an
+   article's body — the album stays « Membres connectés », and sharing
+   one of its photos in a card is not a decision to publish the album.
+   Anything added here is added to what an anonymous visitor may read, so
+   add nothing without revisiting SECURITY.md § 6. #}
+{% extends "base.html.twig" %}
+
+{% block title %}{{ title }} — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    {# Never indexed, and that is not a contradiction with the Open Graph
+       tags below: a link preview renders an address somebody chose to
+       post, which is a different act from offering it to every search.
+       The address is the authorisation here, and a search result would
+       hand it to people nobody shared it with. The news module's own
+       shareable preview says the same (views/preview.html.twig). #}
+    <meta name="robots" content="noindex">
+
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ title }}">
+    {% if body %}<meta property="og:description" content="{{ body }}">{% endif %}
+    {% if og_url %}<meta property="og:url" content="{{ og_url }}">{% endif %}
+    <meta property="og:site_name" content="{{ site_name }}">
+    {% if og_image_url %}
+        <meta property="og:image" content="{{ og_image_url }}">
+        <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+        <meta name="twitter:card" content="summary">
+    {% endif %}
+    <meta name="twitter:title" content="{{ title }}">
+    {% if body %}<meta name="twitter:description" content="{{ body }}">{% endif %}
+{% endblock %}
+
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-12 col-lg-8">
+            <h1 class="h3 mb-4">{{ title }}</h1>
+
+            {% if og_image_url %}
+                <img src="{{ og_image_url }}" alt="" class="rounded mb-4 w-100" decoding="async">
+            {% endif %}
+
+            {% if body %}
+                <p class="mb-4">{{ body|nl2br }}</p>
+            {% endif %}
+
+            {% if source_path %}
+                {# Gone the day the album or the article is deleted, and
+                   the page then shows what was published with no button.
+                   Where it leads applies its own rule to whoever follows
+                   it: an album is « Membres connectés », so a visitor
+                   with no account is asked to sign in — which is the
+                   point, not an oversight. #}
+                <a href="{{ source_path }}" class="btn btn-primary">Voir sur le site</a>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

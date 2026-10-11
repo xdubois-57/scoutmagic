@@ -31,6 +31,7 @@ use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\GroupPublishingService;
 use Tests\Modules\Social\FakeGroupPublisher;
+use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
@@ -1169,7 +1170,10 @@ final class CommunicationControllerTest extends TestCase
         // No copy of the album's title: the card reads it from the album,
         // so a second answer here could only ever disagree with it.
         $this->assertSame('', (string) $row['title']);
-        $this->assertNotNull($this->request('/photos'));
+        // `/feed` and not `/photos` since IT-04: an album reaches the Page
+        // as a LINK to the communication's public page. What this test is
+        // about is the pair that was recorded, and that something left.
+        $this->assertNotNull($this->request('/feed'));
     }
 
     /**
@@ -1493,16 +1497,32 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
     }
 
-    /** And an album, which goes as a photo, still gets the plain promise. */
-    public function testTheComposerStillPromisesTheCardItselfForAnAlbum(): void
+    /**
+     * **An album says « a link » too since IT-04, and says something
+     * else about the card** — the opposite of what this test pinned for
+     * IT-03, when an album went to the Page as a photo.
+     *
+     * The difference from the article above is the whole point of there
+     * being two sentences: the link leads to the communication's own
+     * public page, which shows THIS card, this title and this text. So
+     * the card does reach Facebook, inside the preview, and the
+     * article's « n'affiche donc pas cette carte » would be false here.
+     * The reassurance the chief needs instead is that the album stays
+     * among the members.
+     */
+    public function testTheComposerSaysFacebookWillLinkToThePublicPageOfAnAlbum(): void
     {
         $id = $this->sourceBackedCommunication();
         $this->loginAuthor();
 
         $flat = self::flattened($this->controller()->edit($this->get(), ['id' => (string) $id])->getBody());
 
-        $this->assertStringContainsString('Voici exactement ce qui sera publié', $flat);
-        $this->assertStringNotContainsString('c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('Sur Facebook, c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('une page de ce site qui montre cette carte', $flat);
+        $this->assertStringContainsString('L\'album, lui, reste réservé aux membres', $flat);
+        $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
+        // The article's sentence, which would be false here.
+        $this->assertStringNotContainsString('n\'affiche donc pas cette carte', $flat);
     }
 
     /**
@@ -2530,6 +2550,16 @@ final class CommunicationControllerTest extends TestCase
                     )
                     : null;
             }
+
+            public function pagePath(int $albumId): ?string
+            {
+                // `reachable` is « this person may share it », and this
+                // method asks nothing about a person: an album still
+                // exists for a chief who lost it (issue #706, IT-04).
+                return $albumId === CommunicationControllerTest::ALBUM_ID
+                    ? '/gallery/' . CommunicationControllerTest::ALBUM_ID
+                    : null;
+            }
         };
     }
 
@@ -2556,6 +2586,13 @@ final class CommunicationControllerTest extends TestCase
                         $this->cover,
                         true
                     )
+                    : null;
+            }
+
+            public function pagePath(int $articleId): ?string
+            {
+                return $articleId === CommunicationControllerTest::ARTICLE_ID
+                    ? '/s/abc'
                     : null;
             }
         };
@@ -2612,6 +2649,7 @@ final class CommunicationControllerTest extends TestCase
             $cards,
             $settings,
             $journal,
+            new PublicPageService($this->communications, $settings, $journal),
             new MetaClient($this->meta, static function (int $seconds): void {
             })
         );

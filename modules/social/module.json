@@ -2,7 +2,7 @@
   "id": "social",
   "name": "Réseaux sociaux",
   "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -82,6 +82,24 @@
       "method": "GET",
       "controller": "Modules\\Social\\Controller\\CardController",
       "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/partage/{token}",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\PublicPageController",
+      "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/partage/{token}/carte.jpg",
+      "method": "GET",
+      "controller": "Modules\\Social\\Controller\\PublicPageController",
+      "action": "image",
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""

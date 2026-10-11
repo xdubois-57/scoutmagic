@@ -25,4 +25,15 @@ final class FakeArticleSource implements ArticleShareSourceInterface
             ? $this->article
             : null;
     }
+
+    /**
+     * Existence and an address, asked by nobody in particular — no
+     * editor, which is the point of the method (issue #706, IT-04).
+     */
+    public function pagePath(int $articleId): ?string
+    {
+        return $this->article !== null && $this->article->id === $articleId
+            ? '/news/' . $articleId
+            : null;
+    }
 }

@@ -124,4 +124,45 @@ final class ShareSource
         return ($this->card !== null && $this->card !== '')
             || ($this->image !== null && $this->image !== '');
     }
+
+    /**
+     * Whether Facebook receives a **link** post rather than a photo post
+     * — the whole of that decision, in one place (issue #706, IT-04).
+     *
+     * Three cases, and the roadmap names all three:
+     *
+     * - an **article** carries `link`, its own public address, whose
+     *   Open Graph tags the news module already emits (IT-03);
+     * - an **album** has no public address of its own and never will —
+     *   it stays `identified` — so what Facebook is pointed at is the
+     *   communication's public page
+     *   ({@see \Modules\Social\Service\PublicPageService});
+     * - a communication written from **nothing** has no page to offer and
+     *   goes as a photo post, as it always did.
+     *
+     * One predicate rather than a condition repeated, because the
+     * composer has to say which of the two will happen BEFORE anything is
+     * published, and the publisher has to do what was said. Keying the
+     * composer's sentence on `link` alone was right while only an article
+     * went as a link; for an album `link` is still null at that moment,
+     * since the public page is minted at the first share that needs it
+     * and not when a draft is opened. Two rules would have drifted apart
+     * on exactly that gap.
+     *
+     * **`kind` as well as `spokenKind()`**, and that is the album case's
+     * whole subtlety: the public page belongs to the COMMUNICATION, so
+     * there has to be one. A retry of a share made before the composer
+     * existed still reaches
+     * `Controller\CommunicationController::retry()` through
+     * `…/reessayer/album/{albumId}/…`, where this object carries the
+     * ALBUM's own id and no communication row stands behind it. That
+     * share keeps going as a photo post, which is what it has always
+     * been — rather than pointing Facebook at a page built from an
+     * unrelated row that happens to share the number.
+     */
+    public function facebookReceivesLink(): bool
+    {
+        return $this->link !== null
+            || ($this->kind === self::KIND_COMMUNICATION && $this->spokenKind() === self::KIND_ALBUM);
+    }
 }
