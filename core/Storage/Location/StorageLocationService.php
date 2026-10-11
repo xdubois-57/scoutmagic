@@ -384,6 +384,11 @@ class StorageLocationService
             // refused whatever its name — and so is the folder known to
             // hold this location's own. (One holding another location's is
             // refused as overlapping it, below, with a sharper reason.)
+            // Its name is kept as a second test below: a shared folder
+            // moved deeper in the drive would escape the first, and
+            // attaching to it puts every location's files in reach of one
+            // deletion — refusing a location's own folder that happens to
+            // bear that name costs a rename at most.
             $sharedParent = $usable && (
                 count(self::ancestorsOf($backend, $folder['parents'])) < 2
                 || in_array($folderId, self::sharedParentsOf($backend, [$config->folderId]), true)
