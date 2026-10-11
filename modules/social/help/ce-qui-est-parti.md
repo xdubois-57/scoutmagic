@@ -8,7 +8,7 @@ question: Comment savoir si une publication est bien partie sur Instagram ?
 question: Comment relancer une publication qui a échoué ?
 question: Que veut dire « non demandé » à côté d'une destination ?
 paths: /medias-sociaux, /medias-sociaux/reessayer/*/*/*
-related: medias-sociaux, reseaux-sociaux
+related: partager-soi-meme, medias-sociaux, reseaux-sociaux
 ---
 
 Sous « Médias sociaux », **« Ce qui est parti »** liste les trente
@@ -24,7 +24,10 @@ Chaque publication montre, pour chaque destination, son état :
 - **échec**, avec la raison donnée par Facebook ou Instagram, conservée
   telle quelle, et une icône pour réessayer ;
 - **non demandé** : cette destination n'a jamais été cochée pour cette
-  publication. Ce n'est pas un échec.
+  publication. Ce n'est pas un échec ;
+- **« Partagé depuis le téléphone »** ou **« Lien copié »**, avec sa date,
+  quand vous avez partagé la communication vous-même depuis cette page.
+  Voir [Partager soi-même depuis l'historique](partager-soi-meme).
 
 Les groupes de discussion ont chacun leur ligne, au nom qu'ils portaient
 au moment de la publication : un groupe renommé depuis garde son ancien

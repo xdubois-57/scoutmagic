@@ -140,13 +140,23 @@ final class PublicPageService
         // is the right answer; the one in hand may not be.
         $stored = $this->communications->find($communicationId)->publicToken ?? $token;
 
-        $this->journal->log(
-            'social',
-            'public_page_created',
-            'security',
-            'Page publique créée pour une communication partagée',
-            ['communication_id' => $communicationId]
-        );
+        // **Journalled only when THIS request is the one that wrote it**
+        // (CodeRabbit, on the pull request for IT-04). The read-back above
+        // exists because two callers can overlap — `claim()` allows a
+        // confirmed retry of a stale pending attempt, so the overlap is
+        // reachable — and logging on both sides of it would put two
+        // « Page publique créée » lines at `security` level against one
+        // page. A duplicate at that level misleads an audit, which is
+        // the whole purpose of the line.
+        if ($stored === $token) {
+            $this->journal->log(
+                'social',
+                'public_page_created',
+                'security',
+                'Page publique créée pour une communication partagée',
+                ['communication_id' => $communicationId]
+            );
+        }
 
         return $base . self::ROUTE_PREFIX . $stored;
     }

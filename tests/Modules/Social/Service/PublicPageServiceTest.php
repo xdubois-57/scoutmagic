@@ -179,6 +179,78 @@ final class PublicPageServiceTest extends TestCase
         $this->assertSame(str_repeat('a', 64), $this->communications->find($id)?->publicToken);
     }
 
+    /**
+     * **One page, one journal line** — even when a second caller runs the
+     * mint and reads the first one's token back (CodeRabbit, on the pull
+     * request for IT-04; carried here because IT-05 is what touches this
+     * file next).
+     *
+     * `claim()` allows a confirmed retry of a stale pending attempt, so
+     * two callers CAN overlap on one communication. The row written first
+     * wins, and the loser must not claim to have created anything: a
+     * duplicate « Page publique créée » at `security` level misleads an
+     * audit, which is the only reason that line exists.
+     *
+     * **Simulated where the race actually is**, which a pre-set token
+     * cannot do: with one already stored, `ensureUrlFor()` returns before
+     * it ever mints, so that version of this test would have proved the
+     * early return and called it the guard. The repository double below
+     * answers « no token » to the first read and the winner's token to
+     * the second — the exact state a loser finds, between its own read
+     * and its own write.
+     */
+    public function testASecondCallerThatLosesTheRaceJournalsNothing(): void
+    {
+        $id = $this->communication();
+        $winner = str_repeat('a', 64);
+        $repository = new class ($this->pdo, $id, $winner) extends CommunicationRepository {
+            private int $reads = 0;
+
+            public function __construct(\PDO $pdo, private readonly int $id, private readonly string $winner)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function find(int $id): ?Communication
+            {
+                $this->reads++;
+
+                // First read: nothing there yet, so this caller mints.
+                // Second read: the winner's row, written in between.
+                return new Communication(
+                    $this->id,
+                    '',
+                    'Les photos sont en ligne',
+                    null,
+                    null,
+                    7,
+                    new \DateTimeImmutable(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    $this->reads === 1 ? null : $this->winner
+                );
+            }
+
+            /** The winner already wrote; `WHERE public_token IS NULL` matches nothing. */
+            public function assignPublicToken(int $id, string $token, \DateTimeImmutable $now): void
+            {
+            }
+        };
+
+        $url = (new PublicPageService(
+            $repository,
+            new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']),
+            new JournalService($this->journal)
+        ))->ensureUrlFor($id, new \DateTimeImmutable());
+
+        // The address handed back is the one that was STORED, never the
+        // token this caller generated and lost.
+        $this->assertSame('https://unite.example/partage/' . $winner, $url);
+        $this->assertSame(0, $this->journal->countOf('public_page_created'), 'it created nothing to announce');
+    }
+
     private function service(): PublicPageService
     {
         return new PublicPageService(

@@ -183,6 +183,11 @@ final class ModuleManifestTest extends TestCase
      * callout, so IT-02's blur had nowhere to go in it. Splitting was the
      * decision, not squeezing.
      *
+     * `partager-soi-meme` exists because `ce-qui-est-parti` was at 353
+     * words of the charter's 500 and the gesture is a subject of its own
+     * — what it freezes, and why sharing one album twice is allowed.
+     * Splitting was the decision, not squeezing (issue #706, IT-05).
+     *
      * `une-publication-partagee` is the only `public` topic of this
      * module, and it exists because the public page of a communication
      * is a PAGE (issue #706, IT-04): `HelpMenuCoverageTest` requires
@@ -208,6 +213,7 @@ final class ModuleManifestTest extends TestCase
                 'ce-qui-est-parti',
                 'l-image-publiee',
                 'medias-sociaux',
+                'partager-soi-meme',
                 'reseaux-sociaux',
                 'une-publication-partagee',
             ],
