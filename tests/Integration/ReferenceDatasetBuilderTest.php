@@ -410,6 +410,9 @@ final class ReferenceDatasetBuilderTest extends TestCase
         foreach ([
             'current_scout_year_id',
             'news_image_variants_backfilled',
+            // The live flag, by its constant: renamed once with a `_v2`
+            // that no suffix matched, and the reset kept it (#883).
+            \Modules\News\Task\GenerateImageVariantsHandler::DONE_FLAG,
             'categories_seeded',
             'registration_scheduled_close_applied_on',
             'statistics_installation_id',
@@ -435,7 +438,7 @@ final class ReferenceDatasetBuilderTest extends TestCase
             )->fetchColumn(),
             'a run flag survived the wipe: it claims something about data that is gone',
         );
-        self::assertSame(6, $result['settings']);
+        self::assertSame(7, $result['settings']);
 
         // Et la configuration, elle, reste : c'est tout l'intérêt d'épargner
         // cette table.

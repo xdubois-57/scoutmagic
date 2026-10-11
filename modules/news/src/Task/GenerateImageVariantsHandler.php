@@ -43,7 +43,7 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
      * covers them — a new flag is what makes every installation run it
      * once more. Covers already done are skipped at the cost of a stat.
      */
-    public const DONE_FLAG = 'news_image_variants_backfilled_v2';
+    public const DONE_FLAG = 'news_body_image_variants_backfilled';
 
     /**
      * How many images one pass re-encodes before handing over.
