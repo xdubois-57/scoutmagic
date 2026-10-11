@@ -13,10 +13,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SLOTS = [
-    { birth_year: 2018, age_branch_id: 2, branch_label: 'Louveteaux', year_in_branch: 1, tier: 'available' },
-    { birth_year: 2014, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 2, tier: 'limited' },
-    { birth_year: 2013, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 3, tier: 'heavy' },
-    { birth_year: 2012, age_branch_id: 4, branch_label: 'Pionniers', year_in_branch: 1, tier: null },
+    { birth_year: 2018, age_branch_id: 2, branch_label: 'Louveteaux', year_in_branch: 1, level: 'yes' },
+    { birth_year: 2014, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 2, level: 'maybe' },
+    { birth_year: 2013, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 3, level: 'no' },
+    { birth_year: 2012, age_branch_id: 4, branch_label: 'Pionniers', year_in_branch: 1, level: null },
 ];
 
 // The « Section souhaitée » list as modules/registration/views/public.html.twig
@@ -127,16 +127,18 @@ describe('registration-public-form.js', () => {
             expect(hint()).toMatch(/Éclaireurs — 2ᵉ année/);
         });
 
-        it('names each waitlist tier in French', async () => {
+        it('names each public level in French', async () => {
             await boot();
 
+            type('2018-06-01');
+            expect(hint()).toMatch(/Disponible\.$/);
             type('2014-06-01');
             expect(hint()).toMatch(/Limitée\.$/);
             type('2013-06-01');
             expect(hint()).toMatch(/Complet\.$/);
         });
 
-        it('says nothing about a tier when the waitlist is off', async () => {
+        it('says nothing about a level when the waitlist is off', async () => {
             document.body.innerHTML = page({ ...DEFAULT_DATA, waitlistEnabled: false });
             await boot();
             type('2013-06-01');
@@ -144,7 +146,7 @@ describe('registration-public-form.js', () => {
             expect(hint()).toBe('Branche prévue : Éclaireurs — 3ᵉ année.');
         });
 
-        it('says nothing about a tier when the row carries none', async () => {
+        it('says nothing about a level when the row carries none', async () => {
             await boot();
             type('2012-06-01');
 
@@ -192,7 +194,7 @@ describe('registration-public-form.js', () => {
             document.body.innerHTML = page({
                 ...DEFAULT_DATA,
                 birthYearSlots: [{
-                    birth_year: 2018, branch_label: '<b>Louveteaux</b>', year_in_branch: 1, tier: null,
+                    birth_year: 2018, branch_label: '<b>Louveteaux</b>', year_in_branch: 1, level: null,
                 }],
             });
             await boot();
@@ -298,7 +300,7 @@ describe('registration-public-form.js', () => {
             document.body.innerHTML = page({
                 ...DEFAULT_DATA,
                 birthYearSlots: [{
-                    birth_year: 2018, branch_label: 'Louveteaux', year_in_branch: 1, tier: null,
+                    birth_year: 2018, branch_label: 'Louveteaux', year_in_branch: 1, level: null,
                 }],
             });
             await boot();

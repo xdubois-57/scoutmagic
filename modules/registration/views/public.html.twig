@@ -32,16 +32,16 @@
                                         {{ year }}
                                         {% if waitlist_enabled %}
                                             {# « Complet » shows only for a birth year Service\SlotService
-                                               explicitly placed in the `heavy` tier. A branch with no
-                                               recorded capacity (NULL in the database — « pas de
-                                               limite », never 0) never reaches it: it is announced
-                                               « Disponible », like a branch that has room. Never
-                                               replace this cascade with arithmetic on a number — a
-                                               NULL read as one is 0, and an unconfigured branch would
-                                               flip to « Complet ». #}
-                                            {% if year in waitlist_tiers.limited|default([]) %}
+                                               explicitly placed in the `no` level, « Limitée » for one in
+                                               `maybe`. A branch with no recorded capacity (NULL in the
+                                               database — « pas de limite », never 0) is always `yes`:
+                                               it is announced « Disponible », like a branch that has
+                                               room. Never replace this cascade with arithmetic on a
+                                               number — a NULL read as one is 0, and an unconfigured
+                                               branch would flip to « Complet ». #}
+                                            {% if year in public_levels.maybe|default([]) %}
                                                 <span class="badge text-bg-warning ms-1">Limitée</span>
-                                            {% elseif year in waitlist_tiers.heavy|default([]) %}
+                                            {% elseif year in public_levels.no|default([]) %}
                                                 <span class="badge text-bg-danger ms-1">Complet</span>
                                             {% else %}
                                                 <span class="badge text-bg-success ms-1">Disponible</span>

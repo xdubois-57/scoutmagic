@@ -381,13 +381,11 @@ class RegistrationRequestRepository
     }
 
     /**
-     * Every 'accepted' request for $scoutYearId, fully decrypted —
-     * Service\SlotService buckets these into slots by birth date, same as
-     * the public waitlist display, for both the admin capacity table's
-     * "demandes acceptées" column and the tier shown to the public (module
-     * spec: accepted requests are real commitments, unlike still-undecided
-     * pending ones, so they're what the public-facing availability level
-     * is computed from).
+     * Every 'accepted' request for $scoutYearId, fully decrypted — the
+     * fourth source of Service\ForecastService's projection, and through
+     * it the « Demandes acceptées » column of the capacity check and the
+     * level shown to the public (module spec: accepted requests are real
+     * commitments, unlike still-undecided pending ones).
      *
      * @return array<RegistrationRequest>
      */
@@ -395,6 +393,26 @@ class RegistrationRequestRepository
     {
         $stmt = $this->pdo->prepare(
             "SELECT * FROM registration_requests WHERE scout_year_id = ? AND status = 'accepted'"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every 'encoded' request for $scoutYearId, fully decrypted — what
+     * Service\SlotService needs to keep an accepted request in exactly one
+     * place once Desk knows the child: through the member it was linked
+     * to when the projection holds that member, through its own birth
+     * date when it does not yet (R1, docs/chantiers/
+     * CHANTIER-formulaire-inscription.md).
+     *
+     * @return array<RegistrationRequest>
+     */
+    public function findEncodedForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM registration_requests WHERE scout_year_id = ? AND status = 'encoded'"
         );
         $stmt->execute([$scoutYearId]);
 

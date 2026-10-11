@@ -81,8 +81,22 @@ class PublicRegistrationControllerTest extends TestCase
         $this->settingService->register('registration_waitlist_enabled', '0', 'boolean', 'Places', 'desc', 'registration');
         $this->settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $this->settingService->register('registration_unit_alert_email', '', 'text', 'Alerte', 'desc', 'registration');
-        $this->settingService->register('registration_waitlist_threshold_available', '0.5', 'text', 'Dispo', 'desc', 'registration');
-        $this->settingService->register('registration_waitlist_threshold_limited', '0.1', 'text', 'Limité', 'desc', 'registration');
+        $this->settingService->register(
+            'registration_threshold_yes_percent',
+            '70',
+            'number',
+            'Oui',
+            'desc',
+            'registration'
+        );
+        $this->settingService->register(
+            'registration_threshold_maybe_percent',
+            '100',
+            'number',
+            'Peut-être',
+            'desc',
+            'registration'
+        );
         $this->settingService->register('registration_parcours_image_file_id', '0', 'number', 'Image', 'desc', 'registration');
         $this->settingService->register('human_check_min_delay_seconds', '2', 'number', 'Délai', 'desc');
         $this->settingService->register('human_check_form_validity_seconds', '100', 'number', 'Validité', 'desc');
@@ -98,7 +112,6 @@ class PublicRegistrationControllerTest extends TestCase
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
         $yearCodeRepository = new RegistrationYearCodeRepository($this->pdo);
-        $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption);
 
         $connection = Connection::withPdo($this->pdo);
@@ -111,7 +124,7 @@ class PublicRegistrationControllerTest extends TestCase
     new MemberProfileRepository($connection, $this->encryption)
 );
 
-        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), new \Core\Config\ScoutYearService($this->pdo), $this->settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
+        $slotService = RegistrationTestHelper::slotService($this->pdo, $this->encryption, $this->settingService);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $mailService = $this->createStub(MailService::class);
@@ -785,12 +798,12 @@ class PublicRegistrationControllerTest extends TestCase
 
     /**
      * When the waitlist display setting is on, the public page must expose
-     * each birth year's tier (available/limited/heavy) both in the static
+     * each birth year's level (yes/maybe/no) both in the static
      * "nés en..." grid and in the JS data feeding the dynamic hint — but
      * never the raw capacity/projected/accepted counts behind it (those
      * are staff-only, shown on /config/inscriptions).
      */
-    public function testBirthYearSlotsIncludeWaitlistTierWhenEnabled(): void
+    public function testBirthYearSlotsIncludeThePublicLevelWhenEnabled(): void
     {
         $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
         $capacityRepository = new SlotCapacityRepository($this->pdo);
@@ -799,9 +812,61 @@ class PublicRegistrationControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
         $body = $response->getBody();
 
-        $this->assertStringContainsString('"tier":"heavy"', $body);
+        $this->assertStringContainsString('"level":"no"', $body);
         $this->assertStringNotContainsString('"capacity"', $body);
         $this->assertStringNotContainsString('"accepted"', $body);
+    }
+
+    /**
+     * @return array<string, array{int, string, string}>
+     */
+    public static function publicLevelCases(): array
+    {
+        return [
+            // accepted requests against 10 places, threshold « Oui », level
+            '70 % is still Disponible' => [7, '70', 'yes'],
+            'just over 70 % is Limitée' => [8, '70', 'maybe'],
+            'every place taken is still Limitée' => [10, '70', 'maybe'],
+            'over capacity is Complet' => [11, '70', 'no'],
+            'the same 80 % under « Oui jusqu\'à 80 % » is Disponible' => [8, '80', 'yes'],
+        ];
+    }
+
+    /**
+     * The level a family reads (Disponible / Limitée / Complet) is the
+     * occupancy read through EXACTLY the thresholds the chief sets for the
+     * recommendation — « Oui jusqu'à … % », « Peut-être jusqu'à … % » —
+     * bound included.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('publicLevelCases')]
+    public function testThePublicLevelReadsTheSameThresholdsAsTheRecommendation(
+        int $accepted,
+        string $yesPercent,
+        string $expectedLevel
+    ): void {
+        $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
+        $this->settingService->set('registration_threshold_yes_percent', $yesPercent, 'registration');
+        (new SlotCapacityRepository($this->pdo))->upsert($this->baladinsId, 1, 10);
+        $targetYearId = (new \Core\Config\ScoutYearService($this->pdo))->ensureYear('2027-2028');
+        $requests = new RegistrationRequestRepository($this->pdo, $this->encryption);
+        for ($i = 0; $i < $accepted; $i++) {
+            // Born 2021: six in 2027, Baladins 1st year.
+            $created = $requests->create($targetYearId, [
+                'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'Enfant' . $i,
+                'gender' => 'F', 'birth_date' => '2021-06-01', 'street' => 'S', 'number' => '1',
+                'postal_code' => '1000', 'city' => 'V', 'email' => 'famille' . $i . '@example.com',
+                'phone1' => '000', 'phone2' => null, 'remarks' => null,
+            ], null, []);
+            $requests->updateStatus($created['id'], 'accepted', null);
+        }
+
+        $body = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString(
+            '"birth_year":2021,"age_branch_id":' . $this->baladinsId
+                . ',"branch_label":"Baladins","year_in_branch":1,"level":"' . $expectedLevel . '"',
+            $body
+        );
     }
 
     /**

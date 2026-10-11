@@ -8,7 +8,7 @@ question: Comment accepter ou refuser une demande d'inscription ?
 question: Comment répondre à une famille qui attend une place ?
 question: Combien de demandes reste-t-il à traiter ?
 paths: /config/inscriptions, /config/inscriptions/demandes, /config/inscriptions/demandes/*, /config/inscriptions/gabarits, /config/inscriptions/reglages
-related: inscrire-un-enfant, passage, annee-scoute
+related: capacites-et-listes-d-attente, inscrire-un-enfant, passage, annee-scoute
 ---
 
 La page « Formulaire d'inscription » a quatre onglets : « Tableau de
@@ -63,7 +63,8 @@ n'existe pas chaque année.
 Dans « Capacités par branche », une case vide signifie **pas de
 limite** ; pour fermer une branche, écrivez **0**. L'interrupteur
 « Gérer les listes d'attente » décide si les familles voient la
-disponibilité des places.
+disponibilité des places. Les seuils et le calcul des places occupées
+ont leur propre sujet d'aide, lié ci-dessous.
 
 ## Avant le changement d'année
 

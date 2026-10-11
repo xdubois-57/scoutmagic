@@ -74,16 +74,16 @@
                                         <span class="flex-grow-1" style="min-width: 0;">
                                             <span class="d-flex align-items-center justify-content-end text-white fw-semibold small rounded-end"
                                                   style="width: {{ width }}%; min-width: 2.25rem; height: 30px; padding-right: 0.5rem; background-color: {{ branch.color }};">
-                                                {{ row.remaining }}
+                                                {{ row.remaining ?? '—' }}
                                             </span>
                                         </span>
                                         <span class="text-nowrap flex-shrink-0" style="width: 6.5rem;">
-                                            {% if row.tier == 'available' %}
+                                            {% if row.level == 'yes' %}
                                                 <span class="badge text-bg-success">Disponible</span>
-                                            {% elseif row.tier == 'limited' %}
+                                            {% elseif row.level == 'maybe' %}
                                                 <span class="badge text-bg-warning">Limitée</span>
                                             {% else %}
-                                                <span class="badge text-bg-danger">Importante</span>
+                                                <span class="badge text-bg-danger">Complet</span>
                                             {% endif %}
                                         </span>
                                     </div>

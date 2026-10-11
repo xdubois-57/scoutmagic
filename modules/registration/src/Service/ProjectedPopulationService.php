@@ -218,6 +218,7 @@ class ProjectedPopulationService implements ProjectedPopulationProvider
      *         request_id: ?int,
      *         section_id: ?int,
      *         year_in_branch: ?int,
+     *         branch_sort_order: ?int,
      *         gender: string,
      *         birth_year: ?int,
      *         certain: bool,

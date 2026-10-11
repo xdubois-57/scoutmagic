@@ -30,12 +30,10 @@ use Modules\Registration\Controller\RegistrationRequestController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
-use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\HouseholdRegistrationCountService;
 use Modules\Registration\Service\MigrationService;
 use Modules\Registration\Service\RequestEmailService;
 use Modules\Registration\Service\RequestStatusService;
-use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -92,8 +90,15 @@ class RegistrationRequestControllerTest extends TestCase
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
-        $settingService->register('registration_waitlist_threshold_available', '0.5', 'text', 'Dispo', 'desc', 'registration');
-        $settingService->register('registration_waitlist_threshold_limited', '0.1', 'text', 'Limité', 'desc', 'registration');
+        $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
+        $settingService->register(
+            'registration_threshold_maybe_percent',
+            '100',
+            'number',
+            'Peut-être',
+            'desc',
+            'registration'
+        );
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
 
@@ -105,10 +110,7 @@ class RegistrationRequestControllerTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, new MemberYearRepository($this->pdo));
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
-        $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService(
-            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
-        );
+        $slotService = RegistrationTestHelper::slotService($this->pdo, $encryption, $settingService);
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
     new SectionRepository($connection),

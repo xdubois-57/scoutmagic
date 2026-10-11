@@ -204,6 +204,47 @@ class RegistrationRequestRepositoryTest extends TestCase
      * a scout year at once, so it asks for a batch of addresses in one
      * query rather than one query per household.
      */
+    /**
+     * The encoded requests of a year, decrypted, with the member each was
+     * linked to — and nothing else: not an accepted one still waiting for
+     * Desk, not another year's.
+     */
+    public function testFindEncodedForYearReturnsOnlyThatYearsEncodedRequests(): void
+    {
+        $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'DESK_ENCODED');
+        $otherMemberId = RegistrationTestHelper::insertMember($this->pdo, 'DESK_OTHER');
+
+        $encoded = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['birth_date' => '2020-02-03']),
+            null,
+            []
+        );
+        $this->repository->linkToMemberAndEncode($encoded['id'], $memberId, new \DateTimeImmutable());
+        $accepted = $this->repository->create(
+            $this->scoutYearId,
+            $this->sampleFields(['child_first_name' => 'Zoé']),
+            null,
+            []
+        );
+        $this->repository->updateStatus($accepted['id'], 'accepted', null);
+        $elsewhere = $this->repository->create(
+            $otherYearId,
+            $this->sampleFields(['child_first_name' => 'Tom']),
+            null,
+            []
+        );
+        $this->repository->linkToMemberAndEncode($elsewhere['id'], $otherMemberId, new \DateTimeImmutable());
+
+        $found = $this->repository->findEncodedForYear($this->scoutYearId);
+
+        $this->assertCount(1, $found);
+        $this->assertSame($encoded['id'], $found[0]->id);
+        $this->assertSame($memberId, $found[0]->linkedMemberId);
+        $this->assertSame('2020-02-03', $found[0]->birthDate);
+    }
+
     public function testCountHouseholdsAtAddressesCountsOnlyAcceptedAndEncodedRequestsOfThatYear(): void
     {
         $paix = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);

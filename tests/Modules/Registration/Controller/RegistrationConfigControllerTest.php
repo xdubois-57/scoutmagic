@@ -18,6 +18,7 @@ use Core\Database\Connection;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Modules\Registration\Controller\RegistrationConfigController;
 use Modules\Registration\Repository\AgeBracketRepository;
@@ -75,8 +76,15 @@ class RegistrationConfigControllerTest extends TestCase
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
-        $settingService->register('registration_waitlist_threshold_available', '0.5', 'text', 'Dispo', 'desc', 'registration');
-        $settingService->register('registration_waitlist_threshold_limited', '0.1', 'text', 'Limité', 'desc', 'registration');
+        $settingService->register('registration_threshold_yes_percent', '70', 'number', 'Oui', 'desc', 'registration');
+        $settingService->register(
+            'registration_threshold_maybe_percent',
+            '100',
+            'number',
+            'Peut-être',
+            'desc',
+            'registration'
+        );
         $settingService->register('registration_waitlist_enabled', '1', 'boolean', 'Gérer les listes d\'attente', 'desc', 'registration');
         $settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $settingService->register('registration_scheduled_open_at', '09-30', 'text', 'Ouverture', 'desc', 'registration');
@@ -97,9 +105,7 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $yearCodeRepository = new RegistrationYearCodeRepository($this->pdo);
-        $slotService = new SlotService(
-            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
-        );
+        $slotService = RegistrationTestHelper::slotService($this->pdo, $encryption, $settingService);
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService(
     new SectionRepository($connection),
@@ -734,10 +740,52 @@ class RegistrationConfigControllerTest extends TestCase
         $body = $this->renderPage('index');
 
         // The unlimited slot's row carries "Sans limite" and no
-        // "Attente importante" badge is rendered for it. Nothing else on
-        // the page is full either, so the badge must be absent entirely.
+        // « Complet » badge is rendered for it. Nothing else on the page
+        // is full either, so the badge must be absent entirely.
         $this->assertStringContainsString('Sans limite', $body);
-        $this->assertStringNotContainsString('Attente importante', $body);
+        $this->assertStringNotContainsString('>Complet</span>', $body);
+        $this->assertStringContainsString('>Disponible</span>', $body);
+    }
+
+    /**
+     * The capacity check shows the unified projection: a current animé
+     * whose family has not answered the reenrollment is counted as staying,
+     * and said to be (« dont N sans réponse »), and the paragraph under the
+     * table explains how the projection is built.
+     */
+    public function testTheCapacityCheckShowsHowManyProjectedAnimesHaveNotAnswered(): void
+    {
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, 1)')
+            ->execute(['BALA1', $this->baladinsId, 'Baladins']);
+        $sectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('anime', 'Animé', 'identified')");
+        $functionId = (int) $this->pdo->lastInsertId();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        // Born 2020: Baladins 1st year in 2026-2027, 2nd year in 2027-2028.
+        foreach (['DESK_A', 'DESK_B'] as $deskId) {
+            $memberId = RegistrationTestHelper::insertMember($this->pdo, $deskId);
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                    birth_date_encrypted) VALUES (?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $memberId, $this->currentYearId,
+                $encryption->encrypt('Prénom', 'member_years.first_name'),
+                $encryption->encrypt('Nom', 'member_years.last_name'),
+                $encryption->encrypt('2020-03-01', 'member_years.birth_date'),
+            ]);
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function)
+                    VALUES (?, ?, ?, ?, 1)'
+            );
+            $stmt->execute([(int) $this->pdo->lastInsertId(), $functionId, $sectionId, $this->baladinsId]);
+        }
+
+        $body = $this->renderPage('index');
+
+        $this->assertStringContainsString('(dont 2 sans réponse)', $body);
+        $this->assertStringContainsString('seuls les départs annoncés', $body);
+        $this->assertStringContainsString('encodées dans Desk ou non', $body);
     }
 
     public function testTheWaitlistSwitchLivesInTheCapacityBoxAndSaves(): void
@@ -754,91 +802,188 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * 15c: with the waitlist off, nothing on this page talks about one —
-     * neither the two thresholds nor the columns that read them.
+     * With the waitlist off, the capacity table drops the columns that
+     * describe it, and the two thresholds stay on the page — greyed and
+     * disabled, their stored values shown and kept (chantier #843, D3).
      */
-    public function testNothingWaitlistRelatedIsRenderedWhenTheSwitchIsOff(): void
+    public function testTheThresholdsStayVisibleButDisabledWhileTheSwitchIsOff(): void
     {
         $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
+        $this->settingService->set('registration_threshold_yes_percent', '60', 'registration');
+        $this->settingService->set('registration_threshold_maybe_percent', '90', 'registration');
 
         $settings = $this->renderPage('settings');
         $dashboard = $this->renderPage('index');
 
-        $this->assertStringNotContainsString('name="threshold_available"', $settings);
-        $this->assertStringNotContainsString('name="threshold_limited"', $settings);
+        $yes = $this->inputTag($settings, 'threshold_yes_percent');
+        $maybe = $this->inputTag($settings, 'threshold_maybe_percent');
+        $this->assertMatchesRegularExpression('/\sdisabled[\s>]/', $yes);
+        $this->assertMatchesRegularExpression('/\sdisabled[\s>]/', $maybe);
+        $this->assertStringContainsString('value="60"', $yes);
+        $this->assertStringContainsString('value="90"', $maybe);
+        $this->assertStringContainsString('Oui jusqu&#039;à … % de places occupées', $settings);
+        $this->assertStringContainsString('Peut-être jusqu&#039;à … % de places occupées', $settings);
+        $this->assertStringContainsString('Les valeurs enregistrées', $settings);
         $this->assertStringNotContainsString('<th>Restant</th>', $dashboard);
         $this->assertStringNotContainsString('<th>Niveau public</th>', $dashboard);
 
         $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
-        $this->assertStringContainsString('name="threshold_available"', $this->renderPage('settings'));
+        $backOn = $this->renderPage('settings');
+        $this->assertDoesNotMatchRegularExpression(
+            '/\sdisabled[\s>]/',
+            $this->inputTag($backOn, 'threshold_yes_percent')
+        );
+        $this->assertStringContainsString('value="60"', $this->inputTag($backOn, 'threshold_yes_percent'));
         $this->assertStringContainsString('<th>Niveau public</th>', $this->renderPage('index'));
     }
 
     /**
-     * The thresholds are not on screen while the waitlist is off, so a
-     * save made in that state must leave them exactly as stored — they
-     * come back unchanged the day it is switched on again.
+     * The fields are whole percentages between 1 and 120, as the browser
+     * is told too.
      */
-    public function testSavingWithTheWaitlistOffKeepsTheStoredThresholds(): void
+    public function testTheThresholdFieldsAreWholePercentagesFromOneToOneHundredTwenty(): void
     {
-        $this->settingService->set('registration_waitlist_threshold_available', '0.7', 'registration');
-        $this->settingService->set('registration_waitlist_threshold_limited', '0.2', 'registration');
+        $body = $this->renderPage('settings');
 
-        $this->postCapacities([1 => '10', 2 => '10'], ['waitlist_enabled' => null]);
-
-        $this->assertSame('0.7', $this->settingService->get('registration_waitlist_threshold_available', 'registration', ''));
-        $this->assertSame('0.2', $this->settingService->get('registration_waitlist_threshold_limited', 'registration', ''));
+        foreach (['threshold_yes_percent', 'threshold_maybe_percent'] as $name) {
+            $tag = $this->inputTag($body, $name);
+            $this->assertStringContainsString('type="number"', $tag);
+            $this->assertStringContainsString('min="1"', $tag);
+            $this->assertStringContainsString('max="120"', $tag);
+            $this->assertStringContainsString('step="1"', $tag);
+        }
+        $this->assertStringContainsString('value="70"', $this->inputTag($body, 'threshold_yes_percent'));
+        $this->assertStringContainsString('value="100"', $this->inputTag($body, 'threshold_maybe_percent'));
     }
 
     /**
-     * The switch is turned back ON from a page that, by definition, was
-     * not rendering the threshold fields — so the submission carries
-     * neither. An absent field is not an emptied one: the stored values
-     * come back exactly as they were, and the save succeeds.
+     * Configuration > Réglages validates each threshold on its own, so it
+     * can store an inverted pair. The levels then fall back to 70 / 100,
+     * and the capacity box says so rather than showing the defaults as if
+     * a chief had chosen them.
+     */
+    public function testAnUnusableStoredPairIsAnnouncedInTheCapacityBox(): void
+    {
+        $body = $this->renderPage('settings');
+        $this->assertStringNotContainsString('Les seuils enregistrés ne sont pas utilisables', $body);
+
+        $this->settingService->set('registration_threshold_yes_percent', '90', 'registration');
+        $this->settingService->set('registration_threshold_maybe_percent', '80', 'registration');
+
+        $body = $this->renderPage('settings');
+        $this->assertStringContainsString('Les seuils enregistrés ne sont pas utilisables', $body);
+        $this->assertStringContainsString('value="70"', $this->inputTag($body, 'threshold_yes_percent'));
+        $this->assertStringContainsString('value="100"', $this->inputTag($body, 'threshold_maybe_percent'));
+    }
+
+    /**
+     * A save made while the waitlist is off leaves the thresholds exactly
+     * as stored — even if a submission carried them — so they come back
+     * unchanged the day it is switched on again.
+     */
+    public function testSavingWithTheWaitlistOffKeepsTheStoredThresholds(): void
+    {
+        $this->settingService->set('registration_threshold_yes_percent', '60', 'registration');
+        $this->settingService->set('registration_threshold_maybe_percent', '90', 'registration');
+
+        $this->postCapacities([1 => '10', 2 => '10'], ['waitlist_enabled' => null]);
+
+        $this->assertSame('60', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame('90', $this->settingService->get('registration_threshold_maybe_percent', 'registration', ''));
+    }
+
+    /**
+     * The switch is turned back ON from a page where the threshold fields
+     * were disabled — so the submission carries neither. An absent field
+     * is not an emptied one: the stored values come back exactly as they
+     * were, and the save succeeds.
      */
     public function testTurningTheWaitlistBackOnWithoutThresholdFieldsKeepsThem(): void
     {
         $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
-        $this->settingService->set('registration_waitlist_threshold_available', '0.8', 'registration');
-        $this->settingService->set('registration_waitlist_threshold_limited', '0.3', 'registration');
+        $this->settingService->set('registration_threshold_yes_percent', '80', 'registration');
+        $this->settingService->set('registration_threshold_maybe_percent', '110', 'registration');
 
         $this->postCapacities([1 => '12', 2 => '12'], [
-            'threshold_available' => null,
-            'threshold_limited' => null,
+            'threshold_yes_percent' => null,
+            'threshold_maybe_percent' => null,
         ]);
 
         $this->assertSame('1', $this->settingService->get('registration_waitlist_enabled', 'registration', '0'));
-        $this->assertSame('0.8', $this->settingService->get('registration_waitlist_threshold_available', 'registration', ''));
-        $this->assertSame('0.3', $this->settingService->get('registration_waitlist_threshold_limited', 'registration', ''));
+        $this->assertSame('80', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame(
+            '110',
+            $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
+        );
         $this->assertSame(12, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
     }
 
     public function testThresholdsAreSavedFromTheCapacityBoxWhenTheWaitlistIsOn(): void
     {
         $this->postCapacities([1 => '10', 2 => '10'], [
-            'threshold_available' => '0,6',
-            'threshold_limited' => '0.15',
+            'threshold_yes_percent' => ' 75 ',
+            'threshold_maybe_percent' => '120',
         ]);
 
-        $this->assertSame('0.6', $this->settingService->get('registration_waitlist_threshold_available', 'registration', ''));
-        $this->assertSame('0.15', $this->settingService->get('registration_waitlist_threshold_limited', 'registration', ''));
+        $this->assertSame('75', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame(
+            '120',
+            $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
+        );
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
     }
 
     /**
-     * An inconsistent pair changes nothing at all — not the thresholds,
-     * and not the capacities either: a half-applied form is worse than a
-     * refused one.
+     * @return array<string, array{string, string}>
      */
-    public function testInconsistentThresholdsSaveNothing(): void
+    public static function invalidThresholdPairs(): array
+    {
+        return [
+            'Oui equal to Peut-être' => ['100', '100'],
+            'Oui above Peut-être' => ['90', '80'],
+            'zero' => ['0', '100'],
+            'beyond 120' => ['70', '121'],
+            'a decimal' => ['70.5', '100'],
+            'empty' => ['', '100'],
+            'not a number' => ['soixante-dix', '100'],
+        ];
+    }
+
+    /**
+     * An invalid pair changes nothing at all — not the thresholds, and not
+     * the capacities either: a half-applied form is worse than a refused
+     * one.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidThresholdPairs')]
+    public function testAnInvalidThresholdPairSavesNothing(string $yes, string $maybe): void
     {
         $this->postCapacities([1 => '99', 2 => '99'], [
-            'threshold_available' => '0.1',
-            'threshold_limited' => '0.5',
+            'threshold_yes_percent' => $yes,
+            'threshold_maybe_percent' => $maybe,
         ]);
 
         $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
-        $this->assertSame('0.5', $this->settingService->get('registration_waitlist_threshold_available', 'registration', ''));
-        $this->assertSame('0.1', $this->settingService->get('registration_waitlist_threshold_limited', 'registration', ''));
+        $this->assertSame('70', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame(
+            '100',
+            $this->settingService->get('registration_threshold_maybe_percent', 'registration', '')
+        );
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Seuils invalides', (string) ($flash['message'] ?? ''));
+    }
+
+    /**
+     * The `<input>` tag of the field named $name, or a failure when the page
+     * does not render one.
+     */
+    private function inputTag(string $body, string $name): string
+    {
+        if (preg_match('/<input[^>]*name="' . preg_quote($name, '/') . '"[^>]*>/', $body, $match) !== 1) {
+            $this->fail('No <input name="' . $name . '"> on the page.');
+        }
+
+        return $match[0];
     }
 
     /**
@@ -853,8 +998,8 @@ class RegistrationConfigControllerTest extends TestCase
     {
         $fields = array_merge([
             'waitlist_enabled' => '1',
-            'threshold_available' => '0.5',
-            'threshold_limited' => '0.1',
+            'threshold_yes_percent' => '70',
+            'threshold_maybe_percent' => '100',
         ], $extra);
 
         $body = ['capacity' => [$this->baladinsId => $capacities]];

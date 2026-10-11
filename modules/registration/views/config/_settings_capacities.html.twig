@@ -1,7 +1,8 @@
 {# « Capacités par branche », moved as it was from the single page this
    module used to have (issue #843, IT-01), no longer folded away.
-   Requires `waitlist_enabled`, `threshold_available`, `threshold_limited`,
-   `default_capacity`, `brackets`, `capacities` and `max_years_in_branch`. #}
+   Requires `waitlist_enabled`, `level_thresholds`, `level_thresholds_unusable`,
+   `threshold_min_percent`, `threshold_max_percent`, `default_capacity`,
+   `brackets`, `capacities` and `max_years_in_branch`. #}
 <form method="post" action="/config/inscriptions" class="card mb-4">
     <div class="card-body">
         <h2 class="h5 mb-3">Capacités par branche</h2>
@@ -23,33 +24,52 @@
                    {{ waitlist_enabled ? 'checked' : '' }}>
             <label class="form-check-label" for="waitlist_enabled">Gérer les listes d'attente</label>
             <span class="form-text d-block">
-                Quand c'est actif, la page publique annonce pour chaque année de naissance si les places sont
-                disponibles, l'attente limitée ou l'attente importante, et le tableau « Vérification des
-                capacités » du tableau de bord affiche le restant et le niveau vu par le public. Quand ce n'est
-                pas actif, rien de tout cela n'apparaît nulle part.
+                Quand c'est actif, la page publique annonce pour chaque année de naissance « Disponible »,
+                « Limitée » ou « Complet », et le tableau « Vérification des capacités » du tableau de bord
+                affiche le restant et le niveau vu par le public. Quand ce n'est pas actif, rien de tout cela
+                n'apparaît nulle part.
             </span>
         </div>
 
-        {% if waitlist_enabled %}
-            <div class="row g-2 mb-3">
-                <div class="col-12 col-sm-6 col-md-4">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'threshold_available', field_name: 'threshold_available',
-                        label: 'Seuil « places disponibles »', value: threshold_available,
-                        placeholder: '0.5', size: 'sm', wrapper_class: '',
-                        help: 'Part de la capacité encore libre au-delà de laquelle un créneau est annoncé « disponible ». Ex. : 0.5 = au moins la moitié.',
-                    } only %}
+        {# Both thresholds stay on the page while waitlists are not managed:
+           disabled, so the browser does not submit them and save() leaves
+           the stored values exactly as they are. #}
+        <div class="row g-2 mb-3">
+            {% if level_thresholds_unusable %}
+                <div class="col-12">
+                    <div class="alert alert-warning small mb-0">
+                        Les seuils enregistrés ne sont pas utilisables (deux nombres entiers de
+                        {{ threshold_min_percent }} à {{ threshold_max_percent }}, « Oui » inférieur à
+                        « Peut-être ») : les valeurs ci-dessous, celles par défaut, s'appliquent jusqu'à ce que
+                        vous les enregistriez.
+                    </div>
                 </div>
-                <div class="col-12 col-sm-6 col-md-4">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'threshold_limited', field_name: 'threshold_limited',
-                        label: 'Seuil « attente limitée »', value: threshold_limited,
-                        placeholder: '0.1', size: 'sm', wrapper_class: '',
-                        help: 'En dessous du seuil précédent, part encore libre au-delà de laquelle l\'attente est annoncée « limitée » plutôt qu\'« importante ». Doit être inférieur au seuil « places disponibles ».',
-                    } only %}
-                </div>
+            {% endif %}
+            {% if not waitlist_enabled %}
+                <p class="col-12 small text-body-secondary mb-0">
+                    Désactivés tant que la gestion des listes d'attente est coupée. Les valeurs enregistrées
+                    sont conservées.
+                </p>
+            {% endif %}
+            <div class="col-12 col-sm-6 col-md-4">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'threshold_yes_percent', field_name: 'threshold_yes_percent',
+                    label: "Oui jusqu'à … % de places occupées", type: 'number',
+                    value: level_thresholds.yes, min: threshold_min_percent, max: threshold_max_percent,
+                    step: 1, inputmode: 'numeric', size: 'sm', wrapper_class: '',
+                    disabled: not waitlist_enabled,
+                } only %}
             </div>
-        {% endif %}
+            <div class="col-12 col-sm-6 col-md-4">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'threshold_maybe_percent', field_name: 'threshold_maybe_percent',
+                    label: "Peut-être jusqu'à … % de places occupées", type: 'number',
+                    value: level_thresholds.maybe, min: threshold_min_percent, max: threshold_max_percent,
+                    step: 1, inputmode: 'numeric', size: 'sm', wrapper_class: '',
+                    disabled: not waitlist_enabled,
+                } only %}
+            </div>
+        </div>
 
         <p class="text-body-secondary small mb-3">
             Une case vide veut dire <strong>pas de limite</strong> : la branche n'est jamais annoncée complète

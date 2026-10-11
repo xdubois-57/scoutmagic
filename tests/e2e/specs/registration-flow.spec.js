@@ -151,8 +151,9 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     // The two states are driven through the real form and read back off
     // the « Vérification des capacités » table, because that table is
     // where a chief would first see an unconfigured branch mislabelled as
-    // a full one. « Attente importante » is the exact badge that must
-    // appear for a 0 and must NOT appear for an empty box. The grid is on
+    // a full one. « Complet » is the exact level badge that must appear
+    // for a 0 and must NOT appear for an empty box — the same word, read
+    // through the same thresholds, as the public page. The grid is on
     // « Réglages », the table on the dashboard.
     // ---------------------------------------------------------------
     await expect(
@@ -170,7 +171,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await saveCapacities(page);
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(
-        page.getByText('Attente importante', { exact: true }),
+        page.getByText('Complet', { exact: true }),
         'a capacity of zero is a branch closed on purpose — it must still read as full',
     ).toBeVisible();
     // The dashboard's first figure says what « Réglages » just did.
@@ -184,7 +185,7 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await saveCapacities(page);
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(
-        page.getByText('Attente importante', { exact: true }),
+        page.getByText('Complet', { exact: true }),
         'a branch with NO recorded capacity must never be announced full',
     ).toHaveCount(0);
     await expect(page.getByText('Sans limite', { exact: true }).first()).toBeVisible();

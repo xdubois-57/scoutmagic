@@ -22,8 +22,9 @@
 // The scenario also drives the waitlist switch on /config/inscriptions/
 // reglages, which is the third shape of "the browser decides" on this module: the
 // switch is a plain checkbox, so turning it OFF sends no field at all, and
-// what the server does with that absence decides whether two thresholds
-// the chief never saw survive the save. A round trip through a real form
+// the two thresholds stay on screen but disabled — a disabled field is not
+// submitted either — so what the server does with those absences decides
+// whether the thresholds survive the save. A round trip through a real form
 // is the only place that is observable — a PHPUnit request array is
 // written by the test, and would carry whatever the test believed.
 //
@@ -208,26 +209,34 @@ test('the departures and passage grids save on change, with no save button anywh
 
     // ---------------------------------------------------------------
     // The waitlist switch, inside the capacity box it governs on
-    // « Réglages ». Off must remove everything that depends on it — the
-    // two ratio thresholds there, and the availability columns of the
-    // dashboard's « Vérification des capacités » — while leaving the
-    // stored values alone: they come back unchanged when it goes on again.
+    // « Réglages ». Off must remove the availability columns of the
+    // dashboard's « Vérification des capacités » and grey out the two
+    // occupancy thresholds — still shown, disabled, their stored values
+    // kept (chantier #843, D3) — and on again must find them unchanged and
+    // editable.
     // ---------------------------------------------------------------
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
 
     await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
-    const availableThreshold = page.getByLabel('Seuil « places disponibles »');
-    await expect(availableThreshold, 'the capacity box is open on arrival — nothing folds away').toBeVisible();
-    const storedThreshold = await availableThreshold.inputValue();
-    expect(storedThreshold, 'the threshold must have a stored value to lose').not.toBe('');
+    const yesThreshold = () => page.getByLabel("Oui jusqu'à … % de places occupées", { exact: true });
+    const maybeThreshold = () => page.getByLabel("Peut-être jusqu'à … % de places occupées", { exact: true });
+    await expect(yesThreshold(), 'the capacity box is open on arrival — nothing folds away').toBeEnabled();
+    await expect(maybeThreshold()).toBeEnabled();
+    const storedYes = await yesThreshold().inputValue();
+    const storedMaybe = await maybeThreshold().inputValue();
+    expect(storedYes, 'the threshold must have a stored value to lose').not.toBe('');
+    expect(storedMaybe, 'the threshold must have a stored value to lose').not.toBe('');
 
     await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
     await saveCapacities(page);
     await expect(
-        page.getByLabel('Seuil « places disponibles »'),
-        'a threshold that no longer means anything must not be on screen',
-    ).toHaveCount(0);
+        yesThreshold(),
+        'a threshold without effect stays on screen, greyed out rather than editable',
+    ).toBeDisabled();
+    await expect(maybeThreshold()).toBeDisabled();
+    await expect(yesThreshold(), 'a greyed-out threshold still shows the stored value').toHaveValue(storedYes);
+    await expect(maybeThreshold()).toHaveValue(storedMaybe);
 
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toHaveCount(0);
@@ -236,10 +245,12 @@ test('the departures and passage grids save on change, with no save button anywh
     await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
     await page.getByRole('switch', { name: "Gérer les listes d'attente" }).check();
     await saveCapacities(page);
+    await expect(yesThreshold(), 'the threshold is editable again once waitlists are managed').toBeEnabled();
     await expect(
-        page.getByLabel('Seuil « places disponibles »'),
-        'a threshold hidden while the waitlist was off must come back unchanged',
-    ).toHaveValue(storedThreshold);
+        yesThreshold(),
+        'a threshold greyed out while the waitlist was off must come back unchanged',
+    ).toHaveValue(storedYes);
+    await expect(maybeThreshold()).toHaveValue(storedMaybe);
 
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();

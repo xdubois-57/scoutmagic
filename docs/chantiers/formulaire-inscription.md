@@ -319,3 +319,127 @@ traite.
 la liste de Demandes et ses actions groupées les traitent comme avant
 (actions masquées et refusées côté serveur), et le Tableau de bord ne les
 compte pas.
+
+---
+
+## IT-02 — Fondations de capacité : projection unique, silence = reste, seuils en pourcentage d'occupation
+
+**Livré.**
+
+- **R1 tranché, par un test écrit avant le correctif.**
+  `SlotServiceTest::testAnEncodedRequestOccupiesExactlyOnePlace` (une demande
+  acceptée puis rattachée au membre que l'import Desk de l'année visée a
+  produit) échouait sur le code de `main` : « Failed asserting that 0 is
+  identical to 1 ». **Une demande encodée n'était comptée nulle part** : la
+  projection simplifiée de `SlotService` ne lisait que l'année en cours (où
+  l'enfant n'est pas), et `findAcceptedForYear()` exclut `encoded`. Ni deux
+  fois, donc, mais zéro — le créneau s'affichait plus libre qu'il n'était.
+  Désormais une demande acceptée occupe **une** place, encodée ou non :
+  acceptée, par la ligne « inscription » de la projection ; encodée, par la
+  ligne projetée du membre auquel elle a été rattachée (déplacée de
+  « Effectif projeté » vers « Demandes acceptées », comme la maquette compte
+  #371) ; encodée vers un membre que la projection ne contient pas (un enfant
+  qui revient, rattaché à la main au numéro de tiers d'une année antérieure ;
+  une ligne Desk de l'année visée sans fonction dans une section), par sa
+  propre date de naissance. Seul Desk peut l'en retirer : une ligne de l'année
+  visée inactive ou marquée « quitte ». Cinq tests couvrent ces formes,
+  chacun vérifié en cassant la branche qu'il protège.
+- **R2 tranché : une seule projection.** `SlotService` lit
+  `ForecastService::projectedRows()` (les lignes mêmes des Prévisions et
+  d'`Api\ProjectedPopulationProvider`) et perd sa projection simplifiée
+  (`projectedHeadcountBySlot()`, `acceptedCountBySlot()`, et avec eux
+  `SlotMath::feederSlot()` et `PassageRosterRepository::findAnimeAges()`,
+  devenus sans appelant). Chaque ligne projetée porte maintenant
+  `branch_sort_order` (tiré du même `getEffectiveAge()` qui l'a placée), ce
+  qui permet de la ranger dans son créneau sans recalculer un âge : un animé
+  en retard ou en avance d'un an tombe dans sa vraie année, y compris celui
+  qui est aujourd'hui sous l'âge des Baladins — que l'ancienne projection
+  perdait.
+- **Silence = reste.** Un animé de l'année en cours sans réponse à la
+  réinscription (aucune ligne `registration_reenrollments` pour l'année
+  visée) compte comme restant ; seul `member_years.leaving` (posé par la
+  réponse « quitte » de la famille ou par le staff) le retire. Le nombre est
+  exposé par créneau (`silent`) et affiché « (dont N sans réponse) » dans la
+  Vérification des capacités, avec le paragraphe explicatif de la maquette.
+  Une ligne Desk de l'année visée est un fait, jamais « sans réponse ».
+- **Seuils en pourcentage d'occupation.** `registration_threshold_yes_percent`
+  (70) et `registration_threshold_maybe_percent` (100) remplacent les deux
+  anciens ratios, sans migration ; type `number`, `validation_regex` 1–120,
+  libellés de la maquette. `SlotMath::levelForOccupancy()` remplace
+  `tierForRemaining()` : occupation ÷ capacité, borne incluse, calcul en
+  entiers (`occupé × 100 ≤ pourcentage × capacité`), NULL toujours Oui, 0
+  toujours Non. Les niveaux s'appellent `yes` / `maybe` / `no` ; le public lit
+  la même valeur (« Disponible » / « Limitée » / « Complet »), le tableau du
+  chef et les Prévisions aussi. Version du module : 6.12.0.
+- **Correctif minimal de la page Réglages** : deux champs numériques en %
+  (« Oui jusqu'à … % de places occupées », « Peut-être jusqu'à … % de places
+  occupées »), validés côté serveur (entiers 1–120, Oui < Peut-être, partagé
+  avec la lecture par `SlotMath::parseThresholdPercent()` /
+  `isValidThresholdPair()`) ; une paire invalide n'enregistre rien.
+- Documentation : `ARCHITECTURE.md` §8.35 et §8.38, `specifications.md`
+  §17.6, l'aide (nouveau sujet `capacites-et-listes-d-attente`, voir
+  ci-dessous), `schema.sql` (commentaire), `module.json`.
+
+**Décisions autonomes.**
+
+- `SlotService` consomme `ForecastService` directement, pas
+  `ProjectedPopulationProvider` : même module, donc pas de frontière `Api\` à
+  traverser ; et `ProjectedPopulationService` dépend déjà de `SlotService`
+  (pour la date de référence), ce qui aurait fait une dépendance circulaire.
+  `ProjectedPerson` ne porte d'ailleurs pas la branche.
+- **Seuils grisés dès IT-02** (point d'IT-00 « Grisé, pas masqué ») : les deux
+  champs restent affichés quand la gestion des listes d'attente est coupée,
+  `disabled`, valeurs enregistrées affichées et conservées, avec la phrase de
+  la maquette. Sans JavaScript : basculer l'interrupteur ne les réactive
+  qu'après enregistrement ; la glissière et la synchronisation sont IT-03.
+  Les champs affichent la paire réellement appliquée
+  (`SlotService::levelThresholds()`), qui retombe sur 70 / 100 **en paire**
+  si la paire stockée est inutilisable — ce que Configuration > Réglages
+  permet, puisqu'il valide chaque clé seule ; l'encart le dit alors dans un
+  avertissement.
+- Le badge du tableau du chef dit maintenant « Limitée » / « Complet » (au
+  lieu de « Attente limitée » / « Attente importante ») et celui des
+  Prévisions « Complet » (au lieu de « Importante ») : un seul vocabulaire,
+  celui de la maquette et de la page publique.
+- La Vérification des capacités, qu'IT-01 a placée sur le Tableau de bord
+  pour l'année visée seulement, compte les demandes encodées dans sa colonne
+  « Demandes acceptées » : c'est le même R1.
+- Fusion avec IT-01 (#887) : les seuils, « (dont N sans réponse) » et le
+  paragraphe explicatif vivent dans ses gabarits partiels
+  (`views/config/_settings_capacities.html.twig`, sur Réglages, et
+  `_capacity_check.html.twig`, sur le Tableau de bord) ; le sujet d'aide
+  `capacites-et-listes-d-attente` couvre ces deux pages ; module en 6.13.0.
+- Coût : la projection unique est plus lourde que l'ancienne (elle
+  déchiffre l'année en cours et l'année visée, résout les passages). La page
+  publique, que tout le monde peut ouvrir, ne la calcule plus qu'une fois par
+  requête (`birthYearSlotsForPublic()` reçoit les niveaux au lieu de les
+  recalculer), et pas du tout quand les listes d'attente ne sont pas gérées.
+  Les Prévisions la calculent deux fois (la page et la barre des places
+  restantes) : page du staff, laissée telle quelle.
+- Le sujet d'aide `gerer-les-demandes` dépassait la borne de 500 mots avec
+  les seuils : les capacités, les places occupées et les seuils forment un
+  sujet à part, `capacites-et-listes-d-attente` (même page, comme les deux
+  sujets de la réinscription), lié depuis le premier.
+
+**Divergences avec le document.**
+
+- Aucun écart entre `e203dfd` et le code relu (`main` en `79cac0cd`) sur les
+  faits cités par IT-02 : les deux anciens réglages, `SlotMath`,
+  `SlotService`, `ForecastService` et la version 6.11.0 étaient bien ceux
+  décrits.
+- R1 parlait d'un double comptage possible des demandes **encodées** ; c'est
+  l'inverse qui se produisait (zéro). Le double comptage existe en revanche
+  pour une demande **acceptée non encodée** dont l'enfant figure déjà dans
+  l'import Desk de l'année visée sans que le rapprochement ait pu la lier
+  (homonymes, jumeaux) : la projection le compte (ligne Desk) et la demande
+  aussi. Non corrigé ici (il faudrait refaire le rapprochement par index
+  aveugle dans le calcul) ; signalé pour une issue.
+- Écart antérieur, non introduit ici et signalé pour une issue : un membre
+  est placé par `getEffectiveAge()` sur l'année de **début** de l'année
+  visée, une demande par `SlotMath::referenceCalendarYear()`, qui passe à
+  l'année suivante quand `registration_reference_date` tombe avant
+  septembre. Avec la valeur par défaut (12-31) les deux coïncident.
+
+**Reporté.**
+
+- La glissière, les champs synchronisés et l'exemple chiffré : IT-03.
