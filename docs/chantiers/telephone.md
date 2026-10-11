@@ -146,8 +146,10 @@ saisi librement : « 0475 12 34 56 ou 02 123 45 67 » y est possible. Lu
 chiffre par chiffre, il deviendrait un seul numéro inventé, proposé à
 l'appel. `phone()` n'en fait donc un lien que si le texte n'est écrit
 qu'avec des chiffres, des espaces et `+ ( ) . / -`, et compte de 8 à 15
-chiffres une fois lu ; sinon le texte saisi s'affiche, sans lien. Relevé
-par la revue de la PR d'IT-03.
+chiffres une fois lu ; sinon le texte saisi s'affiche, sans lien — même
+sans aucun chiffre, pour qu'un gabarit qui teste la valeur brute n'affiche
+jamais une ligne vide. Seul un champ vide ne rend rien. Relevé par la
+revue de la PR d'IT-03.
 
 **Le contrôle demandé.** `PhoneNumbersGoThroughThePhoneFunctionTest`
 échoue si un `href="tel:` écrit à la main revient dans

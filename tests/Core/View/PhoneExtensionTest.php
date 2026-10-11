@@ -64,7 +64,7 @@ final class PhoneExtensionTest extends TestCase
     {
         $this->assertSame('', $this->render('{{ phone(n) }}', ['n' => null]));
         $this->assertSame('', $this->render('{{ phone(n) }}', ['n' => '']));
-        $this->assertSame('', $this->render('{{ phone(n) }}', ['n' => ' - / ']));
+        $this->assertSame('', $this->render('{{ phone(n) }}', ['n' => '   ']));
     }
 
     /**
@@ -77,6 +77,8 @@ final class PhoneExtensionTest extends TestCase
             'a number and a note' => ['+33 6 12 34 56 78 (après 18h)'],
             'two numbers joined by a slash' => ['0475 12 34 56 / 02 123 45 67'],
             'too short to be a number' => ['112'],
+            'no digit at all, which a template\'s if lets through' => ['- /'],
+            'words only' => ['voir avec le chef'],
         ];
     }
 

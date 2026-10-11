@@ -32,7 +32,9 @@ use Twig\TwigFunction;
  * A value that is not one number — « 0475 12 34 56 ou 02 123 45 67 »,
  * « +33 6 12 34 56 78 (après 18h) », typed into a free field — is shown as
  * it was typed, without a link. PhoneNumber::parse() keeps only the digits,
- * so reading it would show, and offer to call, a number nobody wrote.
+ * so reading it would show, and offer to call, a number nobody wrote. So is
+ * a value without a single digit: a template's `{% if %}` on the raw value
+ * lets it through, and rendering nothing would leave an empty line.
  */
 final class PhoneExtension extends AbstractExtension
 {
@@ -59,11 +61,11 @@ final class PhoneExtension extends AbstractExtension
     public static function render(?string $raw, string $class = ''): string
     {
         $raw = trim((string) $raw);
-        $number = PhoneNumber::parse($raw);
-        if ($number === null) {
+        if ($raw === '') {
             return '';
         }
-        if (!self::isOneNumber($raw, $number)) {
+        $number = PhoneNumber::parse($raw);
+        if ($number === null || !self::isOneNumber($raw, $number)) {
             return self::escape($raw);
         }
 
