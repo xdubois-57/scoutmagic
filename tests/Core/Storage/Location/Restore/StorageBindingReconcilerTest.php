@@ -225,6 +225,26 @@ final class StorageBindingReconcilerTest extends TestCase
         $this->assertSame('Disque école (avant restauration)', $this->row(3)['label']);
     }
 
+    /** A label suffixed to make room stays within the column's 255 characters. */
+    public function testASuffixedLabelNeverOutgrowsTheColumn(): void
+    {
+        $long = str_repeat('é', 250);
+        $this->insert(5, 'local', $long, '{"path":"ici"}', null);
+        $before = $this->snapshot();
+
+        $suffixed = mb_substr($long, 0, 255 - mb_strlen(' (avant restauration)')) . ' (avant restauration)';
+        $this->replaceWithBackup([
+            [1, 'local', $long, '{"path":"la-bas"}', null, true],
+            [2, 'local', $suffixed, '{"path":"ailleurs"}', null, false],
+        ]);
+
+        $this->reconciler()->reconcile($before, false);
+
+        $label = (string) $this->pdo->query("SELECT label FROM storage_locations WHERE config LIKE '%ici%'")->fetchColumn();
+        $this->assertStringEndsWith(' (avant restauration) 2', $label);
+        $this->assertLessThanOrEqual(255, mb_strlen($label));
+    }
+
     /** The same id holding another kind of storage is another location. */
     public function testTheSameIdOfAnotherKindIsNotTheSameLocation(): void
     {

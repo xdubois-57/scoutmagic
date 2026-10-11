@@ -186,7 +186,9 @@ final class StorageBindingReconciler
             $label = mb_substr($current['label'], 0, 255 - mb_strlen(self::RESTORED_SUFFIX)) . self::RESTORED_SUFFIX;
             $n = 2;
             while (isset($labels[self::labelKey($label)])) {
-                $label = mb_substr($current['label'], 0, 240) . self::RESTORED_SUFFIX . ' ' . $n++;
+                // The column holds 255 characters, the number included.
+                $suffix = self::RESTORED_SUFFIX . ' ' . $n++;
+                $label = mb_substr($current['label'], 0, 255 - mb_strlen($suffix)) . $suffix;
             }
         }
         $labels[self::labelKey($label)] = true;
