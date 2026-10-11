@@ -19,8 +19,8 @@
 // asserting BOTH fields is what notices a regression to a whole-form save
 // that dropped one.
 //
-// The scenario also drives the waitlist switch on /config/inscriptions,
-// which is the third shape of "the browser decides" on this module: the
+// The scenario also drives the waitlist switch on /config/inscriptions/
+// reglages, which is the third shape of "the browser decides" on this module: the
 // switch is a plain checkbox, so turning it OFF sends no field at all, and
 // what the server does with that absence decides whether two thresholds
 // the chief never saw survive the save. A round trip through a real form
@@ -41,61 +41,30 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
 import { chooseInSelectBar } from '../support/select-bar.js';
-import { openCollapse } from '../support/collapse.js';
 import { waitForServerResponse } from '../support/response.js';
 
 const MEMBER_NAME = 'Kaa Serpent';
 const DEPARTURE_COMMENT = 'Déménage à Namur cet été.';
 
 /**
- * Unfolds the « Capacités par branche » box of /config/inscriptions.
- * Collapsed is its default, so every control inside it — the waitlist
- * switch, the thresholds, the grid — is genuinely unreachable until this
- * runs.
+ * Submits the « Capacités par branche » form of /config/inscriptions/
+ * reglages and waits for the page its redirect renders.
  *
- * Through openCollapse(), which waits for Bootstrap before the click: the
- * toggle is a data-bs-toggle="collapse" button, so it does nothing at all
- * until Bootstrap's delegated handler exists. base.html.twig loads
- * bootstrap.bundle.min.js well after the toggle's own markup, and that
- * markup already carries aria-expanded="false" — so every barrier written
- * against the static HTML can be satisfied mid-parse, before the bundle
- * has run. A click that lands then is silently swallowed: the box stays
- * `.collapse` and no retry follows, because the click itself succeeded.
- * This file learned that first; registration-flow.spec.js, opening the
- * same box, did not have the lesson and lost the race in CI (#520) — which
- * is why it now lives in the shared helper.
+ * The barrier is the flash message the save leaves, not the URL: this POST
+ * redirects to the address the browser is ALREADY on, so `waitForURL`
+ * would resolve instantly and let the next assertion read the page from
+ * before the save. Every call starts from a freshly loaded page, which
+ * shows no flash, so the message cannot be a leftover.
+ *
+ * The button is scoped to the form: the page has another « Enregistrer »,
+ * the schedule's.
  *
  * @param {import('@playwright/test').Page} page
- * @returns {Promise<import('@playwright/test').Locator>} the box, open
  */
-async function openCapacitiesBox(page) {
-    return openCollapse(page, 'registration-capacities-box', () =>
-        page.getByRole('button', { name: 'Capacités par branche', exact: true }).click());
-}
-
-/**
- * Submits that box and waits for the page its redirect renders.
- *
- * The barrier is the toggle going back to `aria-expanded="false"`, not the
- * URL: this POST redirects to the address the browser is ALREADY on, so
- * `waitForURL` would resolve instantly and let the next assertion read the
- * page from before the save. The box is open when the click happens and
- * folded again on the page that comes back.
- *
- * The button is scoped to the panel: the rich-text editor's modal on this
- * page carries an « Enregistrer » of its own.
- *
- * @param {import('@playwright/test').Page} page
- * @param {import('@playwright/test').Locator} box the open capacity box
- */
-async function saveCapacitiesBox(page, box) {
-    await Promise.all([
-        waitForServerResponse(page, (response) =>
-            response.request().method() === 'POST' && response.url().endsWith('/config/inscriptions')),
-        box.getByRole('button', { name: 'Enregistrer', exact: true }).click(),
-    ]);
-    await expect(page.getByRole('button', { name: 'Capacités par branche', exact: true }))
-        .toHaveAttribute('aria-expanded', 'false');
+async function saveCapacities(page) {
+    await page.locator('form[action="/config/inscriptions"]')
+        .getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Configuration enregistrée.' })).toBeVisible();
 }
 
 test('the departures and passage grids save on change, with no save button anywhere', async ({ page }) => {
@@ -189,7 +158,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // Passage. Bring the withdrawn request of registration-flow.spec.js
     // back to ACCEPTED so the grid has a row to save.
     // ---------------------------------------------------------------
-    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
     // One request exists on a canonical run — registration-flow's. first()
     // keeps a developer's re-run against a lived-in instance from tripping
     // on its own older copies.
@@ -227,7 +196,7 @@ test('the departures and passage grids save on change, with no save button anywh
     // ---------------------------------------------------------------
     // Back to the final state.
     // ---------------------------------------------------------------
-    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
+    await page.goto('/config/inscriptions/demandes', { waitUntil: 'domcontentloaded' });
     await page.getByRole('row', { name: /Zoé/ }).first().getByRole('link', { name: 'Ouvrir' }).click();
     await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Retirer' }).click();
@@ -238,44 +207,41 @@ test('the departures and passage grids save on change, with no save button anywh
     await expect(page.getByText('Retirée', { exact: true })).toBeVisible();
 
     // ---------------------------------------------------------------
-    // The waitlist switch, inside the capacity box it governs. Off must
-    // remove everything that depends on it — the two ratio thresholds and
-    // the availability columns of « Vérification des capacités » — while
-    // leaving the stored values alone: they come back unchanged when it
-    // goes on again.
+    // The waitlist switch, inside the capacity box it governs on
+    // « Réglages ». Off must remove everything that depends on it — the
+    // two ratio thresholds there, and the availability columns of the
+    // dashboard's « Vérification des capacités » — while leaving the
+    // stored values alone: they come back unchanged when it goes on again.
     // ---------------------------------------------------------------
     await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
-    await expect(
-        page.getByRole('button', { name: 'Capacités par branche', exact: true }),
-        'the capacity box opens on demand',
-    ).toHaveAttribute('aria-expanded', 'false');
-    let box = await openCapacitiesBox(page);
-
-    const availableThreshold = page.getByLabel('Seuil « places disponibles »');
-    await expect(availableThreshold).toBeVisible();
-    const storedThreshold = await availableThreshold.inputValue();
-    expect(storedThreshold, 'the threshold must have a stored value to lose').not.toBe('');
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
 
-    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
-    await saveCapacitiesBox(page, box);
+    await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
+    const availableThreshold = page.getByLabel('Seuil « places disponibles »');
+    await expect(availableThreshold, 'the capacity box is open on arrival — nothing folds away').toBeVisible();
+    const storedThreshold = await availableThreshold.inputValue();
+    expect(storedThreshold, 'the threshold must have a stored value to lose').not.toBe('');
 
-    box = await openCapacitiesBox(page);
+    await page.getByRole('switch', { name: "Gérer les listes d'attente" }).uncheck();
+    await saveCapacities(page);
     await expect(
         page.getByLabel('Seuil « places disponibles »'),
         'a threshold that no longer means anything must not be on screen',
     ).toHaveCount(0);
+
+    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: 'Restant' })).toHaveCount(0);
 
+    await page.goto('/config/inscriptions/reglages', { waitUntil: 'domcontentloaded' });
     await page.getByRole('switch', { name: "Gérer les listes d'attente" }).check();
-    await saveCapacitiesBox(page, box);
-
-    await openCapacitiesBox(page);
+    await saveCapacities(page);
     await expect(
         page.getByLabel('Seuil « places disponibles »'),
         'a threshold hidden while the waitlist was off must come back unchanged',
     ).toHaveValue(storedThreshold);
+
+    await page.goto('/config/inscriptions', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('columnheader', { name: 'Niveau public' })).toBeVisible();
 
     expect(alerts, 'a grid reported a failed save through window.alert()').toEqual([]);

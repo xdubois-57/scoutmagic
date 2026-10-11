@@ -1,0 +1,21 @@
+{% extends 'base.html.twig' %}
+{% block title %}Gabarits — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
+
+        {# The request e-mails' templates arrive with issue #843's IT-07;
+           until then this sub-page has its title and breadcrumb, and says
+           only what is true today. #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Gabarits des e-mails de demande</h2>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun gabarit à afficher.',
+                    compact: true,
+                } only %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

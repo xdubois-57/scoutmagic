@@ -26,8 +26,9 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
  *
  * Exactly one request matching exactly one member migrates automatically
  * (Service\MigrationService — the same path a manual link uses). Zero
- * matches leaves the request 'accepted' (it surfaces in the "non
- * rapprochées" encart). More than one match on EITHER side is refused
+ * matches leaves the request 'accepted' (counted on the management
+ * dashboard as « Acceptées, pas encore dans Desk », and linked by hand from
+ * its fiche, « Lier à un membre Desk »). More than one match on EITHER side is refused
  * outright — module spec: real homonym/twin cases exist, and guessing
  * wrong is worse than asking a human. The journal entry for that case
  * carries counts and ids only, never a name (SECURITY.md §11).
@@ -72,7 +73,7 @@ class ReconciliationService implements ReconciliationTrigger
                     'registration',
                     'registration_reconciliation_ambiguous',
                     'info',
-                    'Rapprochement ambigu : plusieurs correspondances possibles, aucun rattachement automatique',
+                    'Correspondance ambiguë avec Desk : plusieurs correspondances possibles, aucun lien automatique',
                     ['request_ids' => $requestIds, 'member_ids' => $memberIds]
                 );
                 continue;

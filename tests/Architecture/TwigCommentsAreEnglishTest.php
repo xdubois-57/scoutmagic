@@ -137,7 +137,6 @@ final class TwigCommentsAreEnglishTest extends TestCase
         'modules/presences/views/partials/_presence_line.html.twig' => 1,
         'modules/presences/views/sheet.html.twig' => 4,
         'modules/registration/views/_passage_statistics.html.twig' => 1,
-        'modules/registration/views/config.html.twig' => 6,
         'modules/registration/views/forecast.html.twig' => 3,
         'modules/support_dashboard/views/index.html.twig' => 12,
         'modules/support_dashboard/views/partials/detail.html.twig' => 2,
