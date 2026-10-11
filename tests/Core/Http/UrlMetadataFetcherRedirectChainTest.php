@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Service;
+namespace Tests\Core\Http;
 
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use PHPUnit\Framework\TestCase;
 
 /**
- * OgScraperServiceTest covers the SSRF-target rejections that need no
+ * UrlMetadataFetcherTest covers the SSRF-target rejections that need no
  * network access (an IP-literal host is validated without a DNS lookup).
  * Redirect-chain behaviour needs a real hop to a *hostname* that
  * subsequently resolves somewhere unsafe — not reproducible with a real
@@ -20,11 +20,11 @@ use PHPUnit\Framework\TestCase;
  * exercised for real. This proves per-hop re-validation and the hop cap
  * actually run rather than only trusting the first URL's own validation.
  */
-class OgScraperServiceRedirectChainTest extends TestCase
+class UrlMetadataFetcherRedirectChainTest extends TestCase
 {
     public function testARedirectToAPrivateIpIsRejectedEvenThoughTheFirstHopWasPublic(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             protected function resolveValidatedIp(string $host): ?string
             {
                 if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
@@ -57,7 +57,7 @@ class OgScraperServiceRedirectChainTest extends TestCase
 
     public function testARelativeRedirectIsResolvedAgainstItsOwnOrigin(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             /** @var string[] */
             public array $pathsRequested = [];
 
@@ -89,7 +89,7 @@ class OgScraperServiceRedirectChainTest extends TestCase
 
     public function testAChainLongerThanTheHopCapIsRejected(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             public int $calls = 0;
 
             protected function resolveValidatedIp(string $host): string
@@ -121,7 +121,7 @@ class OgScraperServiceRedirectChainTest extends TestCase
 
     public function testAResponseWithoutAnHtmlContentTypeIsRejectedByFetch(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             protected function resolveValidatedIp(string $host): string
             {
                 return '93.184.216.34';
@@ -139,13 +139,12 @@ class OgScraperServiceRedirectChainTest extends TestCase
             }
         };
 
-        $this->expectException(\Modules\Gallery\Api\GalleryException::class);
-        $service->fetch('http://public-redirector.example/page');
+        $this->assertNull($service->fetch('http://public-redirector.example/page'));
     }
 
     public function testAResponseWithoutAnImageContentTypeIsRejectedByFetchImageBytes(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             protected function resolveValidatedIp(string $host): string
             {
                 return '93.184.216.34';
@@ -168,7 +167,7 @@ class OgScraperServiceRedirectChainTest extends TestCase
 
     public function testAMissingContentTypeHeaderStillSucceedsSoALegitimateServerIsNotBroken(): void
     {
-        $service = new class extends OgScraperService {
+        $service = new class extends UrlMetadataFetcher {
             protected function resolveValidatedIp(string $host): string
             {
                 return '93.184.216.34';
@@ -187,6 +186,6 @@ class OgScraperServiceRedirectChainTest extends TestCase
         };
 
         $tags = $service->fetch('http://public-redirector.example/page');
-        $this->assertSame('Hello', $tags['title']);
+        $this->assertSame('Hello', $tags?->ogTitle);
     }
 }

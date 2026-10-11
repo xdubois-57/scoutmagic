@@ -53,7 +53,7 @@ class MemberStatsRepositoryTest extends TestCase
     }
 
     /**
-     * @param array<int, array{fn: int, branch: ?int, main?: bool}> $functions
+     * @param array<int, array{fn: int, branch: ?int, main?: bool, section?: ?int}> $functions
      */
     private function seedMember(string $deskId, string $birthDate, ?string $gender, array $functions, bool $active = true): void
     {
@@ -77,9 +77,9 @@ class MemberStatsRepositoryTest extends TestCase
 
         foreach ($functions as $f) {
             $stmt = $this->pdo->prepare(
-                'INSERT INTO member_functions (member_year_id, function_id, age_branch_id, is_main_function) VALUES (?, ?, ?, ?)'
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function) VALUES (?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$memberYearId, $f['fn'], $f['branch'], ($f['main'] ?? false) ? 1 : 0]);
+            $stmt->execute([$memberYearId, $f['fn'], $f['section'] ?? null, $f['branch'], ($f['main'] ?? false) ? 1 : 0]);
         }
     }
 
@@ -105,7 +105,7 @@ class MemberStatsRepositoryTest extends TestCase
         $this->seedMember('D6', '2019-01-01', 'M', [
             ['fn' => $this->animeFnId, 'branch' => $this->baladinsBranchId, 'main' => true],
         ], active: false);
-        // Principal function has no branch — excluded (cannot be placed).
+        // No function at all places them in a branch — excluded (cannot be placed).
         $this->seedMember('D7', '2018-01-01', 'F', [
             ['fn' => $this->animeFnId, 'branch' => null, 'main' => true],
         ]);
@@ -181,5 +181,97 @@ class MemberStatsRepositoryTest extends TestCase
 
         $this->assertCount(1, $rows);
         $this->assertSame('Louveteaux', $rows[0]['branch_label']);
+    }
+
+    private function seedSection(int $branchId, string $code): int
+    {
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, '{$code}', '{$code}')");
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function testAMainFunctionWithoutBranchDoesNotHideTheSectionFunctionOfAnAnime(): void
+    {
+        // #834: the principal function is a unit function without a branch; the
+        // second one is what makes this member an animé of a section.
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('UNITE', 'Unité', 'identified')");
+        $unitFnId = (int) $this->pdo->lastInsertId();
+        $section = $this->seedSection($this->louveteauxBranchId, 'LOU1');
+
+        $this->seedMember('S1', '2016-03-01', 'F', [
+            ['fn' => $unitFnId, 'branch' => null, 'main' => true],
+            ['fn' => $this->animeFnId, 'branch' => $this->louveteauxBranchId, 'main' => false, 'section' => $section],
+        ]);
+
+        $rows = $this->repo->getMemberBranchData($this->yearId);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('Louveteaux', $rows[0]['branch_label']);
+    }
+
+    public function testAnAnimeOfSeveralSectionsIsCountedOnce(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('UNITE', 'Unité', 'identified')");
+        $unitFnId = (int) $this->pdo->lastInsertId();
+        $a = $this->seedSection($this->louveteauxBranchId, 'LOU1');
+        $b = $this->seedSection($this->baladinsBranchId, 'BAL1');
+
+        $this->seedMember('S2', '2016-03-01', 'M', [
+            ['fn' => $unitFnId, 'branch' => null, 'main' => true],
+            ['fn' => $this->animeFnId, 'branch' => $this->louveteauxBranchId, 'main' => false, 'section' => $a],
+            ['fn' => $this->animeFnId, 'branch' => $this->baladinsBranchId, 'main' => false, 'section' => $b],
+        ]);
+
+        $rows = $this->repo->getMemberBranchData($this->yearId);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('Louveteaux', $rows[0]['branch_label']);
+    }
+
+    public function testTheBranchComesFromTheSectionWhenTheFunctionCarriesNone(): void
+    {
+        $section = $this->seedSection($this->baladinsBranchId, 'BAL1');
+        $this->seedMember('S3', '2019-05-01', 'F', [
+            ['fn' => $this->animeFnId, 'branch' => null, 'main' => true, 'section' => $section],
+        ]);
+
+        $rows = $this->repo->getMemberBranchData($this->yearId);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('Baladins', $rows[0]['branch_label']);
+    }
+
+    public function testStatisticsAndSectionRosterAgreeOnWhoIsAnAnime(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('UNITE', 'Unité', 'identified')");
+        $unitFnId = (int) $this->pdo->lastInsertId();
+        $lou = $this->seedSection($this->louveteauxBranchId, 'LOU1');
+        $bal = $this->seedSection($this->baladinsBranchId, 'BAL1');
+
+        $this->seedMember('R1', '2016-03-01', 'F', [
+            ['fn' => $unitFnId, 'branch' => null, 'main' => true],
+            ['fn' => $this->animeFnId, 'branch' => $this->louveteauxBranchId, 'section' => $lou],
+        ]);
+        $this->seedMember('R2', '2019-05-01', 'M', [
+            ['fn' => $this->animeFnId, 'branch' => $this->baladinsBranchId, 'main' => true, 'section' => $bal],
+        ]);
+        $this->seedMember('R3', '1990-01-01', 'F', [
+            ['fn' => $this->chiefFnId, 'branch' => $this->louveteauxBranchId, 'main' => true, 'section' => $lou],
+        ]);
+        $this->seedMember('R4', '1985-01-01', 'M', [
+            ['fn' => $this->intendantFnId, 'branch' => $this->baladinsBranchId, 'main' => true, 'section' => $bal],
+        ]);
+
+        $roster = new \Core\Member\SectionRosterRepository($this->pdo, $this->enc);
+        $animes = array_unique(array_map(
+            static fn (\Core\Member\SectionRosterEntry $e): int => $e->memberYearId,
+            array_filter(
+                $roster->findRosterEntries([$lou, $bal], $this->yearId),
+                static fn (\Core\Member\SectionRosterEntry $e): bool => $e->bucket === \Core\Member\SectionRosterEntry::BUCKET_ANIME
+            )
+        ));
+
+        $this->assertCount(2, $animes);
+        $this->assertCount(count($animes), $this->repo->getMemberBranchData($this->yearId));
     }
 }

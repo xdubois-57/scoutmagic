@@ -9,9 +9,11 @@ use Modules\Social\Card\CardRenderer;
 use Modules\Social\Card\CardService;
 use Modules\Social\Meta\MetaClient;
 use Modules\Social\Repository\CardRepository;
+use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
+use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\PublishRequest;
 use Modules\Social\Service\ShareSource;
@@ -42,6 +44,7 @@ final class DestinationStatesTest extends TestCase
             new CardService(new CardRepository($pdo), new CardRenderer(), $settings, $journal, sys_get_temp_dir()),
             $settings,
             $journal,
+            new PublicPageService(new CommunicationRepository($pdo), $settings, $journal),
             new MetaClient(H::transport([]))
         );
         $states = new DestinationStates($publishing, $publications, $connections, $settings);

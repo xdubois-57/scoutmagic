@@ -399,6 +399,60 @@ class StorageConfigControllerTest extends TestCase
         $this->assertSame('Nouveau nom', $this->repository->findById($id)?->label);
     }
 
+    /**
+     * Pointing a location at a folder that holds files attaches it to
+     * them (#832): the form comes back with what was typed and a box to
+     * tick, and only the second, confirmed submission saves.
+     */
+    public function testPointingALocationAtAFolderThatHoldsFilesAsksFirst(): void
+    {
+        $id = $this->declareLocal('Disque', 'gallery');
+        mkdir($this->storagePath . '/archives', 0777, true);
+        file_put_contents($this->storagePath . '/archives/photo.jpg', 'octets');
+
+        $asked = $this->controller->update(
+            $this->formRequest(['label' => 'Disque', 'subdir' => 'archives']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(409, $asked->getStatusCode());
+        $html = (string) $asked->getBody();
+        $this->assertStringContainsString('name="confirm_existing_content"', $html);
+        $this->assertStringContainsString('contient déjà des fichiers', $html);
+        $this->assertStringContainsString('value="archives"', $html, 'what was typed must come back');
+        $this->assertSame('gallery', $this->localPathOf($this->repository->findById($id)));
+
+        $done = $this->controller->update(
+            $this->formRequest(['label' => 'Disque', 'subdir' => 'archives', 'confirm_existing_content' => '1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(302, $done->getStatusCode());
+        $this->assertSame('archives', $this->localPathOf($this->repository->findById($id)));
+        $this->assertSame('octets', file_get_contents($this->storagePath . '/archives/photo.jpg'));
+    }
+
+    /** Declaring one there is the same question, and the type chosen comes back too. */
+    public function testDeclaringALocationOnAFolderThatHoldsFilesAsksFirst(): void
+    {
+        mkdir($this->storagePath . '/archives', 0777, true);
+        file_put_contents($this->storagePath . '/archives/photo.jpg', 'octets');
+
+        $asked = $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Archives', 'subdir' => 'archives',
+        ]), []);
+
+        $this->assertSame(409, $asked->getStatusCode());
+        $this->assertStringContainsString('value="Archives"', (string) $asked->getBody());
+        $this->assertSame([], $this->repository->findAll());
+
+        $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Archives', 'subdir' => 'archives', 'confirm_existing_content' => '1',
+        ]), []);
+
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
     public function testUpdateRejectsAnInvalidCsrfToken(): void
     {
         $id = $this->declareLocal('Intact', 'gallery');
@@ -797,20 +851,27 @@ class StorageConfigControllerTest extends TestCase
         $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
     }
 
-    public function testARenameTheFolderCannotFollowIsSavedJournaledAndShown(): void
+    /**
+     * #832: the folder could not be renamed, so nothing is saved — the
+     * form comes back with the reason and the location keeps its label.
+     * The provider's own words go to the journal, never to the screen.
+     */
+    public function testARenameTheFolderCannotFollowIsRefusedJournaledAndShown(): void
     {
         $drive = new FakeDrive('dossier-1', 'Google Drive');
         $drive->failPatchesWith = 500;
         $id = $this->declareDrive();
 
-        $this->driveController($drive)->update(
+        $response = $this->driveController($drive)->update(
             $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
             ['id' => (string) $id]
         );
 
-        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Google Drive', $this->repository->findById($id)?->label);
+        $this->assertSame('Google Drive', $drive->files['dossier-1']['name']);
         $this->assertSame(1, $this->journalCount('storage_location_folder_rename_failed'));
-        $this->assertStringContainsString('n\'a pas pu être renommé', $this->flashMessage());
+        $this->assertStringContainsString('Le nom n&#039;a pas été changé', (string) $response->getBody());
     }
 
     /** The confirmation before deleting a Drive location announces the trash. */
@@ -937,6 +998,24 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertNull($this->publicUrlOf($this->repository->findById($id)));
+    }
+
+    /**
+     * That refusal carries its cause too, and is not a Drive folder that
+     * would not follow: the journal must not say it is (#832).
+     */
+    public function testAConsumerThatCannotBeAskedIsNotJournaledAsAFolderRename(): void
+    {
+        $id = $this->declareDrive();
+        $this->consumers->register($this->brokenConsumer());
+
+        $response = $this->driveController(new FakeDrive('dossier-1', 'Google Drive'))->update(
+            $this->formRequest(['label' => 'Photos des galeries', 'drive_client_id' => 'client-1']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, $this->journalCount('storage_location_folder_rename_failed'));
     }
 
     // ————— Promoting a default —————

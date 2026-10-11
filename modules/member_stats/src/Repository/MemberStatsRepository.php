@@ -21,16 +21,20 @@ use Core\Security\EncryptionService;
  *
  * A member can have several rows in the Desk export (one per address and/or per
  * function), which the import turns into several member_functions rows. To avoid
- * distorted counts, everything about a member is decided from a SINGLE function:
- * their principal one (is_main_function, then lowest id for determinism).
+ * distorted counts, a member is counted ONCE, from a single function.
  *
  * Only *animés* (the children) are returned. A section contains both animés and
  * their animateurs/chefs; a member is treated as staff — and excluded — when
- * their PRINCIPAL function has an elevated role (intendant/chief/admin/superadmin).
- * A member whose principal function is an animé role is counted even if they also
- * hold a secondary leadership function (e.g. a pionnier who is also an assistant).
- * The branch is the principal function's branch; a member whose principal function
- * carries no branch is not counted.
+ * their PRINCIPAL function (is_main_function, then lowest id) has an elevated role
+ * (intendant/chief/admin/superadmin). A member whose principal function is an
+ * animé role is counted even if they also hold a secondary leadership function
+ * (e.g. a pionnier who is also an assistant).
+ *
+ * The branch comes from the first function that can place the member: a
+ * non-staff function with a branch, its own or that of its section. So a
+ * principal function without a branch (a unit function, say) does not hide the
+ * section function that makes the member an animé — the same member the
+ * « Animés de la section » roster lists (#834).
  */
 class MemberStatsRepository
 {
@@ -59,9 +63,9 @@ class MemberStatsRepository
     {
         $pdo = $this->connection->getPdo();
 
-        // One row per member: their principal function (is_main_function first,
-        // then lowest id for a deterministic pick). LEFT JOIN age_branches so a
-        // principal function without a branch is still seen (and then skipped).
+        // All functions of the year's active members, principal first. The branch
+        // is the function's own, else its section's. LEFT JOINs so a function
+        // without either is still seen (and skipped below, not fatal).
         $stmt = $pdo->prepare(
             'SELECT my.id AS member_year_id,
                     my.birth_date_encrypted,
@@ -73,31 +77,34 @@ class MemberStatsRepository
              FROM member_years my
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
-             LEFT JOIN age_branches ab ON mf.age_branch_id = ab.id
+             LEFT JOIN sections s ON mf.section_id = s.id
+             LEFT JOIN age_branches ab ON ab.id = COALESCE(mf.age_branch_id, s.age_branch_id)
              WHERE my.scout_year_id = ? AND my.is_active = 1
              ORDER BY my.id, mf.is_main_function DESC, mf.id ASC'
         );
         $stmt->execute([$scoutYearId]);
 
-        // Keep only the first row seen per member = their principal function.
-        $principal = [];
+        $rows = [];
+        $decided = [];
+        $isFirst = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
             $memberYearId = (int) $r['member_year_id'];
-            if (!isset($principal[$memberYearId])) {
-                $principal[$memberYearId] = $r;
-            }
-        }
-
-        $rows = [];
-        foreach ($principal as $r) {
-            // Staff (their principal function is elevated) and members whose
-            // principal function has no branch are not counted.
-            if (in_array((string) $r['function_role'], self::STAFF_ROLES, true)) {
+            if (isset($decided[$memberYearId])) {
                 continue;
             }
-            if ($r['branch_label'] === null) {
-                continue;
+            $isStaff = in_array((string) $r['function_role'], self::STAFF_ROLES, true);
+            if (!isset($isFirst[$memberYearId])) {
+                $isFirst[$memberYearId] = true;
+                if ($isStaff) {
+                    // Principal function is elevated: this member is staff.
+                    $decided[$memberYearId] = true;
+                    continue;
+                }
             }
+            if ($isStaff || $r['branch_label'] === null) {
+                continue; // cannot place the member with this function; try the next one
+            }
+            $decided[$memberYearId] = true;
             $rows[] = [
                 'branch_label' => (string) $r['branch_label'],
                 'branch_sort_order' => (int) $r['branch_sort_order'],

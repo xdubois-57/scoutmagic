@@ -10,7 +10,7 @@ namespace Modules\Finance\Api;
 
 /**
  * How a module that registers expected payments names them on
- * « Paiements attendus » (ARCHITECTURE.md §7.5, the module-extended-by-a-
+ * « Contrôle des créances » (ARCHITECTURE.md §7.5, the module-extended-by-a-
  * module pattern — the same shape `inbound_mail` uses for its consumers).
  *
  * **Finance deliberately knows nothing about a source instance beyond its

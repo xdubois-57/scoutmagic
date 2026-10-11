@@ -36,7 +36,7 @@ use Core\Storage\Location\StoredObject;
  * second one invented here. Every byte therefore passes through PHP,
  * which is what the location's own card says in as many words.
  */
-final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
+final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend, EmptinessProbingBackend
 {
     /**
      * How many entries one listing page asks for.
@@ -199,6 +199,32 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
      * a page, does the work, and comes back — it cannot hold the whole
      * share in memory, and neither can this.
      */
+    /**
+     * One `PROPFIND` at `Depth: 1` on the share itself: any child at all
+     * is an answer, and nothing below it is asked for.
+     */
+    public function holdsAnything(): bool
+    {
+        try {
+            $resources = $this->client->propfind($this->urlFor(''), $this->auth(), 1);
+        } catch (WebDavAccessException $e) {
+            if ($e->isNotFound()) {
+                return false;
+            }
+            throw $e;
+        }
+
+        $base = $this->collectionPath();
+        foreach ($resources as $resource) {
+            $key = self::keyFrom($resource->href, $base);
+            if ($key !== null && $key !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
     {
         $prefix = trim($prefix, '/');

@@ -80,7 +80,10 @@ class TextNormalizerServiceTest extends TestCase
             'mobile starting 32 no plus' => ['32476123456', '+32 476 12 34 56'],
             'brussels landline' => ['02 345 67 89', '+32 2 345 67 89'],
             'namur landline 2-digit' => ['081 22 33 44', '+32 81 22 33 44'],
-            'foreign number' => ['+33 1 23 45 67 89', '+33 123 45 67 89'],
+            'antwerp landline 1-digit' => ['03 123 45 67', '+32 3 123 45 67'],
+            'foreign number' => ['+33 1 23 45 67 89', '+33 1 23 45 67 89'],
+            'foreign number with 00' => ['0033 6 12 34 56 78', '+33 6 12 34 56 78'],
+            'three-digit country code' => ['+352 691 123 456', '+352 691 123 456'],
             'empty' => ['', ''],
             'only separators' => ['--/--', ''],
         ];

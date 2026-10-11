@@ -22,6 +22,7 @@ use Modules\Covoiturage\Controller\CarpoolController;
 use Modules\Covoiturage\Controller\CarpoolOrganizerController;
 use Modules\Covoiturage\Repository\CarpoolRepository;
 use Modules\Covoiturage\Repository\OfferRepository;
+use Modules\Covoiturage\Repository\SeatRequest;
 use Modules\Covoiturage\Repository\SeatRequestRepository;
 use Modules\Covoiturage\Service\CarpoolBoard;
 use Modules\Covoiturage\Service\CarpoolService;
@@ -290,7 +291,7 @@ final class CovoiturageRbacTest extends TestCase
         // Pending, and the driver already has the family's phone, so they
         // can call before answering (#703). The whole number, not a
         // prefix: four hex digits of the page's CSRF token once read 0495.
-        $this->assertStringContainsString('0495 88 77 66', $page);
+        $this->assertStringContainsString('+32 495 88 77 66', $page);
         // The address says what it is on this trip, and opens a route.
         $this->assertStringContainsString('Destination :', $page);
         $this->assertStringContainsString('title="Itinéraire depuis votre position"', $page);
@@ -309,6 +310,94 @@ final class CovoiturageRbacTest extends TestCase
             ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId . '/proposer', [], [], [], []))->getBody();
         $this->assertStringContainsString('Un point de rendez-vous, pas votre adresse', $form);
         $this->assertStringContainsString('Fixé par le covoiturage', $form);
+    }
+
+    public function testTheListBadgesMyPartAndTheDayBannerAppearsOnTheDay(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+
+        // setUp: the account drives a car of a carpool 10 days away.
+        $list = $this->frontController('GET', '/covoiturage', 'index', 'identified')
+            ->handle(new Request('GET', '/covoiturage', [], [], [], []))->getBody();
+        $this->assertStringContainsString('badge text-bg-info">Aller · Conducteur<', $list);
+
+        $before = $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId, [], [], [], []))->getBody();
+        $this->assertStringNotContainsString('data-carpool-day-banner', $before);
+
+        // The same driver, a carpool that leaves today, a family already asking.
+        $today = H::carpool($this->pdo, 0);
+        $car = H::offer($this->pdo, $today, $this->accountId);
+        H::request($this->pdo, $car, 99, ['Tom Leroy'], SeatRequest::ACCEPTED);
+
+        $page = $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', '/covoiturage/' . $today, [], [], [], []))->getBody();
+        $this->assertStringContainsString('data-carpool-day-banner', $page);
+        $this->assertStringContainsString('Vous conduisez.', $page);
+        $this->assertStringContainsString('Rendez-vous : Parking des locaux', $page);
+        $this->assertStringContainsString('Tom Leroy', $page);
+        $this->assertStringContainsString('+32 495 88 77 66', $page);
+        // The banner reuses the page's own route link: one per address, none new.
+        $this->assertStringContainsString('Itinéraire vers Gîte de Han-sur-Lesse', $page);
+    }
+
+    public function testAnAcceptedFamilySeesTheDriversNumberInTheBannerAndAPendingOneDoesNot(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $today = H::carpool($this->pdo, 0);
+        $car = H::offer($this->pdo, $today, 99);
+        $request = H::request($this->pdo, $car, $this->accountId, ['Léa'], SeatRequest::PENDING);
+        $url = '/covoiturage/' . $today;
+        $show = fn(): string => $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', $url, [], [], [], []))->getBody();
+
+        $pending = $show();
+        $this->assertStringContainsString('alert alert-warning', $pending);
+        $this->assertStringContainsString('toujours à confirmer', $pending);
+        $this->assertStringNotContainsString('478 12 34 56', $pending);
+
+        (new SeatRequestRepository($this->pdo, H::encryption()))->transition($request, SeatRequest::PENDING, SeatRequest::ACCEPTED);
+        $accepted = $show();
+        $this->assertStringContainsString('Votre place est confirmée</strong> pour Léa', $accepted);
+        $this->assertStringContainsString('Conducteur : Sophie Martin', $accepted);
+        $this->assertStringContainsString('+32 478 12 34 56', $accepted);
+    }
+
+    /** #790: taking a granted seat back asks for the same optional word as a refusal. */
+    public function testRetirerLaPlaceAsksForTheSameOptionalWordAsRefuser(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        (new SeatRequestRepository($this->pdo, H::encryption()))
+            ->transition($this->requestId, SeatRequest::PENDING, SeatRequest::ACCEPTED);
+
+        $page = $this->frontController('GET', '/covoiturage/{id}', 'show', 'identified')
+            ->handle(new Request('GET', '/covoiturage/' . $this->carpoolId, [], [], [], []))->getBody();
+
+        $this->assertSame(1, preg_match('/<form[^>]*retirer-la-place[^>]*>/s', $page, $form));
+        $this->assertStringContainsString('data-confirm-note="Un mot pour la famille (facultatif)"', $form[0]);
+        $this->assertStringContainsString('data-confirm-note-name="message"', $form[0]);
+        $this->assertStringContainsString('data-confirm-note-maxlength="200"', $form[0]);
+    }
+
+    /** #790: the word typed in the dialog reaches the service, which refuses an overlong one. */
+    public function testTheDriverRevokesASeatWithTheWordTypedInTheDialog(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $requests = new SeatRequestRepository($this->pdo, H::encryption());
+        $requests->transition($this->requestId, SeatRequest::PENDING, SeatRequest::ACCEPTED);
+        $path = '/covoiturage/demandes/' . $this->requestId . '/retirer-la-place';
+        $post = fn(string $message): int => $this->frontController('POST', '/covoiturage/demandes/{id}/retirer-la-place', 'revoke', 'identified')
+            ->handle(new Request('POST', $path, [], [
+                '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+                'message' => $message,
+            ], [], []))->getStatusCode();
+
+        // Past 200 characters: refused, and the seat is still granted.
+        $this->assertSame(302, $post(str_repeat('x', 201)));
+        $this->assertSame(SeatRequest::ACCEPTED, $requests->findById($this->requestId)?->status);
+
+        $this->assertSame(302, $post('Ma voiture est en panne.'));
+        $this->assertSame(SeatRequest::REVOKED, $requests->findById($this->requestId)?->status);
     }
 
     public function testAChiefOfAnotherSectionCannotEditACarpoolTheyDoNotOrganize(): void

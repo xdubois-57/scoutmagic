@@ -60,8 +60,8 @@ final class PurgeCardsHandlerTest extends TestCase
             new JournalService($journal),
             $this->storage . '/' . CardService::DIRECTORY
         );
-        $cards->issue(H::groupPhoto(), 'Old', 'a.be', true, new \DateTimeImmutable('-3 hours'));
-        $cards->issue(H::groupPhoto(), 'Live', 'a.be', true, new \DateTimeImmutable());
+        $cards->issue($cards->compose(H::groupPhoto(), 'Old', 'a.be', true), true, new \DateTimeImmutable('-3 hours'));
+        $cards->issue($cards->compose(H::groupPhoto(), 'Live', 'a.be', true), true, new \DateTimeImmutable());
 
         (new PurgeCardsHandler())->handle([], new TaskContext(
             Connection::withPdo($this->pdo),

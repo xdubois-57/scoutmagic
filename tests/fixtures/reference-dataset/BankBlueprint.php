@@ -67,7 +67,7 @@ final class BankBlueprint
      * Declared here rather than drawn, because the builder creates matching
      * expected receivables from this same list in IT-06: the payment on the
      * statement and the receivable it settles have to carry the same string or
-     * the "Paiements attendus" page reconciles nothing.
+     * the « Contrôle des créances » page reconciles nothing.
      *
      * @var array<string, list<string>> scout year label => 10-digit bases
      */

@@ -275,7 +275,7 @@ class InboundMailboxRepository
      * `INSERT ... ON DUPLICATE KEY UPDATE`, which SQLite does not
      * understand and which would make this the one repository its own tests
      * could not exercise. The same convention as
-     * `Modules\Gallery\Repository\LinkPreviewCacheRepository::store()`.
+     * `Core\Http\LinkPreviewCacheRepository::store()`.
      */
     public function saveCursor(FolderCursor $cursor): void
     {

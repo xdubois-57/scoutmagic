@@ -44,6 +44,7 @@ class CampaignServiceTest extends TestCase
     private CampaignRowRepository $rows;
     private ExpectedReceivableRepository $receivables;
     private int $accountId;
+    private int $categoryId;
     private int $otherAccountId;
     private int $scoutYearId;
     private int $fiscalYearId;
@@ -81,6 +82,7 @@ class CampaignServiceTest extends TestCase
 
         $this->pdo->exec("INSERT INTO finance_accounts (name, account_type, status) VALUES ('Compte Unité', 'bank', 'active')");
         $this->accountId = (int) $this->pdo->lastInsertId();
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo, 'Cotisations');
         $this->pdo->exec("INSERT INTO finance_accounts (name, account_type, status, role_min_view) VALUES ('Compte réservé', 'bank', 'active', 'admin')");
         $this->otherAccountId = (int) $this->pdo->lastInsertId();
 
@@ -126,6 +128,8 @@ class CampaignServiceTest extends TestCase
             $this->assertSame($row->amountCents, $receivables[0]->amountDueCents);
             $this->assertSame($row->memberId, $receivables[0]->memberId);
             $this->assertSame($this->accountId, $receivables[0]->accountId);
+            // Booked where the campaign said (issue #838).
+            $this->assertSame($this->categoryId, $receivables[0]->categoryId);
         }
     }
 
@@ -402,6 +406,7 @@ class CampaignServiceTest extends TestCase
             $label,
             $this->scoutYearId,
             $accountId ?? $this->accountId,
+            $this->categoryId,
             $path,
             'cotisations.xlsx',
             Role::INTENDANT,

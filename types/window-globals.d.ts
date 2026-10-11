@@ -29,6 +29,25 @@ interface HelpSearchEntry {
     link: { path: string; label: string } | null;
 }
 
+// public/assets/js/rich-text-link.js — what a surface may hold beyond the
+// common canonical grammar (issue #844).
+// What a form() field's action can do with the dialog's fields
+// (public/assets/js/confirm.js).
+interface ScoutMagicFormControl {
+    inputs: HTMLInputElement[];
+    value: (name: string) => string;
+    set: (name: string, value: string) => void;
+    note: (name: string, text: string, tone?: 'muted' | 'warning' | 'danger') => void;
+    values: () => Record<string, string>;
+}
+
+interface ScoutMagicRichTextOptions {
+    images?: boolean;
+    stored?: boolean;
+    siteImages?: boolean;
+    decorate?: (container: HTMLElement) => void;
+}
+
 interface Window {
     // public/assets/vendor/chartjs/chart.umd.min.js — present only on the
     // pages that load it.
@@ -62,6 +81,50 @@ interface Window {
             start: (handle: { stop: () => void }) => void;
             stop: () => void;
             isRunning: () => boolean;
+        };
+    };
+    // public/assets/js/social-card.js — the card that is published,
+    // drawn in the browser (issue #706, IT-02), loaded by the social
+    // composer. `wrapTitle` and `fitLine` take their measure function as
+    // an argument rather than reaching for a 2D context, which is what
+    // makes the title's line breaking unit-testable: jsdom has no context
+    // at all.
+    ScoutMagicCard?: {
+        wrapTitle: (text: string, measure: (text: string) => number, maxWidth: number) => string[];
+        fitLine: (
+            line: string,
+            measure: (text: string) => number,
+            maxWidth: number,
+            forceEllipsis?: boolean
+        ) => string;
+        drawCard: (canvas: HTMLCanvasElement | null, card: {
+            image: HTMLImageElement | ImageBitmap | HTMLCanvasElement | null;
+            title: string;
+            address: string;
+            blurRatio: number;
+        }) => boolean;
+        toJpeg: (canvas: HTMLCanvasElement) => Promise<Blob | null>;
+        // CardRenderer's geometry, so a test can state the
+        // correspondence instead of restating the numbers.
+        cardConstants: () => {
+            size: number;
+            margin: number;
+            maxTextWidth: number;
+            // `titleSize`/`addressSize` are the POINT sizes
+            // `imagettftext()` is handed; `titlePixels`/`addressPixels`
+            // are those converted at GD's 96 dpi, which is what the
+            // canvas draws with.
+            titleSize: number;
+            titlePixels: number;
+            titleMaxLines: number;
+            titleLineHeight: number;
+            addressSize: number;
+            addressPixels: number;
+            addressToTitle: number;
+            veilStartY: number;
+            veilFootAlpha: number;
+            backdrop: string;
+            jpegQuality: number;
         };
     };
     // public/assets/js/map.js — every map's tiles and first view, loaded
@@ -153,6 +216,20 @@ interface Window {
             options?: { height?: string, width?: string, iconClass?: string }
         ) => void;
     };
+    // public/assets/js/display-mode.js — is this window the installed
+    // application? Loaded in <head> by base.html.twig, ahead of every
+    // deferred script that asks (offline-cache.js, pull-to-refresh.js).
+    ScoutMagicDisplayMode?: {
+        isStandalone: () => boolean;
+    };
+    // public/assets/js/offline-nav.js — the page's connectivity verdict
+    // (issue #353's probe, never navigator.onLine alone). recheck() probes
+    // now, repaints the page, and resolves true when it is online again.
+    // Absent on a page without #offline-config-data.
+    ScoutMagicConnectivity?: {
+        isOfflineConfirmed: () => boolean;
+        recheck: () => Promise<boolean>;
+    };
     // public/assets/js/toast.js — the non-blocking replacement for
     // alert(), loaded by base.html.twig on every page.
     ScoutMagicToast?: {
@@ -199,6 +276,27 @@ interface Window {
             cancelLabel?: string;
             variant?: 'danger' | 'primary';
         }) => Promise<string | null>;
+        // Several labelled fields at once, resolved by name, or null when
+        // the dialog was dismissed. A field may carry a small button that
+        // fills it in (the link dialog's « baguette magique », #840).
+        form: (input: {
+            title: string;
+            message?: string;
+            fields: Array<{
+                name: string;
+                label: string;
+                value?: string;
+                placeholder?: string;
+                inputType?: string;
+                action?: {
+                    label: string;
+                    icon: string;
+                    run: (control: ScoutMagicFormControl) => Promise<void> | void;
+                };
+            }>;
+            confirmLabel?: string;
+            cancelLabel?: string;
+        }) => Promise<Record<string, string> | null>;
     };
     // public/assets/js/news-scan.js — the door screen of « Scanner un
     // billet ». Exposed so the QR reader hands its scanned payload to the
@@ -248,14 +346,24 @@ interface Window {
     // created; wireToolbar is idempotent per button, so two scripts driving
     // the same modal wire it once. There is deliberately no sanitiser here:
     // every save route answers with the string it stored, and the editors
-    // repaint with that — see the file's own header.
+    // repaint with that — see the file's own header. canonicalFragment and
+    // canonicalHtml rebuild foreign HTML in the toolbar's own grammar (issue
+    // #844); wireSurface gives a contenteditable that canonical paste.
     ScoutMagicRichText?: {
+        canonicalFragment: (html: string, options?: ScoutMagicRichTextOptions) => DocumentFragment;
+        canonicalHtml: (html: string, options?: ScoutMagicRichTextOptions) => string;
         insertLink: (surface: HTMLElement | null) => Promise<boolean>;
         normalizeUrl: (raw: string | null) => string | null;
+        wireSurface: (
+            surface: HTMLElement,
+            options?: ScoutMagicRichTextOptions,
+            afterChange?: (() => void) | null
+        ) => void;
         wireToolbar: (
             root: ParentNode,
             surface: HTMLElement,
-            afterCommand?: (() => void) | null
+            afterCommand?: (() => void) | null,
+            options?: ScoutMagicRichTextOptions
         ) => void;
     };
     // public/assets/js/camps-booked-by.js — the « Réservation faite par »

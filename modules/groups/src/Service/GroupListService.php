@@ -92,19 +92,23 @@ class GroupListService
         }
 
         $readable = [];
+        // Whether one of the caller's linked members really belongs to the
+        // group — as an invited member or through a section — which is not
+        // the same question as « may read it »: a site admin reads every
+        // group. Only a member's visit leaves a reading position
+        // (Service\GroupReadStateService), so only a member can have an
+        // unread badge to clear (issue #712).
+        $belongsTo = [];
         foreach ($groups as $group) {
             $sectionIds = $sectionIdsByGroup[$group->id] ?? [];
             $isExplicit = array_key_exists($group->id, $explicitByGroup);
+            $belongs = $isExplicit || $this->isDerived($group, $sectionIds, $periods, $context);
 
-            if (!$context->isSiteAdmin() && !$isExplicit && !$this->isDerived(
-                $group,
-                $sectionIds,
-                $periods,
-                $context
-            )) {
+            if (!$context->isSiteAdmin() && !$belongs) {
                 continue;
             }
 
+            $belongsTo[$group->id] = $belongs;
             $readable[] = [$group, $sectionIds, $context->isSiteAdmin() || ($explicitByGroup[$group->id] ?? false)];
         }
 
@@ -125,7 +129,7 @@ class GroupListService
                 $isModerator,
                 $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId,
                 $sectionIds,
-                $this->hasUnread($group, $lastRead),
+                ($belongsTo[$group->id] ?? false) && $this->hasUnread($group, $lastRead),
                 $headcounts[$group->id] ?? 0
             );
         }
@@ -203,6 +207,10 @@ class GroupListService
      * still its own creation timestamp has nothing to catch up on, and
      * flagging it would make the badge mean "exists" rather than "has
      * something new".
+     *
+     * The caller has already been checked to belong to the group
+     * (findReadable()): a badge is only ever put on a group the caller's
+     * own visit can clear.
      *
      * @param array<int, string> $lastRead
      */

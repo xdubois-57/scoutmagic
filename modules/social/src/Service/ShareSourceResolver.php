@@ -82,7 +82,13 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null
+                trim($communication->title) === '' ? 'Donnez d\'abord un titre à l\'image.' : null,
+                null,
+                null,
+                // The slider's position, as this row kept it (issue #706,
+                // IT-02). Null when nothing was ever chosen.
+                $communication->blurRatio,
+                $this->frozenCard($communication)
             );
     }
 
@@ -117,7 +123,23 @@ final class ShareSourceResolver
                 $this->address(''),
                 $communication->body,
                 self::path($communication->id),
-                self::vanishedSourceReason((string) $communication->sourceKind)
+                self::vanishedSourceReason((string) $communication->sourceKind),
+                null,
+                null,
+                $communication->blurRatio,
+                // The kept card travels here like anywhere else. What
+                // keeps it from being SERVED for a source this caller
+                // may no longer share is `cardOf()`, which serves it
+                // only where the source's own image is — and the image
+                // above is null for every reason `describeSource()`
+                // answers null. A second `null` here was my first fix
+                // for that, in the review of #850; the review then found
+                // the same hole on the other branch of
+                // `communication()`, and keying on the image covers both
+                // at once. Mutation says this one then decides nothing,
+                // so it is gone rather than left as an untested guard.
+                // {@see CommunicationController::cardOf()}
+                $this->frozenCard($communication)
             );
         }
 
@@ -137,7 +159,14 @@ final class ShareSourceResolver
             // publications are recorded under — so a message about a
             // missing image can name the album instead of telling the
             // chief to choose one here, where there is no button to.
-            $source->kind
+            $source->kind,
+            // The slider's position belongs to THIS share, not to the
+            // album: two shares of one album may be blurred differently,
+            // and the album has no slider of its own (issue #706, IT-02).
+            $communication->blurRatio,
+            // And so does the card: it was drawn for this share, from the
+            // album's cover as it stood then.
+            $this->frozenCard($communication)
         );
     }
 
@@ -203,6 +232,60 @@ final class ShareSourceResolver
         return Role::fromString($role)->hasAccess(Role::ADMIN) || $communication->createdBy === $accountId
             ? $communication
             : null;
+    }
+
+    /**
+     * Which of these communications this caller may share — the bulk
+     * form of {@see editableCommunication()}'s rule (issue #706, IT-05).
+     *
+     * « Ce qui est parti » is readable by every chief and lists the whole
+     * unit's contents, while the share icon's two routes answer 404 to
+     * anyone but the author or an administrator. Offering the button
+     * where it cannot work made it 404 on a colleague's communication in
+     * any unit with more than one chief; `Claude review` found it on PR
+     * #868.
+     *
+     * **The two methods must keep saying the same thing**, which is why
+     * this one lives here beside the other rather than in the controller
+     * that draws the page: an administrator may share anything, and
+     * anybody else only what they wrote.
+     *
+     * @param list<int> $communicationIds
+     * @return array<int, true> the ids this caller may share, as a set
+     */
+    public function shareableAmong(array $communicationIds, string $role, int $accountId): array
+    {
+        if ($communicationIds === [] || $this->communications === null) {
+            return [];
+        }
+        $creators = $this->communications->creatorsOf($communicationIds);
+        $admin = Role::fromString($role)->hasAccess(Role::ADMIN);
+
+        $shareable = [];
+        foreach ($communicationIds as $id) {
+            if ($admin || ($creators[$id] ?? null) === $accountId) {
+                $shareable[$id] = true;
+            }
+        }
+
+        return $shareable;
+    }
+
+    /**
+     * The card the browser drew for this share, as stored, or null
+     * (issue #706, IT-02).
+     *
+     * Read through the same reader as an uploaded image, so a card whose
+     * file has gone answers null and the publication composes one rather
+     * than failing — the stored card is what « what you saw is what left »
+     * rests on, and losing the file is a reason to fall back, not to
+     * refuse a retry forever.
+     */
+    private function frozenCard(Communication $communication): ?string
+    {
+        return $communication->cardFileId === null
+            ? null
+            : $this->files->read($communication->cardFileId);
     }
 
     private function communicationImage(Communication $communication, string $role): ?string

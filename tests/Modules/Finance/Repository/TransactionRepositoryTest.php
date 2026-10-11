@@ -357,15 +357,32 @@ class TransactionRepositoryTest extends TestCase
         $this->assertNull($transaction->categorySource);
     }
 
-    public function testFindAllUncategorized(): void
+    public function testFindUncategorizedAfterWalksByIdWithinTheBound(): void
     {
-        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $first = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-03', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
         $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $second = $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-01', 'C', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $beyond = $this->repository->create($this->accountId, $this->fiscalYearId, 'R4', '2026-09-01', 'D', -4.0, null, null, Transaction::SOURCE_MANUAL, null);
 
-        $results = $this->repository->findAllUncategorized();
+        // By id, not by date: R3 is older than R1 and still comes after it.
+        $this->assertSame([$first, $second], array_map(
+            static fn(Transaction $t): int => $t->id,
+            $this->repository->findUncategorizedAfter(0, $second, 10)
+        ));
+        $this->assertSame([$second], array_map(
+            static fn(Transaction $t): int => $t->id,
+            $this->repository->findUncategorizedAfter($first, $second, 10)
+        ));
+        $this->assertCount(1, $this->repository->findUncategorizedAfter(0, $beyond, 1));
+        $this->assertSame($beyond, $this->repository->findMaxUncategorizedId());
+        $this->assertSame(2, $this->repository->countUncategorizedUpTo($second));
+    }
 
-        $this->assertCount(1, $results);
-        $this->assertSame($uncategorized, $results[0]->id);
+    public function testFindMaxUncategorizedIdIsZeroWhenEverythingIsCategorized(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame(0, $this->repository->findMaxUncategorizedId());
     }
 
     public function testFindFilteredUncategorizedOnlyTakesPriorityOverCategoryId(): void
@@ -403,32 +420,5 @@ class TransactionRepositoryTest extends TestCase
         $this->assertSame(4, $this->repository->countFiltered($this->accountId, $this->fiscalYearId, null, false));
         $this->assertSame(2, $this->repository->countFiltered($this->accountId, $this->fiscalYearId, null, true));
         $this->assertSame(2, $this->repository->countFiltered($this->accountId, $this->fiscalYearId, $categoryId, false));
-    }
-
-    /**
-     * The dashboard's "needs a treasurer's hand" list, decided in SQL:
-     * uncategorized, or an expense with no receipt. Categorized income,
-     * and a receipted expense, never qualify.
-     */
-    public function testFindActionNeededSelectsUncategorizedAndUnreceiptedExpensesOnly(): void
-    {
-        $this->pdo->exec("INSERT INTO finance_categories (name) VALUES ('Divers')");
-        $categoryId = (int) $this->pdo->lastInsertId();
-
-        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'A1', '2026-10-04', 'Sans catégorie', 10.0, null, null, Transaction::SOURCE_MANUAL, null);
-        $bareExpense = $this->repository->create($this->accountId, $this->fiscalYearId, 'A2', '2026-10-03', 'Dépense nue', -5.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-        $receiptedExpense = $this->repository->create($this->accountId, $this->fiscalYearId, 'A3', '2026-10-02', 'Dépense justifiée', -5.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-        $this->repository->create($this->accountId, $this->fiscalYearId, 'A4', '2026-10-01', 'Recette classée', 20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
-
-        $this->pdo->exec("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('x', 'x', 'application/pdf', 1, 'intendant')");
-        $fileId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename) VALUES ({$this->accountId}, {$fileId}, 'application/pdf', 'r.pdf')");
-        $attachmentId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO finance_transaction_attachments (transaction_id, attachment_id) VALUES ({$receiptedExpense}, {$attachmentId})");
-
-        $needed = $this->repository->findActionNeeded($this->accountId, $this->fiscalYearId, 10);
-
-        $this->assertSame([$uncategorized, $bareExpense], array_map(fn(Transaction $t) => $t->id, $needed));
-        $this->assertCount(1, $this->repository->findActionNeeded($this->accountId, $this->fiscalYearId, 1));
     }
 }

@@ -8,7 +8,7 @@ question: Où sont rangées les photos dans mon Google Drive ?
 question: À quoi sert le fichier LISEZMOI dans chaque dossier d'album ?
 question: Que devient le dossier Drive quand je supprime l'emplacement ?
 paths: /config/stockage/emplacements
-related: stockage-google-drive, sauvegarde-hors-site, stockage
+related: stockage-cible, stockage-google-drive, sauvegarde-hors-site, stockage
 ---
 
 Chaque emplacement Google Drive a **son propre dossier**, et tous se
@@ -51,6 +51,18 @@ Le dossier d'un emplacement fait exception pour son nom : le site le
 retrouve par son identifiant, pas par son nom. Mais inutile de le
 renommer vous-même : renommez plutôt l'emplacement dans **Modifier**, et
 le dossier suit.
+
+Le nouveau nom n'est enregistré que si Google Drive a bien renommé le
+dossier. Si Google ne répond pas, si le dossier est dans la corbeille ou
+n'existe plus, ou si l'emplacement n'est plus raccordé, le nom reste
+inchangé et un message explique pourquoi. Renommer un emplacement ne lui
+fait jamais choisir un autre dossier : il garde le sien.
+
+## Quand le dossier a disparu
+
+Si l'emplacement vise un dossier qui n'existe plus, le site n'en crée
+jamais un autre de lui-même : voyez « Changer la cible d'un
+emplacement ».
 
 ## Quand l'emplacement est supprimé
 

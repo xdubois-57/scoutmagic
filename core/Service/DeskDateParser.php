@@ -11,14 +11,18 @@ namespace Core\Service;
 /**
  * The one reader for a date that came out of Desk.
  *
- * `Core\Import\DeskCsvParser` stores the "Date de naissance" column
- * **verbatim**, and Desk exports it in more than one shape depending on the
- * export: `15/03/2012` in one, `2019-05-22` in another
+ * Desk exports a date in more than one shape depending on the export:
+ * `15/03/2012` in one, `2019-05-22` in another
  * (`tests/fixtures/desk_export_sample.csv` and `desk_export_comma.csv` show
- * both). Anything reading `member_years.birth_date_encrypted` therefore has
- * to accept several formats, and two independent copies of that list are
- * two chances for one of them to miss the shape a given unit's export uses
- * — which reads as "this member has no birth date" rather than as a bug.
+ * both). Two independent copies of that list are two chances for one of
+ * them to miss the shape a given unit's export uses — which reads as "this
+ * member has no birth date" rather than as a bug.
+ *
+ * Since issue #854 the import refuses a file whose dates this class cannot
+ * read (`Core\Import\DeskImportValidator`) and stores what it can read as
+ * `Y-m-d` (`Core\Import\DeskImportService`). Rows imported before that
+ * still hold the verbatim Desk text, which is why the readers of
+ * `member_years.birth_date_encrypted` that go through here keep doing so.
  *
  * A shared primitive for the same reason as
  * `Core\Service\TextNormalizerService::fold()` (ARCHITECTURE.md §8.0): the
@@ -54,6 +58,26 @@ final class DeskDateParser
         }
 
         return null;
+    }
+
+    /**
+     * The earliest birth date an import accepts. Nobody on a scout unit's
+     * roster was born before it, and a date before it is a typing or
+     * conversion accident — `01/01/0012` from a spreadsheet that dropped
+     * two digits reads as a valid date otherwise.
+     */
+    public const EARLIEST_BIRTH_DATE = '1900-01-01';
+
+    /**
+     * Whether a date READ by parse() can be somebody's birth date: not
+     * after $today, not before EARLIEST_BIRTH_DATE. parse() alone accepts
+     * `2099-01-01`, which is a perfectly formed date and nobody's birthday.
+     */
+    public static function isPlausibleBirthDate(\DateTimeImmutable $date, \DateTimeImmutable $today): bool
+    {
+        $day = $date->format('Y-m-d');
+
+        return $day >= self::EARLIEST_BIRTH_DATE && $day <= $today->format('Y-m-d');
     }
 
     /** The same date as `Y-m-d`, which is what anything comparing dates should hold. */

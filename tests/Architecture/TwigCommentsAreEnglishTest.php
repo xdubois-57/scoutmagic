@@ -126,7 +126,6 @@ final class TwigCommentsAreEnglishTest extends TestCase
         'modules/camps/views/documents.html.twig' => 1,
         'modules/camps/views/place_form.html.twig' => 1,
         'modules/finance/views/campaigns/list.html.twig' => 1,
-        'modules/finance/views/dashboard.html.twig' => 1,
         'modules/finance/views/receipts/_grid.html.twig' => 1,
         'modules/finance/views/reconciliation.html.twig' => 1,
         'modules/inbound_mail/views/config/index.html.twig' => 1,

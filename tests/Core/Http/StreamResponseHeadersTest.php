@@ -31,7 +31,7 @@ final class StreamResponseHeadersTest extends TestCase
     /**
      * The failure this class exists to prevent: a fetch that never reaches
      * the network must report "no response", not the headers of whatever
-     * succeeded before it. Modules\Gallery\Service\OgScraperService decides
+     * succeeded before it. Core\Http\UrlMetadataFetcher decides
      * whether a remote URL answered on exactly this distinction.
      */
     public function testAFetchThatNeverReachedTheNetworkReportsNoResponse(): void
@@ -77,7 +77,7 @@ final class StreamResponseHeadersTest extends TestCase
             'github release client' => ['core/Maintenance/GitHubReleaseClient.php'],
             'update downloader' => ['core/Maintenance/Task/InstallUpdateHandler.php'],
             'llm transport' => ['modules/llm_connector/src/Provider/HttpTransport.php'],
-            'og scraper' => ['modules/gallery/src/Service/OgScraperService.php'],
+            'url metadata fetcher' => ['core/Http/UrlMetadataFetcher.php'],
         ];
     }
 

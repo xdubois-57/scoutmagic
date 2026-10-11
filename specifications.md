@@ -143,6 +143,14 @@ One shared component draws a person everywhere the site shows one — the member
 
 Two photos, never mixed. A **member's** photo belongs to a scout year and is the one on their member page. A **login's** photo is set from "Mon compte", belongs to the person rather than to a year, and is what appears next to their name and their messages. It is optional (initials otherwise), only its owner can set or remove it — an administrator cannot, from anywhere — it is visible only to identified visitors, and removing it deletes the file.
 
+### 3.8 How a phone number is shown
+
+Every phone number the site shows — a member page, a staff list, a camp, a booking, a carpool — is written in **international form, Belgian numbers included** (`+32 472 54 67 71`), whatever way it was typed. The stored value is never changed. A leading « 00 » reads as « + », a « (0) » after the country code is dropped, and the country code is read to its full length (`+352` is Luxembourg, not `+35`). A field holding something other than one number — two numbers, or a number with a note such as « après 18h » — is shown exactly as typed, with no action offered: the site does not guess which number to dial.
+
+On a **touch screen**, the number is the one target of its cell, and tapping it opens a sheet at the bottom of the screen: **Appeler, SMS, WhatsApp, Signal, Copier le numéro**, in that order. Each opens the matching application on that number; a phone without WhatsApp or Signal lands on that service's own explanation page. A **Belgian landline** (anything but `+32 4[5-9]…` on nine digits) is offered the call and the copy only, and the sheet says why; a foreign number is offered everything, since nothing tells its landlines from its mobiles. On a **screen without touch**, the number is plain text followed by a « Copier » button. Without JavaScript, the number is a plain call link.
+
+The sheet never shows a number the page itself would not: who sees which number is decided by each page, exactly as before. Numbers in e-mails stay plain text. The help topic « Appeler ou écrire à un contact depuis son numéro » describes it for users; ARCHITECTURE.md §8.124 says how it is built.
+
 ## 4. Core pages
 
 ### 4.1 Notre unité
@@ -307,6 +315,7 @@ All pages in this menu require the `superadmin` role — Maintenance included si
 | Upload | Generic file upload (drag-drop, file selection, mobile camera). |
 | Installation | First-run setup (DB, unit settings, email, admin). Same page as Configuration later. |
 | Manifest / Icônes PWA | Progressive Web App manifest (JSON) and adaptive icons (192px, 512px, maskable) for installable app. Offline fallback page. |
+| Tirer pour actualiser | In the **installed application only** (never in a browser tab): from the very top of a page, pulling down shows a small round indicator, and releasing it past the threshold reloads the current page; a shorter pull retracts with no effect. Nothing happens on a page already scrolled, on a sideways movement, from inside a dialog or the menu, or on a second pull while the first is refreshing, and the browser's own gesture never reloads a second time. When the page is confirmed offline, the pull first asks the server again: still unreachable, nothing is reloaded and the « Hors ligne » banner and greyed links stay; reachable again (even while iOS still claims to be offline), the page comes back online and reloads once. Light and dark themes; no movement under « réduire les animations ». ARCHITECTURE.md §8.25. |
 
 ### 4.7 La synchronisation des carnets d'adresses (CardDAV)
 
@@ -1892,7 +1901,7 @@ A section can be preselected (`?section={id}`) — which is what the "Trombinosc
 
 A photograph of the unit's animés for the scout year in view: four counters (animés, boys, girls, other), then one block per branch — Baladins, Louveteaux, Éclaireurs, Pionniers — with **one bar per year within the branch**, its birth year facing it, and the gender breakdown of that year one tap away. All the bars share one scale, so a thin branch is visible at a glance, and **a hollow birth year is the point of the page**: it announces a section that will empty out in two or three years, in time to do something about it.
 
-**Only animés are counted.** A member whose principal function is an encadrement one is not, whatever their age. A member with no known birth date, or whose age falls outside the four branches, is counted **nowhere** — so the total can be slightly below the federation's own headcount, which is stated rather than hidden.
+**Only animés are counted.** A member whose principal function is an encadrement one is not, whatever their age. A member is counted once, placed by the first non-staff function that has a branch (its own or its section's): a principal function without a branch no longer hides the section function that makes them an animé, so the page counts the same animés as « Animés de la section » (#834). A member with no known birth date, or whose age falls outside the four branches, is counted **nowhere** — so the total can be slightly below the federation's own headcount, which is stated rather than hidden.
 
 **Age is computed at the start of the scout year**, never against today, so no member changes branch in the middle of a year, and it takes into account the individual year offset a chief may have set for a child kept back or moved up (§4.2).
 
@@ -3368,11 +3377,17 @@ entier —, l'image de fond, un titre incrusté (trois lignes au plus,
 raccourci au-delà) et l'adresse du site en pied. L'adresse est sur l'image
 parce qu'Instagram ne publie pas de lien.
 
-- **Une photo de la galerie est toujours floutée**, sur toute l'image, sans
-  case pour l'éviter. L'intensité est une proportion du côté de l'image,
-  calibrée sur de vraies photos à 5 % : le visage d'un portrait rapproché
-  n'est plus reconnaissable, la scène reste lisible. C'est un réglage non
-  modifiable ; une valeur plus faible écrite en base est ignorée.
+- **Une photo de la galerie part au flou que le chef a choisi**, « Net »
+  compris. Un curseur va de « Net » à « Très flou », l'aperçu le suit, et
+  l'intensité est une proportion du côté de l'image — sur toute l'image,
+  jamais sur des visages détectés. À 5 % du côté, le visage d'un portrait
+  rapproché n'est plus reconnaissable et la scène reste lisible ; à
+  « Net », la photo part telle qu'elle est, et la page le dit avant que ce
+  soit fait : « Cette photo de la galerie part sans flou. » Le flou choisi
+  est enregistré avec la communication et figé avec elle, si bien qu'une
+  destination publiée plus tard reçoit la même carte. Le réglage non
+  modifiable qui imposait autrefois un minimum dit désormais **où le
+  curseur commence**, et plus quel flou s'applique.
 - **Meta vient chercher l'image** à une adresse publique aléatoire, valable
   une heure. Passé ce délai, l'adresse répond « introuvable » comme une
   adresse qui n'a jamais existé, et l'image est effacée dans la journée.
@@ -3449,16 +3464,44 @@ page ne répond pas « introuvable » : elle s'ouvre en disant que ce qui
 publier : la source voyage dans le formulaire, et le serveur la redécrit,
 par le module propriétaire, avant d'écrire quoi que ce soit.
 
-**Ce qui part.** Un album part en publication d'image sur la Page et sur
-Instagram. Une actualité part **en lien** sur la Page — Facebook en
-affiche l'aperçu à partir de la page de l'actualité — et en image sur
-Instagram, qui n'accepte jamais de lien. Seule une actualité publique,
-en lien direct ou réservée aux membres identifiés peut quitter le site :
-ce sont les visibilités dont l'image est déjà un fichier public.
+**Ce qui part.** Sur la Page, un album comme une actualité partent **en
+lien**, et c'est Facebook qui fabrique l'aperçu ; sur Instagram, qui
+n'accepte jamais de lien, c'est l'image. Un album part en lien **à une
+condition** : que l'image dessinée par le navigateur ait été enregistrée,
+puisque c'est elle et elle seule que la page publique montre (§ 47.9).
+Quand le navigateur n'a pas pu dessiner — un cas que le site garde
+supporté —, l'album part en photo, le serveur composant la carte comme
+avant : une photo avec son image vaut mieux qu'un lien vers une page qui
+n'en a pas. Le lien d'une actualité mène à
+la page de l'actualité, dont Facebook lit la couverture, le titre et le
+résumé. Celui d'un album mène à **la page publique de la communication**
+(§ 47.9), qui montre l'image du composeur, son titre et son texte —
+l'album, lui, reste à sa visibilité, et cette page n'en montre rien
+d'autre. Une communication écrite de rien n'a pas de page à offrir et
+part en image.
 
-**Une seule fois par destination.** Le serveur refuse une deuxième
-publication du même album ou de la même actualité au même endroit, même
-si la page est renvoyée deux fois. Une destination en échec se retente
+**Et le composeur le dit**, sous l'image, en distinguant les deux : pour
+une actualité, que Facebook fabriquera son propre aperçu depuis la page
+de l'article et n'affichera donc pas cette image — les deux ne se
+ressemblent pas, celle du composeur portant le titre écrit dessus et
+l'adresse du site ; pour un album, que le lien mène à une page de ce site
+qui montre cette image, et que l'album reste réservé aux membres. La
+phrase ne promet « exactement ce qui sera publié » que là où c'est vrai.
+Seule une actualité publique, en lien direct ou réservée aux membres
+identifiés peut quitter le site : ce sont les visibilités dont l'image est
+déjà un fichier public.
+
+**Une seule fois par communication et par destination.** Le serveur
+refuse une deuxième publication de la **même communication** au même
+endroit, même si la page est renvoyée deux fois — et pour toujours, sans
+fenêtre de temps : le même album, le même message, le même animateur
+**sont** la même communication, et c'est une clé unique de la base qui le
+dit. Le même album avec un **autre** message est, lui, une communication
+nouvelle, et il peut repartir là où il est déjà allé : c'est permis, avec
+avertissement (§ 47.7). La règle vaut aussi quand on **réécrit** un
+brouillon : lui donner le texte d'une communication que cet album a déjà
+revient à en faire la même, ce que le site refuse en une phrase, sans
+toucher à ce qui est écrit. Une destination en échec se retente
 seulement si la case de confirmation est cochée, et les destinations déjà
 publiées ne sont pas touchées. Après « Publier », la page se réaffiche
 avec un message qui dit, destination par destination, ce qui est parti
@@ -3482,25 +3525,62 @@ dans cet ordre :
 1. **l'image en grand**, telle qu'elle sera publiée, titre et adresse
    compris ; sans image, la page dit qu'aucune publication ne part sans
    image ;
-2. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
+2. **le curseur de flou**, de « Net » à « Très flou », quand l'image vient
+   de la galerie (§ 47.5) — y compris pour un album partagé, dont la photo
+   est de la galerie elle aussi ;
+3. **« Galerie » et « Téléverser »**, sur une ligne, à parts égales, avec
    sous eux : « Une image téléversée part telle quelle. Une image de la
-   galerie est toujours floutée. » Pour téléverser, on choisit le fichier
-   puis on clique (JPEG, PNG ou WebP, 10 Mo au plus) ;
-3. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
-4. **le texte de la publication** (2 200 caractères) ;
-5. **les destinations**, avec leur état comme au § 47.6, l'avertissement
+   galerie part au flou que vous choisissez, le même vers toutes les
+   destinations. » Téléverser prend un clic : le bouton ouvre le sélecteur
+   de fichiers et l'envoi part dès qu'un fichier est choisi (JPEG, PNG ou
+   WebP, 10 Mo au plus) ;
+4. **ce que cette source a déjà connu**, quand elle a déjà été partagée :
+   un bloc d'avertissement, une ligne par partage déjà parti — la
+   destination, la date, l'auteur —, **tous les partages de toutes les
+   communications qui partagent cette source**, partages faits à la main
+   compris (§ 47.10). Il ne barre rien : ce qu'il s'agit d'éviter est
+   l'oubli, pas la répétition voulue ;
+5. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
+6. **le texte de la publication** (2 200 caractères) ;
+7. **les destinations**, avec leur état comme au § 47.6, l'avertissement
    que c'est public et hors du site, puis « Publier ».
 
-Les points 2 et 3 n'apparaissent pas quand l'image vient d'une source
-(§ 47.6). **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
+**« Publier » demande confirmation, destination par destination.** La
+fenêtre reprend chaque destination cochée — et chaque groupe de
+discussion retenu, nommé, et non la case qui les ouvre — avec, pour
+chacune, ce qu'elle a déjà reçu de cette source : « Cet album est déjà
+parti sur Facebook le 12 septembre 2026, avec le même message », ou
+« Jamais partagé ici. ». **« avec le même message » est la phrase pour
+laquelle cette fenêtre existe** : c'est le cas qui signale presque
+toujours un oubli. Elle se décide sur le texte **tel qu'il est au moment
+du clic**, et non tel qu'il était à l'ouverture de la page : réutiliser un
+album avec un texte neuf est précisément ce que cette version permet, donc
+un verdict calculé à l'affichage parlerait d'un message que le chef vient
+de réécrire. Elle dit aussi, comme avant, qu'une publication est
+publique et hors du site, et reprend l'avertissement du composeur quand
+une photo de la galerie part sans flou. Elle n'interdit rien.
+
+Les boutons du point 3 et le titre du point 5 n'apparaissent pas quand
+l'image vient d'une source (§ 47.6) : l'image et le titre sont ceux de
+l'album ou de l'actualité. **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
 tout, un aller-retour vers la galerie ou un téléversement garde le
 brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
 « Publier ». Après « Publier », retour à l'historique.
 
 Une communication appartient à son auteur et aux administrateurs ; pour
-tout autre animateur, elle est « introuvable ». **Dès qu'une destination
-a été tentée, elle ne change plus** : l'image, le titre et le texte sont
-figés, et une destination publiée ensuite reçoit exactement la même chose.
+tout autre animateur, elle est « introuvable ». **Dès qu'une publication
+est partie vers une destination, elle ne change plus** : le texte est
+figé, et l'image aussi dès lors qu'il y a de quoi la figer — l'image que
+le navigateur a dessinée, conservée, ou les colonnes propres d'une
+communication qui a son image à elle. Il reste un cas où l'image est
+relue à la source à chaque envoi : un partage d'album ou d'actualité
+pour lequel aucune image n'a pu être conservée (un partage fait avant
+cette version du site, ou un navigateur qui n'a pas réussi à l'envoyer).
+Les pages qui promettent le contraire le disent alors, plutôt que de
+promettre « la même image » à tout le monde. Une tentative refusée avant tout envoi — une
+autorisation expirée, un texte trop long pour Instagram, une image
+manquante — ne fige rien : la communication reste modifiable, et c'est
+bien la prochaine image dessinée qui partira.
 
 **« Choisir une photo »** propose **trente photos au maximum, sans
 navigation** : les photos de couverture des quinze albums les plus
@@ -3515,14 +3595,17 @@ fabrication de l'image publiée. Pas de champ de recherche.
 
 **« Ce qui est parti »** montre les trente derniers contenus partis —
 albums, actualités et communications —, chacun avec son titre, le début
-de son texte, sa date et son auteur, et **une ligne par destination** :
-publié (avec sa date et « Voir »), échec (avec sa raison, conservée, et
-« Réessayer »), ou **non demandé**. « Voir » et « Réessayer » sont des
+de son texte, sa date et son auteur, **son icône de partage** (§ 47.10)
+et **une ligne par destination** : publié (avec sa date et « Voir »),
+échec (avec sa raison, conservée, et « Réessayer »), partagé à la main
+(§ 47.10), ou **non demandé**. « Voir » et « Réessayer » sont des
 icônes à la même place en bout de ligne ; une ligne sans action garde une
 case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
-ce qui repart (la même image et le même texte, vers cette destination
-seulement), que la destination déjà publiée n'est pas touchée, et la
-raison de l'échec précédent.
+ce qui repart — le même texte, vers cette destination seulement, et
+l'image soit telle qu'elle a été publiée, soit refaite à partir de
+l'album ou de l'actualité tel qu'il est aujourd'hui quand aucune image
+n'a pu être conservée —, que la destination déjà publiée n'est pas
+touchée, et la raison de l'échec précédent.
 
 ### 47.8 Le groupe de discussion comme destination
 
@@ -3539,10 +3622,16 @@ actualité et la communication libre proposent une destination de plus,
   publier y apparaissent — c'est le module Groupes qui le décide. La
   fenêtre dit que chaque groupe reçoit sa propre publication, avec ses
   propres règles de modération.
-- **Chaque groupe reçoit sa propre publication** : le texte, **la photo
-  telle quelle — jamais floutée**, le groupe étant privé et ses membres
-  voyant déjà la galerie — et **un vrai lien** vers l'album ou
-  l'actualité. Pas de carte composée.
+- **Chaque groupe reçoit sa propre publication** : le texte, **la même
+  carte que toutes les autres destinations**, au flou que le curseur du
+  composeur indiquait, et **un vrai lien** vers l'album ou l'actualité.
+  Le groupe recevait autrefois la photo telle quelle, au motif qu'il est
+  privé et que ses membres voient déjà la galerie ; ce motif tenait tant
+  que le flou était une règle fixe, et il a cessé de tenir quand le flou
+  est devenu le choix du chef — « la même carte partout » est ce que le
+  composeur montre et promet désormais. Le chef qui veut qu'un groupe ait
+  la photo nette met le curseur sur « Net », et la page le dit en toutes
+  lettres avant.
 - **Chaque groupe est une destination à part entière** : sa propre ligne
   dans « Ce qui est parti », son propre état, et la règle « une seule
   fois » appliquée groupe par groupe. Un même album peut partir dans deux
@@ -3553,6 +3642,135 @@ actualité et la communication libre proposent une destination de plus,
   partage ne se glisse pas sous ces règles.
 
 Sans le module Groupes, la destination n'apparaît simplement pas.
+
+### 47.9 La page publique d'une communication
+
+**Pourquoi elle existe.** Facebook ne publie pas une image et une légende
+pour un album : il publie un lien, et fabrique son aperçu à partir des
+balises Open Graph de la page visée. L'album, lui, reste à sa visibilité
+— un robot d'aperçu ne se connecte nulle part, et les photos de l'unité
+ne deviennent pas publiques parce que l'une d'elles a été partagée. Cette
+page est ce que Facebook, WhatsApp ou Messenger peuvent lire.
+
+**Ce qu'elle montre** : l'image qui a été publiée, le titre et le texte
+que la première destination a reçus, et un bouton **« Voir sur le
+site »** qui mène à la source. Cette image est **celle que le navigateur
+a dessinée**, et rien d'autre : la page ne compose rien et ne relit
+jamais la source — c'est ce qui garde le reste de l'album hors d'une
+adresse publique. C'est aussi pour cela qu'un album dont l'image n'a pas
+été enregistrée ne part pas en lien (§ 47.6) : cette page-là n'aurait
+rien à montrer. Rien d'autre — ni les autres photos de
+l'album, ni le corps d'une actualité. Si la source a été supprimée
+depuis, le bouton disparaît et la page continue d'afficher ce qui a été
+publié.
+
+**Son adresse est un jeton**, 32 octets tirés au hasard, jamais un
+identifiant qu'un passant pourrait incrémenter : `/partage/{jeton}`
+itérable donnerait de quoi récolter toutes les communications jamais
+partagées. L'image a la sienne sous le même jeton,
+`/partage/{jeton}/carte.jpg`, et c'est **l'image stable** — pas l'adresse
+éphémère d'une heure qui sert Instagram : Facebook met l'aperçu en cache
+et revient relire la page des jours plus tard.
+
+**Elle naît du geste qui en a besoin, et d'aucun autre** : ouvrir le
+composeur n'en crée pas, afficher l'historique n'en crée pas. Elle
+**reste en ligne** ensuite, sans retrait possible, même si la source est
+supprimée — un lien déjà publié n'est plus à personne.
+
+**Pour l'icône de partage, ce geste est la pression du bouton et non le
+clic** (§ 47.10), et c'est un écart assumé : la feuille de partage du
+téléphone exige une activation utilisateur que l'aller-retour réseau
+dépense, donc l'adresse doit être demandée avant que le clic n'arrive.
+Une pression sur laquelle le chef se ravise laisse donc une page
+publique derrière elle. C'est le prix accepté : cette page n'est
+atteignable que par qui tient ses 32 octets, rien n'y mène, et elle ne
+montre que ce que le chef avait déjà composé. L'alternative était une
+feuille qui ne s'ouvre jamais sur un téléphone — l'appareil même pour
+lequel elle existe.
+
+**Elle n'est pas indexée.** L'adresse est l'autorisation, et un résultat
+de recherche la donnerait à des gens à qui personne ne l'a partagée. Un
+aperçu de lien restitue une adresse que quelqu'un a choisi de publier,
+ce qui est un autre acte.
+
+`SECURITY.md` § 6 décrit l'exception que cette page et son image font à
+« tout téléchargement passe par `/files/{id}` », et pourquoi elle est
+étroite.
+
+### 47.10 Partager soi-même, depuis l'historique
+
+Facebook et Instagram ne sont pas les seuls endroits où une unité raconte
+ce qu'elle a fait. Le plus utilisé est le téléphone : WhatsApp, un
+message, un courriel aux parents. Le site n'y publie pas et n'y publiera
+pas — il **tend le lien**.
+
+**Une icône de partage** sur chaque communication de « Ce qui est parti »,
+et une seule, dont le geste est décidé par l'appareil :
+
+- là où le navigateur offre la feuille de partage du système, elle
+  l'ouvre, avec le titre de la communication et l'adresse de sa page
+  publique (§ 47.9) ;
+- ailleurs, elle **copie l'adresse** dans le presse-papiers et le dit sous
+  le bouton.
+
+Sans JavaScript le bouton n'apparaît pas, plutôt que d'apparaître mort :
+l'adresse qu'il lui faut n'existe pas encore, elle est créée par la
+demande que **la pression** envoie — pas le clic. La feuille de partage
+exige une activation utilisateur que l'aller-retour réseau dépense, donc
+l'adresse part en chemin dès `pointerdown` (ou dès Entrée ou Espace au
+clavier, pour que le bouton ne dépende pas de l'appareil), et le clic
+n'a plus qu'à ouvrir la feuille. Ce que cela crée de trop est décrit au
+§ 47.9. Si le réseau est plus lent que le doigt, le clic attend quand
+même et l'activation peut être perdue : le lien va alors au
+presse-papiers, et l'historique écrit « Lien copié », parce que c'est ce
+qui s'est passé.
+
+**Il n'apparaît pas non plus sur la communication d'un autre.** La liste
+montre tout ce que l'unité a publié, et chaque animateur la lit ; mais
+partager une communication reste réservé à son auteur et aux
+administrateurs, comme la modifier. Un bouton qui refuserait à chaque clic
+serait pire que pas de bouton.
+
+**Ce que la source refuse de laisser partir, l'icône ne le partage pas.**
+Une actualité réservée aux animateurs, un album supprimé ou qui n'est plus
+à vous, une image sans titre : ce sont les refus du § 47.6, et ils valent
+ici aussi — une page publique, une fois créée, ne se reprend pas, et son
+image reste lisible par qui tient l'adresse. Le clic répond alors la
+raison, celle-là même que le composeur affiche, et ne crée aucune page.
+
+Ce bouton-là n'est pas celui du paragraphe précédent : il refuse en
+nommant la cause, qui peut disparaître — l'album revient, le titre
+s'écrit —, là où un bouton posé sur la communication d'un autre refuserait
+toujours et sans rien apprendre à personne.
+
+**Le partage fige la communication**, comme une publication : dès le
+premier, quel qu'il soit, l'image, le titre et le texte ne changent plus.
+Ce n'est pas une précaution de principe — les applications relisent la
+page à chaque affichage, et une image modifiée après coup ne serait plus
+celle que les destinataires ont reçue, au bout du même lien.
+
+**Une feuille refermée sans aller au bout ne fige rien et n'écrit rien** :
+c'est le navigateur, et lui seul, qui dit si le geste a été mené à son
+terme. Ouvrir le lien se fait en deux temps pour cette raison : la page
+publique est créée d'abord — il faut bien une adresse à partager —, le
+partage n'est enregistré qu'ensuite, et seulement s'il a eu lieu.
+
+**L'historique l'écrit comme il le sait** : « Partagé depuis le téléphone »
+ou « Lien copié », avec la date et l'heure, **jamais** « Publié » ni
+« envoyé ». Le site a tendu un lien ; ce qui en a été fait ensuite ne lui
+revient pas. Ces lignes n'ont donc ni « Voir » ni « Réessayer » : il n'y a
+pas de publication distante à aller voir, et refaire le geste se fait avec
+l'icône, pas avec un bouton de reprise.
+
+Chaque geste est une destination à part entière, et la règle « une seule
+fois » vaut pour lui comme pour les autres : la même communication copiée
+deux fois ne s'inscrit qu'une, et le deuxième clic copie bien le lien sans
+rien ajouter à l'historique.
+
+**Le journal l'inscrit** comme il inscrit une publication : le geste, la
+communication, qui l'a fait — ni le texte, ni l'adresse. Un partage fige
+une communication pour toujours et met sa page publique entre les mains de
+quelqu'un ; c'est un acte qu'un audit doit pouvoir lire.
 
 
 ## 48. Finances — l'import des extraits bancaires (module finance)

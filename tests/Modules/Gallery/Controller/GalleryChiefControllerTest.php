@@ -29,7 +29,7 @@ use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
@@ -107,7 +107,7 @@ class GalleryChiefControllerTest extends TestCase
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $albumService = new AlbumService(
-            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(OgScraperService::class),
+            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(UrlMetadataFetcher::class),
             $storageBackendFactory, $storageLocationRepository, $storageLocationService, $this->galleryLocationService, $scoutYearService, $settingService,
             $schedulerService, $uploadHandler
         );

@@ -193,7 +193,7 @@ function e2eFreePort(): int
  *   - Core\Statistics\DestinationMatcher still sees the instance as its
  *     own statistics destination, since both values are this same string;
  *   - it still resolves to a private address on a non-standard port, so
- *     Modules\Gallery\Service\OgScraperService still refuses to fetch
+ *     Core\Http\UrlMetadataFetcher still refuses to fetch
  *     from it (SECURITY.md §17) — the documented degradation
  *     tests/e2e/specs/groups-discussion.spec.js relies on is unchanged.
  *
@@ -222,7 +222,7 @@ function e2eFreePort(): int
  *   - WebAuthn is unaffected: an rpId must be a domain rather than an IP
  *     literal, and this is one.
  *
- * The one real difference is OgScraperService: on `localhost` it refuses
+ * The one real difference is Core\Http\UrlMetadataFetcher: on `localhost` it refuses
  * because the name resolves to a private address, and under this name it
  * refuses because the name does not resolve from the server at all. The
  * documented degradation groups-discussion.spec.js relies on is the same

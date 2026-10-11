@@ -20,8 +20,10 @@ use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\StorageLocationTargetNotEmptyException;
 use Core\Storage\Location\StorageLocationType;
 use Twig\Environment;
 
@@ -249,10 +251,13 @@ final class GoogleDriveConnectionController extends AbstractController
             $about = $this->client->about($tokens['access_token']);
             $folderId = $this->locationService->resolveDriveFolder($this->client, $tokens['access_token'], $location);
 
+            // A folder gone missing keeps its id (#832): the grant is saved
+            // all the same, since attaching an existing folder or creating
+            // a new one both need it — but nothing is created on its own.
             $this->locations->update(
                 $location->id,
                 $location->label,
-                new GoogleDriveLocationConfig($config->clientId, $folderId, date('c')),
+                new GoogleDriveLocationConfig($config->clientId, $folderId ?? $config->folderId, date('c')),
                 $secret->withGrant($tokens['refresh_token'], $about['account'])->toStorage()
             );
         } catch (DriveAccessException $e) {
@@ -302,9 +307,183 @@ final class GoogleDriveConnectionController extends AbstractController
             $this->locationService->checkNow($refreshed);
         }
 
+        if ($folderId === null) {
+            $this->journalService->log(
+                'storage',
+                'storage_location_folder_missing',
+                'warning',
+                "Le dossier Google Drive de l'emplacement « {$location->label} » est introuvable : aucun dossier "
+                    . 'n\'a été créé à sa place',
+                [],
+                (int) AuthSession::getUserAccountId()
+            );
+            FlashMessage::set(
+                'warning',
+                'Compte Google Drive raccordé, mais le dossier de cet emplacement n\'existe plus, est dans la '
+                    . 'corbeille, ou n\'est pas visible de ce compte. Aucun dossier n\'a été créé à sa place : '
+                    . 'rattachez le dossier qui contient vos fichiers, ou créez-en un nouveau, depuis la fiche de '
+                    . 'l\'emplacement.'
+            );
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
         FlashMessage::set('success', 'Compte Google Drive raccordé.');
 
         return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /**
+     * GET — the page that attaches this location to a folder that already
+     * exists in Google Drive (#832): the repair when its folder id leads
+     * nowhere any more, distinct from renaming it and from creating a new
+     * folder.
+     *
+     * @param array<string, string> $params
+     */
+    public function attachFolderForm(Request $request, array $params): Response
+    {
+        $location = $this->driveLocation($params);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->render('config/storage/drive_attach.html.twig', $this->attachContext($location, ''));
+    }
+
+    /**
+     * POST — attaches the folder pasted on that page, once it has been
+     * looked at; asks for a confirmation first when it holds files.
+     *
+     * @param array<string, string> $params
+     */
+    public function attachFolder(Request $request, array $params): Response
+    {
+        $location = $this->driveLocation($params);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
+        }
+
+        $reference = trim((string) $request->getBody('folder', ''));
+        $confirmed = (string) $request->getBody('confirm_existing_content', '') === '1';
+
+        try {
+            $name = $this->locationService->attachDriveFolder($location->id, $reference, $confirmed);
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            $context = $this->attachContext($location, $reference);
+            $context['needs_confirmation'] = true;
+            $context['confirmation'] = $e->getMessage();
+
+            return $this->render('config/storage/drive_attach.html.twig', $context)->setStatusCode(409);
+        } catch (StorageLocationException $e) {
+            if ($e->getPrevious() !== null) {
+                $this->journalService->log(
+                    'storage',
+                    'storage_location_folder_attach_failed',
+                    'warning',
+                    "Rattachement de l'emplacement « {$location->label} » à un dossier Google Drive refusé",
+                    ['error' => $e->getMessage(), 'detail' => $e->getPrevious()->getMessage()],
+                    (int) AuthSession::getUserAccountId()
+                );
+            }
+            $context = $this->attachContext($location, $reference);
+            $context['submit_error'] = $e->getMessage();
+
+            return $this->render('config/storage/drive_attach.html.twig', $context)->setStatusCode(422);
+        }
+
+        // `security`, like a connection: it decides where this location's
+        // files are read from and written to. The folder's name only — it
+        // is the operator's own, and the id says nothing to a reader.
+        $this->journalService->log(
+            'storage',
+            'storage_location_folder_attached',
+            'security',
+            "Emplacement « {$location->label} » rattaché au dossier Google Drive « {$name} »",
+            ['existing_content_confirmed' => $confirmed],
+            (int) AuthSession::getUserAccountId()
+        );
+        $refreshed = $this->locations->findById($location->id);
+        if ($refreshed !== null) {
+            $this->locationService->checkNow($refreshed);
+        }
+        FlashMessage::set('success', "Emplacement rattaché au dossier « {$name} ». Rien n'y a été modifié.");
+
+        return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /**
+     * POST — gives this location a new, empty folder (#832). Refused while
+     * its folder is still there; never done by anything else on its own.
+     *
+     * @param array<string, string> $params
+     */
+    public function createFolder(Request $request, array $params): Response
+    {
+        $location = $this->driveLocation($params);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->locationService->createDriveFolder($location->id);
+        } catch (StorageLocationException $e) {
+            if ($e->getPrevious() !== null) {
+                $this->journalService->log(
+                    'storage',
+                    'storage_location_folder_create_failed',
+                    'warning',
+                    "Création d'un nouveau dossier Google Drive pour l'emplacement « {$location->label} » refusée",
+                    ['error' => $e->getMessage(), 'detail' => $e->getPrevious()->getMessage()],
+                    (int) AuthSession::getUserAccountId()
+                );
+            }
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
+        $this->journalService->log(
+            'storage',
+            'storage_location_folder_created',
+            'security',
+            "Nouveau dossier Google Drive créé pour l'emplacement « {$location->label} »",
+            [],
+            (int) AuthSession::getUserAccountId()
+        );
+        $refreshed = $this->locations->findById($location->id);
+        if ($refreshed !== null) {
+            $this->locationService->checkNow($refreshed);
+        }
+        FlashMessage::set(
+            'success',
+            "Nouveau dossier « {$location->label} » créé dans Google Drive, sous « "
+                . GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' ». L\'ancien n\'a pas été touché.'
+        );
+
+        return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function attachContext(StorageLocation $location, string $reference): array
+    {
+        return [
+            'location' => $location,
+            'reference' => $reference,
+            'connected' => $this->configOf($location)->isConnected(),
+            'parent_folder' => GoogleDriveLocationConfig::PARENT_FOLDER_NAME,
+            'needs_confirmation' => false,
+            'confirmation' => null,
+            'submit_error' => null,
+        ];
     }
 
     /**

@@ -8,7 +8,7 @@ question: Comment trouver une place en voiture pour la sortie de mon enfant ?
 question: Qui voit mon numéro de téléphone quand je demande une place ?
 question: Pourquoi ma demande est-elle toujours en attente ?
 paths: /covoiturage, /covoiturage/*
-related: covoiturage-proposer
+related: covoiturage-proposer, covoiturage-participation
 ---
 
 Pour une sortie ou un camp, les animateurs ouvrent **un covoiturage** : il
@@ -27,6 +27,12 @@ Sous la voiture qui vous convient, cliquez sur « Demander une place »,
 cochez les enfants concernés, vérifiez votre numéro de téléphone, puis
 « Envoyer la demande ».
 
+## Ma participation
+
+Dans la liste, un badge à côté du nom du covoiturage dit ce que vous y avez,
+et le jour du trajet une bannière résume ce qu'il vous faut : voir
+« Ma participation et le jour du trajet ».
+
 ## Proposer des places
 
 Le formulaire suggère l'heure de départ à partir de l'activité, en tenant
@@ -42,9 +48,10 @@ pour moins de personnes, ou dans une autre voiture.
 
 Quand la demande est acceptée, le téléphone du conducteur s'affiche sous
 votre place. Vous pouvez à tout moment « Retirer ma demande » : la place
-redevient libre et le conducteur le voit. En refusant comme en retirant,
-un mot facultatif (200 caractères au plus) peut accompagner la décision ;
-il est transmis avec la notification.
+redevient libre et le conducteur le voit. En refusant, en retirant une
+place accordée comme en retirant votre demande, un mot facultatif (200
+caractères au plus) peut accompagner la décision ; il est transmis avec la
+notification.
 
 L'adresse du covoiturage est un lien : elle ouvre l'application de cartes
 de votre appareil avec l'itinéraire depuis l'endroit où vous êtes.

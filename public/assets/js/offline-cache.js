@@ -41,9 +41,14 @@
     // installed app with content it didn't ask to keep. READS stay
     // unconditional regardless of this flag — see that function's own
     // comment.
+    //
+    // The detection itself is display-mode.js's (window.ScoutMagicDisplayMode,
+    // loaded in <head> before this deferred script), never a copy of it here.
+    // Absent, the answer is « not installed », which is the safe side of a
+    // write gate: nothing is cached, nothing is lost but a cache entry.
     function isStandalone() {
-        return window.matchMedia?.('(display-mode: standalone)').matches
-            || window.navigator.standalone === true;
+        var displayMode = window.ScoutMagicDisplayMode;
+        return !!displayMode && displayMode.isStandalone();
     }
 
     function sendConfig(consent) {

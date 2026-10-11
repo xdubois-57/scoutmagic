@@ -114,6 +114,7 @@ class RentalManagementControllerTest extends TestCase
     private \Modules\Rental\Service\RentalStayService $stayService;
     private RentalPaymentService $paymentService;
     private int $financeAccountId;
+    private int $financeCategoryId;
     /** Every decision email the controller asked for, in order. */
     /** @var list<array{decision: string, token: ?string, word: ?string, booking_id: int}> */
     private array $renterEmails = [];
@@ -185,6 +186,7 @@ class RentalManagementControllerTest extends TestCase
             'Compte unité', 'bank', null, 'BE68539007547034', 'Unité Test', 'intendant'
         );
         $this->pdo->exec("UPDATE finance_accounts SET status = 'active'");
+        $this->financeCategoryId = FinanceTestHelper::createCategory($this->pdo, 'Locations');
         $receivableRepository = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $this->paymentService = new RentalPaymentService(
             new \Modules\Rental\Repository\RentalPaymentRepository($this->pdo, $this->encryption),
@@ -336,6 +338,12 @@ class RentalManagementControllerTest extends TestCase
                 new \Core\Pdf\DocumentPdfService(),
                 $settingService,
                 $bookingAudit
+            ),
+            // What the site sent the renter, on « Courrier » (#720, step 2).
+            null,
+            // Who signs a document is named by their account (#825).
+            new \Modules\Rental\Document\SignerName(
+                new \Core\Security\UserAccountRepository($this->pdo, $this->encryption)
             )
         );
 
@@ -1740,7 +1748,8 @@ class RentalManagementControllerTest extends TestCase
     {
         $this->paymentService->saveSettings($this->assetId, new \Modules\Rental\Payment\PaymentSettings(
             enabled: true,
-            financeAccountId: $this->financeAccountId
+            financeAccountId: $this->financeAccountId,
+            financeCategoryId: $this->financeCategoryId
         ));
         $booking = $this->createBooking();
         $this->bookingRepository->setAgreedPrice($booking->id, new \Modules\Rental\Pricing\PriceQuote(
@@ -2783,6 +2792,102 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(\Modules\Rental\Document\DocumentType::SIGNED_CONTRACT, $final->type);
         $after = $this->bookingPage('local-saint-georges', $booking->id)->getBody();
         $this->assertStringContainsString('<span class="visually-hidden">Fait :</span>', self::step($after, 'contract_countersigned'));
+    }
+
+    // ── Who signs a document (#825) ─────────────────────────────────────
+
+    /**
+     * A manager the unit's roster knows by a totem — « Loutre » — under a
+     * child's first name, the way a family's shared address often reads,
+     * and whose ACCOUNT carries the name the person logs in under. The two
+     * say different things about one login, and a tenant must read only
+     * the second.
+     *
+     * @return int the account id
+     */
+    private function loginAsManagerKnownByATotem(): int
+    {
+        $email = 'marie@test.be';
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-TOTEM001');
+        RentalTestHelper::insertMemberYear(
+            $this->pdo,
+            $this->encryption,
+            $memberId,
+            $this->scoutYearId,
+            $email,
+            'Léa',
+            null,
+            'Petit',
+            'Loutre'
+        );
+        $this->managerRepository->grant($this->assetId, $memberId, false);
+
+        $accounts = new \Core\Security\UserAccountRepository($this->pdo, $this->encryption);
+        $account = $accounts->create($email);
+        $accounts->updateProfile($account->id, 'Marie', 'Dupont');
+        AuthSession::login($account->id, $email, 'identified');
+
+        return $account->id;
+    }
+
+    /** What a reader of the PDF sees, on one line. */
+    private function renderedTextOf(\Modules\Rental\Document\RentalDocument $document): string
+    {
+        $path = $this->documentService->absolutePath($document);
+        $this->assertIsString($path);
+        $text = (new \Core\File\PdfTextExtractor())->extractText((string) file_get_contents($path));
+        $this->assertNotNull($text, 'the generated PDF carries no readable text layer');
+
+        return (string) preg_replace('/\s+/', ' ', $text);
+    }
+
+    /**
+     * The line that says who countersigned names the person as their
+     * account does — never the totem the roster knows them by, and never a
+     * member who merely shares the address (#825).
+     */
+    public function testTheCountersignatureNamesTheAccountNotTheTotem(): void
+    {
+        $accountId = $this->loginAsManagerKnownByATotem();
+        [$booking, $copy] = $this->bookingWithASignedCopy();
+        $this->signatureRepository->save(
+            $accountId,
+            base64_decode(substr(self::signatureDataUrl(), 22)),
+            new \DateTimeImmutable()
+        );
+
+        $this->post('/mes-locations/contrat-contresigner', 'countersignContract', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_id' => (string) $copy->id,
+        ]);
+
+        $final = $this->signedContractService->finalContract($booking->id);
+        $this->assertNotNull($final);
+        $text = $this->renderedTextOf($final);
+        $this->assertStringContainsString(' par Marie Dupont, le ', $text);
+        $this->assertStringNotContainsString('Loutre', $text);
+        $this->assertStringNotContainsString('Léa', $text);
+    }
+
+    /** « Validé par » on the inventory says the same, for the same reader (#825). */
+    public function testTheInventoryValidationNamesTheAccountNotTheTotem(): void
+    {
+        $this->loginAsManagerKnownByATotem();
+        [$booking, $chairs, $kitchen] = $this->bookingWithAnInventory();
+        $this->saveLine($booking, $chairs, 'arrival', '38');
+        $this->saveLine($booking, $kitchen, 'arrival', 'yes');
+
+        $this->validateInventoryPhase($booking, 'arrival');
+
+        $validation = $this->stayService->inventoryValidations($booking->id)['arrival'] ?? null;
+        $this->assertNotNull($validation);
+        $document = $this->documentService->find((int) $validation['document_id']);
+        $this->assertNotNull($document);
+        $text = $this->renderedTextOf($document);
+        $this->assertStringContainsString('Validé par Marie Dupont le ', $text);
+        $this->assertStringNotContainsString('Loutre', $text);
+        $this->assertStringNotContainsString('Léa', $text);
     }
 
     public function testAManagerRefusesACopyWithAReasonAndTheRenterMaySendAnother(): void

@@ -124,6 +124,12 @@ final class GoogleDriveLocationConfig implements LocationConfig
         return 'Google Drive — Mon Drive › ' . self::PARENT_FOLDER_NAME . ' › dossier au nom de l\'emplacement';
     }
 
+    /** The folder's id — never its name, which two folders can share. */
+    public function target(): string
+    {
+        return $this->folderId;
+    }
+
     /** The real path of this location's folder, for a location labelled $label. */
     public function describeFolderOf(string $label): string
     {

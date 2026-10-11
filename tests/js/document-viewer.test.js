@@ -54,7 +54,7 @@ describe('document-viewer', () => {
         document.body.innerHTML = PAGE;
         pretendStandalone(true);
         window.open = vi.fn();
-        window.fetch = vi.fn(() => Promise.resolve(new Response(new Blob(['%PDF']), { status: 200 })));
+        window.fetch = vi.fn(() => Promise.resolve(new Response('%PDF', { status: 200 })));
     });
 
     afterEach(() => {

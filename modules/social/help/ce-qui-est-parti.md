@@ -8,7 +8,7 @@ question: Comment savoir si une publication est bien partie sur Instagram ?
 question: Comment relancer une publication qui a échoué ?
 question: Que veut dire « non demandé » à côté d'une destination ?
 paths: /medias-sociaux, /medias-sociaux/reessayer/*/*/*
-related: medias-sociaux, reseaux-sociaux
+related: partager-soi-meme, medias-sociaux, reseaux-sociaux
 ---
 
 Sous « Médias sociaux », **« Ce qui est parti »** liste les trente
@@ -24,7 +24,10 @@ Chaque publication montre, pour chaque destination, son état :
 - **échec**, avec la raison donnée par Facebook ou Instagram, conservée
   telle quelle, et une icône pour réessayer ;
 - **non demandé** : cette destination n'a jamais été cochée pour cette
-  publication. Ce n'est pas un échec.
+  publication. Ce n'est pas un échec ;
+- **« Partagé depuis le téléphone »** ou **« Lien copié »**, avec sa date,
+  quand vous avez partagé la communication vous-même depuis cette page.
+  Voir [Partager soi-même depuis l'historique](partager-soi-meme).
 
 Les groupes de discussion ont chacun leur ligne, au nom qu'ils portaient
 au moment de la publication : un groupe renommé depuis garde son ancien
@@ -37,10 +40,22 @@ reste donc lisible même si l'album ou l'actualité a été supprimé depuis.
 ## Réessayer
 
 Réessayer demande **une confirmation**, qui dit ce qui repart : le même
-texte, vers cette destination seulement — et, pour un album ou une
-actualité partagés, le titre et l'image relus à la source, donc à jour.
-Une destination déjà publiée n'est pas touchée, et la raison de l'échec
-précédent est rappelée.
+texte, vers cette destination seulement. Une destination déjà publiée
+n'est pas touchée, et la raison de l'échec précédent est rappelée.
+
+Pour un album ou une actualité partagés, cette confirmation dit aussi ce
+qu'il advient de l'image, et elle dit **l'une ou l'autre de deux
+choses** :
+
+- Le plus souvent, le titre et l'image repartent tels qu'ils ont été
+  publiés : c'est l'image dessinée au premier « Publier » qui est
+  conservée et renvoyée.
+- Mais quand aucune image n'a pu être conservée — un partage fait avant
+  cette version du site, ou depuis un navigateur qui n'a pas réussi à
+  l'envoyer —, l'image est refaite à partir de l'album ou de l'actualité
+  tel qu'il est aujourd'hui. Un titre ou une photo de couverture changés
+  depuis repartiront donc tels qu'ils sont maintenant. La confirmation le
+  dit avant que vous ne relanciez.
 
 Seule une destination en échec peut être relancée. Une publication encore
 en cours — le site attend la réponse de Meta — n'est pas relançable tout

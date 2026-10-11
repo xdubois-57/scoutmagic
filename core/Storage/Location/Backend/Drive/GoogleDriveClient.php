@@ -408,18 +408,19 @@ final class GoogleDriveClient
     }
 
     /**
-     * What Drive says about one file or folder by id — its name and
-     * whether it is in the trash — or null when it is gone for good (or
-     * was never visible to this application).
+     * What Drive says about one file or folder by id — its name, whether
+     * it is in the trash, whether it is a folder, and the folders it sits
+     * in — or null when it is gone for good (or was never visible to this
+     * application).
      *
-     * @return array{name: string, trashed: bool}|null
+     * @return array{name: string, trashed: bool, folder: bool, parents: list<string>}|null
      * @throws DriveAccessException
      */
     public function describeFile(string $accessToken, string $fileId): ?array
     {
         $response = $this->send(
             'GET',
-            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id,name,trashed',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id,name,trashed,mimeType,parents',
             ['Authorization' => 'Bearer ' . $accessToken]
         );
         if ($response['status'] === 404) {
@@ -434,7 +435,14 @@ final class GoogleDriveClient
             throw DriveAccessException::of('La réponse de Google Drive est illisible.');
         }
 
-        return ['name' => (string) ($decoded['name'] ?? ''), 'trashed' => ($decoded['trashed'] ?? false) === true];
+        return [
+            'name' => (string) ($decoded['name'] ?? ''),
+            'trashed' => ($decoded['trashed'] ?? false) === true,
+            'folder' => ($decoded['mimeType'] ?? '') === self::FOLDER_MIME,
+            'parents' => is_array($decoded['parents'] ?? null)
+                ? array_values(array_filter($decoded['parents'], 'is_string'))
+                : [],
+        ];
     }
 
     /**

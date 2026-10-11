@@ -964,6 +964,27 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        // What a linked page said about itself, and the per-account budget
+        // of the link dialog's « baguette magique » (schema/core.sql:
+        // gallery_link_preview_cache — core's since #840, prefix kept —
+        // and link_label_fetch_log).
+        $pdo->exec('CREATE TABLE gallery_link_preview_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url_hash TEXT NOT NULL,
+            title TEXT NULL,
+            html_title TEXT NULL,
+            description TEXT NULL,
+            image_url TEXT NULL,
+            fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(url_hash)
+        )');
+
+        $pdo->exec('CREATE TABLE link_label_fetch_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         // The help assistant's quota and answer cache (schema/core.sql:
         // help_assistant_rate_limits, help_assistant_cache). Neither ever
         // holds the question itself — a fingerprint on one side, a count
@@ -1043,6 +1064,7 @@ class DatabaseTestHelper
             last_checked_at TEXT NULL,
             last_check_ok INTEGER NULL,
             last_check_error TEXT NULL,
+            reconciliation_note TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(label)
         )');

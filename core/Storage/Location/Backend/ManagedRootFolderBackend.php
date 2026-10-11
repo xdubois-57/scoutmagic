@@ -39,6 +39,10 @@ interface ManagedRootFolderBackend extends StorageBackendInterface
     /**
      * Gives the location's folder a new name. A location that has no
      * folder yet (never connected) has nothing to rename and returns.
+     *
+     * Throws when the folder cannot take the name — unreachable, gone, or
+     * in the trash: the caller refuses the rename on it (#832), so a
+     * name this method did not apply is never accepted anywhere.
      */
     public function renameRootFolder(string $name): void;
 

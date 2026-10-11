@@ -2918,6 +2918,7 @@ $importService = new DeskImportService(
     $rosterSnapshotRepository,
     $encryptedFileStorageService,
     $importDiffCalculator,
+    $scoutYearService,
     $duplicateMemberDetector,
     $deskImportListeners
 );
@@ -2949,8 +2950,7 @@ $sectionDocumentService = new \Core\Member\SectionDocumentService(
     $scoutYearService,
     $journalService,
     $schedulerService,
-    $settingService,
-    new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+    $settingService
 );
 
 // Unit logo (favicon, PWA icons, footer logo — originally Lot 1's PWA-only
@@ -4210,6 +4210,17 @@ $router->addRoute(
     'identified'
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
+// The « baguette magique » of every rich-text editor's link dialog (#840):
+// proposes a link's text from the page it points at. role_min identified —
+// the editors live behind a sign-in, and the per-account budget that
+// SECURITY.md §17 puts on every outbound fetch needs an account to count.
+$router->addRoute(
+    'POST',
+    '/api/lien/libelle',
+    \Core\Http\Controller\LinkLabelController::class,
+    'suggest',
+    'identified'
+);
 // The fallback of the browser's secure-context signal (#751): sent only by
 // a page loaded outside a secure context that made no request of its own.
 // Public and CSRF-free on purpose — such a page has no session (SECURITY.md
@@ -4754,6 +4765,33 @@ $router->addRoute(
     '/config/stockage/emplacements/{id}/google/deraccordement',
     \Core\Http\Controller\GoogleDriveConnectionController::class,
     'disconnect',
+    'superadmin',
+);
+// Repairing a location whose folder went missing (#832): attaching a
+// folder that exists, or creating a new one — two explicit acts, neither
+// of which a rename, a reconnection or a restore performs on its own.
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements/{id}/google/dossier-existant',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'attachFolderForm',
+    'superadmin',
+    ['label' => 'Rattacher un dossier existant', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Stockage', 'path' => '/config/stockage'],
+            ['label' => 'Emplacements', 'path' => '/config/stockage/emplacements']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/dossier-existant',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'attachFolder',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/nouveau-dossier',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'createFolder',
     'superadmin',
 );
 
@@ -6654,6 +6692,23 @@ $frontController->registerController(
     )
 );
 
+// Reading a page a member linked to (SECURITY.md §17): the one scraper and
+// its metadata cache, core's since issue #840 — the rich-text editors'
+// « baguette magique » needs them whatever modules are enabled, and the
+// gallery, groups and camps modules consume them below.
+$urlMetadataFetcher = new \Core\Http\UrlMetadataFetcher();
+$linkPreviewService = new \Core\Http\LinkPreviewService(
+    $urlMetadataFetcher,
+    new \Core\Http\LinkPreviewCacheRepository($pdo)
+);
+$frontController->registerController(
+    \Core\Http\Controller\LinkLabelController::class,
+    new \Core\Http\Controller\LinkLabelController(
+        $twig,
+        new \Core\Http\LinkLabelResolver($linkPreviewService, new \Core\Http\LinkLabelFetchLogRepository($pdo))
+    )
+);
+
 $frontController->registerController(
     \Core\Http\Controller\NotificationController::class,
     new \Core\Http\Controller\NotificationController($twig, $notificationRepo)
@@ -7747,7 +7802,10 @@ if ($isEnabled('documents')) {
         $attachedFileRemover,
         $journalService,
         $storagePath,
-        new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+        new \Core\Pdf\PdfCompressor($storagePath . '/temp'),
+        // The cron compresses when it can (#804); the upload only queues it.
+        $schedulerService,
+        $settingService
     );
     $frontController->registerController(
         \Modules\Documents\Controller\DocumentsPublicController::class,
@@ -8363,7 +8421,8 @@ if ($isEnabled('finance')) {
         $financeRuleEngine,
         $financeAiCategorizationService,
         $settingService,
-        $schedulerService
+        $schedulerService,
+        $journalService
     );
 
     // Who paid what, written down (ARCHITECTURE.md §8.81). Declared here,
@@ -8617,28 +8676,11 @@ if ($isEnabled('finance')) {
             $financeBalanceService,
             $financeTransactionRepo,
             $financeReceiptService,
-            $financeCategoryRepo,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
             $financeStatementImportRepo,
-            $financeFirstReceiptResolver,
             $financeReconciliationService,
+            $financeAllocationService,
+            new \Modules\Finance\Repository\CampaignRepository($pdo),
             $scoutYearResolver
-        )
-    );
-    $frontController->registerController(
-        \Modules\Finance\Controller\MovementController::class,
-        new \Modules\Finance\Controller\MovementController(
-            $twig,
-            $financeService,
-            $financeTransactionRepo,
-            $financeCategoryRepo,
-            $financeFiscalYearRepo,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
-            $financeReceiptService,
-            $financeFirstReceiptResolver,
-            $journalService
         )
     );
     $frontController->registerController(
@@ -8648,22 +8690,6 @@ if ($isEnabled('finance')) {
             $financeService,
             $financeImportService,
             $financeParserFactory
-        )
-    );
-    $frontController->registerController(
-        \Modules\Finance\Controller\ReceiptController::class,
-        new \Modules\Finance\Controller\ReceiptController(
-            $twig,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
-            $financeTransactionRepo,
-            $financeService,
-            $financeReceiptService,
-            $financeFirstReceiptResolver,
-            $journalService,
-            // The mail this module proposed on, for the treasury to answer
-            // (§7.5): null without `inbound_mail`, and no block then.
-            $inboundMailForOthers
         )
     );
     $frontController->registerController(
@@ -8724,12 +8750,17 @@ if ($isEnabled('finance')) {
     );
     $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService(
         $financeExpectedReceivableRepo,
-        $financeAllocationService
+        $financeAllocationService,
+        $financeCategoryRepo
     );
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
-    $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
+    $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService(
+        $financeAccountRepo,
+        $financeCategoryRepo,
+        static fn() => $financeService->ensureDefaultCategories()
+    );
 
-    // Who names the groups on « Paiements attendus »
+    // Who names the groups on « Contrôle des créances »
     // (Api\ReceivableSourceDescriberInterface). Finance knows a source
     // instance only as a numeric id — that is what lets the page work for
     // any future module — so the module that created the expectation says
@@ -8740,10 +8771,31 @@ if ($isEnabled('finance')) {
     // describer needing one of them would tie the finance block's position
     // to theirs. A repository is a stateless reader; a second instance
     // costs an object.
-    $financeSourceDescribers = [];
+    $financeSourceDescribers = [
+        // Finance's own campaigns, through the same contract as everybody
+        // else's — so the page has no special case for « Campagnes »
+        // (issue #836).
+        new \Modules\Finance\Service\CampaignReceivableDescriber(
+            new \Modules\Finance\Repository\CampaignRowRepository($pdo, $encryptionService),
+            new \Modules\Finance\Repository\CampaignRepository($pdo),
+            $financeAccountRepo,
+            $financeAccountVisibility
+        ),
+    ];
     if ($isEnabled('rental')) {
+        $financeRentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
         $financeSourceDescribers[] = new \Modules\Rental\Finance\RentalReceivableDescriber(
-            new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService)
+            new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService),
+            $financeRentalAssetRepository,
+            // The asset managers' own test, built here rather than borrowed
+            // from the rental block further down, for the same reason as
+            // the repositories above.
+            new \Modules\Rental\Service\RentalAuthorizationService(
+                $memberService,
+                $financeRentalAssetRepository,
+                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo)
+            ),
+            $scoutYearResolver
         );
     }
     if ($isEnabled('news')) {
@@ -8763,7 +8815,55 @@ if ($isEnabled('finance')) {
         // Core\Member\MemberService's whole surface. `member_id` has always
         // said who owes a receivable; the column headed « Nom/Contact »
         // printed « — » for one that carried a debtor and no free text.
-        static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds)
+        static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds),
+        $financeAllocationRepo
+    );
+    // The human description of a movement (issue #838) — one source of
+    // truth for the movements list, its search and export, and a receipt's
+    // « Mouvements liés »; it names receivables through the same describers
+    // as « Contrôle des créances », hence its place after that service.
+    $financeMovementDescriptions = new \Modules\Finance\Service\MovementDescriptionService(
+        $financeFirstReceiptResolver,
+        $financeCategoryRepo,
+        $financeAllocationRepo,
+        $financeExpectedReceivableRepo,
+        $financeReceivablesOverviewService,
+        $financeTransactionRepo
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceiptController::class,
+        new \Modules\Finance\Controller\ReceiptController(
+            $twig,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeTransactionRepo,
+            $financeService,
+            $financeReceiptService,
+            $financeMovementDescriptions,
+            $journalService,
+            // The mail this module proposed on, for the treasury to answer
+            // (§7.5): null without `inbound_mail`, and no block then.
+            $inboundMailForOthers
+        )
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\MovementController::class,
+        new \Modules\Finance\Controller\MovementController(
+            $twig,
+            $financeService,
+            $financeTransactionRepo,
+            $financeCategoryRepo,
+            $financeFiscalYearRepo,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeReceiptService,
+            $financeMovementDescriptions,
+            $journalService,
+            // « Créances liées » in the details dialog (issue #838): named
+            // by each source module's describer, as on « Contrôle des
+            // créances », so it is registered once that service exists.
+            $financeReceivablesOverviewService
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
@@ -8884,7 +8984,7 @@ if ($isEnabled('finance')) {
         )
     );
 
-    // « Rapprochement » (ARCHITECTURE.md §8.83) — the four situations the
+    // « Paiements à traiter » (ARCHITECTURE.md §8.83) — the four situations the
     // automatic matching cannot settle on its own. The QR generator is
     // the module's own, and the page degrades to the payment details in
     // text rather than a fatal if it is ever absent.
@@ -8901,7 +9001,7 @@ if ($isEnabled('finance')) {
             $financeSepaQrCodeForOthers,
             // « Quelle créance ? » answered by typing a name instead of
             // by looking an id up in a spreadsheet. Same member-name
-            // question as the Paiements attendus page above, asked the
+            // question as the Contrôle des créances page above, asked the
             // same way.
             new \Modules\Finance\Service\ReceivableSearchService(
                 $financeExpectedReceivableRepo,
@@ -9409,16 +9509,6 @@ if ($isEnabled('gallery')) {
         $sectionService,
         $scoutYearService
     );
-    $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
-    // Api\LinkPreviewFetcher's only implementation (SECURITY.md §17) —
-    // built unconditionally, like Api\DelegatedAlbumManager just below,
-    // ready for a future module's block to consume; groups (first
-    // consumer) is the only one that does so today.
-    $galleryLinkPreviewCacheRepo = new \Modules\Gallery\Repository\LinkPreviewCacheRepository($pdo);
-    $galleryLinkPreviewFetcher = new \Modules\Gallery\Service\LinkPreviewService(
-        $galleryOgScraperService,
-        $galleryLinkPreviewCacheRepo
-    );
     // The cron's answer, never this request's (#700).
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability($settingService);
     // Reclaims the `files` row + bytes behind a media's staging original and
@@ -9436,7 +9526,7 @@ if ($isEnabled('gallery')) {
         $galleryAlbumRepo,
         $galleryMediaRepo,
         $galleryAccessService,
-        $galleryOgScraperService,
+        $urlMetadataFetcher,
         $storageBackendFactory,
         $storageLocationRepository,
         $storageLocationService,
@@ -9604,7 +9694,7 @@ if ($isEnabled('groups')) {
     // cannot see across the two independent `if` blocks) — same
     // precedent as the \assert() calls already in DelegatedAlbumService
     // and GalleryController.
-    \assert(isset($galleryDelegatedAlbumManager, $galleryLinkPreviewFetcher));
+    \assert(isset($galleryDelegatedAlbumManager));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
     $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     // The reply repository is needed here, not only by the reply stack
@@ -9622,7 +9712,7 @@ if ($isEnabled('groups')) {
     $groupsLinkFetchLogRepo = new \Modules\Groups\Repository\LinkFetchLogRepository($pdo);
     $groupsLinkFetchThrottleService = new \Modules\Groups\Service\LinkFetchThrottleService($groupsLinkFetchLogRepo);
     $groupsPostLinkService = new \Modules\Groups\Service\PostLinkService(
-        $galleryLinkPreviewFetcher,
+        $linkPreviewService,
         $groupsLinkFetchThrottleService,
         $groupsPostLinkRepo,
         $uploadHandler,
@@ -10283,16 +10373,15 @@ if ($isEnabled('camps')) {
         $auditService
     );
 
-    // Two OPTIONAL gallery capabilities, both nullable and both degrading
-    // silently (ARCHITECTURE.md §7.4): link previews, and photos hosted
-    // as a delegated album. A module whose subject is camp sites must not
-    // become unusable because the gallery is switched off — without it a
-    // link is a bare URL and the photos section is absent, and nothing
-    // else changes.
+    // Link previews are core's (issue #840) and always there. Photos are
+    // an OPTIONAL gallery capability, nullable and degrading silently
+    // (ARCHITECTURE.md §7.4): a module whose subject is camp sites must
+    // not become unusable because the gallery is switched off — without it
+    // the photos section is absent, and nothing else changes.
     $campsLinkService = new \Modules\Camps\Service\LinkService(
         $campsLinkRepo,
         $auditService,
-        $galleryLinkPreviewFetcher ?? null,
+        $linkPreviewService,
         $uploadHandler
     );
     $campsAlbumService = new \Modules\Camps\Service\CampAlbumService(
@@ -10763,6 +10852,16 @@ if ($isEnabled('social')) {
     \Core\Debug\RequestTimeline::mark('module_social');
     $socialConnectionRepo = new \Modules\Social\Repository\ConnectionRepository($pdo, $encryptionService);
 
+    // The card the browser posts at « Publier » is kept as a plain
+    // `files` row (issue #706, IT-02), and this is what keeps it out of
+    // `/files/{id}`: it refuses every reader, because the only reader is
+    // ShareSourceResolver::frozenCard(), which reads the bytes directly.
+    // Registered here, in $fileOwnershipCheckers above, before the guard
+    // is built — and registered in the same change that first stores
+    // such a row, so a card can never exist ahead of the rule that
+    // guards it.
+    $fileOwnershipCheckers[] = new \Modules\Social\File\PostedCardOwnershipChecker();
+
     $frontController->registerController(
         \Modules\Social\Controller\ConfigController::class,
         new \Modules\Social\Controller\ConfigController(
@@ -10773,8 +10872,9 @@ if ($isEnabled('social')) {
         )
     );
 
-    // The composed images Meta fetches (§8.122): the one public route of
-    // the module, and the daily purge of the expired ones.
+    // The composed images Meta fetches (§8.122): the ephemeral public
+    // route — an hour, no cache, for Instagram — and the daily purge of
+    // the expired ones. The durable one is the public page below.
     $socialCardService = new \Modules\Social\Card\CardService(
         new \Modules\Social\Repository\CardRepository($pdo),
         new \Modules\Social\Card\CardRenderer(),
@@ -10790,12 +10890,39 @@ if ($isEnabled('social')) {
     // Sharing an album or an article (§8.122): through the gallery's and
     // the news module's Api, both optional — null when either is off.
     $socialPublicationRepo = new \Modules\Social\Repository\PublicationRepository($pdo);
+    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
+    // The public page of a communication (issue #706, IT-04): where an
+    // album's Facebook post points, since the album itself stays
+    // « Membres connectés » and a crawler signs in nowhere. Built before
+    // the publishing service because that is what asks for a page — and
+    // asking is what creates one.
+    $socialPublicPages = new \Modules\Social\Service\PublicPageService(
+        $socialCommunicationRepo,
+        $settingService,
+        $journalService
+    );
     $socialPublishing = new \Modules\Social\Service\PublishingService(
         $socialConnectionRepo,
         $socialPublicationRepo,
         $socialCardService,
         $settingService,
-        $journalService
+        $journalService,
+        $socialPublicPages
+    );
+    $frontController->registerController(
+        \Modules\Social\Controller\PublicPageController::class,
+        new \Modules\Social\Controller\PublicPageController(
+            $twig,
+            $socialPublicPages,
+            $socialPublicationRepo,
+            $storedFileReader,
+            // One content-free question each — « is the source still
+            // there, and where is its page » — to decide the « Voir sur
+            // le site » button. Null with either module off (§7.5), and
+            // then there is no button.
+            $galleryShareSourceForOthers,
+            $newsShareSourceForOthers
+        )
     );
     // The discussion groups as a destination, or null with the groups
     // module off: one instance, shared by what offers the destinations and
@@ -10805,7 +10932,11 @@ if ($isEnabled('social')) {
         : new \Modules\Social\Service\GroupPublishingService(
             $groupsPublisherForOthers,
             $socialPublicationRepo,
-            $journalService
+            $journalService,
+            // The card a group receives, from issue #706, IT-02: the same
+            // composition every other destination gets, at the strength
+            // the chief chose. Before it, a group got the photo raw.
+            $socialCardService
         );
     $socialDestinationStates = new \Modules\Social\Service\DestinationStates(
         $socialPublishing,
@@ -10823,7 +10954,6 @@ if ($isEnabled('social')) {
         $socialConnectionRepo,
         $socialGroupPublishing
     );
-    $socialCommunicationRepo = new \Modules\Social\Repository\CommunicationRepository($pdo);
     $socialShareSources = new \Modules\Social\Service\ShareSourceResolver(
         $settingService,
         $storedFileReader,
@@ -10848,7 +10978,29 @@ if ($isEnabled('social')) {
             $socialConnectionRepo,
             $socialCardService,
             $uploadHandler,
+            // Where the card the browser posts at « Publier » is kept,
+            // byte for byte (issue #706, IT-02) — not through
+            // $uploadHandler, which would re-encode it.
+            $encryptedFileStorageService,
             $userAccountRepo,
+            // Where « Partager » and « Copier le lien » on the history
+            // get their address (issue #706, IT-05) — the same instance
+            // the publishing service asks, so one page per
+            // communication whichever path creates it.
+            $socialPublicPages,
+            // What a SOURCE has already been through (issue #706, IT-05)
+            // — read across every communication sharing it, since the
+            // same album with a different message is a new one.
+            new \Modules\Social\Service\ShareHistory(
+                $socialCommunicationRepo,
+                $socialPublicationRepo,
+                $userAccountRepo
+            ),
+            // A share made by hand is journalled like every other
+            // publication of this module (issue #706, IT-05): it freezes
+            // the communication for good and hands its public page over,
+            // and `SECURITY.md` § 6 carves nothing out for it.
+            $journalService,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds
         )
@@ -12161,7 +12313,9 @@ if ($isEnabled('rental')) {
                 $rentalBookingAudit
             ),
             // What the site sent the renter, on « Courrier » (#720, step 2).
-            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService)
+            new \Modules\Rental\Repository\RentalSentEmailRepository($pdo, $encryptionService),
+            // A signer is named by their account, not by a totem (#825).
+            new \Modules\Rental\Document\SignerName($userAccountRepo)
         )
     );
     $frontController->registerController(

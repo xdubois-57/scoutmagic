@@ -43,8 +43,21 @@ final class NewsForm
         public readonly ?string $eventLocation,
         public readonly ?string $lastDigestSentAt,
         public readonly ?int $financeAccountId,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        /** Where this form's payments are booked in Finances (issue #838). */
+        public readonly ?int $financeCategoryId = null
     ) {
+    }
+
+    /**
+     * Whether a priced answer raises a receivable: an account to receive
+     * the money AND a category to book it under (issue #838). A form
+     * saved before categories existed has the first only, and asks for
+     * no money until its author picks one.
+     */
+    public function hasPaymentDestination(): bool
+    {
+        return $this->financeAccountId !== null && $this->financeCategoryId !== null;
     }
 
     /**

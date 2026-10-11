@@ -10,6 +10,7 @@ namespace Core\System;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Pdf\PdfCompressor;
 
 /**
  * What the CRON's PHP can execute, measured by public/cron.php and read by
@@ -33,6 +34,12 @@ final class CronExecutionFacts
 {
     public const SETTING = 'cron_execution_facts';
     public const REFRESH_SECONDS = 600;
+    /**
+     * How long a « the cron compresses » answer is trusted: three refresh
+     * periods. A cron that has stopped keeps its last facts for ever, and a
+     * task queued on the strength of them would never run.
+     */
+    public const PDF_TRUST_SECONDS = 3 * self::REFRESH_SECONDS;
 
     public function __construct(
         public readonly int $probedAt,
@@ -45,6 +52,18 @@ final class CronExecutionFacts
         public readonly string $shellDetail,
         public readonly ?string $ffmpegPath,
         public readonly ?string $ffprobePath,
+        /**
+         * `proc_open` may be called BY THE CRON'S PHP — the function
+         * PdfCompressor uses, which is not `exec` (#804). Null while an
+         * older measurement, taken before this field existed, is all there is.
+         */
+        public readonly ?bool $pdfProcOpen = null,
+        /**
+         * The PDF compression tool the cron's PHP found
+         * ({@see PdfCompressor::BACKEND_*}, `none` when there is none), null
+         * while never measured.
+         */
+        public readonly ?string $pdfBackend = null,
     ) {
     }
 
@@ -52,6 +71,9 @@ final class CronExecutionFacts
     public static function probe(int $now): self
     {
         $shell = ShellExecutor::probe();
+        // PdfCompressor spawns through proc_open, so that is what is measured
+        // here, in this process, rather than inferred from the shell probe.
+        $pdf = new PdfCompressor(sys_get_temp_dir());
 
         return new self(
             $now,
@@ -62,6 +84,8 @@ final class CronExecutionFacts
             $shell['detail'],
             $shell['works'] ? ExecutableLocator::find('ffmpeg') : null,
             $shell['works'] ? ExecutableLocator::find('ffprobe') : null,
+            $pdf->canUseProcOpen(),
+            $pdf->detectBackend(),
         );
     }
 
@@ -71,6 +95,60 @@ final class CronExecutionFacts
         return $this->shellWorks && $this->ffmpegPath !== null && $this->ffprobePath !== null;
     }
 
+    /** The cron has measured PDF compression — facts stored before #804 did not. */
+    public function pdfMeasured(): bool
+    {
+        return $this->pdfProcOpen !== null && $this->pdfBackend !== null;
+    }
+
+    /** PDFs can be compressed in a task: the cron may call proc_open and found a tool. */
+    public function pdfReady(): bool
+    {
+        return $this->pdfProcOpen === true
+            && $this->pdfBackend !== null
+            && $this->pdfBackend !== PdfCompressor::BACKEND_NONE;
+    }
+
+    /**
+     * {@see pdfReady()}, and measured recently enough to be believed at $now (#804).
+     *
+     * What decides whether an upload is compressed by a task rather than by
+     * the upload itself: a stale « ready » from a cron that has since stopped
+     * would queue work nothing will ever do, where compressing in the upload
+     * at least has a chance.
+     */
+    public function pdfReadyAt(int $now): bool
+    {
+        return $this->pdfReady() && $now - $this->probedAt <= self::PDF_TRUST_SECONDS;
+    }
+
+    /**
+     * The measurement in words, for a support archive: which PHP measured
+     * it, when, and what it found. A report that mixes the web PHP's
+     * answers with the cron's without naming which is which makes a tool
+     * look missing where it is there (#804).
+     *
+     * @return list<string>
+     */
+    public function report(): array
+    {
+        $yesNo = static fn(?bool $value): string => $value === null ? 'pas encore mesuré' : ($value ? 'oui' : 'NON');
+        $tool = !$this->pdfMeasured()
+            ? 'pas encore mesuré'
+            : ($this->pdfReady() ? (string) $this->pdfBackend : 'aucun');
+
+        return [
+            'Mesuré par : le PHP du cron (SAPI ' . $this->sapi . '), le '
+                . gmdate('Y-m-d H:i:s', $this->probedAt) . ' UTC',
+            'Exécution de commandes vérifiée (PHP du cron) : ' . ($this->shellWorks ? 'oui' : 'NON')
+                . ' (' . ($this->shellFunction ?? 'aucune fonction') . ' — ' . $this->shellDetail . ')',
+            'ffmpeg (PHP du cron) : ' . ($this->ffmpegPath ?? 'introuvable'),
+            'ffprobe (PHP du cron) : ' . ($this->ffprobePath ?? 'introuvable'),
+            'proc_open disponible (PHP du cron) : ' . $yesNo($this->pdfProcOpen),
+            'Outil de compression PDF (PHP du cron) : ' . $tool,
+        ];
+    }
+
     public static function register(SettingService $settings): void
     {
         $settings->register(
@@ -78,9 +156,9 @@ final class CronExecutionFacts
             '',
             'text',
             'Capacités d\'exécution du cron',
-            'Ce que le PHP du cron sait exécuter (fonction, erreur exacte, ffmpeg, ffprobe), en JSON, avec '
-                . 'l\'heure de la mesure. Écrit par public/cron.php, lu par la page Santé de l\'hébergement et '
-                . 'par la galerie. Lecture seule.',
+            'Ce que le PHP du cron sait exécuter (fonction, erreur exacte, ffmpeg, ffprobe, proc_open et outil '
+                . 'de compression PDF), en JSON, avec l\'heure de la mesure. Écrit par public/cron.php, lu par la '
+                . 'page Santé de l\'hébergement et par la galerie. Lecture seule.',
             null,
             null,
             null,
@@ -138,6 +216,8 @@ final class CronExecutionFacts
             'shell_detail' => $this->shellDetail,
             'ffmpeg' => $this->ffmpegPath,
             'ffprobe' => $this->ffprobePath,
+            'pdf_proc_open' => $this->pdfProcOpen,
+            'pdf_backend' => $this->pdfBackend,
         ];
     }
 
@@ -160,6 +240,10 @@ final class CronExecutionFacts
             (string) ($data['shell_detail'] ?? ''),
             $string($data['ffmpeg'] ?? null),
             $string($data['ffprobe'] ?? null),
+            // Absent from what was stored before #804: « not measured yet »,
+            // never « proc_open is off » nor « no tool ».
+            is_bool($data['pdf_proc_open'] ?? null) ? $data['pdf_proc_open'] : null,
+            $string($data['pdf_backend'] ?? null),
         );
     }
 }

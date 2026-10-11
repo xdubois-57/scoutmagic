@@ -3,6 +3,86 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
+/* The face the published card's title and address are drawn in (issue
+   #706, IT-02). The card used to be composed by GD, which read the .ttf
+   from disk; the browser draws it now, so the same face has to reach the
+   browser — and the content security policy is `font-src 'self'`
+   (Core\Http\Response), so it is served from here and never from a font
+   CDN.
+
+   A Latin subset, 19.7 KB against the .ttf's 709 KB: a card's text is a
+   French title somebody typed and the site's own address. See
+   public/assets/fonts/README.md for the subset's ranges and the command
+   that rebuilds it.
+
+   `font-display: block` on purpose, against the usual advice. A swap
+   would draw the card once in the fallback face and again in this one,
+   and the card is the thing being judged before it is published — a
+   title that jumps and re-wraps between two frames reads as a bug. The
+   file is small enough that the block is brief, and the composer waits
+   for the face before its first draw rather than drawing twice. */
+@font-face {
+    font-family: 'ScoutMagic Card';
+    src: url('/assets/fonts/dejavu-sans-bold-latin.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: block;
+}
+
+/* A checkbox and the FIRST LINE of its label on the same line (issue
+   #706, IT-02: « Aujourd'hui le texte est plus bas que la case »).
+
+   The cause is structural, not a stray margin. Bootstrap FLOATS
+   `.form-check-input` to the top of the block, so it sits at the very top
+   whatever the label does — while the label's own line box is made taller
+   than its text by the Bootstrap Icons glyph inside it, which carries its
+   own metrics. The text then sits lower inside that taller line box, and
+   the two drift apart. Adding a margin would paper over it and drift
+   again the day a label has no icon.
+
+   A flex row aligns the box with the label's first line instead, and the
+   sub-lines a `<br>` adds keep indenting under the text, because the
+   label stays one flex item. `padding-left` goes because the gap now
+   does that job; the input's own `margin-top` is Bootstrap's 0.25em,
+   which is the right nudge once it is measured against the text's line
+   box rather than the top of the block.
+
+   Applied to the destination rows, the « Groupe de discussion » row and
+   the group dialog alike: the chantier names the last two, and the first
+   has exactly the same icon-beside-text shape. */
+.form-check--line-aligned {
+    display: flex;
+    /* Wrapping, or the nested row below never reaches its own line: in a
+       single-line flex container a `flex-basis: 100%` child only STARTS
+       that wide and then shrinks, so « Je confirme : réessayer » was
+       squeezed into a third column beside the label — on exactly the
+       rows that have one, the failed ones. Found in the review of #850. */
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5em;
+    padding-left: 0;
+}
+
+/* And the label starts from zero rather than from its own text, so a
+   long one — a failure reason from Meta — grows into the space left
+   instead of wrapping below its own checkbox. */
+.form-check--line-aligned > .form-check-label {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.form-check--line-aligned > .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    margin-left: 0;
+}
+
+/* The nested « Je confirme : réessayer » row keeps its own indent, under
+   the text rather than under the box it belongs to. */
+.form-check--line-aligned > .form-check {
+    flex-basis: 100%;
+}
+
 :root {
     --page-max-width: 1200px;
     --page-medium-width: 720px;
@@ -123,6 +203,16 @@
         min-height: 44px;
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
+    }
+
+    /* A phone number (Core\View\PhoneExtension) is the one target of its
+       cell and opens the sheet of actions (D10, D11 of
+       docs/chantiers/CHANTIER-telephone.md). Without touch it has become
+       text with « Copier », so nothing here grows a desktop table row. */
+    .phone-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
     }
 
     /* Pagination links */
@@ -725,6 +815,29 @@ body.cookie-banner-visible {
     }
 }
 
+/* A phone number (Core\View\PhoneExtension, public/assets/js/phone-link.js,
+   docs/chantiers/CHANTIER-telephone.md). The number's own 44px touch
+   target is in the pointer:coarse block at the top of this file. The
+   sheet's rows are 48px, as in the mock-up; the sheet keeps its content
+   height rather than Bootstrap's fixed 30vh. */
+.phone-sheet {
+    --bs-offcanvas-height: auto;
+}
+.phone-sheet-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 48px;
+}
+.phone-sheet-item[hidden] {
+    display: none;
+}
+.phone-sheet-item .bi {
+    font-size: 1.25rem;
+    width: 1.5rem;
+    text-align: center;
+}
+
 /* The help search field carries its own clear button (the × before the
    search icon), because the native one that `type=search` gets exists in
    WebKit and Chromium and nowhere else — a Firefox reader would have no
@@ -974,6 +1087,90 @@ body.cookie-banner-visible {
     #navigation-progress.is-active {
         animation: none;
         background: var(--bs-primary);
+    }
+}
+
+/* Pull to refresh (assets/js/pull-to-refresh.js, issue #842): a small
+   round indicator centred at the top of the viewport, in the installed
+   application only. Parked above the screen; the script sets
+   --ptr-pull (how far it has come down, px) and --ptr-progress (0 to 1,
+   how close to the threshold) while the finger pulls. Its colours are
+   Bootstrap's own variables, so the dark theme needs nothing of its own.
+   Never seen in a browser tab: the script does not run there, and
+   nothing else adds these classes. */
+.pull-to-refresh {
+    position: fixed;
+    top: env(safe-area-inset-top, 0px);
+    left: 50%;
+    z-index: 1085;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-left: -1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bs-body-bg);
+    color: var(--bs-primary);
+    border: 1px solid var(--bs-border-color-translucent);
+    box-shadow: var(--bs-box-shadow);
+    font-size: 1.25rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(calc(-100% - 0.5rem + var(--ptr-pull, 0px)));
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.pull-to-refresh-icon {
+    line-height: 1;
+    transform: rotate(calc(var(--ptr-progress, 0) * 270deg));
+}
+.pull-to-refresh.is-pulling {
+    opacity: var(--ptr-progress, 0);
+    transition: none;
+}
+.pull-to-refresh.is-armed,
+.pull-to-refresh.is-refreshing {
+    opacity: 1;
+}
+.pull-to-refresh.is-armed {
+    background: var(--bs-primary);
+    color: var(--bs-white);
+    border-color: var(--bs-primary);
+}
+.pull-to-refresh.is-refreshing .pull-to-refresh-icon {
+    animation: pull-to-refresh-spin 0.8s linear infinite;
+}
+@keyframes pull-to-refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+/* Reduced motion: the indicator appears in place (the script stops
+   moving it with the finger), fades in rather than turns, and does not
+   spin — its filled, armed colours are what says « release now ». */
+@media (prefers-reduced-motion: reduce) {
+    .pull-to-refresh,
+    .pull-to-refresh.is-pulling {
+        transition: opacity 0.2s ease;
+    }
+    .pull-to-refresh-icon,
+    .pull-to-refresh.is-refreshing .pull-to-refresh-icon {
+        transform: none;
+        animation: none;
+    }
+}
+/* The installed app's own pull-to-refresh, where the browser has one
+   (Chrome on Android), would reload the page a second time for the same
+   pull. Standalone only: in a browser tab the browser's gesture is the
+   visitor's, and this site adds none. And only on pages that carry the
+   replacement (`has-pull-to-refresh`, set by base.html.twig): the offline
+   fallback page (pwa/offline.html.twig) loads this stylesheet without the
+   script, and must keep the native gesture rather than lose it. An
+   explicit class rather than :has(#pull-to-refresh), for the reason the
+   cookie-banner block above gives. */
+@media (display-mode: standalone) {
+    html.has-pull-to-refresh,
+    html.has-pull-to-refresh body {
+        overscroll-behavior-y: contain;
     }
 }
 

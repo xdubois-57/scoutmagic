@@ -99,11 +99,61 @@
         setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
         setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
         setDetailRow('md-extra-details', row.dataset.extraDetails);
+        const attachLink = /** @type {HTMLAnchorElement|null} */ (document.getElementById('md-attach-link'));
+        if (attachLink) {
+            const isCredit = Number(row.dataset.amount) > 0;
+            attachLink.href = isCredit ? (attachLink.dataset.baseUrl || '') + encodeURIComponent(row.dataset.id || '') : '#';
+            attachLink.classList.toggle('d-none', !isCredit);
+        }
         selectEl('md-category').value = row.dataset.categoryId || '';
         el('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
         inputEl('md-comment').value = row.dataset.comment || '';
         selectEl('md-fiscal-year').value = row.dataset.fiscalYearId;
+        // Not awaited: the dialog opens at once and the section fills in;
+        // loadLinkedReceivables() handles its own failure.
+        void loadLinkedReceivables(row.dataset.id || '');
         movementDetailsModal ? movementDetailsModal.show() : detailsModalEl.classList.add('show');
+    }
+
+    /**
+     * « Créances liées » (issue #838): what the movement pays, each named
+     * by its source module, with the amount imputed to it and a link to
+     * where it is managed. Hidden while loading and when there is none.
+     *
+     * @param {string} movementId
+     */
+    async function loadLinkedReceivables(movementId) {
+        const section = el('md-receivables');
+        const list = el('md-receivables-list');
+        section.classList.add('d-none');
+        list.innerHTML = '';
+
+        let data = null;
+        try {
+            data = (await api.getJson('/finance/movements/' + encodeURIComponent(movementId) + '/receivables')).data;
+        } catch {
+            // Context, not the dialog's purpose: a failed load leaves the
+            // section hidden and everything else usable.
+            return;
+        }
+        // The dialog may already show another movement by now.
+        if (currentDetailsMovementId !== movementId) {
+            return;
+        }
+        const receivables = data?.success && Array.isArray(data.receivables) ? data.receivables : [];
+        receivables.forEach(r => {
+            const item = document.createElement('li');
+            item.className = 'd-flex flex-wrap gap-2 align-items-baseline';
+            let html = '<span class="flex-grow-1">' + escapeHtml(r.label) + '</span>'
+                + '<span class="text-nowrap">' + escapeHtml(formatAmountEur(r.amount_cents / 100)) + '</span>';
+            if (r.destination && typeof r.destination.url === 'string' && r.destination.url.startsWith('/') && !r.destination.url.startsWith('//')) {
+                html += '<a class="text-nowrap" href="' + escapeHtml(r.destination.url) + '">'
+                    + escapeHtml(r.destination.label) + ' →</a>';
+            }
+            item.innerHTML = html;
+            list.appendChild(item);
+        });
+        section.classList.toggle('d-none', receivables.length === 0);
     }
 
     // A single delegated listener covers BOTH movement views — the desktop

@@ -28,8 +28,12 @@ use Modules\Groups\Support\Timestamps;
  * A caller with no member identity in the group at all — a site admin
  * reading a group they are not a member of — records nothing. That is
  * deliberate: an admin looking in must not silently mark the group read
- * for a member they happen to share an id with, and an admin has no unread
- * badge of their own to clear anyway.
+ * for a member they happen to share an id with. And an admin has no unread
+ * badge of their own to clear **because the list never puts one there**
+ * (Service\GroupListService::findReadable() shows « Nouveau » only on a
+ * group the caller belongs to). That used to be only a claim in this
+ * paragraph: the list flagged such a group all the same, and the badge
+ * could never be cleared (issue #712).
  */
 class GroupReadStateService
 {

@@ -7,19 +7,25 @@ role_min: intendant
 question: Où voir combien il reste sur les comptes de l'unité ?
 question: Qui a le droit de voir quel compte bancaire ?
 paths: /finance, /finance/movements
-related: paiements-attendus, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
+related: controle-des-creances, rapprochement, importer-extraits, recus, config-finance, badges, outils-finance
 ---
 
 Le module Finances suit les comptes de l'unité à partir des extraits
-bancaires importés. Le tableau de bord résume la situation : solde
-actuel, solde le plus bas des derniers mois, dernier extrait importé,
-graphiques d'évolution et bilan par catégorie pour l'exercice choisi.
+bancaires importés. Le tableau de bord tient en deux lignes de quatre
+vignettes, suivies des graphiques et du bilan par catégorie de
+l'exercice choisi.
 
-Une seule de ces vignettes appelle un geste plutôt qu'une lecture :
-« À rapprocher » compte les paiements que le site n'a pas su rattacher
-tout seul. Elle indique aussi de quoi ce nombre est fait, parce qu'un
-reste non imputé n'est pas forcément une erreur à corriger — voir
-« Rapprocher un paiement qui tombe de travers ».
+La première ligne dit où en est le compte : solde actuel, solde le
+plus bas des 18 derniers mois, dernier extrait importé, et paiements
+encore attendus — ce qui reste dû sur les créances de ce compte, pas
+le montant demandé au départ.
+
+La seconde dit ce qui attend un geste, et chaque vignette mène à
+l'écran où il se fait : les mouvements non catégorisés de l'exercice,
+les reçus qui ne sont associés à aucun mouvement, les paiements à
+traiter (voir « Paiements à traiter ») et les campagnes encore ouvertes
+sur ce compte cette année scoute. Les listes ouvertes ainsi ne montrent
+que ce compte. Quand tout est fait, ces compteurs affichent 0.
 
 ## Qui voit quels comptes
 
@@ -47,13 +53,16 @@ faut ajuster la visibilité du compte, ou vous attribuer le badge.
 
 ## Catégoriser les mouvements
 
-La page Mouvements liste les opérations bancaires. Une ligne surlignée
+La page Mouvements liste les opérations bancaires, chacune décrite en
+clair à partir de ce qui est connu : la créance qu'elle règle, le
+reçu, la contrepartie, la communication, votre commentaire, la catégorie. Une ligne surlignée
 est « À catégoriser » : touchez-la, choisissez la catégorie, ajoutez
 au besoin un commentaire, puis « Enregistrer ». Le badge « Auto »
 signale une catégorie attribuée automatiquement par une règle — la
-changer à la main la rend définitive. Le trombone associe un
-justificatif au mouvement, et « Exporter en XLSX » télécharge la liste
-filtrée.
+changer à la main la rend définitive. Les détails d'un paiement
+listent les créances qu'il règle, avec un lien vers chacune. Le
+trombone associe un justificatif, et « Exporter en XLSX » télécharge
+la liste filtrée.
 
 Le gros du travail peut se faire tout seul : des règles de
 catégorisation (mots-clés, contrepartie, montant) s'appliquent à

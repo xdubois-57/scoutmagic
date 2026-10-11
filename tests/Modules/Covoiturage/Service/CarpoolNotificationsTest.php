@@ -173,6 +173,32 @@ final class CarpoolNotificationsTest extends TestCase
         $this->assertStringContainsString('Message : « Ma voiture est pleine de matériel. »', $this->sent[0]['body']);
     }
 
+    /** #790: the driver may say why a granted seat is taken back, and the family reads it. */
+    public function testARevokedSeatCarriesTheDriversOptionalWord(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::RIDER, ['Tom'], SeatRequest::ACCEPTED));
+        $this->assertNotNull($request);
+
+        $this->service->revoke($request, $offer, H::viewer(self::DRIVER), $carpool, '  Ma voiture est en panne.  ');
+
+        $this->assertOnlySent('covoiturage.seat_revoked', [self::RIDER]);
+        $this->assertStringContainsString('Message : « Ma voiture est en panne. »', $this->sent[0]['body']);
+    }
+
+    /** Without a word the revocation reads as before, not even an empty quote. */
+    public function testARevokedSeatWithoutAWordKeepsItsText(): void
+    {
+        [$carpool, $offer] = $this->car();
+        $request = $this->requests->findById(H::request($this->pdo, $offer->id, self::RIDER, ['Tom'], SeatRequest::ACCEPTED));
+        $this->assertNotNull($request);
+
+        $this->service->revoke($request, $offer, H::viewer(self::DRIVER), $carpool, '   ');
+
+        $this->assertStringNotContainsString('Message', $this->sent[0]['body']);
+        $this->assertStringContainsString('ne peut plus vous prendre', $this->sent[0]['body']);
+    }
+
     /** #703: the family may say why it withdraws, and the driver reads it. */
     public function testAWithdrawalCarriesTheFamilysOptionalWord(): void
     {

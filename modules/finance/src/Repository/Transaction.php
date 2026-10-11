@@ -15,6 +15,8 @@ final class Transaction
 
     public const CATEGORY_SOURCE_MANUAL = 'manual';
     public const CATEGORY_SOURCE_AUTO = 'auto';
+    /** Taken from the receivable this movement pays (issue #838). */
+    public const CATEGORY_SOURCE_RECEIVABLE = 'receivable';
 
     public function __construct(
         public readonly int $id,
@@ -32,7 +34,12 @@ final class Transaction
         public readonly ?string $counterpartyAccount = null,
         public readonly ?string $extraDetails = null,
         public readonly ?string $categorySource = null,
-        public readonly ?string $structuredCommunication = null
+        public readonly ?string $structuredCommunication = null,
+        /**
+         * When a treasurer declared this credit to be no payment for any
+         * receivable (« Paiements à traiter » > « Non imputés »), or null.
+         */
+        public readonly ?string $notAReceivableAt = null
     ) {
     }
 

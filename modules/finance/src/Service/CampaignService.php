@@ -77,13 +77,14 @@ class CampaignService
      *
      * @throws CampaignImportException when the file is refused — nothing
      *         at all is created in that case
-     * @throws FinanceException when the label, the account or the season
-     *         is not usable
+     * @throws FinanceException when the label, the account, the category
+     *         or the season is not usable
      */
     public function createFromFile(
         string $label,
         int $scoutYearId,
         int $accountId,
+        int $categoryId,
         string $filePath,
         string $originalFilename,
         Role $viewerRole,
@@ -152,6 +153,9 @@ class CampaignService
                     // decrypted name repeated here would be one more copy
                     // of the same personal data for no reader.
                     null,
+                    // Where these payments are booked (issue #838): the
+                    // category picked with the account, for every line.
+                    $categoryId,
                     $row['member_id']
                 );
             }

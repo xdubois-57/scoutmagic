@@ -25,8 +25,7 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
-use Modules\Finance\Service\FirstReceiptResolver;
-use Modules\Finance\Service\MovementPresenter;
+use Modules\Finance\Service\MovementDescriptionService;
 use Modules\Finance\Service\ReceiptService;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -48,8 +47,11 @@ class MovementController extends AbstractController
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private ReceiptService $receiptService,
-        private FirstReceiptResolver $firstReceiptResolver,
-        private JournalService $journalService
+        // The description and counterparty of every movement shown here —
+        // list, export, search — from the one source of truth (issue #838).
+        private MovementDescriptionService $descriptions,
+        private JournalService $journalService,
+        private ?\Modules\Finance\Service\ReceivablesOverviewService $receivablesOverview = null
     ) {
     }
 
@@ -130,20 +132,19 @@ class MovementController extends AbstractController
 
         $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
         $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds($movementIds);
-        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
+        $presented = $this->descriptions->present($movements, [$account->id => $account->name]);
 
         $pendingReceipts = $this->receiptService->listPending($account->id);
 
         $rows = [];
         foreach ($movements as $movement) {
             $count = $attachmentCounts[$movement->id] ?? 0;
-            $firstReceipt = $firstReceiptsByMovementId[$movement->id] ?? null;
             $rows[] = [
                 'movement' => $movement,
                 'attachment_count' => $count,
                 'suggested_receipt' => $count === 0 ? $this->findSuggestedReceipt($movement, $pendingReceipts) : null,
-                'counterparty' => MovementPresenter::counterparty($movement, $firstReceipt, $account->name),
-                'description' => MovementPresenter::description($movement, $firstReceipt),
+                'counterparty' => $presented[$movement->id]['counterparty'],
+                'description' => $presented[$movement->id]['description'],
             ];
         }
 
@@ -212,14 +213,10 @@ class MovementController extends AbstractController
             $categoriesById[$category->id] = $category;
         }
 
-        $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
-        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
-
         $spreadsheet = $this->buildMovementsXlsx(
             $movements,
             $categoriesById,
-            $firstReceiptsByMovementId,
-            $account->name
+            $this->descriptions->present($movements, [$account->id => $account->name])
         );
 
         $this->journalService->log(
@@ -237,26 +234,26 @@ class MovementController extends AbstractController
     /**
      * @param Transaction[] $movements
      * @param array<int, \Modules\Finance\Repository\Category> $categoriesById
-     * @param array<int, Attachment> $firstReceiptsByMovementId
+     * @param array<int, array{counterparty: string, description: string}> $presented
      */
     private function buildMovementsXlsx(
         array $movements,
         array $categoriesById,
-        array $firstReceiptsByMovementId,
-        string $accountName
+        array $presented
     ): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
 
-        $columns = ['Date', 'Libellé', 'Contrepartie', 'Montant', 'Catégorie', 'Commentaire'];
+        // « Description » is the same human description the list shows
+        // (issue #838); « Libellé » keeps the bank's own text for audit.
+        $columns = ['Date', 'Description', 'Libellé', 'Contrepartie', 'Montant', 'Catégorie', 'Commentaire'];
         foreach ($columns as $index => $header) {
             $sheet->setCellValueExplicit([$index + 1, 1], $header, DataType::TYPE_STRING);
         }
 
         $rowNum = 2;
         foreach ($movements as $movement) {
-            $firstReceipt = $firstReceiptsByMovementId[$movement->id] ?? null;
             $category = $movement->categoryId !== null ? ($categoriesById[$movement->categoryId] ?? null) : null;
 
             // Text columns forced to string: label, counterparty and
@@ -265,15 +262,20 @@ class MovementController extends AbstractController
             // controls by sending a transfer), so a leading '=' must not turn
             // into a live formula in the treasurer's export.
             $sheet->setCellValueExplicit([1, $rowNum], $movement->transactionDate, DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([2, $rowNum], $movement->label, DataType::TYPE_STRING);
             $sheet->setCellValueExplicit(
-                [3, $rowNum],
-                MovementPresenter::counterparty($movement, $firstReceipt, $accountName),
+                [2, $rowNum],
+                $presented[$movement->id]['description'] ?? '',
                 DataType::TYPE_STRING
             );
-            $sheet->setCellValueExplicit([4, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit([5, $rowNum], $category->name ?? '', DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([6, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([3, $rowNum], $movement->label, DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit(
+                [4, $rowNum],
+                $presented[$movement->id]['counterparty'] ?? '',
+                DataType::TYPE_STRING
+            );
+            $sheet->setCellValueExplicit([5, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit([6, $rowNum], $category->name ?? '', DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([7, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
             $rowNum++;
         }
 
@@ -393,6 +395,34 @@ class MovementController extends AbstractController
                 ],
                 $attachments
             ),
+        ]);
+    }
+
+    /**
+     * GET /finance/movements/{id}/receivables — « Créances liées » in the
+     * movement's details dialog (issue #838): what this movement pays, in
+     * each source module's own words, with a link to where it is managed.
+     *
+     * @param array<string, string> $params
+     */
+    public function receivables(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $transaction = $this->transactionRepository->findById($id);
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $transaction !== null ? $this->financeService->getAccount($transaction->accountId) : null;
+        if ($transaction === null || !$this->financeService->isAccountVisibleTo($account, $role)) {
+            // Same answer for « no such movement » and « not yours to see »
+            // — see attachments() above.
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
+        }
+
+        return $this->json([
+            'success' => true,
+            'receivables' => $this->receivablesOverview?->linkedToMovement(
+                $id,
+                new \Modules\Finance\Api\ReceivableViewer(AuthSession::getEmail(), $role)
+            ) ?? [],
         ]);
     }
 
@@ -539,7 +569,7 @@ class MovementController extends AbstractController
         foreach ($visibleAccounts as $visibleAccount) {
             $accountNamesById[$visibleAccount->id] = $visibleAccount->name;
         }
-        $firstReceipts = $this->firstReceiptResolver->resolve(array_map(fn(Transaction $t) => $t->id, $matches));
+        $presented = $this->descriptions->present($matches, $accountNamesById);
 
         return $this->json([
             'success' => true,
@@ -549,17 +579,8 @@ class MovementController extends AbstractController
                     'date' => $transaction->transactionDate,
                     'label' => $transaction->label,
                     'amount' => $transaction->amount,
-                    'counterparty' => MovementPresenter::counterparty(
-                        $transaction,
-                        $firstReceipts[
-                            $transaction->id
-                        ] ?? null,
-                        $accountNamesById[$transaction->accountId] ?? ''
-                    ),
-                    'description' => MovementPresenter::description(
-                        $transaction,
-                        $firstReceipts[$transaction->id] ?? null
-                    ),
+                    'counterparty' => $presented[$transaction->id]['counterparty'],
+                    'description' => $presented[$transaction->id]['description'],
                 ],
                 $matches
             ),

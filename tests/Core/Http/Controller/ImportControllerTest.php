@@ -110,7 +110,8 @@ class ImportControllerTest extends TestCase
                 $this->encryption,
                 $storagePath
             ),
-            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo))
+            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
+            $scoutYearService
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
@@ -122,7 +123,10 @@ class ImportControllerTest extends TestCase
         // controller with a disk budget attached — the refusal branch is
         // otherwise structurally unreachable, the production wiring being
         // the only place that passes one.
-        $this->rebuildController = function (?\Core\Storage\DiskBudget $diskBudget = null) use (
+        $this->rebuildController = function (
+            ?\Core\Storage\DiskBudget $diskBudget = null,
+            ?DeskImportService $importServiceOverride = null
+        ) use (
             $twig,
             $importService,
             $scoutYearResolver,
@@ -137,7 +141,7 @@ class ImportControllerTest extends TestCase
         ): ImportController {
             return new ImportController(
                 $twig,
-                $importService,
+                $importServiceOverride ?? $importService,
                 $scoutYearResolver,
                 $importJournalRepo,
                 $functionRepo,
@@ -324,6 +328,56 @@ class ImportControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $flash = \Core\Http\FlashMessage::get();
         $this->assertStringNotContainsString('Espace disque', (string) ($flash['message'] ?? ''));
+    }
+
+    /**
+     * Issue #854: a refused file is laid out as a list on the import page
+     * itself — the summary, then every error — rather than squeezed into
+     * one flash message. 200, not a redirect: the errors are not stored
+     * anywhere to be read back after one.
+     */
+    public function testARefusedFileListsEveryErrorOnTheImportPage(): void
+    {
+        $service = $this->createStub(DeskImportService::class);
+        $service->method('import')->willThrowException(new \Core\Import\DeskImportRejectedException([
+            new \Core\Import\DeskImportError(
+                12,
+                \Core\Import\DeskImportRule::BIRTH_DATE,
+                'Ligne 12 (T0280) — Date de naissance « 28/11/20 » illisible : format attendu JJ/MM/AAAA.'
+            ),
+            new \Core\Import\DeskImportError(
+                15,
+                \Core\Import\DeskImportRule::GENDER,
+                'Ligne 15 (T0281) — Genre « M » : valeur attendue F, H ou X.'
+            ),
+        ]));
+        $controller = ($this->rebuildController)($this->roomyBudget(), $service);
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+        $this->assertStringContainsString('Import refusé : le fichier contient 2 erreurs', $body);
+        $this->assertStringContainsString(
+            '<li>Ligne 12 (T0280) — Date de naissance « 28/11/20 » illisible : format attendu JJ/MM/AAAA.</li>',
+            $body
+        );
+        $this->assertStringContainsString('<li>Ligne 15 (T0281) — Genre « M » : valeur attendue F, H ou X.</li>', $body);
+        // The page is still the import page, ready for the corrected file.
+        $this->assertStringContainsString('enctype="multipart/form-data"', $body);
+        $this->assertNull(\Core\Http\FlashMessage::get());
     }
 
     private function postWithCsrf(): Request

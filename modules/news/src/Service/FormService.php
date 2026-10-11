@@ -54,7 +54,7 @@ class FormService
     }
 
     /**
-     * The « Paiements attendus » deep link for a form's tab, or null when
+     * The « Contrôle des créances » deep link for a form's tab, or null when
      * there is nothing there to open.
      *
      * Three conditions, and all three are about not offering a tab that
@@ -94,6 +94,7 @@ class FormService
      *     response_role_min: string,
      *     digest_email: ?string,
      *     finance_account_id: ?int,
+     *     finance_category_id?: ?int,
      *     issues_ticket?: bool,
      *     event_date?: ?string,
      *     event_location?: ?string
@@ -132,6 +133,25 @@ class FormService
         $eventDate = self::normalizeEventDate($settings['event_date'] ?? null);
         $eventLocation = self::normalizeEventLocation($settings['event_location'] ?? null);
 
+        // A form that raises receivables names where their payments are
+        // booked (issue #838): an account without a category could take
+        // money it then has nowhere to put. Only a form with a priced field
+        // raises any — the account picker arrives pre-filled with the
+        // section's default account even on a plain article, and that
+        // alone must never stop the article from being saved.
+        $financeCategoryId = $settings['finance_account_id'] !== null
+            ? ($settings['finance_category_id'] ?? null)
+            : null;
+        $hasPricedField = array_filter(
+            $fields,
+            static fn(array $field): bool => ($field['price_per_unit'] ?? 0.0) > 0.0
+        ) !== [];
+        if ($hasPricedField && $settings['finance_account_id'] !== null && $financeCategoryId === null) {
+            throw new NewsException(
+                'Choisissez la catégorie Finances dans laquelle classer les paiements de ce formulaire.'
+            );
+        }
+
         $existing = $this->formRepository->findByArticleId($articleId);
 
         if ($existing === null) {
@@ -147,7 +167,8 @@ class FormService
                 $settings['finance_account_id'],
                 $issuesTicket,
                 $eventDate,
-                $eventLocation
+                $eventLocation,
+                $financeCategoryId
             );
         } else {
             $formId = $existing->id;
@@ -163,7 +184,8 @@ class FormService
                 $settings['finance_account_id'],
                 $issuesTicket,
                 $eventDate,
-                $eventLocation
+                $eventLocation,
+                $financeCategoryId
             );
         }
 

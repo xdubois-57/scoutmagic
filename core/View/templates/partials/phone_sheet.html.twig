@@ -1,0 +1,50 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{# The sheet a tapped phone number opens on a touch screen
+   (docs/chantiers/CHANTIER-telephone.md, IT-02). One per page, included by
+   base.html.twig; public/assets/js/phone-link.js fills it from the tapped
+   link's data-* attributes and opens it. A Bootstrap offcanvas-bottom, like
+   the help panel, for the focus trap, Escape and the clickable backdrop.
+
+   The entries are in the order of D2. The hrefs are empty here: the script
+   is the only place each target's link format is written (D4); the
+   heading reads « Numéro de téléphone » until a number replaces it, so it
+   is never empty. WhatsApp and Signal are https:// links (D5) carrying
+   rel="noopener noreferrer" (D12), so neither service learns which page of
+   the unit's site the tap came from. data-* only, no inline handlers
+   (CSP — design.md §7.5). #}
+<div class="offcanvas offcanvas-bottom phone-sheet" tabindex="-1" id="phone-sheet" aria-labelledby="phone-sheet-number">
+    <div class="offcanvas-header border-bottom">
+        <div>
+            <h5 class="offcanvas-title mb-0" id="phone-sheet-number" data-phone-sheet-number>Numéro de téléphone</h5>
+            <div class="small text-body-secondary" data-phone-sheet-kind></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="list-group list-group-flush">
+            <a href="#" class="list-group-item list-group-item-action phone-sheet-item" data-phone-target="tel">
+                <i class="bi bi-telephone" aria-hidden="true"></i><span>Appeler</span>
+            </a>
+            <a href="#" class="list-group-item list-group-item-action phone-sheet-item" data-phone-target="sms">
+                <i class="bi bi-chat-dots" aria-hidden="true"></i><span>SMS</span>
+            </a>
+            <a href="#" class="list-group-item list-group-item-action phone-sheet-item" data-phone-target="whatsapp"
+               target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-whatsapp" aria-hidden="true"></i><span>WhatsApp</span>
+            </a>
+            <a href="#" class="list-group-item list-group-item-action phone-sheet-item" data-phone-target="signal"
+               target="_blank" rel="noopener noreferrer">
+                <i class="bi bi-signal" aria-hidden="true"></i><span>Signal</span>
+            </a>
+            <button type="button" class="list-group-item list-group-item-action phone-sheet-item" data-phone-copy>
+                <i class="bi bi-clipboard" aria-hidden="true"></i><span data-phone-copy-label>Copier le numéro</span>
+            </button>
+        </div>
+        <p class="small text-body-secondary px-3 py-2 mb-0" data-phone-sheet-landline hidden>
+            Un numéro fixe ne reçoit ni SMS ni message : seuls l'appel et la copie sont proposés.
+        </p>
+    </div>
+</div>

@@ -36,7 +36,8 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
 {
     public function __construct(
         private ExpectedReceivableRepository $repository,
-        private ReceivableAllocationService $allocations
+        private ReceivableAllocationService $allocations,
+        private \Modules\Finance\Repository\CategoryRepository $categories
     ) {
     }
 
@@ -57,10 +58,31 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         int $amountCents,
         string $communication,
         ?string $label,
+        int $categoryId,
         ?int $memberId = null
     ): int {
-        if ($this->digitsOnly($communication) === '') {
-            throw new FinanceException('La communication doit contenir au moins un chiffre.');
+        // Every receivable says where its payments are booked (issue #838):
+        // a movement allocated to it takes this category, before any rule
+        // or the AI is asked. An active category only — an archived one
+        // would put new money where the treasurer chose to stop putting it.
+        $category = $this->categories->findById($categoryId);
+        if ($category === null || !$category->isActive) {
+            throw new FinanceException(
+                'Choisissez une catégorie Finances active pour cette créance.'
+            );
+        }
+
+        // Every receivable carries a valid Belgian structured
+        // communication (issue #837). Automatic matching only ever reads
+        // those twelve digits, and « Paiements à traiter » counts a credit
+        // carrying a valid one that matches nothing as a decision waiting
+        // for the treasurer — which only means something if no receivable
+        // can be raised under anything looser. Stored in one canonical
+        // spelling, whichever the caller used.
+        if (!StructuredCommunicationService::isValid($communication)) {
+            throw new FinanceException(
+                'La communication doit être une communication structurée valide (+++123/4567/89002+++).'
+            );
         }
 
         $id = $this->repository->create(
@@ -68,9 +90,10 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             $sourceReferenceId,
             $accountId,
             $amountCents,
-            $communication,
+            StructuredCommunicationService::format(substr($this->digitsOnly($communication), 0, 10)),
             $label,
-            $memberId
+            $memberId,
+            $category->id
         );
 
         // The payment can predate the receivable — a rental's security

@@ -65,6 +65,11 @@ ici — c'est le seul réglage d'argent réservé au Staff d'Unité, la
 liste des comptes portant les IBAN de l'unité. Sans IBAN, aucun code
 QR de virement ne peut être proposé aux locataires.
 
+Avec le compte se choisit la **catégorie** des Finances dans laquelle
+les paiements des locations de ce bien seront classés, caution
+comprise. Elle est obligatoire dès qu'un compte est choisi : sans elle,
+le bien ne peut pas réclamer de paiement.
+
 ## Archiver
 
 Un bien qui a un historique s'archive — il disparaît du public et des

@@ -73,7 +73,7 @@ final class Album
      * every time the URL changes or a chief hits "Rafraîchir"
      * (AlbumService::update()/refreshOg()), while `title` is only ever
      * set once at creation and never rewritten after — so an album
-     * created before OgScraperService's UTF-8 decoding fix keeps stale
+     * created before the scraper's UTF-8 decoding fix keeps stale
      * mojibake in `title` forever even after a refresh corrects
      * `og_title`. Preferring `og_title` here is what
      * GalleryController::cardContext() and

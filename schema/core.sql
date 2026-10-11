@@ -1357,6 +1357,70 @@ CREATE TABLE human_check_rate_limits (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+-- gallery_link_preview_cache: what a page said about itself (Open Graph
+-- title, description and raw og:image URL, and its own <title>) for a URL,
+-- keyed by a plain SHA-256 of the URL — a URL is not personal data
+-- (SECURITY.md §5), so unlike files.owner_member_id-style lookups this
+-- needs no HMAC blind index, just a fixed-length dedup key. Consulted by
+-- Core\Http\LinkPreviewService (the sole implementation of
+-- Core\Http\LinkPreviewFetcher) so that two posts linking the same page —
+-- in the same group or different ones — and the link dialog's « baguette
+-- magique » asked twice about one address don't each re-scrape it.
+-- Deliberately caches metadata only, never a downloaded image: the served
+-- preview image is a `files` row the CALLING module stores itself, scoped
+-- to its own access-control domain (e.g. groups' owner_type
+-- 'discussion_group' — Modules\Groups\File\GroupFileOwnershipChecker) — a
+-- shared, ungated image cached here once and reused across groups would
+-- leak a private group's link preview to a viewer with no membership in
+-- it. Re-downloading the (SSRF-protected, size-capped) image on every
+-- cache hit costs one bounded outbound fetch; it is the price of keeping
+-- each group's copy properly gated.
+--
+-- **A core table with the gallery's prefix, on purpose.** It was born in
+-- modules/gallery/schema.sql and moved here with the scraper (issue #840:
+-- the rich-text editors need it, and they cannot depend on a module a unit
+-- may switch off). It kept its name on the way, as fees_roster_snapshots
+-- did (ARCHITECTURE.md §8.74): Core\Database\SchemaComparator never drops
+-- a table, so a renamed one would leave the old one behind, full, on
+-- every installation that already has it.
+--
+-- No scheduled purge task: Core\Http\LinkPreviewCacheRepository deletes
+-- rows past TTL_HOURS as a side effect of every write instead (same
+-- "purge opportunistically" choice as Service\StorageLocationService's own
+-- health-check caching), which is enough to bound this table's size given
+-- how infrequently links are fetched.
+CREATE TABLE gallery_link_preview_cache (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    url_hash CHAR(64) NOT NULL,
+    title VARCHAR(255) NULL,
+    html_title VARCHAR(255) NULL,
+    description TEXT NULL,
+    image_url VARCHAR(500) NULL,
+    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_glpc_url_hash (url_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- link_label_fetch_log: one row per request to the link dialog's
+-- « baguette magique » (POST /api/lien/libelle, issue #840), which reads
+-- the page at an address the visitor typed. Every such request is an
+-- outbound fetch made on somebody's behalf, and SECURITY.md §17 throttles
+-- them per person, so an account cannot turn the button into a way to make
+-- the server hammer a third party or probe its network.
+--
+-- Per account, like help_assistant_rate_limits: the route is role_min
+-- identified, so there is always an account to count against. The row
+-- holds an id and an instant and never the address — what somebody linked
+-- to is nobody's business here. Purged opportunistically by
+-- Core\Http\LinkLabelResolver on every request, as the groups module's
+-- discussion_group_link_fetch_log is: a table read only within the hour
+-- needs no scheduled task to stay small.
+CREATE TABLE link_label_fetch_log (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_link_label_fetch_log_lookup (user_account_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- help_assistant_rate_limits: how many questions one account has put to
 -- the help assistant, one row each (ARCHITECTURE.md §8.87). Same shape
 -- and same purpose as human_check_rate_limits above — an LLM call costs
@@ -2325,6 +2389,13 @@ CREATE TABLE IF NOT EXISTS storage_locations (
     last_checked_at DATETIME NULL,
     last_check_ok BOOLEAN NULL,
     last_check_error TEXT NULL,
+    -- What a restore did to this row, in French, for the administrator
+    -- (#832; Core\Storage\Location\Restore\StorageBindingReconciler):
+    -- the binding of before the restore kept over the backup's, a
+    -- credential to enter again, or a target that came from the backup and
+    -- that nobody has checked. NULL once an administrator has saved the
+    -- location — the act of looking at it is what the note asks for.
+    reconciliation_note TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_storage_locations_label (label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

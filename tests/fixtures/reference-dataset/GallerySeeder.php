@@ -30,7 +30,7 @@ use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\GalleryStorageConsumer;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
@@ -89,7 +89,7 @@ final class GallerySeeder
                 $sectionService,
                 $scoutYearService,
             ),
-            new OgScraperService(),
+            new UrlMetadataFetcher(),
             $storageBackendFactory,
             $storageLocationRepository,
             $storageLocationService,

@@ -1150,7 +1150,7 @@ class ReenrollmentConfigControllerTest extends TestCase
             $encryption->encrypt($firstName, 'member_years.first_name'),
             $encryption->encrypt('Dupont', 'member_years.last_name'),
             $encryption->encrypt('2017-06-01', 'member_years.birth_date'),
-            $encryption->encrypt('M', 'member_years.gender'),
+            $encryption->encrypt('H', 'member_years.gender'),
             $encryption->encrypt($email, 'member_years.email'),
             $encryption->blindIndex($email, 'email'),
         ]);

@@ -168,6 +168,9 @@
     "/partage/carte/{token}": {
       "token": "0000000000000000000000000000000000000000000000000000000000000000"
     },
+    "/partage": {
+      "token": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
     "/config/reseaux-sociaux/{platform}": {
       "platform": "facebook"
     },
@@ -233,6 +236,9 @@
       "id": "1"
     },
     "/finance/reconciliation/attach/{transactionId}": {
+      "transactionId": "1"
+    },
+    "/finance/reconciliation/not-a-receivable/{transactionId}": {
       "transactionId": "1"
     },
     "/finance/reconciliation/overpaid/{receivableId}": {

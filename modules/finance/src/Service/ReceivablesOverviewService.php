@@ -9,13 +9,18 @@ declare(strict_types=1);
 namespace Modules\Finance\Service;
 
 use Core\Security\Role;
+use Modules\Finance\Api\ReceivableDestination;
 use Modules\Finance\Api\ReceivableSourceDescriberInterface;
+use Modules\Finance\Api\ReceivableSourceDestinationInterface;
+use Modules\Finance\Api\ReceivableViewer;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Repository\ReceivableAllocationRepository;
 
 /**
- * Builds the view model for the "Paiements attendus" reconciliation page
- * (Controller\ReceivablesController) — a generic, module-agnostic list of
+ * Builds the view model for the « Contrôle des créances » page
+ * (Controller\ReceivablesController; « Contrôle des créances » until issue
+ * #836) — a generic, module-agnostic list of
  * every finance_expected_receivables row grouped by source_module (level
  * 1) then by source_reference_id (level 2), with each row's live-computed
  * status (level 3). Finance has no notion of what a source instance "is"
@@ -50,7 +55,13 @@ class ReceivablesOverviewService
          *
          * @var (\Closure(int[]): array<int, string>)|null
          */
-        private ?\Closure $memberNames = null
+        private ?\Closure $memberNames = null,
+        /**
+         * What each movement pays — only for {@see linkedToMovement()}.
+         * Null answers that no movement pays anything, which is what a
+         * caller that never shows a movement needs.
+         */
+        private ?ReceivableAllocationRepository $allocations = null
     ) {
         foreach ($describers as $describer) {
             // Keyed on what the describer says it speaks for, never on
@@ -68,6 +79,11 @@ class ReceivablesOverviewService
      * at all — see where it is computed. `receivables` is every row of the
      * source with the instance boundaries removed, for when it is not.
      *
+     * `destination` is where an instance is actually managed — the screen
+     * of the module that raised it, for $viewer (issue #836) — or null.
+     * Each row carries its instance's, for when the middle level is
+     * dropped. Without a $viewer no destination is asked for at all.
+     *
      * @return array<int, array{
      *     source_module: string,
      *     source_label: string,
@@ -77,6 +93,7 @@ class ReceivablesOverviewService
      *     instances: array<int, array{
      *         source_reference_id: int,
      *         instance_label: string,
+     *         destination: array{label: string, url: string}|null,
      *         amount_due: int,
      *         amount_received: int,
      *         receivables: array<
@@ -88,7 +105,8 @@ class ReceivablesOverviewService
      *                 communication: string,
      *                 amount_due: int,
      *                 amount_received: int,
-     *                 status: string
+     *                 status: string,
+     *                 destination: array{label: string, url: string}|null
      *             }
      *         >
      *     }>,
@@ -101,15 +119,24 @@ class ReceivablesOverviewService
      *             communication: string,
      *             amount_due: int,
      *             amount_received: int,
-     *             status: string
+     *             status: string,
+     *             destination: array{label: string, url: string}|null
      *         }
      *     >
      * }>
+     *
+     * $accountId narrows the page to one account — the dashboard's
+     * « Paiements encore attendus » tile links here with the account it
+     * counted (issue #838). It only ever narrows: an account the viewer
+     * may not see stays out, filter or not.
      */
-    public function buildOverview(Role $viewerRole): array
+    public function buildOverview(Role $viewerRole, ?ReceivableViewer $viewer = null, ?int $accountId = null): array
     {
         $overview = [];
         $visibleAccountIds = $this->visibleAccountIds($viewerRole);
+        if ($accountId !== null) {
+            $visibleAccountIds = array_values(array_intersect($visibleAccountIds, [$accountId]));
+        }
 
         foreach ($this->repository->findDistinctSourceModules() as $sourceModule) {
             // Every other finance page resolves its accounts through
@@ -148,6 +175,7 @@ class ReceivablesOverviewService
             $sourceAmountReceived = 0;
 
             foreach ($instancesByReference as $referenceId => $group) {
+                $destination = $viewer !== null ? $this->destination($sourceModule, $referenceId, $viewer) : null;
                 $rows = [];
                 $instanceAmountDue = 0;
                 $instanceAmountReceived = 0;
@@ -175,6 +203,7 @@ class ReceivablesOverviewService
                         'amount_due' => $status['amount_due'],
                         'amount_received' => $status['amount_received'],
                         'status' => $status['status'],
+                        'destination' => $destination,
                     ];
 
                     $rows[] = $row;
@@ -186,6 +215,7 @@ class ReceivablesOverviewService
                 $instances[] = [
                     'source_reference_id' => $referenceId,
                     'instance_label' => $this->instanceLabel($sourceModule, $referenceId),
+                    'destination' => $destination,
                     'amount_due' => $instanceAmountDue,
                     'amount_received' => $instanceAmountReceived,
                     'receivables' => $rows,
@@ -313,6 +343,153 @@ class ReceivablesOverviewService
     }
 
     /**
+     * The receivables ONE movement pays, for « Créances liées » in its
+     * details dialog (issue #838): what each is, in its source module's
+     * own words, how much of this movement went to it, and where it is
+     * managed when this viewer may open that screen.
+     *
+     * Finance still learns nothing about a source: the instance is named
+     * by its module's describer, exactly as on « Contrôle des créances »,
+     * and the debtor by the receivable's own label or the member it names.
+     * The caller has already checked that the viewer may see the
+     * movement's account — every receivable it pays sits on that account.
+     *
+     * @return list<array{
+     *     id: int,
+     *     label: string,
+     *     amount_cents: int,
+     *     destination: array{label: string, url: string}|null
+     * }>
+     */
+    public function linkedToMovement(int $transactionId, ReceivableViewer $viewer): array
+    {
+        if ($this->allocations === null) {
+            return [];
+        }
+
+        $amounts = [];
+        foreach ($this->allocations->findByTransactionId($transactionId) as $allocation) {
+            // 0 is a removal kept so the next import does not redo it; a
+            // refund is negative and still names what it refunds.
+            if ($allocation->amountCents === 0) {
+                continue;
+            }
+            $amounts[$allocation->receivableId] = ($amounts[$allocation->receivableId] ?? 0) + $allocation->amountCents;
+        }
+        if ($amounts === []) {
+            return [];
+        }
+
+        $receivables = $this->repository->findByIds(array_keys($amounts));
+        $labels = $this->labelsFor($receivables);
+
+        $linked = [];
+        foreach ($receivables as $receivable) {
+            $linked[] = [
+                'id' => $receivable->id,
+                'label' => $labels[$receivable->id],
+                'amount_cents' => $amounts[$receivable->id] ?? 0,
+                'destination' => $this->destination($receivable->sourceModule, $receivable->sourceReferenceId, $viewer),
+            ];
+        }
+
+        return $linked;
+    }
+
+    /**
+     * What each receivable is, in its source module's own words followed
+     * by its debtor — « Location LOC-D4E5F6 — Chalet des Pins — Jean
+     * Dupont » — for « Créances liées » and for a movement's description
+     * (issue #838). One describer call per receivable, one name lookup for
+     * all of them.
+     *
+     * @param \Modules\Finance\Repository\ExpectedReceivable[] $receivables
+     * @return array<int, string> receivable id => label
+     */
+    public function labelsFor(array $receivables): array
+    {
+        $names = $this->debtorNames($receivables);
+
+        // Many receivables share one source — a campaign, a booking — so
+        // its describer is asked once per instance, not once per receivable.
+        $instances = [];
+        $labels = [];
+        foreach ($receivables as $receivable) {
+            $debtor = $receivable->label
+                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
+            $instance = $receivable->sourceModule . '#' . $receivable->sourceReferenceId;
+            $instances[$instance] ??= $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId);
+            $labels[$receivable->id] = self::joinFragments([$instances[$instance], $debtor]);
+        }
+
+        return $labels;
+    }
+
+    /**
+     * @param iterable<\Modules\Finance\Repository\ExpectedReceivable> $receivables
+     * @return array<int, string>
+     */
+    private function debtorNames(iterable $receivables): array
+    {
+        $memberIds = [];
+        foreach ($receivables as $receivable) {
+            if ($receivable->label === null && $receivable->memberId !== null) {
+                $memberIds[$receivable->memberId] = true;
+            }
+        }
+        if ($this->memberNames === null || $memberIds === []) {
+            return [];
+        }
+
+        try {
+            return ($this->memberNames)(array_keys($memberIds));
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * « Location LOC-D4E5F6 — Jean Dupont » and « Jean Dupont » make one
+     * label, not « Location LOC-D4E5F6 — Jean Dupont — Jean Dupont »: a
+     * describer often names the debtor already.
+     *
+     * @param array<int, string|null> $fragments
+     */
+    private static function joinFragments(array $fragments): string
+    {
+        $kept = [];
+        foreach ($fragments as $fragment) {
+            $fragment = trim((string) $fragment);
+            if ($fragment === '') {
+                continue;
+            }
+            foreach ($kept as $already) {
+                if (str_contains($already, $fragment)) {
+                    continue 2;
+                }
+            }
+            $kept[] = $fragment;
+        }
+
+        return implode(' — ', $kept);
+    }
+
+    /**
+     * The name of the account the page is narrowed to, for the « Créances
+     * du compte … » line — null when the viewer may not see it, so the
+     * filter never names an account the page would not show.
+     */
+    public function visibleAccountName(Role $viewerRole, int $accountId): ?string
+    {
+        $account = $this->accountRepository->findById($accountId);
+        if ($account === null || !$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
+            return null;
+        }
+
+        return $account->name;
+    }
+
+    /**
      * Ids of the accounts $viewerRole may see, through the one predicate
      * every finance route shares (Service\AccountVisibility) —
      * role_min_view AND, for an account attached to a section, being that
@@ -357,6 +534,33 @@ class ReceivablesOverviewService
         // an object somebody deleted. Naming the group by its id is honest;
         // a made-up name would not be.
         return ucfirst($sourceModule) . ' #' . $referenceId;
+    }
+
+    /**
+     * Where this instance is managed, for this viewer — asked of the
+     * source's describer when it also speaks
+     * {@see ReceivableSourceDestinationInterface}, and treated as absent
+     * when it does not, when it answers null, or when it throws: a link
+     * nobody can produce is simply not shown.
+     *
+     * @return array{label: string, url: string}|null
+     */
+    private function destination(string $sourceModule, int $referenceId, ReceivableViewer $viewer): ?array
+    {
+        $describer = $this->describers[$sourceModule] ?? null;
+        if (!$describer instanceof ReceivableSourceDestinationInterface) {
+            return null;
+        }
+
+        try {
+            $destination = $describer->destinationFor($referenceId, $viewer);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $destination instanceof ReceivableDestination
+            ? ['label' => $destination->label, 'url' => $destination->url]
+            : null;
     }
 
     /**

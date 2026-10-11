@@ -23,6 +23,7 @@ class ExpectedReceivableServiceTest extends TestCase
     private ExpectedReceivableService $service;
     private TransactionRepository $transactionRepository;
     private int $accountId;
+    private int $categoryId;
     private int $fiscalYearId;
 
     protected function setUp(): void
@@ -37,19 +38,20 @@ class ExpectedReceivableServiceTest extends TestCase
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
         $this->accountId = (int) $this->pdo->lastInsertId();
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo);
         $this->fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     public function testCreateReceivableReturnsAnId(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Camp d\'été');
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Camp d\'été', $this->categoryId);
 
         $this->assertGreaterThan(0, $id);
     }
 
     public function testLabelIsStoredEncryptedAtRestAndDecryptsBackOnRead(): void
     {
-        $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Jean Dupont — Camp d\'été');
+        $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Jean Dupont — Camp d\'été', $this->categoryId);
 
         $raw = $this->pdo->query('SELECT label_encrypted FROM finance_expected_receivables')->fetchColumn();
         $this->assertIsString($raw);
@@ -62,7 +64,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusIsUnpaidWithNoMatchingTransaction(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
 
         $status = $this->service->getReceivableStatus($id);
 
@@ -73,7 +75,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusIsPaidWhenAMatchingTransactionCoversTheFullAmount(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->createTransaction('Virement de Jean Dupont +++100/0000/00034+++', 25.00);
 
@@ -85,7 +87,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusIsPartialWhenMatchedAmountIsLessThanDue(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 5000, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 5000, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->createTransaction('Acompte +++100/0000/00034+++', 20.00);
 
@@ -97,7 +99,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusSumsMultipleMatchingTransactions(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 5000, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 5000, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->createTransaction('Premier versement +++100/0000/00034+++', 20.00);
         $this->createTransaction('Solde +++100/0000/00034+++', 30.00);
@@ -110,7 +112,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusIgnoresTransactionsWithADifferentCommunication(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->createTransaction('Virement sans rapport +++999/9999/99999+++', 25.00);
 
@@ -130,7 +132,7 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testGetReceivableStatusMatchesWhenBankTextKeepsThePunctuatedFormat(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null, $this->categoryId);
 
         $this->createTransaction('Virement +++104/1932/40720+++', 25.00);
 
@@ -141,7 +143,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusMatchesWhenBankTextStripsAllPunctuation(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null, $this->categoryId);
 
         // Same communication, exported by the bank as a bare digit run.
         $this->createTransaction('VIREMENT EUROPEEN COMMUNICATION 104193240720', 25.00);
@@ -153,7 +155,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusMatchesABareDigitCommunicationAgainstABarePaymentReference(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '107000272186', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '107000272186', null, $this->categoryId);
 
         $this->createTransaction('Communication: 107000272186', 25.00);
 
@@ -164,7 +166,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testGetReceivableStatusIgnoresDebitTransactions(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->createTransaction('Paiement sortant +++100/0000/00034+++', -25.00);
 
@@ -175,9 +177,9 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testDeleteReceivablesForSourceRemovesAllMatchingRows(): void
     {
-        $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice');
-        $this->service->createReceivable('news', 12, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob');
-        $this->service->createReceivable('news', 99, $this->accountId, 1000, '+++300/0000/00002+++', 'Carla');
+        $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', 'Alice', $this->categoryId);
+        $this->service->createReceivable('news', 12, $this->accountId, 3000, '+++200/0000/00068+++', 'Bob', $this->categoryId);
+        $this->service->createReceivable('news', 99, $this->accountId, 1000, '+++300/0000/00005+++', 'Carla', $this->categoryId);
 
         $this->service->deleteReceivablesForSource('news', 12);
 
@@ -193,10 +195,55 @@ class ExpectedReceivableServiceTest extends TestCase
      * "paid". createReceivable() now refuses such a communication, and the
      * matching itself refuses an empty needle for rows written before it.
      */
+    private function repositoryFor(): \Modules\Finance\Repository\ExpectedReceivableRepository
+    {
+        return new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+    }
+
     public function testCreateReceivableRejectsACommunicationWithoutDigits(): void
     {
         $this->expectException(FinanceException::class);
-        $this->service->createReceivable('news', 12, $this->accountId, 2500, 'REFERENCE', null);
+        $this->service->createReceivable('news', 12, $this->accountId, 2500, 'REFERENCE', null, $this->categoryId);
+    }
+
+    /**
+     * Issue #837: every receivable carries a valid Belgian structured
+     * communication — twelve digits with a correct mod-97 check — or none
+     * is created.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function communicationsThatAreNotValid(): array
+    {
+        return [
+            'wrong check digits' => ['+++123/4567/89012+++'],
+            'eleven digits' => ['+++123/4567/8900+++'],
+            'thirteen digits' => ['+++123/4567/890021+++'],
+            'free text with digits' => ['Facture 2026-42'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('communicationsThatAreNotValid')]
+    public function testCreateReceivableRejectsAnythingButAValidStructuredCommunication(string $communication): void
+    {
+        $this->expectException(FinanceException::class);
+        $this->service->createReceivable('news', 12, $this->accountId, 2500, $communication, null, $this->categoryId);
+    }
+
+    /**
+     * The spellings a bank or a person writes are all accepted, and stored
+     * the one way: a receivable's communication is then the same string
+     * whoever raised it.
+     */
+    public function testAValidCommunicationIsStoredInItsCanonicalSpelling(): void
+    {
+        foreach (['123456789002', '***123/4567/89002***', '123 4567 89002'] as $i => $spelling) {
+            $id = $this->service->createReceivable('news', 20 + $i, $this->accountId, 2500, $spelling, null, $this->categoryId);
+
+            $this->assertSame('+++123/4567/89002+++', $this->repositoryFor()->findById($id)?->communication);
+        }
     }
 
     public function testADigitlessCommunicationAlreadyStoredNeverMatchesAnyCredit(): void
@@ -225,9 +272,9 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testACommunicationStraddlingTwoFieldsIsNotAMatch(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
 
-        // Digits of the communication are 123456789012. Split across the
+        // Digits of the communication are 123456789002. Split across the
         // label's tail and the comment's head, they only join up if the two
         // fields are concatenated before matching.
         $this->transactionRepository->create(
@@ -243,11 +290,11 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testACommunicationWhollyInsideTheCommentStillMatches(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
 
         $this->transactionRepository->create(
             $this->accountId, $this->fiscalYearId, null, '2026-10-01',
-            'Virement', 25.0, null, 'communication 123 4567 89012 merci', 'import', null
+            'Virement', 25.0, null, 'communication 123 4567 89002 merci', 'import', null
         );
 
         $status = $this->service->getReceivableStatus($id);
@@ -261,7 +308,7 @@ class ExpectedReceivableServiceTest extends TestCase
      * flattened into one run and the communication was looked for inside
      * it with str_contains(). This line carries no communication at all —
      * four unrelated numbers — but stripping its separators produces
-     * exactly "123456789012", so +++123/4567/89012+++ used to read paid
+     * exactly "123456789002", so +++123/4567/89002+++ used to read paid
      * off somebody else's payment.
      *
      * As long as the status was recomputed on every display this only
@@ -271,7 +318,7 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testDigitsGluedTogetherAcrossSeparatorsAreNotACommunication(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
 
         $this->createTransaction('Virement 12 dossier 3456 lot 7890 caisse 12', 25.00);
 
@@ -289,7 +336,15 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testACommunicationFoundInsideALongerNumberIsNotAMatch(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        // A row from before every receivable had to carry a VALID
+        // communication (issue #837): its twelve digits fail the mod-97
+        // check, which is exactly what keeps a longer number from offering
+        // them up. Written straight to the repository, because
+        // createReceivable() no longer accepts it.
+        $repository = new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $id = $repository->create('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
 
         // 123456789012 is in there, between a leading 7 and a trailing 34.
         $this->createTransaction('Virement compte 712345678901234', 25.00);
@@ -307,9 +362,9 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testACommunicationIsFoundAmongOtherTwelveDigitSequences(): void
     {
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
 
-        $this->createTransaction('REF 987654321098 / 111122223333 / +++123/4567/89012+++', 25.00);
+        $this->createTransaction('REF 987654321098 / 111122223333 / +++123/4567/89002+++', 25.00);
 
         $status = $this->service->getReceivableStatus($id);
 
@@ -326,7 +381,7 @@ class ExpectedReceivableServiceTest extends TestCase
     public function testACommunicationGluedToOtherDigitsIsStillFound(): void
     {
         $communication = \Modules\Finance\Service\StructuredCommunicationService::format('1234567890');
-        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, $communication, null);
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, $communication, null, $this->categoryId);
 
         $digits = preg_replace('/\D/', '', $communication) ?? '';
         $this->createTransaction('COMM' . '2026' . $digits, 25.00);
@@ -343,10 +398,10 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testTheStarredAndDottedFormsAreTheSameCommunication(): void
     {
-        $starred = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
-        $dotted = $this->service->createReceivable('news', 13, $this->accountId, 2500, '+++104/1932/40720+++', null);
+        $starred = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
+        $dotted = $this->service->createReceivable('news', 13, $this->accountId, 2500, '+++104/1932/40720+++', null, $this->categoryId);
 
-        $this->createTransaction('Virement ***123/4567/89012***', 25.00);
+        $this->createTransaction('Virement ***123/4567/89002***', 25.00);
         $this->createTransaction('Virement 104.1932.40720', 25.00);
 
         $this->assertSame('paid', $this->service->getReceivableStatus($starred)['status']);
@@ -359,9 +414,9 @@ class ExpectedReceivableServiceTest extends TestCase
      */
     public function testBatchStatusesAgreeWithThePerReceivableComputation(): void
     {
-        $paidId = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
-        $unpaidId = $this->service->createReceivable('news', 12, $this->accountId, 4000, '+++999/8888/77766+++', null);
-        $this->createTransaction('Paiement 123 4567 89012', 25.0);
+        $paidId = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89002+++', null, $this->categoryId);
+        $unpaidId = $this->service->createReceivable('news', 12, $this->accountId, 4000, '+++999/8888/77758+++', null, $this->categoryId);
+        $this->createTransaction('Paiement 123 4567 89002', 25.0);
 
         $repository = new \Modules\Finance\Repository\ExpectedReceivableRepository(
             $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
@@ -381,7 +436,7 @@ class ExpectedReceivableServiceTest extends TestCase
         // Deleting and recreating would mint a new communication and orphan
         // the transfer the payer already made — the amount has to move in
         // place.
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Acompte +++100/0000/00034+++', 200.00);
 
         $this->service->updateReceivableAmount($id, 40000);
@@ -394,7 +449,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testRaisingTheAmountTurnsAPaidReceivableBackIntoAPartialOne(): void
     {
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 20000, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 20000, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Solde +++100/0000/00034+++', 200.00);
         $this->assertSame('paid', $this->service->getReceivableStatus($id)['status']);
 
@@ -408,7 +463,7 @@ class ExpectedReceivableServiceTest extends TestCase
         // Silently producing an overpayment is how a refund nobody knows
         // about happens: the receivable reads "paid", the surplus sits on
         // the account, and nothing says somebody is owed money.
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
 
         $this->expectException(FinanceException::class);
@@ -419,7 +474,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testARefusedLoweringChangesNothing(): void
     {
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
 
         try {
@@ -436,7 +491,7 @@ class ExpectedReceivableServiceTest extends TestCase
     {
         // The caller has stated it knows it is creating an overpayment, and
         // owes the payer the difference.
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
 
         $this->service->updateReceivableAmount($id, 25000, allowBelowReceived: true);
@@ -451,7 +506,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testLoweringToExactlyWhatCameInIsNotAnOverpaymentAndIsAllowed(): void
     {
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
         $this->createTransaction('Paiement +++100/0000/00034+++', 300.00);
 
         $this->service->updateReceivableAmount($id, 30000);
@@ -463,7 +518,7 @@ class ExpectedReceivableServiceTest extends TestCase
     {
         // Nothing has come in, so there is no overpayment to warn about —
         // the guard is about money already received, not about the amount.
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->service->updateReceivableAmount($id, 0);
 
@@ -472,7 +527,7 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testANegativeAmountIsRefused(): void
     {
-        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->expectException(FinanceException::class);
         $this->expectExceptionMessageMatches('/négatif/');
@@ -489,8 +544,8 @@ class ExpectedReceivableServiceTest extends TestCase
 
     public function testUpdatingOneReceivableLeavesTheOthersAlone(): void
     {
-        $first = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null);
-        $second = $this->service->createReceivable('rental', 4, $this->accountId, 12000, '+++100/0000/00047+++', null);
+        $first = $this->service->createReceivable('rental', 3, $this->accountId, 46750, '+++100/0000/00034+++', null, $this->categoryId);
+        $second = $this->service->createReceivable('rental', 4, $this->accountId, 12000, '+++100/0000/00034+++', null, $this->categoryId);
 
         $this->service->updateReceivableAmount($first, 40000);
 

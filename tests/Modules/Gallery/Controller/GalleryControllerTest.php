@@ -31,7 +31,7 @@ use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\OgScraperService;
+use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
@@ -111,7 +111,7 @@ class GalleryControllerTest extends TestCase
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->albumService = new AlbumService(
-            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(OgScraperService::class),
+            $this->albumRepository, $this->mediaRepository, $accessService, $this->createStub(UrlMetadataFetcher::class),
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService, $this->scoutYearService, $settingService,
             $this->createStub(SchedulerService::class), $uploadHandler
         );
@@ -239,6 +239,11 @@ class GalleryControllerTest extends TestCase
             public function servesPubliclyWithoutExpiry(): bool
             {
                 return true;
+            }
+
+            public function target(): string
+            {
+                return 'inconnu';
             }
         };
 

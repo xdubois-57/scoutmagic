@@ -160,8 +160,10 @@ export default defineConfig({
         // that opens a modal and clicks its close button as fast as it can
         // goes from 25 stuck runs out of 25 to 0 out of 25.
         //
-        // Nothing is lost by testing this way. No spec asserts on an
-        // animation, and the two places the site reads this setting
+        // Nothing is lost by testing this way. The one spec that asserts
+        // on an animation (the reaction picker unfolding, in
+        // groups-discussion.spec.js) asks for 'no-preference' itself,
+        // and the two places the site reads this setting
         // (groups.js's reaction card, nav-rail.js's rail) only swap a
         // smooth scroll for an instant one — "the same landing place,
         // without the travel", as groups.js puts it. Real users who set

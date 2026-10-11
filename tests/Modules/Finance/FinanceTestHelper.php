@@ -73,6 +73,8 @@ class FinanceTestHelper
             counterparty_account TEXT,
             extra_details TEXT,
             structured_communication TEXT,
+            not_a_receivable_at TEXT,
+            not_a_receivable_by INTEGER,
             source TEXT NOT NULL,
             imported_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -151,6 +153,7 @@ class FinanceTestHelper
             communication TEXT NOT NULL,
             label_encrypted BLOB NULL,
             member_id INTEGER NULL,
+            category_id INTEGER NULL,
             waived_at TEXT NULL,
             waived_by INTEGER NULL,
             refund_requested_at TEXT NULL,
@@ -235,6 +238,43 @@ class FinanceTestHelper
      * Modules\Finance\Service\ExpectedReceivableService, wired onto the
      * allocation service above.
      */
+    /**
+     * The movement description service wired on this database (issue
+     * #838), with no source describer: a receivable is named by its module
+     * id and reference, as with no module enabled.
+     *
+     * @param (\Closure(): \DateTimeImmutable)|null $today
+     */
+    public static function movementDescriptions(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        array $describers = [],
+        ?\Closure $today = null
+    ): \Modules\Finance\Service\MovementDescriptionService {
+        $receivables = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryption);
+        $accounts = new \Modules\Finance\Repository\AccountRepository($pdo, $encryption);
+        $visibility = new \Modules\Finance\Service\AccountVisibility(\Modules\Finance\Service\TreasurerScope::systemCaller());
+
+        return new \Modules\Finance\Service\MovementDescriptionService(
+            new \Modules\Finance\Service\FirstReceiptResolver(
+                new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo),
+                new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryption)
+            ),
+            new \Modules\Finance\Repository\CategoryRepository($pdo),
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo),
+            $receivables,
+            new \Modules\Finance\Service\ReceivablesOverviewService(
+                $receivables,
+                self::receivableService($pdo, $encryption, $receivables),
+                $accounts,
+                $visibility,
+                $describers
+            ),
+            new \Modules\Finance\Repository\TransactionRepository($pdo, $encryption),
+            $today
+        );
+    }
+
     public static function receivableService(
         \PDO $pdo,
         \Core\Security\EncryptionService $encryption,
@@ -244,8 +284,19 @@ class FinanceTestHelper
 
         return new \Modules\Finance\Service\ExpectedReceivableService(
             $receivableRepository,
-            self::allocationService($pdo, $encryption, $receivableRepository)
+            self::allocationService($pdo, $encryption, $receivableRepository),
+            new \Modules\Finance\Repository\CategoryRepository($pdo)
         );
+    }
+
+    /**
+     * An active Finance category — every receivable names one (issue #838).
+     */
+    public static function createCategory(\PDO $pdo, string $name = 'Divers'): int
+    {
+        $pdo->prepare('INSERT INTO finance_categories (name) VALUES (?)')->execute([$name]);
+
+        return (int) $pdo->lastInsertId();
     }
 
     /**

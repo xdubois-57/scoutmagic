@@ -76,7 +76,13 @@ class DepositModeTest extends TestCase
         // on" but can raise nothing looks like it is working.
         $this->assertFalse((new PaymentSettings(enabled: true))->canRaiseReceivables());
         $this->assertFalse((new PaymentSettings(financeAccountId: 3))->canRaiseReceivables());
-        $this->assertTrue((new PaymentSettings(enabled: true, financeAccountId: 3))->canRaiseReceivables());
+        $this->assertFalse(
+            (new PaymentSettings(enabled: true, financeAccountId: 3))->canRaiseReceivables(),
+            'an account without a category raises nothing (issue #838)'
+        );
+        $this->assertTrue(
+            (new PaymentSettings(enabled: true, financeAccountId: 3, financeCategoryId: 5))->canRaiseReceivables()
+        );
     }
 
     public function testASecurityDepositOfZeroIsNoSecurityDeposit(): void

@@ -32,4 +32,14 @@ interface FinanceAccountInterface
      * configured, else the unit's default account, else null.
      */
     public function getDefaultAccountForSection(int $sectionId): ?int;
+
+    /**
+     * Finance's active categories, in their configured order — for a
+     * consuming module's own category picker, next to its account picker:
+     * every receivable names the category its payments are booked under
+     * (ExpectedReceivableInterface::createReceivable(), issue #838).
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function getCategories(): array;
 }

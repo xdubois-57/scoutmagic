@@ -306,20 +306,27 @@ class OfferService
     /**
      * « Retirer cette place »: a seat granted and taken back. Not a refusal
      * — the family had its seat and was organising around it — so it keeps
-     * its own status, and its own message.
+     * its own status, and its own message — which may carry the driver's
+     * optional word (#790), validated before anything changes.
      *
      * @throws CarpoolException
      */
-    public function revoke(SeatRequest $request, Offer $offer, CarpoolViewer $viewer, Carpool $carpool): void
-    {
+    public function revoke(
+        SeatRequest $request,
+        Offer $offer,
+        CarpoolViewer $viewer,
+        Carpool $carpool,
+        ?string $comment = null
+    ): void {
         $this->assertDriver($offer, $viewer);
+        $comment = self::comment($comment);
         if (!$request->isAccepted()) {
             throw new CarpoolException('Seule une place accordée peut être retirée.');
         }
         if (!$this->requests->transition($request->id, SeatRequest::ACCEPTED, SeatRequest::REVOKED)) {
             throw new CarpoolException('Seule une place accordée peut être retirée.');
         }
-        $this->notifier?->seatRevoked($carpool, $offer, $request);
+        $this->notifier?->seatRevoked($carpool, $offer, $request, $comment);
     }
 
     /**
@@ -346,12 +353,12 @@ class OfferService
     }
 
     /**
-     * The optional word that goes with a refusal or a withdrawal (#703):
-     * empty means none, and past {@see COMMENT_MAX_LENGTH} it is refused
+     * The optional word that goes with a refusal, a withdrawal or the
+     * taking back of a granted seat (#703, #790): empty means none, and past {@see COMMENT_MAX_LENGTH} it is refused
      * rather than cut — a sentence truncated mid-word says something its
      * author did not. It lives in the notification and nowhere else: a
-     * withdrawn request is deleted outright, and a refusal has no column
-     * for it.
+     * withdrawn request is deleted outright, and a refusal or a revocation
+     * has no column for it.
      *
      * @throws CarpoolException
      */

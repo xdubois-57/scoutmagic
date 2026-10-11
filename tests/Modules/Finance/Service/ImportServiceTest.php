@@ -682,9 +682,9 @@ class ImportServiceTest extends TestCase
         $this->parserFactory->ibans = [$this->account->iban];
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
         $this->import(1000.0, 'a.csv');
-        // Clear the flag the first (real) import set, so the second
+        // Finish the run the first (real) import started, so the second
         // (all-duplicate) import's own behavior can be observed cleanly.
-        $this->bulkCategorizationService->runInBackground();
+        $this->bulkCategorizationService->runOnUncategorized();
 
         $this->import(null, 'b.csv');
 

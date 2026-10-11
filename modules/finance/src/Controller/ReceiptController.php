@@ -24,8 +24,7 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Service\FinanceService;
-use Modules\Finance\Service\FirstReceiptResolver;
-use Modules\Finance\Service\MovementPresenter;
+use Modules\Finance\Service\MovementDescriptionService;
 use Modules\Finance\Service\ReceiptDateNormalizer;
 use Modules\Finance\Service\ReceiptService;
 
@@ -55,7 +54,9 @@ class ReceiptController extends AbstractController
         private TransactionRepository $transactionRepository,
         private FinanceService $financeService,
         private ReceiptService $receiptService,
-        private FirstReceiptResolver $firstReceiptResolver,
+        // « Mouvements liés » describes each movement as the movements list
+        // does (issue #838).
+        private MovementDescriptionService $descriptions,
         private JournalService $journalService,
         /**
          * The mail this module proposed on and nobody answered (§8.58).
@@ -369,7 +370,7 @@ class ReceiptController extends AbstractController
             fn(Transaction $transaction) => $transaction->accountId === $attachment->accountId
         ));
 
-        $firstReceipts = $this->firstReceiptResolver->resolve(array_map(fn(Transaction $t) => $t->id, $transactions));
+        $presented = $this->descriptions->present($transactions, []);
 
         return $this->json([
             'success' => true,
@@ -379,7 +380,7 @@ class ReceiptController extends AbstractController
                     'date' => $t->transactionDate,
                     'label' => $t->label,
                     'amount' => $t->amount,
-                    'description' => MovementPresenter::description($t, $firstReceipts[$t->id] ?? null),
+                    'description' => $presented[$t->id]['description'],
                 ],
                 $transactions
             ),

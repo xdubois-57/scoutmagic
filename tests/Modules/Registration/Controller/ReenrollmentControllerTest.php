@@ -607,7 +607,7 @@ class ReenrollmentControllerTest extends TestCase
             $this->encryption->encrypt($firstName, 'member_years.first_name'),
             $this->encryption->encrypt('Dupont', 'member_years.last_name'),
             $this->encryption->encrypt($birthDate, 'member_years.birth_date'),
-            $this->encryption->encrypt('M', 'member_years.gender'),
+            $this->encryption->encrypt('H', 'member_years.gender'),
             $this->encryption->encrypt($email, 'member_years.email'),
             $this->encryption->blindIndex($email, 'email'),
         ]);

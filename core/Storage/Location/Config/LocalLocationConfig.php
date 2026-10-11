@@ -82,6 +82,11 @@ final class LocalLocationConfig implements LocationConfig
         return $this->isAbsolute() ? $this->path : 'storage/' . ltrim($this->path, '/');
     }
 
+    public function target(): string
+    {
+        return rtrim($this->describe(), '/');
+    }
+
     /**
      * Never: the local disk hands out no URL at all — the consumer serves
      * these bytes through its own access-controlled route.

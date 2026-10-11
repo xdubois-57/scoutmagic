@@ -197,12 +197,21 @@ class FinanceRbacTest extends TestCase
         $this->expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $this->expectedReceivableService = FinanceTestHelper::receivableService($this->pdo, $encryption, $this->expectedReceivableRepository);
         $this->receivablesOverviewService = new ReceivablesOverviewService(
-            $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility
+            $this->expectedReceivableRepository, $this->expectedReceivableService, $accountRepository, $this->accountVisibility,
+            [], null, new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+    }
+
+    private function movementDescriptions(): \Modules\Finance\Service\MovementDescriptionService
+    {
+        return FinanceTestHelper::movementDescriptions(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
     }
 
     protected function tearDown(): void
@@ -282,8 +291,17 @@ class FinanceRbacTest extends TestCase
         return match ($name) {
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
-                $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
-                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\ScoutYear\ScoutYearResolver(
+                $this->statementImportRepository, $this->reconciliationServiceForDashboard(),
+                \Tests\Modules\Finance\FinanceTestHelper::allocationService(
+                    $this->pdo,
+                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    new \Modules\Finance\Repository\ExpectedReceivableRepository(
+                        $this->pdo,
+                        new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+                    )
+                ),
+                new \Modules\Finance\Repository\CampaignRepository($this->pdo),
+                new \Core\ScoutYear\ScoutYearResolver(
                 new \Core\Config\ScoutYearService($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Import\MemberYearRepository($this->pdo)
@@ -292,12 +310,12 @@ class FinanceRbacTest extends TestCase
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
                 $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService,
-                $this->firstReceiptResolver, $this->journalService
+                $this->movementDescriptions(), $this->journalService, $this->receivablesOverviewService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory),
             'ReceiptController' => new ReceiptController(
                 $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
-                $this->receiptService, $this->firstReceiptResolver, $this->journalService
+                $this->receiptService, $this->movementDescriptions(), $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(
@@ -620,6 +638,34 @@ class FinanceRbacTest extends TestCase
         $this->assertSame($unknown->getBody(), $theirs->getBody());
     }
 
+    /**
+     * « Créances liées » (issue #838) reads a movement too: same boundary,
+     * same answer for « not yours » as for « no such movement » (#219).
+     */
+    public function testReadingAMovementsLinkedReceivablesRefusesAnAccountThisTreasurerDoesNotHold(): void
+    {
+        [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
+        $mineMovement = $this->createMovement($mineAccount);
+        $theirsMovement = $this->createMovement($theirsAccount);
+        $this->scopeToTreasurerOf(self::SECTION_MINE);
+        AuthSession::login(1, 'tresorier@test.be', 'intendant');
+
+        $receivable = $this->expectedReceivableRepository->create('news', 1, $mineAccount, 4500, '+++123/4567/89002+++', 'Jean Dupont');
+        (new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo))->create($mineMovement, $receivable, 4500, 'manual', 1);
+
+        $controller = $this->instantiateController('MovementController');
+        $mine = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $mineMovement]);
+        $theirs = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement]);
+        $unknown = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => '999999']);
+
+        $this->assertSame(200, $mine->getStatusCode());
+        $mineBody = json_decode($mine->getBody(), true);
+        $this->assertTrue($mineBody['success']);
+        $this->assertSame([$receivable], array_column($mineBody['receivables'], 'id'));
+        $this->assertSame(404, $theirs->getStatusCode());
+        $this->assertSame($unknown->getBody(), $theirs->getBody());
+    }
+
     public function testTheMovementSearchNeverReachesOutsideThisTreasurersSections(): void
     {
         [$mineAccount, $theirsAccount] = $this->twoSectionAccounts();
@@ -684,7 +730,10 @@ class FinanceRbacTest extends TestCase
             $this->expectedReceivableRepository,
             $this->expectedReceivableService,
             $this->accountRepository,
-            $this->accountVisibility
+            $this->accountVisibility,
+            [],
+            null,
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo)
         );
     }
 

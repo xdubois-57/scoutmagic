@@ -106,8 +106,72 @@ CREATE TABLE IF NOT EXISTS social_communications (
     file_id INT UNSIGNED NULL,
     source_kind VARCHAR(20) NULL,
     source_id INT UNSIGNED NULL,
+    -- SHA-256 of `body`, and the only reason it exists is the unique key
+    -- below (issue #793, #706 IT-05). `body` is TEXT, which MySQL indexes
+    -- by prefix only, and a 255-character prefix of a caption that may
+    -- run to 2 200 would collide on two genuinely different long texts —
+    -- refusing a share that should be allowed. A hash collides only on
+    -- equal texts.
+    --
+    -- NULL for a communication written from nothing: there is no source
+    -- to deduplicate it against, and two free communications with the
+    -- same text are two posts somebody wrote twice on purpose.
+    body_hash CHAR(64) NULL,
+    -- How blurred this card's photo leaves, chosen with the composer's
+    -- slider and frozen with the rest once one destination has been tried
+    -- (issue #706, IT-02). NULL is « never chosen »: the site's own
+    -- starting position applies, which is what every row written before
+    -- the slider existed carries. 0 is a real answer — « Net » — and the
+    -- floor that used to forbid it is gone.
+    blur_ratio DECIMAL(4,3) NULL,
+    -- The card the BROWSER drew and posted at « Publier », kept as it
+    -- arrived (issue #706, IT-02). What is published, retried, and shown
+    -- on the public page is this file — never a fresh composition, so
+    -- « what you saw is what left » holds for every destination and every
+    -- later attempt. NULL for every share made before IT-02, and for
+    -- those the server still composes one: a retry of an old failed share
+    -- has to remain possible.
+    card_file_id INT UNSIGNED NULL,
+    -- The address of this communication's public page, which is the whole
+    -- capability: whoever holds it reads the page, with no account (issue
+    -- #706, IT-04, SECURITY.md § 6). 32 bytes from `random_bytes()` in
+    -- hexadecimal, never an identifier a passer-by could increment —
+    -- iterating over sequential ids would harvest every communication
+    -- ever shared.
+    --
+    -- NULL until the page is needed, and it is needed by the first share
+    -- that cannot carry the card itself: an album published to Facebook,
+    -- which goes as a LINK to this page. Minted at that instant and never
+    -- afterwards, so a communication that only ever went to Instagram or
+    -- to a discussion group has no public page at all.
+    --
+    -- Once minted it stays: Facebook caches a preview and comes back to
+    -- read the page later, and a page that answered yesterday and 404s
+    -- today breaks a post nobody can edit any more.
+    public_token CHAR(64) NULL,
     created_by INT UNSIGNED NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    KEY idx_social_communications_source (source_kind, source_id)
+    KEY idx_social_communications_source (source_kind, source_id),
+    UNIQUE KEY uq_social_communications_public_token (public_token),
+    -- **The same source, the same text, the same chief is the same
+    -- communication** (issue #793, #706 IT-05), and the database is what
+    -- says so: a replayed POST hits this key and the caller reads the row
+    -- back instead of creating a second one. It used to be a SELECT
+    -- before the INSERT over a 120-second window, which closed the
+    -- sequential replay and left two simultaneous POSTs both passing —
+    -- `session_write_close()` runs before routing, so PHP's session lock
+    -- does not serialise them either.
+    --
+    -- The refusal is now PERMANENT rather than a window, and that is the
+    -- chantier's own rule: sharing the same source again with a DIFFERENT
+    -- message is a new communication, allowed with a warning; with the
+    -- same message it is the same communication, and what may still leave
+    -- is decided by `social_publications`' own key, destination by
+    -- destination.
+    --
+    -- A NULL in any column makes the row collide with nothing, on both
+    -- engines. That is the behaviour wanted here, not a loophole: a
+    -- communication with no source has nothing to be a duplicate of.
+    UNIQUE KEY uq_social_communications_twin (source_kind, source_id, created_by, body_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

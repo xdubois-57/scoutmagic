@@ -1889,6 +1889,7 @@ class NewsIntegrationTest extends TestCase
         $financeAccount->method('getConfiguredAccounts')->willReturn([
             ['id' => 42, 'name' => 'Compte unité', 'iban' => null, 'holder_name' => null, 'section_id' => null],
         ]);
+        $financeAccount->method('getCategories')->willReturn([['id' => 5, 'name' => 'Activités']]);
 
         $controller = new NewsController(
             $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
@@ -1919,6 +1920,7 @@ class NewsIntegrationTest extends TestCase
             'form_response_limit' => 'unlimited',
             'form_response_role_min' => 'chief',
             'form_finance_account_id' => $financeAccountId,
+            'form_finance_category_id' => '5',
             'fields_json' => (string) json_encode([
                 ['id' => null, 'field_type' => 'short_text', 'label' => 'Nom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
             ]),
@@ -2105,6 +2107,7 @@ class NewsIntegrationTest extends TestCase
         $form = $this->formService->findByArticleId($article->id);
         $this->assertNotNull($form);
         $this->assertSame(42, $form->financeAccountId);
+        $this->assertSame(5, $form->financeCategoryId);
     }
 
     /**

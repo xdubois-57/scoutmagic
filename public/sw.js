@@ -150,6 +150,9 @@ const APP_SHELL_BASE_URLS = [
     // since a cached page still carries its links.
     '/assets/js/display-mode.js',
     '/assets/js/installed-app-links.js',
+    // A cached page still shows its phone numbers, and calling one is
+    // exactly what a chef without network may need.
+    '/assets/js/phone-link.js',
     '/assets/js/select-bar.js',
     '/assets/js/nav-rail.js',
     '/assets/js/audit-timeline.js',
@@ -165,6 +168,9 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/offline-prefetch.js',
     '/assets/js/offline-page.js',
     '/assets/js/navigation-feedback.js',
+    // Pull to refresh in the installed app (issue #842) — offline is
+    // exactly when it matters: it is how a stranded app asks again.
+    '/assets/js/pull-to-refresh.js',
     '/assets/img/lesscouts.png',
     '/assets/img/branches/logo_baladins.png',
     '/assets/img/branches/logo_louveteaux.png',

@@ -325,6 +325,33 @@ final class OfferServiceTest extends TestCase
         $this->assertSame(0, $this->requests->acceptedSeats($offerId));
     }
 
+    /** #790: a word past the limit is refused BEFORE the seat is taken back. */
+    public function testATooLongWordLeavesTheSeatGranted(): void
+    {
+        $carpool = $this->carpools->findById(H::carpool($this->pdo));
+        $offerId = H::offer($this->pdo, (int) $carpool?->id, 1);
+        $requestId = H::request($this->pdo, $offerId, 2, ['A'], SeatRequest::ACCEPTED);
+        $offer = $this->offers->findById($offerId);
+        $request = $this->requests->findById($requestId);
+        $this->assertNotNull($offer);
+        $this->assertNotNull($request);
+
+        try {
+            $this->service->revoke(
+                $request,
+                $offer,
+                H::viewer(1),
+                $carpool,
+                str_repeat('x', OfferService::COMMENT_MAX_LENGTH + 1)
+            );
+            $this->fail('a word of ' . (OfferService::COMMENT_MAX_LENGTH + 1) . ' characters was accepted');
+        } catch (CarpoolException $e) {
+            $this->assertStringContainsString('trop long', $e->getMessage());
+        }
+
+        $this->assertSame(SeatRequest::ACCEPTED, $this->requests->findById($requestId)?->status);
+    }
+
     public function testAPendingRequestCannotBeRevokedOnlyRefused(): void
     {
         $carpool = $this->carpools->findById(H::carpool($this->pdo));

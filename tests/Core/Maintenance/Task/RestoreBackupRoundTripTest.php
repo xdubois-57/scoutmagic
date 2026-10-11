@@ -236,6 +236,110 @@ class RestoreBackupRoundTripTest extends TestCase
         );
     }
 
+    // ── the storage bindings (#832) ───────────────────────────────────
+
+    /**
+     * The ticket's case, end to end: the Drive folder changed after the
+     * backup, the files are only in the new one, and the backup brings
+     * back the old folder id. After the restore and its resumed pass, the
+     * location points where the files are — and the journal says what was
+     * kept.
+     */
+    public function testAStorageLocationChangedAfterTheBackupKeepsItsCurrentBinding(): void
+    {
+        $this->declareDrive(2, 'dossier-ancien');
+        $backupId = $this->takeServerBackup();
+        $this->pdo()->prepare('UPDATE storage_locations SET config = ? WHERE id = 2')
+            ->execute([$this->driveConfig('dossier-actuel')]);
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $payload = $this->resumePayload();
+        $hold = (string) ($payload['storage_bindings_hold'] ?? '');
+        $this->assertFileExists($hold, 'today\'s bindings must be on disk before the database is replaced');
+
+        $this->runResumedPasses();
+
+        $config = (string) $this->pdo()->query('SELECT config FROM storage_locations WHERE id = 2')->fetchColumn();
+        $this->assertStringContainsString('dossier-actuel', $config);
+        $this->assertContains('storage_bindings_reconciled', $this->journalTypes());
+        $this->assertContains('backup_restored', $this->journalTypes());
+        $this->assertFileDoesNotExist($hold);
+    }
+
+    /** Created after the backup: its files must stay reachable. */
+    public function testAStorageLocationCreatedAfterTheBackupSurvivesTheRestore(): void
+    {
+        $backupId = $this->takeServerBackup();
+        $this->declareDrive(7, 'dossier-recent');
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $this->runResumedPasses();
+
+        $row = $this->pdo()->query('SELECT config, is_default, reconciliation_note FROM storage_locations WHERE id = 7')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertStringContainsString('dossier-recent', (string) $row['config']);
+        $this->assertSame(0, (int) $row['is_default']);
+        $this->assertNotNull($row['reconciliation_note']);
+    }
+
+    /**
+     * A restore that fails rolls back to the database the bindings were
+     * read from: nothing to reconcile, and nothing left on the disk.
+     */
+    public function testARestoreThatFailsLeavesNoBindingsBehind(): void
+    {
+        $this->declareDrive(2, 'dossier-actuel');
+
+        $upload = $this->storagePath . '/corrompu.zip';
+        $zip = new \ZipArchive();
+        $zip->open($upload, \ZipArchive::CREATE);
+        $zip->addFromString('database.sql', 'CECI N\'EST PAS DU SQL;');
+        $zip->close();
+
+        $this->restore(['source' => 'upload', 'uploaded_temp_path' => $upload]);
+
+        $this->assertSame([], glob($this->storagePath . '/temp/storage_bindings_*.json') ?: []);
+        $config = (string) $this->pdo()->query('SELECT config FROM storage_locations WHERE id = 2')->fetchColumn();
+        $this->assertStringContainsString('dossier-actuel', $config);
+    }
+
+    /**
+     * The migration works under a time budget and, when it runs out,
+     * schedules another pass — on a slow machine, more than one. The
+     * bindings are put back on the last one only, so run them all.
+     */
+    private function runResumedPasses(): void
+    {
+        for ($pass = 0; $pass < 20; $pass++) {
+            $payload = $this->resumePayload();
+            if ($payload === []) {
+                return;
+            }
+            $this->pdo()->exec("DELETE FROM scheduled_actions WHERE task_key = 'restore_backup'");
+            (new RestoreBackupHandler())->handle($payload, $this->context());
+        }
+        $this->fail('The restore never finished its resumed passes.');
+    }
+
+    private function declareDrive(int $id, string $folder): void
+    {
+        $this->pdo()->prepare(
+            "INSERT INTO storage_locations (id, type, label, is_default, config, secret_encrypted)
+             VALUES (?, 'google_drive', ?, 0, ?, ?)"
+        )->execute([
+            $id,
+            'Drive ' . $id,
+            $this->driveConfig($folder),
+            $this->context()->encryption->encrypt('grant', 'storage_locations.secret'),
+        ]);
+    }
+
+    private function driveConfig(string $folder): string
+    {
+        return (string) json_encode(['client_id' => 'c', 'folder_id' => $folder, 'connected_at' => '2026-09-01']);
+    }
+
     // ── the safety copy ───────────────────────────────────────────────
 
     /**

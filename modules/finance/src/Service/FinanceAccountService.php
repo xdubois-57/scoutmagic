@@ -14,8 +14,34 @@ use Modules\Finance\Repository\AccountRepository;
 
 class FinanceAccountService implements FinanceAccountInterface
 {
-    public function __construct(private AccountRepository $accountRepository)
+    /**
+     * @param (\Closure(): void)|null $seedDefaultCategories run before the
+     *     categories are listed — FinanceService::ensureDefaultCategories(),
+     *     so another module's picker is never empty on a fresh installation
+     */
+    public function __construct(
+        private AccountRepository $accountRepository,
+        private ?\Modules\Finance\Repository\CategoryRepository $categoryRepository = null,
+        private ?\Closure $seedDefaultCategories = null
+    ) {
+    }
+
+    public function getCategories(): array
     {
+        if ($this->categoryRepository === null) {
+            return [];
+        }
+        if ($this->seedDefaultCategories !== null) {
+            ($this->seedDefaultCategories)();
+        }
+
+        return array_values(array_map(
+            static fn(\Modules\Finance\Repository\Category $category): array => [
+                'id' => $category->id,
+                'name' => $category->name,
+            ],
+            $this->categoryRepository->findActiveOrdered()
+        ));
     }
 
     public function getConfiguredAccounts(): array

@@ -286,7 +286,17 @@ class FinanceService
     public function ensureDefaultCategories(): void
     {
         if ($this->settingService->get(self::SEEDED_SETTING_KEY, 'finance', '0') !== '1') {
-            if ($this->categoryRepository->findAllOrdered() === []) {
+            // « Empty » ignores the « Virement <compte> » categories
+            // AccountTransferCategoryService creates on its own the moment
+            // an account is activated: an installation whose first step
+            // was to activate an account would otherwise never get the
+            // defaults, and every receivable picker (issue #838) would
+            // offer nothing but transfers.
+            $userCategories = array_filter(
+                $this->categoryRepository->findAllOrdered(),
+                static fn(Category $category): bool => $category->accountId === null
+            );
+            if ($userCategories === []) {
                 foreach (self::DEFAULT_CATEGORY_DESCRIPTIONS as $name => $description) {
                     $this->categoryRepository->create($name, $description, isDefault: true);
                 }
@@ -645,6 +655,21 @@ class FinanceService
     }
 
     /**
+     * The categories a receivable can be booked under (issue #838), with
+     * the defaults seeded first: a fresh installation used to meet them
+     * only on the categories page, and a picker offering nothing would
+     * make a campaign impossible to create.
+     *
+     * @return Category[]
+     */
+    public function getCategoriesForReceivables(): array
+    {
+        $this->ensureDefaultCategories();
+
+        return $this->categoryRepository->findActiveOrdered();
+    }
+
+    /**
      * description is mandatory — it's what Service\AiCategorizationService
      * actually sends the model to help it tell categories apart, and a
      * short name alone is rarely enough for that on its own.
@@ -719,6 +744,10 @@ class FinanceService
         }
         if ($this->transactionRepository->countByCategoryId($id) > 0) {
             throw new FinanceException("Cette catégorie est utilisée par des mouvements et ne peut pas être "
+                . "supprimée. Désactivez-la plutôt.");
+        }
+        if ($this->categoryRepository->isNamedByAReceivable($id)) {
+            throw new FinanceException("Cette catégorie est utilisée par des créances et ne peut pas être "
                 . "supprimée. Désactivez-la plutôt.");
         }
         $this->categoryRuleRepository->deleteAllForCategory($id);

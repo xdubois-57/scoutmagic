@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
-  "version": "1.24.1",
+  "version": "1.30.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -32,7 +32,7 @@
       "role_min": "intendant",
       "label": "",
       "breadcrumb": {
-        "label": "Paiements attendus",
+        "label": "Contrôle des créances",
         "parents": [
           "Espace animateurs"
         ],
@@ -209,7 +209,7 @@
       "role_min": "intendant",
       "label": "",
       "breadcrumb": {
-        "label": "Rapprochement",
+        "label": "Paiements à traiter",
         "parents": [
           "Espace animateurs"
         ],
@@ -249,6 +249,15 @@
       "label": ""
     },
     {
+      "path": "/finance/reconciliation/not-a-receivable/{transactionId}",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReconciliationController",
+      "action": "declareNotAReceivable",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
       "path": "/finance/reconciliation/overpaid/{receivableId}",
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReconciliationController",
@@ -272,7 +281,7 @@
         ],
         "ancestors": [
           {
-            "label": "Paiements attendus",
+            "label": "Contrôle des créances",
             "path": "/finance/receivables"
           }
         ]
@@ -550,6 +559,15 @@
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\MovementController",
       "action": "attachments",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/movements/{id}/receivables",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "receivables",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

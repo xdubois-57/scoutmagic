@@ -320,6 +320,55 @@ class GroupListServiceTest extends TestCase
     }
 
     /**
+     * Issue #712. A site admin SEES every group and is a moderator of each,
+     * but opening one a member of theirs does not belong to records no
+     * reading position (Service\GroupReadStateService — an admin looking
+     * in must not mark a group read for somebody else). A « Nouveau » badge
+     * on such a group could therefore never be cleared: it was permanent,
+     * page refresh included.
+     */
+    public function testASiteAdminOutsideAGroupHasNoBadgeToClear(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U8');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $this->withActivity($groupId);
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'ADM2');
+
+        $items = $this->listService->findCurrent($this->context([$stranger], 'admin'));
+
+        $this->assertCount(1, $items, 'the admin still sees the group');
+        $this->assertTrue($items[0]->isModerator);
+        $this->assertFalse($items[0]->hasUnread);
+    }
+
+    /** The same admin, in a group of their own, is a reader like any other. */
+    public function testASiteAdminInsideAGroupStillGetsItsBadge(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U9');
+        $admin = GroupsTestHelper::createMember($this->pdo, 'ADM3');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $this->groupService->inviteMember($this->groupRepo->findById($groupId), $admin, $creator);
+        $this->withActivity($groupId, '2030-01-01 12:00:00');
+
+        $this->assertTrue($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+
+        $this->readRepo->markRead($groupId, $admin, '2030-01-01 12:00:01');
+
+        $this->assertFalse($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+    }
+
+    /** Belonging through a section counts as belonging, for the badge as for reading. */
+    public function testASiteAdminInASectionGroupThroughTheirSectionStillGetsItsBadge(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U10');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->withActivity($groupId);
+        $admin = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'ADM4', $this->sectionId, $this->currentYearId);
+
+        $this->assertTrue($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+    }
+
+    /**
      * The read repository is an optional dependency (the service predates
      * it) — without one the list still renders, it just cannot know what
      * was already seen, so an active group stays flagged. That is the

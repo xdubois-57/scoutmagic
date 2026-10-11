@@ -165,6 +165,9 @@ test('a campaign prints a sheet of payment labels, and a receivable that stops o
     await page.goto('/finance/campaigns/new', { waitUntil: 'load' });
     await page.getByLabel(/^Nom de la campagne \*$/).fill('Cotisations étiquettes E2E');
     await page.getByLabel(/^Compte destinataire \*$/).selectOption({ label: ACCOUNT_NAME });
+    // Every receivable names its category (issue #838); the defaults are
+    // seeded the first time a picker needs them.
+    await page.getByLabel(/^Catégorie \*$/).selectOption({ label: 'Cotisations' });
     await page.getByLabel(/^Fichier Excel \*$/).setInputFiles(path.join(FIXTURES, 'campagne-etiquettes.xlsx'));
     await page.getByRole('button', { name: 'Créer la campagne' }).click();
 

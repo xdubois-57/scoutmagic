@@ -117,11 +117,12 @@ class CarpoolNotifier
         ]);
     }
 
-    public function seatRevoked(Carpool $carpool, Offer $offer, SeatRequest $request): void
+    public function seatRevoked(Carpool $carpool, Offer $offer, SeatRequest $request, ?string $comment = null): void
     {
         $this->send('covoiturage.seat_revoked', [$request->requesterAccountId], [
             'title' => 'Votre place a été retirée',
-            'body' => $offer->driverName . ' ne peut plus vous prendre — ' . self::trip($carpool, $offer) . '.',
+            'body' => $offer->driverName . ' ne peut plus vous prendre — ' . self::trip($carpool, $offer) . '.'
+                . self::comment($comment),
             'url' => self::url($carpool, $offer),
         ]);
     }

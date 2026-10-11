@@ -50,7 +50,7 @@ class ReceivableSearchService
         private AccountVisibility $accountVisibility,
         /**
          * « Comment s'appellent ces gens ? » — the same question the
-         * Paiements attendus page asks, and the same answer. Null names
+         * Contrôle des créances page asks, and the same answer. Null names
          * nobody, and the rows fall back to their communication, which is
          * what a receivable carrying no member has always shown.
          *

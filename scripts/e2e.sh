@@ -235,7 +235,7 @@ trap 'exit 143' TERM
 # the `Checks / test` job.
 # ---------------------------------------------------------------
 command -v php > /dev/null 2>&1 || { echo "ERROR: php is required to run the E2E tests." >&2; exit 1; }
-command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the E2E tests (Node.js >= 22 — see docs/developpement.md § Prérequis)." >&2; exit 1; }
+command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the E2E tests (Node.js ^22.22.2, ^24.15.0 or >=26 — see docs/developpement.md § Prérequis)." >&2; exit 1; }
 [[ -f "${REPO_ROOT}/vendor/autoload.php" ]] || { echo "ERROR: vendor/autoload.php not found — run 'composer install' first." >&2; exit 1; }
 [[ -d "${REPO_ROOT}/node_modules/@playwright/test" ]] || {
     echo "ERROR: @playwright/test is not installed — run 'npm ci' then 'npm run e2e:install' (see docs/developpement.md § Développement)." >&2

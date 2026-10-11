@@ -211,36 +211,6 @@ class TransactionRepository
     }
 
     /**
-     * The dashboard's default "needs a treasurer's hand" list, decided in
-     * SQL: uncategorized, or an expense with no receipt attached (income
-     * never needs a receipt). Both predicates are plain columns, so
-     * nothing has to be hydrated/decrypted beyond the rows returned —
-     * the PHP-side version of this filter loaded and decrypted the whole
-     * fiscal year to keep at most $limit rows. Same ordering as
-     * findFiltered(), which it replaces on the unfiltered dashboard.
-     *
-     * @return Transaction[]
-     */
-    public function findActionNeeded(int $accountId, int $fiscalYearId, int $limit): array
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT t.* FROM finance_transactions t
-             WHERE t.account_id = ? AND t.fiscal_year_id = ?
-               AND (t.category_id IS NULL
-                    OR (t.amount < 0 AND NOT EXISTS (
-                        SELECT 1 FROM finance_transaction_attachments fta WHERE fta.transaction_id = t.id)))
-             ORDER BY t.transaction_date DESC, t.id DESC
-             LIMIT ?'
-        );
-        $stmt->bindValue(1, $accountId, \PDO::PARAM_INT);
-        $stmt->bindValue(2, $fiscalYearId, \PDO::PARAM_INT);
-        $stmt->bindValue(3, $limit, \PDO::PARAM_INT);
-        $stmt->execute();
-
-        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-    }
-
-    /**
      * Per-category income/expense/total for an account's fiscal year —
      * backs Service\FinanceService::getCategorySummary(). Pure SQL
      * aggregation: category_id and amount are both plain columns, so
@@ -488,6 +458,20 @@ class TransactionRepository
      * unlike updateEditableFields() which also expects a comment/fiscal
      * year to write back.
      */
+    /**
+     * The category a movement takes from the receivable(s) it pays (issue
+     * #838) — or none, when it no longer pays any that names one. Never
+     * over a treasurer's own choice: the SQL leaves a `manual` row alone.
+     */
+    public function setCategoryFromReceivable(int $id, ?int $categoryId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_transactions SET category_id = ?, category_source = ? '
+            . "WHERE id = ? AND (category_source IS NULL OR category_source <> 'manual')"
+        );
+        $stmt->execute([$categoryId, $categoryId !== null ? Transaction::CATEGORY_SOURCE_RECEIVABLE : null, $id]);
+    }
+
     public function setCategoryId(int $id, ?int $categoryId): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ?, category_source = ? WHERE id = '
@@ -496,19 +480,63 @@ class TransactionRepository
     }
 
     /**
-     * Every uncategorized transaction, across every account — Service\
-     * BulkCategorizationService's "run the rules on every uncategorized
-     * movement" backfill isn't scoped to one account, unlike everywhere
-     * else category_id is queried.
+     * The next uncategorized transactions after a cursor, across every
+     * account — Service\BulkCategorizationService's "run the rules on every
+     * uncategorized movement" backfill isn't scoped to one account, unlike
+     * everywhere else category_id is queried.
+     *
+     * Ordered by id, and bounded by $maxId, because that run walks a
+     * cursor (issue #839): a movement neither the rules nor the AI can
+     * place stays uncategorized, and an order that put it first again on
+     * every batch would retry it for ever. $maxId is the run's frozen
+     * target, so a statement imported mid-run cannot make it endless.
      *
      * @return Transaction[]
      */
-    public function findAllUncategorized(): array
+    public function findUncategorizedAfter(int $afterId, int $maxId, int $limit): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM finance_transactions WHERE category_id IS NULL ORDER BY '
-            . 'transaction_date ASC, id ASC');
-        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
-        return array_map([$this, 'hydrate'], $rows);
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_transactions WHERE category_id IS NULL AND id > ? AND id '
+            . '<= ? ORDER BY id ASC LIMIT ' . max(1, $limit));
+        $stmt->execute([$afterId, $maxId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The highest id among uncategorized transactions, 0 when there is none
+     * — the bound a categorization run freezes when it starts.
+     */
+    public function findMaxUncategorizedId(): int
+    {
+        $stmt = $this->pdo->query('SELECT MAX(id) FROM finance_transactions WHERE category_id IS NULL');
+
+        return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
+    }
+
+    /**
+     * How many uncategorized transactions sit at or below $maxId — the
+     * size of the run that bound announces, for its progress.
+     */
+    public function countUncategorizedUpTo(int $maxId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE category_id IS NULL AND id <= ?');
+        $stmt->execute([$maxId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Records that a credit is no payment for any receivable. Only the
+     * first declaration is kept: a second click changes neither when nor
+     * who.
+     */
+    public function markNotAReceivable(int $id, ?int $actorUserAccountId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_transactions SET not_a_receivable_at = CURRENT_TIMESTAMP, not_a_receivable_by = ? '
+            . 'WHERE id = ? AND not_a_receivable_at IS NULL'
+        );
+        $stmt->execute([$actorUserAccountId, $id]);
     }
 
     public function deleteAllForAccount(int $accountId): int
@@ -601,7 +629,8 @@ class TransactionRepository
                     $row['structured_communication'],
                     'finance_transactions.structured_communication'
                 )
-                : null
+                : null,
+            notAReceivableAt: isset($row['not_a_receivable_at']) ? (string) $row['not_a_receivable_at'] : null
         );
     }
 

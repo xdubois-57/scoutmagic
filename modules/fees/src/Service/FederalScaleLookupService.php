@@ -451,7 +451,7 @@ class FederalScaleLookupService
      *
      * So the bytes go through libxml's error-recovering HTML parser first
      * and come back as well-formed markup, exactly the idiom
-     * `Modules\Gallery\Service\OgScraperService::parseOgTags()` already
+     * `Core\Http\UrlMetadataFetcher::parse()` already
      * uses on third-party pages. A page libxml cannot parse at all falls
      * through unrepaired — the crude pass then does what it always did,
      * which is more than nothing.
@@ -480,7 +480,7 @@ class FederalScaleLookupService
      * character. See {@see self::extractText()} for the failure this
      * exists to prevent.
      *
-     * The XML encoding declaration is the same fix `OgScraperService`
+     * The XML encoding declaration is the same fix `Core\Http\UrlMetadataFetcher`
      * carries: `loadHTML()` assumes ISO-8859-1 for a document with no
      * `<meta charset>`, which turns « année » into mojibake before any
      * cotisation is read. It is consumed by the parser and never appears

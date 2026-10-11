@@ -103,7 +103,8 @@ class DeskImportBarrierTest extends TestCase
                 $encryption,
                 $this->storagePath
             ),
-            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo))
+            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 

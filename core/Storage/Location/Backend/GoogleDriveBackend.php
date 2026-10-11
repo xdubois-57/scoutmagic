@@ -989,7 +989,61 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
             return;
         }
 
-        $this->client->renameFile($this->accessToken(), $this->config->folderId, $name);
+        $token = $this->accessToken();
+        // Google renames a folder in the trash as readily as any other, and
+        // a rename that « worked » there would have the site accept a name
+        // for a folder it can no longer use (#832). So the folder is
+        // looked at first, and one that is gone or in the trash is refused.
+        $folder = $this->client->describeFile($token, $this->config->folderId);
+        if ($folder === null || $folder['trashed']) {
+            throw DriveAccessException::of(
+                'Le dossier de cet emplacement n\'existe plus sur Google Drive, ou il est dans la corbeille.'
+            );
+        }
+
+        $this->client->renameFile($token, $this->config->folderId, $name);
+    }
+
+    /**
+     * The location's folder as Google sees it — or null when Google knows
+     * no such folder, or will not show it to this application (#832).
+     * Read before a location is attached to a folder, so that a typo, a
+     * file or a folder in the trash is refused rather than saved.
+     *
+     * @return array{name: string, trashed: bool, folder: bool, parents: list<string>}|null
+     * @throws DriveAccessException
+     */
+    public function describeRootFolder(): ?array
+    {
+        return $this->describeFolder($this->rootFolderId());
+    }
+
+    /**
+     * Any folder this account can see, by id — to walk up from one when
+     * deciding whether a folder lies inside another location's (#832).
+     *
+     * @return array{name: string, trashed: bool, folder: bool, parents: list<string>}|null
+     * @throws DriveAccessException
+     */
+    public function describeFolder(string $id): ?array
+    {
+        return $this->client->describeFile($this->accessToken(), $id);
+    }
+
+    /**
+     * Creates a new, empty folder for a location, under `ScoutMagic/`,
+     * and returns its id — without attaching anything to it: the caller
+     * saves the id (#832). Only ever on an administrator's explicit
+     * request: a folder that went missing is never replaced on its own.
+     *
+     * @throws DriveAccessException
+     */
+    public function createRootFolder(string $name): string
+    {
+        $token = $this->accessToken();
+        $parentId = $this->client->ensureFolder($token, GoogleDriveLocationConfig::PARENT_FOLDER_NAME);
+
+        return $this->client->createFolder($token, $name, $parentId);
     }
 
     public function trashRootFolder(): void

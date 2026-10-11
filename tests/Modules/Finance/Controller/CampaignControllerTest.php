@@ -72,6 +72,7 @@ class CampaignControllerTest extends TestCase
     private CampaignRowRepository $rows;
     private ExpectedReceivableRepository $receivables;
     private int $accountId;
+    private int $categoryId;
     private int $scoutYearId;
     /** @var array<string, int> */
     private array $memberIds = [];
@@ -220,6 +221,7 @@ class CampaignControllerTest extends TestCase
         );
 
         $this->accountId = $accountRepository->create('Compte Unité', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
+        $this->categoryId = FinanceTestHelper::createCategory($this->pdo, 'Cotisations');
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$this->accountId]);
 
         $this->scoutYearId = FinanceTestHelper::createScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31', true);
@@ -254,6 +256,45 @@ class CampaignControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Aucune campagne', $response->getBody());
+    }
+
+    /**
+     * The dashboard's « Campagnes ouvertes » tile links here with the
+     * account it counted (issue #838): the list then shows that account's
+     * campaigns only, and says so.
+     */
+    public function testTheListNarrowsToTheAccountItIsOpenedWith(): void
+    {
+        $this->createCampaign();
+        [, $sectionAccountId] = $this->createCampaignOnItsOwnAccount();
+
+        $narrowed = $this->listBody(['scout_year_id' => (string) $this->scoutYearId, 'account_id' => (string) $sectionAccountId]);
+        $everything = $this->listBody(['scout_year_id' => (string) $this->scoutYearId]);
+
+        $this->assertStringContainsString('Camp 2025', $narrowed);
+        $this->assertStringNotContainsString('Cotisations 2025-2026', $narrowed);
+        $this->assertStringContainsString('Campagnes du compte <strong>Compte Section</strong>', $narrowed);
+        $this->assertStringContainsString('Camp 2025', $everything);
+        $this->assertStringContainsString('Cotisations 2025-2026', $everything);
+        $this->assertStringNotContainsString('Campagnes du compte', $everything);
+    }
+
+    /**
+     * Only an account the viewer may see narrows anything: any other id is
+     * ignored rather than naming an account the page would not show.
+     */
+    public function testAnAccountTheViewerMayNotSeeDoesNotNarrowTheList(): void
+    {
+        $this->createCampaign();
+        $accounts = $this->controllerParts['accounts'];
+        \assert($accounts instanceof AccountRepository);
+        $hiddenId = $accounts->create('Compte direction', Account::TYPE_BANK, null, 'BE00000000000003', 'Titulaire', 'admin');
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$hiddenId]);
+
+        $body = $this->listBody(['scout_year_id' => (string) $this->scoutYearId, 'account_id' => (string) $hiddenId]);
+
+        $this->assertStringContainsString('Cotisations 2025-2026', $body);
+        $this->assertStringNotContainsString('Compte direction', $body);
     }
 
     public function testTheFormExplainsWhereTheFileHasToComeFrom(): void
@@ -1157,6 +1198,17 @@ class CampaignControllerTest extends TestCase
         ];
     }
 
+    /**
+     * @param array<string, string> $query
+     */
+    private function listBody(array $query): string
+    {
+        $response = $this->controller->index(new Request('GET', '/finance/campaigns', $query, [], [], []), []);
+        self::assertSame(200, $response->getStatusCode());
+
+        return $response->getBody();
+    }
+
     private function createCampaign(): int
     {
         $response = $this->upload('Cotisations 2025-2026', [
@@ -1208,6 +1260,7 @@ class CampaignControllerTest extends TestCase
                         'label' => $label,
                         'scout_year_id' => (string) $this->scoutYearId,
                         'account_id' => (string) ($accountId ?? $this->accountId),
+                        'category_id' => (string) $this->categoryId,
                     ],
                     [],
                     []

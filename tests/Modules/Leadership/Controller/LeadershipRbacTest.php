@@ -539,7 +539,8 @@ class LeadershipRbacTest extends TestCase
         );
 
         $this->assertStringContainsString('mailto:candidat@example.org', $body);
-        $this->assertStringContainsString('<a href="tel:0470123456">0470 12 34 56</a>', $body);
+        $this->assertStringContainsString('href="tel:+32470123456"', $body);
+        $this->assertStringContainsString('>+32 470 12 34 56</a>', $body);
         $this->assertStringContainsString('<input type="hidden" name="list" value="obligations-candidates">', $body);
         $this->assertStringContainsString("Créer un brouillon d'e-mail", $body);
         $this->assertStringNotContainsString('Copier les adresses', $body);

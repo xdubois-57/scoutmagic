@@ -148,6 +148,18 @@
                 {% endfor %}
             </select>
             <p class="form-text">La communication structurée sera générée automatiquement pour chaque réponse.</p>
+            <label class="form-label" for="form_finance_category_id">Catégorie</label>
+            <select class="form-select" id="form_finance_category_id" name="form_finance_category_id"
+                    aria-describedby="form_finance_category_help">
+                <option value="">Choisir une catégorie</option>
+                {% for category in finance_categories|default([]) %}
+                    <option value="{{ category.id }}" {{ form and form.financeCategoryId == category.id ? 'selected' : '' }}>{{ category.name }}</option>
+                {% endfor %}
+            </select>
+            <p class="form-text" id="form_finance_category_help">
+                Les paiements de ce formulaire seront classés dans cette catégorie des Finances. Obligatoire dès qu'un
+                compte est choisi.
+            </p>
         {% endif %}
     </div>
 {% endif %}

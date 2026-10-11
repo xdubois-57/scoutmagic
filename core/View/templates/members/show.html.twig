@@ -457,13 +457,13 @@
                             {% if member.phone %}
                                 <div class="col-6 col-md-4">
                                     <span class="text-body-secondary d-block">Téléphone</span>
-                                    <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
+                                    {{ phone(member.phone) }}
                                 </div>
                             {% endif %}
                             {% if member.mobile %}
                                 <div class="col-6 col-md-4">
                                     <span class="text-body-secondary d-block">GSM</span>
-                                    <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
+                                    {{ phone(member.mobile) }}
                                 </div>
                             {% endif %}
                             {% if member.totem %}

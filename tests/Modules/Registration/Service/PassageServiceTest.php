@@ -269,7 +269,7 @@ class PassageServiceTest extends TestCase
         // surfaces, never a separate copy.
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'Petit', 'child_first_name' => 'Nouveau',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'nouveau2@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
@@ -288,7 +288,7 @@ class PassageServiceTest extends TestCase
 
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'Parent', 'child_last_name' => 'Petit', 'child_first_name' => 'Nouveau',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'nouveau@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => 'RAS',
         ], null, [$sacha['member_id']]);
@@ -306,7 +306,7 @@ class PassageServiceTest extends TestCase
     {
         $accepted = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'A', 'child_first_name' => 'Accepted',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'a@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
@@ -314,14 +314,14 @@ class PassageServiceTest extends TestCase
 
         $pending = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'B', 'child_first_name' => 'Pending',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'b@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
 
         $encoded = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'C', 'child_first_name' => 'Encoded',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'c@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);

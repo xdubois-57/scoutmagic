@@ -37,9 +37,15 @@ chaque règle combine jusqu'à trois conditions (mot-clé ou expression
 sur le libellé, contrepartie, montant), et **la première règle qui
 correspond gagne** — leur ordre se change par glisser-déposer.
 « Tester » essaie une règle à blanc, « Exécuter les règles » repasse
-sur l'existant. La règle « IA », toujours en dernier, est désactivée
-par défaut : l'activer envoie les libellés restants au connecteur IA,
-ce qui peut engendrer des coûts.
+sur l'existant, en arrière-plan et par petits lots : la page indique
+combien de mouvements ont déjà été parcourus, et une exécution
+interrompue reprend d'elle-même là où elle s'était arrêtée. Une
+exécution qui n'avance plus du tout finit par s'arrêter : la page dit
+alors combien de mouvements ont été examinés, et vous pouvez la
+relancer. La règle « IA », toujours en dernier, est active par
+défaut lorsque l'IA est disponible : elle envoie au connecteur IA les
+libellés que les autres règles n'ont pas su classer, ce qui peut
+engendrer des coûts. Désactivez-la pour éviter ces appels.
 
 ## La zone de danger
 

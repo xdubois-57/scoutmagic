@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Integration;
 
 use Core\Import\DeskCsvParser;
+use Core\Import\DeskImportError;
+use Core\Import\DeskImportValidator;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Parser\BnpParser;
 use Modules\Finance\Parser\CodaParser;
@@ -89,6 +91,35 @@ final class ReferenceDatasetFormatTest extends TestCase
         self::assertLessThanOrEqual(190, count($parsed->members), "The unit in {$year} is too large to be credible.");
         self::assertGreaterThanOrEqual(250, $parsed->lineCount, "The {$year} export holds too few lines.");
         self::assertLessThanOrEqual(300, $parsed->lineCount, "The {$year} export holds too many lines.");
+    }
+
+    /**
+     * Issue #854: the import refuses a whole file on the first line that
+     * breaks one of DeskImportValidator's rules. A dataset that broke one
+     * would not build at all — so every export must pass every rule,
+     * against the end of its own scout year and on today's date.
+     */
+    #[DataProvider('scoutYears')]
+    public function testEachExportPassesEveryImportRule(string $year): void
+    {
+        $path = self::datasetRoot() . '/' . DatasetGenerator::DESK_DIRECTORY . '/' . $year . '.csv';
+        $copy = (string) tempnam(sys_get_temp_dir(), 'refdataset');
+        copy($path, $copy);
+
+        try {
+            $parsed = (new DeskCsvParser())->parse($copy);
+        } finally {
+            @unlink($copy);
+        }
+
+        $yearEnd = new \DateTimeImmutable((UnitBlueprint::referenceYear($year) + 1) . '-08-31');
+        $errors = (new DeskImportValidator())->validate($parsed, $yearEnd, new \DateTimeImmutable());
+
+        self::assertSame(
+            [],
+            array_map(static fn(DeskImportError $error): string => $error->message, $errors),
+            "The {$year} export breaks an import rule — fix the generator, never the CSV.",
+        );
     }
 
     #[DataProvider('scoutYears')]
@@ -446,7 +477,7 @@ final class ReferenceDatasetFormatTest extends TestCase
         // the application's own StructuredCommunicationService::format(), so
         // the mod-97 check digits are right by construction. IT-06 creates the
         // matching expected receivables from the same list — if these two ever
-        // drift apart, the "Paiements attendus" page reconciles nothing.
+        // drift apart, the « Contrôle des créances » page reconciles nothing.
         foreach (UnitBlueprint::YEARS as $year) {
             $expected = BankBlueprint::communicationsFor($year);
             self::assertNotEmpty($expected, "No fee is declared for {$year}.");

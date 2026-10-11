@@ -249,8 +249,15 @@
         scrollable: true,
         categories: categories,
         fiscal_years: fiscal_years,
+        attach_base_url: '/finance/reconciliation?account_id=' ~ selected_account.id ~ '&tab=orphans&transaction_id=',
     } only %}
         {% block body %}
+            {# A credit that carries no valid structured communication is
+               not on « Paiements à traiter » (issue #837) — this is its way
+               to the receivable it pays. finance-movements.js shows it for
+               credits only and appends the movement's id. #}
+            <a href="#" class="btn btn-sm btn-outline-primary mb-3 d-none" id="md-attach-link"
+               data-base-url="{{ attach_base_url }}">Rattacher à une créance →</a>
             <dl class="row small mb-3">
                 <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
                 <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
@@ -276,6 +283,14 @@
                         })),
                 } only %}
                 <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
+            </div>
+            {# What this movement pays (issue #838), named by each source
+               module, right above the comment it gives context to. Filled
+               by finance-movements.js; never copied into the comment, which
+               stays the treasurer's own note. #}
+            <div class="mb-2 d-none" id="md-receivables">
+                <div class="form-label small mb-1">Créances liées</div>
+                <ul class="list-unstyled small mb-0" id="md-receivables-list"></ul>
             </div>
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'md-comment', label: 'Commentaire', size: 'sm', wrapper_class: 'mb-2',

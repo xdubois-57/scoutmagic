@@ -209,6 +209,7 @@ class ReceivableAllocationService
         }
 
         $changed = 0;
+        $touched = [];
 
         foreach ($transactions as $transaction) {
             if ($transaction->amount <= 0) {
@@ -248,6 +249,7 @@ class ReceivableAllocationService
                             null
                         );
                         $changed++;
+                        $touched[$transaction->id] = true;
                     } elseif ($existing->amountCents !== $amount) {
                         $this->allocationRepository->update(
                             $allocationId,
@@ -256,6 +258,7 @@ class ReceivableAllocationService
                             null
                         );
                         $changed++;
+                        $touched[$transaction->id] = true;
                     }
 
                     $allocatedByReceivable[$receivable->id] += $amount - $ownShare;
@@ -273,7 +276,105 @@ class ReceivableAllocationService
             }
         }
 
+        $this->recategorize(array_keys($touched));
+
         return $changed;
+    }
+
+    /**
+     * The category a movement takes from the receivables it pays (issue
+     * #838) — the receivable's, ahead of any rule and of the AI, because
+     * here the site KNOWS what the money is for.
+     *
+     * One receivable: its category. Several: the one receiving the largest
+     * share of the movement. A tie keeps the movement's current category
+     * when it is one of the tied ones, and otherwise takes the tied
+     * receivable with the lowest id — stable, so a re-run changes nothing.
+     * A refund is weighed by its size, like a payment.
+     *
+     * A movement that no longer pays any receivable naming a category
+     * loses a category it had taken from one (it is uncategorised again,
+     * and the rules and the AI may look at it); a treasurer's own choice
+     * is never overwritten (TransactionRepository::setCategoryFromReceivable()).
+     *
+     * @param int[] $transactionIds the movements whose allocations changed
+     */
+    private function recategorize(array $transactionIds): void
+    {
+        if ($transactionIds === []) {
+            return;
+        }
+
+        $allocationsByTransaction = $this->allocationRepository->findByTransactionIds($transactionIds);
+        $receivableIds = [];
+        foreach ($allocationsByTransaction as $allocations) {
+            foreach ($allocations as $allocation) {
+                $receivableIds[$allocation->receivableId] = true;
+            }
+        }
+        $categoryByReceivable = [];
+        foreach ($this->receivableRepository->findByIds(array_keys($receivableIds)) as $receivable) {
+            $categoryByReceivable[$receivable->id] = $receivable->categoryId;
+        }
+
+        foreach ($this->transactionRepository->findByIds($transactionIds) as $transaction) {
+            if ($transaction->categorySource === Transaction::CATEGORY_SOURCE_MANUAL) {
+                continue;
+            }
+
+            $category = self::dominantCategory(
+                $allocationsByTransaction[$transaction->id] ?? [],
+                $categoryByReceivable,
+                $transaction->categoryId
+            );
+
+            if ($category === null) {
+                if ($transaction->categorySource === Transaction::CATEGORY_SOURCE_RECEIVABLE) {
+                    $this->transactionRepository->setCategoryFromReceivable($transaction->id, null);
+                }
+                continue;
+            }
+
+            if ($transaction->categoryId !== $category
+                || $transaction->categorySource !== Transaction::CATEGORY_SOURCE_RECEIVABLE
+            ) {
+                $this->transactionRepository->setCategoryFromReceivable($transaction->id, $category);
+            }
+        }
+    }
+
+    /**
+     * @param ReceivableAllocation[] $allocations one movement's
+     * @param array<int, ?int> $categoryByReceivable
+     */
+    private static function dominantCategory(array $allocations, array $categoryByReceivable, ?int $current): ?int
+    {
+        $best = 0;
+        /** @var array<int, int> $tied receivable id => category id */
+        $tied = [];
+        foreach ($allocations as $allocation) {
+            $category = $categoryByReceivable[$allocation->receivableId] ?? null;
+            $weight = abs($allocation->amountCents);
+            if ($category === null || $weight === 0) {
+                continue;
+            }
+            if ($weight > $best) {
+                $best = $weight;
+                $tied = [$allocation->receivableId => $category];
+            } elseif ($weight === $best) {
+                $tied[$allocation->receivableId] = $category;
+            }
+        }
+
+        if ($tied === []) {
+            return null;
+        }
+        if ($current !== null && in_array($current, $tied, true)) {
+            return $current;
+        }
+        ksort($tied);
+
+        return reset($tied);
     }
 
     // ── what a human does ───────────────────────────────────────────────
@@ -336,16 +437,17 @@ class ReceivableAllocationService
                 ReceivableAllocation::SOURCE_MANUAL,
                 $actorUserAccountId
             );
-            return;
+        } else {
+            $this->allocationRepository->create(
+                $transactionId,
+                $receivableId,
+                $amountCents,
+                ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId
+            );
         }
 
-        $this->allocationRepository->create(
-            $transactionId,
-            $receivableId,
-            $amountCents,
-            ReceivableAllocation::SOURCE_MANUAL,
-            $actorUserAccountId
-        );
+        $this->recategorize([$transactionId]);
     }
 
     /**
@@ -418,16 +520,18 @@ class ReceivableAllocationService
                 ReceivableAllocation::SOURCE_MANUAL,
                 $actorUserAccountId
             );
-            return;
+        } else {
+            $this->allocationRepository->create(
+                $transactionId,
+                $receivableId,
+                -$amountCents,
+                ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId
+            );
         }
 
-        $this->allocationRepository->create(
-            $transactionId,
-            $receivableId,
-            -$amountCents,
-            ReceivableAllocation::SOURCE_MANUAL,
-            $actorUserAccountId
-        );
+        // The money going back is booked where it came in.
+        $this->recategorize([$transactionId]);
     }
 
     /**
@@ -654,6 +758,31 @@ class ReceivableAllocationService
         }
 
         return $settlements;
+    }
+
+    /**
+     * What this account is still waiting for, in cents: the remainder of
+     * every unpaid or partly paid receivable booked against it — never
+     * the amounts first asked, and nothing for a paid or waived one. The
+     * dashboard's « Paiements encore attendus » (issue #838).
+     *
+     * Reads the allocations as they stand: the dashboard calls it right
+     * after the reconciliation pass it already triggers.
+     */
+    public function amountStillExpectedCents(int $accountId): int
+    {
+        $total = 0;
+        foreach ($this->settlementsFor($this->receivableRepository->findByAccountId($accountId)) as $settlement) {
+            if (in_array(
+                $settlement->status,
+                [ReceivableSettlement::STATUS_UNPAID, ReceivableSettlement::STATUS_PARTIAL],
+                true
+            )) {
+                $total += $settlement->amountRemainingCents();
+            }
+        }
+
+        return $total;
     }
 
     /**

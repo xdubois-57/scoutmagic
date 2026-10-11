@@ -120,6 +120,10 @@ CREATE TABLE IF NOT EXISTS news_forms (
     -- submitted after this timestamp are "new" for the next digest.
     last_digest_sent_at DATETIME NULL,
     finance_account_id INT UNSIGNED NULL,
+    -- The Finance category this form's payments are booked under (issue
+    -- #838): every receivable names one. Unconstrained for the same
+    -- reason as finance_account_id — finance can be switched off.
+    finance_category_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_news_form_article FOREIGN KEY (news_article_id) REFERENCES news_articles(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

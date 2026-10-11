@@ -265,6 +265,41 @@ class PageControllerTest extends TestCase
     }
 
     /**
+     * Issue #704. The band is the server's answer when the page is built,
+     * and the back button restores it from the browser's cache without
+     * asking again — so the page marks the band, and loads the script that
+     * asks again when that happens.
+     */
+    public function testTheGroupBandIsMarkedAndItsRefreshScriptLoaded(): void
+    {
+        $controller = $this->controllerWithHooks([
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(self::GROUP_ACTIVITY),
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-home-band', $body);
+        $this->assertStringContainsString('data-home-group-activity', $body);
+        $this->assertStringContainsString('/assets/js/home-group-activity.js', $body);
+    }
+
+    /** A page with nothing new in the groups has nothing to refresh, and loads nothing for it. */
+    public function testAPageWithoutTheGroupBandLoadsNoRefreshScript(): void
+    {
+        $controller = $this->controllerWithHooks([
+            HomePaymentDueProvider::class => $this->paymentDueProvider(null),
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(null),
+            HomeBannerProvider::class => $this->spyBannerProvider('<p>Message important</p>'),
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Message important', $body);
+        $this->assertStringNotContainsString('data-home-group-activity', $body);
+        $this->assertStringNotContainsString('home-group-activity.js', $body);
+    }
+
+    /**
      * Last in the order: the editorial banner is the fallback, shown
      * exactly when the two bands above it stayed silent.
      */
@@ -310,10 +345,11 @@ class PageControllerTest extends TestCase
             HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(self::GROUP_ACTIVITY),
         ])->home(new Request('GET', '/', [], [], [], []), [])->getBody();
 
-        // The group band carries no id; its own icon identifies it.
+        // The group band carries no id (only the data attribute the
+        // back-navigation script finds it by); its own icon identifies it.
         $this->assertSame(
             1,
-            preg_match('/<div class="([^"]*alert[^"]*)">\s*<i class="bi bi-chat-dots"/', $activityBody, $activityClasses),
+            preg_match('/<div class="([^"]*alert[^"]*)"[^>]*>\s*<i class="bi bi-chat-dots"/', $activityBody, $activityClasses),
             'the group activity band was not rendered at all'
         );
         $this->assertStringContainsString('alert-info', $activityClasses[1]);

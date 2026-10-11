@@ -48,6 +48,7 @@
               days would be wrong on every public holiday, while this
               sentence absorbs weekends and holidays without ever lying.
             #}
+            <div data-home-band>
             {% if payment_due|default(null) is not null %}
                 <div id="home-payment-due" class="alert alert-info d-flex gap-2 mb-4" role="alert">
                     <i class="bi bi-exclamation-triangle mt-1 flex-shrink-0" aria-hidden="true"></i>
@@ -100,7 +101,7 @@
                 {% if group_activity.new_mentions > 0 %}
                     {% set activity_parts = activity_parts|merge([group_activity.new_mentions ~ (group_activity.new_mentions > 1 ? ' mentions' : ' mention')]) %}
                 {% endif %}
-                <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mb-4">
+                <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mb-4" data-home-group-activity>
                     <i class="bi bi-chat-dots" aria-hidden="true"></i>
                     <div class="flex-grow-1">
                         <strong>Du nouveau dans vos groupes</strong>
@@ -125,6 +126,7 @@
                 #}
                 <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
             {% endif %}
+            </div>
 
             <div class="mb-4">
                 {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
@@ -156,4 +158,14 @@
             </div>
         {% endif %}
     </div>
+{% endblock %}
+
+{% block scripts %}
+    {% if group_activity|default(null) is not null %}
+        {# The band is the server's answer at the moment of the request, and
+           the back button restores it from the browser's cache without
+           asking again: this script asks again, once, when that happens
+           (issue #704). Only a page showing the band needs it. #}
+        <script src="{{ asset('/assets/js/home-group-activity.js') }}" defer></script>
+    {% endif %}
 {% endblock %}

@@ -12,6 +12,7 @@ use Core\File\FileRepository;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\DeskImportRejectedException;
 use Core\Import\DeskImportService;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportException;
@@ -68,22 +69,36 @@ class ImportController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $years = $this->scoutYearResolver->listYears();
-        $journals = $this->importJournalRepo->findByYear($currentYear['id']);
-        $lastImport = count($journals) > 0 ? $journals[0] : null;
-        $unconfirmed = $this->functionRepo->findUnconfirmed();
 
-        return $this->render('admin/import.html.twig', [
-            'current_year' => $currentYear,
-            'years' => $years,
+        $data = $this->importPageData($currentYear['id']) + [
+            'import_result' => null,
+            'import_rejection' => null,
+        ];
+
+        return $this->render('admin/import.html.twig', $data);
+    }
+
+    /**
+     * What the import page shows whatever just happened: the years, the
+     * last import of $journalYearId, the functions still to qualify.
+     *
+     * @return array<string, mixed>
+     */
+    private function importPageData(int $journalYearId): array
+    {
+        $journals = $this->importJournalRepo->findByYear($journalYearId);
+        $lastImport = count($journals) > 0 ? $journals[0] : null;
+
+        return [
+            'current_year' => $this->scoutYearResolver->getCurrentPublicYear(),
+            'years' => $this->scoutYearResolver->listYears(),
             'last_import' => $lastImport,
             'last_import_author' => $lastImport !== null
                 ? $this->authorName($lastImport['user_account_id'] ?? null)
                 : null,
-            'unconfirmed_count' => count($unconfirmed),
+            'unconfirmed_count' => count($this->functionRepo->findUnconfirmed()),
             'retention_years' => $this->retentionService->retentionYears(),
-            'import_result' => null,
-        ]);
+        ];
     }
 
     /**
@@ -306,6 +321,20 @@ class ImportController extends AbstractController
                 'scout_year' => $targetYear,
                 'confirmation_word' => self::KEYWORD_REPLACE_ROSTER,
             ]);
+        } catch (DeskImportRejectedException $e) {
+            // Every error, as a list, on the page itself rather than in a
+            // flash: a refused file can carry dozens of them, and the
+            // administrator needs all of them to correct it in one round.
+            // Nothing was written and nothing kept (issue #854).
+            $data = $this->importPageData($scoutYearId) + [
+                'import_result' => null,
+                'import_rejection' => [
+                    'summary' => $e->summary(),
+                    'messages' => $e->listedMessages(),
+                ],
+            ];
+
+            return $this->render('admin/import.html.twig', $data);
         } catch (ImportException $e) {
             FlashMessage::set('error', $e->getMessage());
             return $this->redirect('/admin/import');
@@ -321,22 +350,11 @@ class ImportController extends AbstractController
         // disabled ($registrationReconciliation is null then).
         $this->registrationReconciliation?->reconcileForYear($scoutYearId);
 
-        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $years = $this->scoutYearResolver->listYears();
-        $journals = $this->importJournalRepo->findByYear($scoutYearId);
-        $lastImport = count($journals) > 0 ? $journals[0] : null;
-        $unconfirmed = $this->functionRepo->findUnconfirmed();
-
-        return $this->render('admin/import.html.twig', [
-            'current_year' => $currentYear,
-            'years' => $years,
-            'last_import' => $lastImport,
-            'last_import_author' => $lastImport !== null
-                ? $this->authorName($lastImport['user_account_id'] ?? null)
-                : null,
-            'unconfirmed_count' => count($unconfirmed),
-            'retention_years' => $this->retentionService->retentionYears(),
+        $data = $this->importPageData($scoutYearId) + [
             'import_result' => $result,
-        ]);
+            'import_rejection' => null,
+        ];
+
+        return $this->render('admin/import.html.twig', $data);
     }
 }

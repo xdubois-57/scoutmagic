@@ -138,42 +138,13 @@ class TextNormalizerService
     }
 
     /**
-     * Normalize and pretty-print a phone number (Belgian formatting by default).
-     * Returns '' for empty input.
+     * A phone number as a page shows it — « +32 478 12 34 56 » — read by
+     * {@see \Core\Phone\PhoneNumber}, the one place a number is
+     * interpreted. Returns '' for a text holding no digit.
      */
-    public static function normalizePhone(string $raw, string $defaultCountry = 'BE'): string
+    public static function normalizePhone(string $raw): string
     {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return '';
-        }
-
-        $hasPlus = str_starts_with($raw, '+');
-        $digits = preg_replace('/\D+/', '', $raw) ?? '';
-        if ($digits === '') {
-            return '';
-        }
-
-        if ($hasPlus) {
-            $e164 = $digits;
-        } elseif (str_starts_with($digits, '32')) {
-            $e164 = $digits;
-        } elseif (str_starts_with($digits, '0')) {
-            $e164 = '32' . substr($digits, 1);
-        } else {
-            // No recognizable prefix: assume the default country (BE = 32).
-            $e164 = ($defaultCountry === 'BE' ? '32' : '') . $digits;
-        }
-
-        if (str_starts_with($e164, '32')) {
-            return self::formatBelgian(substr($e164, 2));
-        }
-
-        // Other countries: "+CC " then group the rest.
-        $cc = substr($e164, 0, 2);
-        $rest = substr($e164, 2);
-
-        return '+' . $cc . ' ' . self::groupDigits($rest);
+        return \Core\Phone\PhoneNumber::parse($raw)->display ?? '';
     }
 
     /**
@@ -304,67 +275,5 @@ class TextNormalizerService
 
         return mb_strtoupper(mb_substr($value, 0, 1, 'UTF-8'), 'UTF-8')
             . mb_substr($value, 1, null, 'UTF-8');
-    }
-
-    private static function formatBelgian(string $nat): string
-    {
-        $len = strlen($nat);
-
-        // Mobile: 4XX XX XX XX
-        if ($len === 9 && $nat[0] === '4') {
-            return sprintf(
-                '+32 %s %s %s %s',
-                substr($nat, 0, 3),
-                substr($nat, 3, 2),
-                substr($nat, 5, 2),
-                substr($nat, 7, 2)
-            );
-        }
-
-        if ($len === 8) {
-            // Brussels: 1-digit zone code (2). Others: 2-digit zone code.
-            if ($nat[0] === '2') {
-                return sprintf(
-                    '+32 %s %s %s %s',
-                    substr($nat, 0, 1),
-                    substr($nat, 1, 3),
-                    substr($nat, 4, 2),
-                    substr($nat, 6, 2)
-                );
-            }
-            return sprintf(
-                '+32 %s %s %s %s',
-                substr($nat, 0, 2),
-                substr($nat, 2, 2),
-                substr($nat, 4, 2),
-                substr($nat, 6, 2)
-            );
-        }
-
-        // Doesn't match a known Belgian pattern: group generically.
-        return '+32 ' . self::groupDigits($nat);
-    }
-
-    /**
-     * Group a digit string in chunks of two (a leading chunk of three when the
-     * length is odd), separated by spaces.
-     */
-    private static function groupDigits(string $digits): string
-    {
-        if ($digits === '') {
-            return '';
-        }
-
-        $groups = [];
-        $i = 0;
-        if (strlen($digits) % 2 === 1) {
-            $groups[] = substr($digits, 0, 3);
-            $i = 3;
-        }
-        for (; $i < strlen($digits); $i += 2) {
-            $groups[] = substr($digits, $i, 2);
-        }
-
-        return implode(' ', $groups);
     }
 }

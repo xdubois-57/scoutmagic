@@ -35,6 +35,8 @@ use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
+use Core\Storage\Location\StorageLocationRenameRefusedException;
+use Core\Storage\Location\StorageLocationTargetNotEmptyException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
@@ -495,18 +497,24 @@ class StorageConfigController extends AbstractController
         $type = StorageLocationType::tryFrom((string) $request->getBody('type', ''))
             ?? StorageLocationType::Local;
         $label = trim((string) $request->getBody('label', ''));
+        $config = null;
 
         try {
             if ($label === '') {
                 throw new StorageLocationException("Le nom de l'emplacement est obligatoire.");
             }
 
+            $config = $this->configFromRequest($type, $request, null);
             $id = $this->storageLocationService->create(
                 $type,
                 $label,
-                $this->configFromRequest($type, $request, null),
-                $this->secretFromRequest($type, $request, null)
+                $config,
+                $this->secretFromRequest($type, $request, null),
+                self::existingContentConfirmed($request)
             );
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            // Thrown by the save, so only once the configuration was read.
+            return $this->confirmExistingContent(null, $type, $label, $config ?? throw $e, $e);
         } catch (StorageLocationException $e) {
             $context = $this->formContext(null);
             $context['submit_error'] = $e->getMessage();
@@ -583,6 +591,7 @@ class StorageConfigController extends AbstractController
         $label = trim((string) $request->getBody('label', ''));
         $secret = $this->secretFromRequest($location->type, $request, $location);
         $secretChanged = $secret !== null;
+        $config = null;
 
         try {
             if ($label === '') {
@@ -592,8 +601,29 @@ class StorageConfigController extends AbstractController
             $config = $this->configFromRequest($location->type, $request, $location);
             $this->assertNoConsumerObjects($location, $config, $location->isDefault);
 
-            $folder = $this->storageLocationService->update($location->id, $label, $config, $secret);
+            $folder = $this->storageLocationService->update(
+                $location->id,
+                $label,
+                $config,
+                $secret,
+                self::existingContentConfirmed($request)
+            );
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            return $this->confirmExistingContent($location, $location->type, $label, $config ?? throw $e, $e);
         } catch (StorageLocationException $e) {
+            if ($e instanceof StorageLocationRenameRefusedException) {
+                // The folder could not be renamed, so nothing was saved
+                // (#832). The provider's words go to the journal only.
+                $this->journalService->log(
+                    'storage',
+                    'storage_location_folder_rename_failed',
+                    'warning',
+                    "Renommage de l'emplacement « {$location->label} » refusé : son dossier Google Drive "
+                        . "n'a pas pu être renommé",
+                    ['requested_label' => $label, 'detail' => $e->getPrevious()?->getMessage()],
+                    (int) AuthSession::getUserAccountId()
+                );
+            }
             $context = $this->formContext($location);
             $context['submit_error'] = $e->getMessage();
 
@@ -632,39 +662,15 @@ class StorageConfigController extends AbstractController
             );
         }
 
-        // **The rename stands; the folder that did not follow is said.**
-        // A Drive location's folder is renamed with it (#474), and the
-        // site finds it by id, so one left with the old name breaks
-        // nothing — but an administrator who later looks for it in their
-        // Drive under the new name deserves to know why it is not there.
-        if ($folder->isFailed()) {
-            $this->journalService->log(
-                'storage',
-                'storage_location_folder_rename_failed',
-                'warning',
-                "Dossier Google Drive de l'emplacement « {$label} » non renommé",
-                ['error' => $folder->reason, 'detail' => $folder->detail],
-                (int) AuthSession::getUserAccountId()
-            );
-            FlashMessage::set(
-                'warning',
-                "Le nom « {$label} » est enregistré, mais le dossier de cet emplacement sur Google Drive n'a pas pu "
-                . "être renommé : {$folder->reason} Le site le retrouve quand même ; vous pouvez le renommer "
-                . 'vous-même dans Google Drive.'
-            );
-        } elseif ($folder->isShared()) {
-            // Not a fault, but the folder did not follow either: renaming
-            // it would have renamed another location's folder too.
+        // A Drive folder that could not be renamed refused the save above
+        // (#832), so the one case left to say is the folder that was
+        // deliberately left alone: renaming it would have renamed another
+        // location's folder too.
+        if ($folder->isShared()) {
             FlashMessage::set(
                 'success',
                 "Le nom « {$label} » est enregistré. Son dossier sur Google Drive est aussi celui de "
                 . "l'emplacement « {$folder->reason} » : il garde son nom."
-            );
-        } elseif ($folder->isDisconnected()) {
-            FlashMessage::set(
-                'success',
-                "Le nom « {$label} » est enregistré. L'emplacement n'est plus raccordé à Google Drive : son "
-                . 'dossier y garde son ancien nom, et le site le retrouvera quand même à la reconnexion.'
             );
         }
 
@@ -1088,6 +1094,42 @@ class StorageConfigController extends AbstractController
         if ($objection !== null) {
             throw new StorageLocationException($objection);
         }
+    }
+
+    private static function existingContentConfirmed(Request $request): bool
+    {
+        return (string) $request->getBody('confirm_existing_content', '') === '1';
+    }
+
+    /**
+     * The form again, with what was typed and the question to confirm
+     * (#832): the target already holds files, and attaching the location
+     * to it is the administrator's call, made having seen it.
+     */
+    private function confirmExistingContent(
+        ?StorageLocation $location,
+        StorageLocationType $type,
+        string $label,
+        LocationConfig $config,
+        StorageLocationTargetNotEmptyException $e
+    ): Response {
+        $context = $this->formContext($location);
+        $context['values'] = new StorageLocation(
+            $location->id ?? 0,
+            $type,
+            $label,
+            $location->isDefault ?? false,
+            $config,
+            $location->secretConfigured ?? false,
+            null,
+            null,
+            null,
+            $location->createdAt ?? ''
+        );
+        $context['needs_confirmation'] = true;
+        $context['confirmation'] = $e->getMessage();
+
+        return $this->render('config/storage/location_form.html.twig', $context)->setStatusCode(409);
     }
 
     /**

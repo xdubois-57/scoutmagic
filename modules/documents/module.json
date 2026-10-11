@@ -2,7 +2,7 @@
   "id": "documents",
   "name": "Documents",
   "description": "Les documents de l'unité à partager : règlement, charte des parents, liste de matériel…",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "category": "communication",
   "routes": [
@@ -131,6 +131,11 @@
   ],
   "settings": [],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "compress_document",
+      "handler": "Modules\\Documents\\Task\\CompressDocumentHandler"
+    }
+  ],
   "storage": {}
 }

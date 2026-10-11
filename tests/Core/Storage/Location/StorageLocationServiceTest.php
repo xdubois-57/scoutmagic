@@ -6,20 +6,29 @@ namespace Tests\Core\Storage\Location;
 
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
+use Core\Storage\Location\Backend\WebDavBackend;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\StorageListing;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\StorageLocationTargetNotEmptyException;
 use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\StoredObject;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
+use Tests\Core\Storage\Location\Backend\RefusingBackend;
+use Tests\Core\Storage\Location\Backend\WebDav\FakeWebDavServer;
 use Tests\DatabaseTestHelper;
 
 /**
@@ -344,22 +353,573 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * **The rename stands when the folder cannot follow.** The site finds
-     * the folder by id, so the operator loses nothing but a matching name,
-     * and the failure comes back to be journaled and shown.
+     * **A rename Google refuses is not saved** (#832). The location's
+     * folder is ScoutMagic's own, and a name accepted here but not there
+     * would leave the two disagreeing. The cause travels as the previous
+     * exception, for the journal.
      */
-    public function testARenameGoogleRefusesIsStillSavedAndTheFailureComesBack(): void
+    public function testARenameGoogleRefusesIsNotSavedAndTheLabelStays(): void
     {
         [$drive, $service, $id] = $this->connectedDriveLocation();
         $drive->failPatchesWith = 500;
 
-        $outcome = $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('A rename Google refused must not be saved.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('Le nom n\'a pas été changé', $e->getMessage());
+            $this->assertStringContainsString('500', (string) $e->getPrevious()?->getMessage());
+        }
 
-        $this->assertTrue($outcome->isFailed());
-        $this->assertNotSame('', (string) $outcome->reason);
-        $this->assertStringContainsString('500', (string) $outcome->detail);
-        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
         $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+    }
+
+    /**
+     * The case of the ticket: after a restore, the location points at a
+     * folder that is gone or in the trash. Google would rename a trashed
+     * folder without complaint, so the folder is looked at first — and
+     * renaming the location never stands in for repairing it.
+     */
+    public function testARenameOfALocationWhoseFolderIsInTheTrashIsRefused(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['trashed'] = true;
+
+        try {
+            $service->update($id, 'Drive 2', $this->driveConfig($drive), null);
+            $this->fail('A folder in the trash must not take a new name.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dans la corbeille', (string) $e->getPrevious()?->getMessage());
+        }
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+        $this->assertSame((string) $drive->folderId, $this->driveFolderOf($id), 'a rename must never change the folder');
+    }
+
+    /**
+     * Disconnected, the site has no grant to reach the folder with — so
+     * the name cannot be applied there, and is not accepted here either.
+     */
+    public function testARenameWhileDisconnectedIsRefused(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $disconnected = new GoogleDriveLocationConfig('client-1', (string) $drive->folderId, '');
+        $service->update($id, 'Photos des galeries', $disconnected, null);
+        $before = $drive->requests;
+
+        try {
+            $service->update($id, 'Galeries du groupe', $disconnected, null);
+            $this->fail('A disconnected location must not be renamed.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('plus raccordé à Google Drive', $e->getMessage());
+        }
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame($before, $drive->requests, 'nothing is asked of Google without a grant');
+    }
+
+    /**
+     * A client secret corrected in the same submission as a new label is
+     * the one the rename uses — so it goes through, and the correction is
+     * saved with it rather than lost to a refusal the stale one caused.
+     */
+    public function testARenameUsesTheClientSecretBeingSaved(): void
+    {
+        $drive = new FakeDrive();
+        $drive->acceptedClientSecret = 'secret-corrige';
+        $service = $this->serviceOn($drive);
+        $stale = new GoogleDriveSecret('secret-perime', 'refresh-1', 'unite@example.org');
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) $stale->toStorage()
+        );
+
+        $service->update(
+            $id,
+            'Galeries du groupe',
+            $this->driveConfig($drive),
+            (string) $stale->withClientSecret('secret-corrige')->toStorage()
+        );
+
+        $this->assertSame('Galeries du groupe', $drive->files['folder-1']['name']);
+        $this->assertSame('Galeries du groupe', $this->repository->findById($id)?->label);
+        $this->assertSame(
+            'secret-corrige',
+            GoogleDriveSecret::fromStorage($this->repository->getSecret($id))->clientSecret
+        );
+    }
+
+    /**
+     * The folder took the new name, then the save failed: the folder gets
+     * its old name back, so nothing changed anywhere — and the save's own
+     * failure is what reaches the caller.
+     */
+    public function testAFailedSaveAfterTheRenameGivesTheFolderItsOldNameBack(): void
+    {
+        $drive = new FakeDrive();
+        $failure = new \RuntimeException('base indisponible');
+        $repository = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $failure) extends StorageLocationRepository {
+            public bool $failUpdates = false;
+
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private \RuntimeException $failure)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function update(int $id, string $label, LocationConfig $config, ?string $secret): void
+            {
+                if ($this->failUpdates) {
+                    throw $this->failure;
+                }
+                parent::update($id, $label, $config, $secret);
+            }
+        };
+        $service = new StorageLocationService(
+            $repository,
+            new StorageBackendFactory($repository, $this->storagePath, $drive->client()),
+            $this->consumers
+        );
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $repository->failUpdates = true;
+
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('The failed save must reach the caller.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame($failure, $e);
+        }
+
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+    }
+
+    /** A Drive location never connected has no folder: its label is free to change. */
+    public function testANeverConnectedDriveLocationIsRenamedWithoutAskingGoogle(): void
+    {
+        $drive = new FakeDrive();
+        $service = $this->serviceOn($drive);
+        $id = $service->create(StorageLocationType::GoogleDrive, 'Pas encore', new GoogleDriveLocationConfig('c'), null);
+
+        $outcome = $service->update($id, 'Toujours pas', new GoogleDriveLocationConfig('c'), null);
+
+        $this->assertFalse($outcome->isDone());
+        $this->assertSame('Toujours pas', $this->repository->findById($id)?->label);
+        $this->assertSame(0, $drive->requests);
+    }
+
+    // ————— Attaching a location to another target (#832) —————
+
+    /**
+     * Changing where a location points attaches it to another storage —
+     * and when that one already holds files, the save waits until the
+     * administrator has seen it. Nothing in it is touched either way.
+     */
+    public function testPointingALocationAtAFolderThatHoldsFilesWaitsForAConfirmation(): void
+    {
+        $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('vide'), null);
+        mkdir($this->storagePath . '/plein', 0777, true);
+        file_put_contents($this->storagePath . '/plein/photo.jpg', 'octets');
+
+        try {
+            $this->service->update($id, 'Disque', new LocalLocationConfig('plein'), null);
+            $this->fail('A target holding files must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            $this->assertStringContainsString('contient déjà des fichiers', $e->getMessage());
+        }
+        $this->assertSame('vide', $this->localPathOf($id));
+
+        $this->service->update($id, 'Disque', new LocalLocationConfig('plein'), null, true);
+
+        $this->assertSame('plein', $this->localPathOf($id));
+        $this->assertSame('octets', file_get_contents($this->storagePath . '/plein/photo.jpg'));
+    }
+
+    /** An empty target needs nothing — and looking at it creates nothing. */
+    public function testPointingALocationAtAnEmptyFolderAsksNothingAndCreatesNothing(): void
+    {
+        $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('vide'), null);
+
+        $this->service->update($id, 'Disque', new LocalLocationConfig('nouveau'), null);
+
+        $this->assertSame('nouveau', $this->localPathOf($id));
+        $this->assertDirectoryDoesNotExist($this->storagePath . '/nouveau');
+    }
+
+    /** A rename keeps the target: the folder is not even looked at. */
+    public function testRenamingALocationWhoseFolderHoldsFilesAsksNothing(): void
+    {
+        mkdir($this->storagePath . '/plein', 0777, true);
+        file_put_contents($this->storagePath . '/plein/photo.jpg', 'octets');
+        $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('plein'), null, true);
+
+        $this->service->update($id, 'Disque du local', new LocalLocationConfig('plein'), null);
+
+        $this->assertSame('Disque du local', $this->repository->findById($id)?->label);
+    }
+
+    /** Declaring a new location on a folder that holds files is attaching it too. */
+    public function testDeclaringALocationOnAFolderThatHoldsFilesWaitsForAConfirmation(): void
+    {
+        mkdir($this->storagePath . '/plein', 0777, true);
+        file_put_contents($this->storagePath . '/plein/photo.jpg', 'octets');
+
+        try {
+            $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('plein'), null);
+            $this->fail('A target holding files must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException) {
+        }
+        $this->assertSame([], $this->repository->findAll());
+
+        $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('plein'), null, true);
+
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
+    /**
+     * A WebDAV share is a target like a local folder: declaring a location
+     * on one that already holds files waits for a confirmation, and the
+     * share is asked once, at its top, whatever lies deeper in it.
+     */
+    public function testDeclaringALocationOnAShareThatHoldsFilesWaitsForAConfirmation(): void
+    {
+        $share = new FakeWebDavServer();
+        $probes = new ProbeRecorder(new WebDavBackend(
+            new WebDavClient($share->transport()),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        ));
+        $service = $this->serviceProbing($probes);
+        $config = new WebDavLocationConfig($share->baseUrl, 'unite');
+
+        $service->create(StorageLocationType::WebDav, 'Partage vide', $config, 'le-mot-de-passe');
+        $this->assertSame([$share->baseUrl], $probes->targets);
+
+        $probes->backend->put('12/13/photo.jpg', 'octets', 'image/jpeg');
+        $share->calls = [];
+        try {
+            $service->create(StorageLocationType::WebDav, 'Partage plein', $config, 'le-mot-de-passe');
+            $this->fail('A share holding files must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            $this->assertStringContainsString('contient déjà des fichiers', $e->getMessage());
+        }
+        $this->assertCount(1, $share->calls);
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
+    /**
+     * A bucket has no cheap « anything here? » of its own: one entry of
+     * its listing answers, which S3 caps on the server. What names the
+     * target is the endpoint and the bucket — a new public address or
+     * access key reaches the same objects and is not looked at.
+     */
+    public function testPointingALocationAtABucketThatHoldsObjectsWaitsForAConfirmation(): void
+    {
+        $bucket = new class extends RefusingBackend {
+            /** @var list<int> */
+            public array $limits = [];
+            /** @var list<StoredObject> */
+            public array $objects = [];
+
+            public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
+            {
+                $this->limits[] = $limit;
+
+                return new StorageListing(array_slice($this->objects, 0, $limit));
+            }
+        };
+        $probes = new ProbeRecorder($bucket);
+        $service = $this->serviceProbing($probes);
+        $id = $service->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket',
+            new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'vide', 'ak'),
+            'sk'
+        );
+
+        $service->update(
+            $id,
+            'Bucket',
+            new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'vide', 'ak2', null, 'https://cdn.example.org'),
+            null
+        );
+        $this->assertSame(['https://s3.example.org/vide'], $probes->targets);
+
+        $bucket->objects = [new StoredObject('12/a.jpg', 6), new StoredObject('12/b.jpg', 6)];
+        try {
+            $service->update($id, 'Bucket', new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'plein', 'ak'), null);
+            $this->fail('A bucket holding objects must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException) {
+        }
+        $this->assertSame(['https://s3.example.org/vide', 'https://s3.example.org/plein'], $probes->targets);
+        $this->assertSame([1, 1], $bucket->limits);
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(ObjectStorageLocationConfig::class, $config);
+        $this->assertSame('vide', $config->bucket);
+
+        $service->update($id, 'Bucket', new ObjectStorageLocationConfig('https://s3.example.org', 'eu', 'plein', 'ak'), null, true);
+
+        $config = $this->repository->findById($id)?->config;
+        $this->assertInstanceOf(ObjectStorageLocationConfig::class, $config);
+        $this->assertSame('plein', $config->bucket);
+    }
+
+    /**
+     * The repair the ticket asks for: a restore brought back a folder id
+     * that leads nowhere, the files are in another folder, and the
+     * location is attached to it — by its address, after a look, and
+     * once confirmed, since it holds files. Its label stays.
+     */
+    public function testADriveLocationIsAttachedToTheFolderHoldingItsFiles(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['trashed'] = true;
+        $current = $drive->addFolder('Drive', (string) $drive->parentFolderId, 'dossier-actuel-0001');
+        $drive->put('photo.jpg', 'octets', 'image/jpeg', $current);
+
+        try {
+            $service->attachDriveFolder($id, 'https://drive.google.com/drive/folders/' . $current . '?usp=sharing', false);
+            $this->fail('A folder holding files must not be attached unseen.');
+        } catch (StorageLocationTargetNotEmptyException $e) {
+            $this->assertStringContainsString('« Drive » contient déjà des fichiers', $e->getMessage());
+        }
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+
+        $name = $service->attachDriveFolder($id, 'https://drive.google.com/drive/folders/' . $current, true);
+
+        $this->assertSame('Drive', $name);
+        $this->assertSame($current, $this->driveFolderOf($id));
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('octets', $drive->contentOf('photo.jpg'));
+        $this->assertSame('Drive', $drive->files[$current]['name'], 'attaching renames nothing');
+    }
+
+    /**
+     * Refused before anything is saved: a folder this account cannot see,
+     * one in the trash, a file, another location's folder, the one it
+     * already has, and something that is not an address at all.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function foldersThatCannotBeAttached(): array
+    {
+        return [
+            'unknown' => ['dossier-inconnu-0001', 'ne voit aucun dossier'],
+            'trashed' => ['dossier-corbeille-01', 'dans la corbeille'],
+            'a file' => ['fichier-pas-dossier1', 'pas un dossier'],
+            'another location\'s' => ['dossier-autre-00001', 'Sauvegardes'],
+            'its own' => ['folder-1-courant-01', 'déjà rattaché'],
+            'not an address' => ['?', 'Collez l\'adresse'],
+            // Deleting a location trashes its folder with all it holds: one
+            // attached around or inside another location's would take that
+            // location's files with it.
+            'the shared parent' => ['scoutmagic-1', 'dossier commun'],
+            'inside another location\'s' => ['sous-dossier-autre1', 'rangé dans celui'],
+            'around another location\'s' => ['conteneur-0000001', 'contient celui'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('foldersThatCannotBeAttached')]
+    public function testAFolderThatCannotBeTheLocationsIsRefused(string $reference, string $reason): void
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $parent = (string) $drive->parentFolderId;
+        $drive->addFolder('Ancien', $parent, 'dossier-corbeille-01');
+        $drive->files['dossier-corbeille-01']['trashed'] = true;
+        $drive->put('note.txt', 'x', 'text/plain', $parent);
+        $file = array_key_last($drive->files);
+        $drive->files['fichier-pas-dossier1'] = $drive->files[$file];
+        $container = $drive->addFolder('Conteneur', $parent, 'conteneur-0000001');
+        $drive->addFolder('Autre', $container, 'dossier-autre-00001');
+        $drive->addFolder('Sous-dossier', 'dossier-autre-00001', 'sous-dossier-autre1');
+        $service->create(
+            StorageLocationType::GoogleDrive,
+            'Sauvegardes',
+            new GoogleDriveLocationConfig('client-1', 'dossier-autre-00001', '2026-09-01T00:00:00+00:00'),
+            null
+        );
+
+        try {
+            $service->attachDriveFolder($id, $reference, true);
+            $this->fail('This folder must not be attached.');
+        } catch (StorageLocationException $e) {
+            $this->assertNotInstanceOf(StorageLocationTargetNotEmptyException::class, $e);
+            $this->assertStringContainsString($reason, $e->getMessage());
+        }
+
+        $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
+    }
+
+    /**
+     * The shared folder is recognised by its id, not its name: renamed in
+     * Drive, and with no other location to give it away, it is still
+     * refused — deleting the location would trash everything it holds.
+     */
+    public function testARenamedSharedFolderIsStillRefused(): void
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $drive->files['scoutmagic-1']['name'] = 'Ancien ScoutMagic';
+        $drive->files['folder-1-courant-01']['trashed'] = true;
+
+        try {
+            $service->attachDriveFolder($id, 'scoutmagic-1', true);
+            $this->fail('The shared folder must not be attached under another name.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dossier commun', $e->getMessage());
+        }
+        $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
+    }
+
+    /**
+     * …and still when the location's own folder is gone for good, which is
+     * exactly when it is repaired: the shared folder sits at the top of
+     * the drive, where no location's own folder ever does.
+     */
+    public function testARenamedSharedFolderIsRefusedEvenOnceTheLocationsFolderIsGone(): void
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $drive->files['scoutmagic-1']['name'] = 'Ancien ScoutMagic';
+        unset($drive->files['folder-1-courant-01']);
+
+        try {
+            $service->attachDriveFolder($id, 'scoutmagic-1', true);
+            $this->fail('The shared folder must not be attached, whatever its name.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dossier commun', $e->getMessage());
+        }
+        $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
+    }
+
+    /**
+     * Moved deeper in the drive, the shared folder no longer sits at the
+     * top, and once the location's own folder is gone nothing ties it to
+     * it by id: its name is what is left, and it is enough to refuse it.
+     */
+    public function testASharedFolderMovedDeeperIsRefusedByItsName(): void
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $drive->files['scoutmagic-1']['parent'] = $drive->addFolder('Archives', (string) $drive->files['scoutmagic-1']['parent']);
+        unset($drive->files['folder-1-courant-01']);
+
+        try {
+            $service->attachDriveFolder($id, 'scoutmagic-1', true);
+            $this->fail('The shared folder must not be attached, wherever it was moved.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dossier commun', $e->getMessage());
+        }
+        $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
+    }
+
+    /** Without an account, the folder cannot be looked at: nothing is attached. */
+    public function testADisconnectedDriveLocationCannotBeAttachedToAFolder(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $service->update($id, 'Photos des galeries', new GoogleDriveLocationConfig('client-1', 'folder-1', ''), null);
+        $before = $drive->requests;
+
+        $this->expectException(StorageLocationException::class);
+        $this->expectExceptionMessage('Raccordez d\'abord un compte Google');
+
+        try {
+            $service->attachDriveFolder($id, 'dossier-actuel-0001', true);
+        } finally {
+            $this->assertSame($before, $drive->requests);
+        }
+    }
+
+    /**
+     * A new folder is the administrator's explicit act, and only once the
+     * old one is gone: while it is there, what is in it would drop out
+     * of sight without anything saying so.
+     */
+    public function testANewDriveFolderIsCreatedOnlyOnceTheOldOneIsGone(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+
+        try {
+            $service->createDriveFolder($id);
+            $this->fail('A location whose folder is there must not be given another one.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('existe toujours', $e->getMessage());
+        }
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+
+        $drive->files['folder-1']['trashed'] = true;
+        $service->createDriveFolder($id);
+
+        $created = $this->driveFolderOf($id);
+        $this->assertNotSame('folder-1', $created);
+        $this->assertSame('ScoutMagic/Photos des galeries', $drive->pathOf($created));
+        $this->assertTrue($drive->isTrashed('folder-1'), 'the old folder is left as it was');
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function folderReferences(): array
+    {
+        return [
+            'the address Drive shows' => ['https://drive.google.com/drive/folders/1AbC_dEf-2345678', '1AbC_dEf-2345678'],
+            'with a user prefix and a query' => ['https://drive.google.com/drive/u/0/folders/1AbCdEf2345678?usp=sharing', '1AbCdEf2345678'],
+            'the old open?id= form' => ['https://drive.google.com/open?id=1AbCdEf2345678', '1AbCdEf2345678'],
+            'the bare id, with spaces around' => ['  1AbCdEf2345678 ', '1AbCdEf2345678'],
+            'a name' => ['Photos des galeries', ''],
+            'too short to be an id' => ['abc', ''],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('folderReferences')]
+    public function testAFolderIsRecognisedByItsAddressOrItsId(string $reference, string $expected): void
+    {
+        $this->assertSame($expected, StorageLocationService::driveFolderIdFrom($reference));
+    }
+
+    private function localPathOf(int $id): string
+    {
+        $config = $this->repository->findById($id)?->config;
+
+        return $config instanceof LocalLocationConfig ? $config->path : '';
+    }
+
+    private function driveFolderOf(int $id): string
+    {
+        $config = $this->repository->findById($id)?->config;
+
+        return $config instanceof GoogleDriveLocationConfig ? $config->folderId : '';
     }
 
     public function testDeletingADriveLocationPutsItsFolderInTheTrash(): void
@@ -449,10 +1009,12 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * **A disconnected location is renamed and deleted without reaching
-     * Google** (#474 review). « Déraccorder » keeps the folder id so a
+     * **A disconnected location is deleted without reaching Google**
+     * (#474 review). « Déraccorder » keeps the folder id so a
      * reconnection finds it again, but with no grant left, asking Google
-     * would fail and report an ordinary state as a Drive fault.
+     * would fail and report an ordinary state as a Drive fault. (Its
+     * rename is refused instead since #832 — see
+     * testARenameWhileDisconnectedIsRefused().)
      */
     public function testADisconnectedLocationLeavesItsFolderWithoutClaimingAFault(): void
     {
@@ -461,10 +1023,8 @@ class StorageLocationServiceTest extends TestCase
         $service->update($id, 'Photos des galeries', $disconnected, null);
         $before = $drive->requests;
 
-        $renamed = $service->update($id, 'Galeries du groupe', $disconnected, null);
         $deleted = $service->delete($id);
 
-        $this->assertTrue($renamed->isDisconnected());
         $this->assertTrue($deleted->isDisconnected());
         $this->assertFalse($deleted->isFailed());
         $this->assertNull($this->repository->findById($id));
@@ -660,6 +1220,28 @@ class StorageLocationServiceTest extends TestCase
         $this->service->checkNow($this->repository->findById($id));
 
         $this->assertFalse($this->repository->findById($id)?->lastCheckOk);
+    }
+
+    private function serviceProbing(ProbeRecorder $probes): StorageLocationService
+    {
+        $factory = new class ($this->repository, $this->storagePath, $probes) extends StorageBackendFactory {
+            public function __construct(
+                StorageLocationRepository $repository,
+                string $storagePath,
+                private ProbeRecorder $probes
+            ) {
+                parent::__construct($repository, $storagePath);
+            }
+
+            public function probe(StorageLocation $proposed, ?string $secret): StorageBackendInterface
+            {
+                $this->probes->targets[] = $proposed->config->target();
+
+                return $this->probes->backend;
+            }
+        };
+
+        return new StorageLocationService($this->repository, $factory, $this->consumers);
     }
 
     /**

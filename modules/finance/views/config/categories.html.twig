@@ -104,7 +104,7 @@
         <div class="d-flex flex-wrap align-items-center gap-2">
             <span class="text-body-secondary small d-none" id="run-rules-status">
                 <output class="spinner-border spinner-border-sm" aria-hidden="true"></output>
-                Exécution en arrière-plan…
+                Exécution en arrière-plan…<span id="run-rules-progress"></span>
             </span>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="run-rules-btn">Exécuter les règles</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-rules-btn">Réinitialiser par défaut</button>
@@ -148,9 +148,10 @@
         {% if ai_module_enabled %}
             La règle « IA », toujours en dernier, demande à l'intelligence artificielle de choisir une catégorie
             existante pour chaque mouvement qu'aucune autre règle n'a su classer (ou de proposer une nouvelle
-            catégorie) — désactivée par défaut, elle ne peut être ni déplacée ni supprimée, seulement activée/désactivée.
-            Activer cette règle génère davantage de requêtes vers le fournisseur IA (une par mouvement non classé
-            par les autres règles) et peut donc engendrer des coûts supplémentaires.
+            catégorie). Elle est active par défaut lorsque l'IA est disponible, passe toujours après les règles
+            ci-dessus, et ne peut être ni déplacée ni supprimée, seulement activée/désactivée. Elle envoie une
+            requête au fournisseur IA par mouvement que les autres règles n'ont pas classé : désactivez-la pour
+            éviter ces appels et leurs coûts.
         {% endif %}
     </p>
 
@@ -202,7 +203,7 @@
             <i class="bi bi-grip-vertical text-body-secondary" style="visibility: hidden;"></i>
             <div class="flex-grow-1">
                 <span class="badge text-bg-info"><i class="bi bi-robot me-1"></i>IA</span>
-                <span>Choisit une catégorie existante avec l'IA, ou propose une nouvelle catégorie — toujours évaluée en dernier. Activer cette règle génère davantage de requêtes IA et peut donc engendrer des coûts.</span>
+                <span>Choisit une catégorie existante avec l'IA, ou propose une nouvelle catégorie — toujours évaluée en dernier, active par défaut. Chaque mouvement qu'elle examine est une requête IA, qui peut engendrer des coûts.</span>
             </div>
             <button type="button" class="btn btn-sm {{ ai_rule_enabled ? 'btn-outline-success' : 'btn-outline-secondary' }}" id="toggle-ai-rule-btn"
                     data-active="{{ ai_rule_enabled ? '1' : '0' }}"

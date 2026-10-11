@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Modules\Finance\Repository\Account;
 use Modules\Finance\Service\CampaignExportService;
 use Modules\Finance\Service\CampaignImportException;
 use Modules\Finance\Service\CampaignNotificationService;
@@ -67,14 +68,41 @@ class CampaignController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $years = $this->scoutYears->getAll();
         $selectedYearId = $this->resolveYear($request->getQuery('scout_year_id'), $years);
+        $accounts = $this->financeService->getAccountsForUser($role);
+        $accountFilter = $this->resolveAccountFilter($request->getQuery('account_id'), $accounts);
 
         return $this->render('@finance/campaigns/list.html.twig', [
-            'summaries' => $selectedYearId !== null ? $this->overviewService->listForYear($selectedYearId, $role) : [],
+            'summaries' => $selectedYearId !== null
+                ? $this->overviewService->listForYear($selectedYearId, $role, $accountFilter?->id)
+                : [],
             'scout_years' => array_reverse($years),
             'selected_scout_year_id' => $selectedYearId,
             'selected_scout_year_label' => $selectedYearId !== null ? $this->scoutYearLabel($selectedYearId) : '',
-            'accounts' => $this->financeService->getAccountsForUser($role),
+            'accounts' => $accounts,
+            'account_filter' => $accountFilter,
         ]);
+    }
+
+    /**
+     * ?account_id= narrows the list to one account the viewer may see —
+     * the dashboard's « Campagnes ouvertes » tile links here with the
+     * account it counted (issue #838). Anything else is ignored.
+     *
+     * @param Account[] $accounts
+     */
+    private function resolveAccountFilter(mixed $requested, array $accounts): ?Account
+    {
+        if (!is_numeric($requested)) {
+            return null;
+        }
+
+        foreach ($accounts as $account) {
+            if ($account->id === (int) $requested) {
+                return $account;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -108,6 +136,7 @@ class CampaignController extends AbstractController
                 (string) $request->getBody('label', ''),
                 (int) $request->getBody('scout_year_id', 0),
                 (int) $request->getBody('account_id', 0),
+                (int) $request->getBody('category_id', 0),
                 (string) $file['tmp_name'],
                 (string) $file['name'],
                 Role::fromString(AuthSession::getRole()),
@@ -494,6 +523,7 @@ class CampaignController extends AbstractController
             '@finance/campaigns/new.html.twig',
             $context + [
                 'accounts' => $this->financeService->getAccountsForUser($role),
+                'categories' => $this->financeService->getCategoriesForReceivables(),
                 'scout_years' => array_reverse($years),
                 'current_scout_year_id' => $current['id'],
             ]

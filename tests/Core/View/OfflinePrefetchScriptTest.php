@@ -107,11 +107,20 @@ class OfflinePrefetchScriptTest extends TestCase
 
     // --- offline-cache.js: the standalone flag itself ---
 
+    /**
+     * Issue #842: the detection is display-mode.js's, exposed as
+     * window.ScoutMagicDisplayMode, and offline-cache.js asks it rather
+     * than keeping its own copy of the media query.
+     */
     public function testOfflineCacheComputesAndSendsTheStandaloneFlag(): void
     {
-        $this->assertStringContainsString('isStandalone()', $this->cacheJs);
-        $this->assertStringContainsString('display-mode: standalone', $this->cacheJs);
+        $displayModeJs = (string) file_get_contents(dirname(__DIR__, 3) . '/public/assets/js/display-mode.js');
+
         $this->assertStringContainsString('standalone: isStandalone()', $this->cacheJs);
+        $this->assertStringContainsString('window.ScoutMagicDisplayMode', $this->cacheJs);
+        $this->assertStringNotContainsString('display-mode: standalone', $this->cacheJs);
+        $this->assertStringContainsString('display-mode: standalone', $displayModeJs);
+        $this->assertStringContainsString('window.ScoutMagicDisplayMode = { isStandalone: isStandalone }', $displayModeJs);
     }
 
     /**

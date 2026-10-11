@@ -295,6 +295,29 @@ class FinanceServiceTest extends TestCase
         }
     }
 
+    /**
+     * A receivable names its category, and the payments it receives take
+     * it (issue #838): deleting it would quietly drop that link.
+     */
+    public function testDeleteCategoryRejectsWhenAReceivableNamesIt(): void
+    {
+        $category = $this->service->createCategory('Camps', 'Description de test');
+        $this->pdo->exec("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
+        $accountId = (int) $this->pdo->lastInsertId();
+        (new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->create('news', 1, $accountId, 4500, '+++123/4567/89002+++', null, null, $category->id);
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessageMatches('/créances/');
+        try {
+            $this->service->deleteCategory($category->id);
+        } finally {
+            $this->assertNotNull($this->categoryRepository->findById($category->id));
+        }
+    }
+
     public function testDeleteCategoryRemovesRulesTargetingIt(): void
     {
         $category = $this->service->createCategory('Alimentation', 'Description de test');
@@ -396,6 +419,24 @@ class FinanceServiceTest extends TestCase
 
         $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
         $this->assertSame(['Catégorie personnalisée'], $names);
+    }
+
+    /**
+     * Activating an account creates its « Virement <compte> » category on
+     * its own. A site whose first step was that must still get the
+     * defaults — every receivable now names one of them (issue #838).
+     */
+    public function testEnsureDefaultCategoriesStillSeedsWhenOnlyATransferCategoryExists(): void
+    {
+        $this->pdo->exec("INSERT INTO finance_accounts (name, account_type, status) VALUES ('Compte Unité', 'bank', 'active')");
+        $this->categoryRepository->create('Virement Compte Unité', 'Transferts', (int) $this->pdo->lastInsertId());
+
+        $this->service->ensureDefaultCategories();
+
+        $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
+        $this->assertContains('Cotisations', $names);
+        $this->assertContains('Virement Compte Unité', $names);
+        $this->assertCount(12, $names);
     }
 
     public function testEnsureDefaultCategoriesNeverResurrectsAFullyEmptiedList(): void

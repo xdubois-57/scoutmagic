@@ -29,7 +29,12 @@ final class ExpectedReceivable
         public readonly ?string $waivedAt = null,
         public readonly ?int $waivedBy = null,
         public readonly ?string $refundRequestedAt = null,
-        public readonly ?int $refundRequestedBy = null
+        public readonly ?int $refundRequestedBy = null,
+        /**
+         * Where its payments are booked (issue #838) — null only on a
+         * receivable raised before categories were mandatory.
+         */
+        public readonly ?int $categoryId = null
     ) {
     }
 

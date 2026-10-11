@@ -841,7 +841,7 @@ Cas placés délibérément, un par méthode de `BankStatementBuilder` :
 
 - des **cotisations** portant une vraie communication structurée, calculée par
   `StructuredCommunicationService::format()` — la même liste sert à créer les
-  créances attendues en IT-06, sinon la page « Paiements attendus » ne
+  créances attendues en IT-06, sinon la page « Contrôle des créances » ne
   réconcilie rien ;
 - une ligne **`Refusé`**, que `BnpParser` ignore : elle n'a jamais eu lieu sur
   le compte ;

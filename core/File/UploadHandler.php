@@ -195,12 +195,13 @@ class UploadHandler
         // this generic path with no processor of their own.
         $image = $this->correctOrientation($image, $source, $mimeType);
 
+        // No default arm: an $image exists only for the four types the
+        // match above decodes, so any other one already left by the fallback.
         $result = match ($mimeType) {
             'image/jpeg' => imagejpeg($image, $target, 90),
             'image/png' => imagepng($image, $target),
             'image/webp' => imagewebp($image, $target, 90),
             'image/gif' => imagegif($image, $target),
-            default => false,
         };
 
         imagedestroy($image);

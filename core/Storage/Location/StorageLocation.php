@@ -38,7 +38,13 @@ final class StorageLocation
         public readonly ?string $lastCheckedAt,
         public readonly ?bool $lastCheckOk,
         public readonly ?string $lastCheckError,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        /**
+         * What the last restore did to this location and asks the
+         * administrator to check (#832), or null. Cleared when the
+         * location is saved.
+         */
+        public readonly ?string $reconciliationNote = null
     ) {
     }
 

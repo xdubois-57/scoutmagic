@@ -47,4 +47,24 @@ final class ArticleShareSourceService implements ArticleShareSourceInterface
             $this->articles->isSociallyShareable($article)
         );
     }
+
+    /**
+     * Existence and an address, and nothing else — the question a public
+     * page asks to decide one button (issue #706, IT-04).
+     *
+     * The short address when the article has one, like {@see describe()}
+     * and like the article's own `og:url`: a visitor may have been handed
+     * either form, and both lead to the same page.
+     */
+    public function pagePath(int $articleId): ?string
+    {
+        $article = $this->articles->findById($articleId);
+        if ($article === null) {
+            return null;
+        }
+
+        return $article->shortUrlCode !== null
+            ? '/s/' . $article->shortUrlCode
+            : '/news/' . $article->id;
+    }
 }

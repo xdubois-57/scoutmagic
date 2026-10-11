@@ -49,6 +49,7 @@ document.body.innerHTML = `
 
 await import('../../public/assets/js/api.js');
 await import('../../public/assets/js/toast.js');
+await import('../../public/assets/js/rich-text-link.js');
 await import('../../public/assets/js/news-form-builder.js');
 
 const list = () => document.getElementById('news-fields-list');

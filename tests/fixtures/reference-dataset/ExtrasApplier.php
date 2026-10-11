@@ -39,6 +39,7 @@ use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\ReceivableAllocationRepository;
 use Modules\Finance\Repository\TransactionRepository;
@@ -535,7 +536,12 @@ final class ExtrasApplier
                 // the treasurer partition has nobody to narrow against.
                 new AccountVisibility(TreasurerScope::systemCaller()),
             ),
+            new CategoryRepository($this->pdo),
         );
+
+        // Every receivable names its category (issue #838): these are
+        // membership fees, booked where the default categories book them.
+        $categoryId = $this->categoryNamed(ExtrasBlueprint::RECEIVABLE_CATEGORY);
 
         $applied = 0;
         $reference = 1;
@@ -549,12 +555,29 @@ final class ExtrasApplier
                     ExtrasBlueprint::RECEIVABLE_AMOUNT_CENTS,
                     $communication,
                     ExtrasBlueprint::RECEIVABLE_LABELS[$label],
+                    $categoryId,
                 );
                 $applied++;
             }
         }
 
         return $applied;
+    }
+
+    /**
+     * The category of that name, created when the finance seeder has not
+     * already made it — so this applier never depends on running second.
+     */
+    private function categoryNamed(string $name): int
+    {
+        $categories = new CategoryRepository($this->pdo);
+        foreach ($categories->findAllOrdered() as $category) {
+            if ($category->name === $name) {
+                return $category->id;
+            }
+        }
+
+        return $categories->create($name);
     }
 
     // -------------------------------------------------------------- outils
