@@ -64,16 +64,11 @@ Aucune autre page n'est gardée. Sans connexion :
 - les pages non disponibles sont grisées ;
 - rien ne peut être envoyé, mais ce que vous avez tapé reste.
 
-L'écran « Pas de connexion » signifie que la page n'est pas gardée :
-vérifiez que les cookies fonctionnels sont activés (en pied de page,
-en ligne). Une copie plus ancienne que le délai de l'unité, 30 jours
-par défaut, n'est plus proposée.
-
 Si l'écran « Pas de connexion » s'affiche, la page n'a pas été gardée.
 Vérifiez que les cookies fonctionnels sont activés (lien en pied de
-page, en ligne) et que la page a été ouverte dans l'application
-récemment : une copie plus ancienne que le délai fixé par l'unité,
-30 jours par défaut, n'est plus proposée.
+page, en ligne) et ouvrez l'application avec une connexion de temps en
+temps : une copie plus ancienne que le délai fixé par l'unité, 30 jours
+par défaut, n'est plus proposée.
 
 Les documents privés, les données financières et les pages de gestion
 ne sont jamais gardés. La copie locale est effacée à la déconnexion ou

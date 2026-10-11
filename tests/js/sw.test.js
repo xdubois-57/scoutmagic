@@ -851,7 +851,7 @@ describe('sw.js: offlinePage()', () => {
 
         const res = await sw.offlinePage();
 
-        expect(res.body).toContain('ouverte dans l\'application récemment');
+        expect(res.body).toContain('ouverte avec une connexion récemment');
         expect(res.body).not.toContain('moins de');
     });
 

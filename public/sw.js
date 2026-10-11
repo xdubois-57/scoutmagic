@@ -1039,8 +1039,9 @@ function offlineConditions(stalenessDays) {
         when = 'il y a moins de ' + days + (days === 1 ? ' jour' : ' jours');
     }
 
-    return 'Une page n\'est disponible hors ligne que si les cookies fonctionnels sont activés '
-        + '(depuis le pied de page, en ligne) et si vous l\'avez ouverte dans l\'application ' + when + '.';
+    return 'Une page n\'est disponible hors ligne que si elle fait partie des pages que l\'application garde, '
+        + 'si les cookies fonctionnels sont activés (depuis le pied de page, en ligne) et si '
+        + 'l\'application a été ouverte avec une connexion ' + when + '.';
 }
 
 /**

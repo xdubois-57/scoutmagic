@@ -323,7 +323,7 @@ class PwaControllerTest extends TestCase
         ));
         $body = preg_replace('~\s+~', ' ', $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody());
 
-        $this->assertStringContainsString("ouverte dans l'application récemment.", $body);
+        $this->assertStringContainsString("ouverte avec une connexion récemment.", $body);
         $this->assertStringNotContainsString('moins de 0', $body);
     }
 
