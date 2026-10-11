@@ -409,10 +409,8 @@ class MovementController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $transaction = $this->transactionRepository->findById($id);
         $role = Role::fromString(AuthSession::getRole());
-        if (
-            $transaction === null
-            || !$this->financeService->isAccountVisibleTo($this->financeService->getAccount($transaction->accountId), $role)
-        ) {
+        $account = $transaction !== null ? $this->financeService->getAccount($transaction->accountId) : null;
+        if ($transaction === null || !$this->financeService->isAccountVisibleTo($account, $role)) {
             // Same answer for « no such movement » and « not yours to see »
             // — see attachments() above.
             return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);

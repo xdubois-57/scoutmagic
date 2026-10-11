@@ -357,7 +357,18 @@ describe('finance-movements.js: linked receivables (issue #838)', () => {
         await openWith({ success: true, receivables: [] });
         expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
 
-        await openWith({ success: false });
+        await openWith({ success: false, receivables: [
+            { id: 7, label: 'Location LOC-123', amount_cents: 100, destination: null },
+        ] });
+        expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
+    });
+
+    it('stays hidden when loading the receivables is rejected', async () => {
+        await boot();
+        fetch.mockRejectedValueOnce(new Error('network failure'));
+        desktopRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await settle();
+
         expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
     });
 

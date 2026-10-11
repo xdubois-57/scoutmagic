@@ -642,13 +642,18 @@ class FinanceRbacTest extends TestCase
         $this->scopeToTreasurerOf(self::SECTION_MINE);
         AuthSession::login(1, 'tresorier@test.be', 'intendant');
 
+        $receivable = $this->expectedReceivableRepository->create('news', 1, $mineAccount, 4500, '+++123/4567/89002+++', 'Jean Dupont');
+        (new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo))->create($mineMovement, $receivable, 4500, 'manual', 1);
+
         $controller = $this->instantiateController('MovementController');
         $mine = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $mineMovement]);
         $theirs = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement]);
         $unknown = $controller->receivables(new Request('GET', '/x', [], [], [], []), ['id' => '999999']);
 
         $this->assertSame(200, $mine->getStatusCode());
-        $this->assertSame(['success' => true, 'receivables' => []], json_decode($mine->getBody(), true));
+        $mineBody = json_decode($mine->getBody(), true);
+        $this->assertTrue($mineBody['success']);
+        $this->assertSame([$receivable], array_column($mineBody['receivables'], 'id'));
         $this->assertSame(404, $theirs->getStatusCode());
         $this->assertSame($unknown->getBody(), $theirs->getBody());
     }
@@ -717,7 +722,10 @@ class FinanceRbacTest extends TestCase
             $this->expectedReceivableRepository,
             $this->expectedReceivableService,
             $this->accountRepository,
-            $this->accountVisibility
+            $this->accountVisibility,
+            [],
+            null,
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo)
         );
     }
 

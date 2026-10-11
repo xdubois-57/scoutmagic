@@ -109,7 +109,9 @@
         el('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
         inputEl('md-comment').value = row.dataset.comment || '';
         selectEl('md-fiscal-year').value = row.dataset.fiscalYearId;
-        loadLinkedReceivables(row.dataset.id || '');
+        // Not awaited: the dialog opens at once and the section fills in;
+        // loadLinkedReceivables() handles its own failure.
+        void loadLinkedReceivables(row.dataset.id || '');
         movementDetailsModal ? movementDetailsModal.show() : detailsModalEl.classList.add('show');
     }
 
