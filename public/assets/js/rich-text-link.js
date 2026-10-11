@@ -1443,7 +1443,7 @@
         var index = 0;
         var position = child ? children.indexOf(/** @type {ChildNode} */ (child)) : children.length;
         // Which line: one more for every nested list before the caret.
-        children.slice(0, position < 0 ? 0 : position).forEach(function (previous) {
+        children.slice(0, Math.max(position, 0)).forEach(function (previous) {
             if (previous.nodeName === 'UL' || previous.nodeName === 'OL') {
                 index++;
             }
