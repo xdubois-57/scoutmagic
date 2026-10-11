@@ -49,7 +49,28 @@
                                 <a href="{{ manage ? '/news/' ~ article.id ~ '/gerer' : '/news/' ~ article.id }}" class="text-decoration-none stretched-link">{{ article.title }}</a>
                             </h2>
                             <div class="d-flex flex-wrap align-items-center gap-2 small text-body-secondary mb-2">
-                                <span>{{ article.createdAt|french_date }}</span>
+                                {#
+                                  The publication state, first and solid,
+                                  so it stands out from the light badges
+                                  after it (issue #845) — on the manager's
+                                  list only: the public one holds nothing
+                                  but published articles. The date is the
+                                  one the list sorts on: publication, or
+                                  creation for a draft.
+                                #}
+                                {% if manage %}
+                                    {% if row.state == 'draft' %}
+                                        {% include 'partials/status_badge.html.twig' with { solid: 'dark', label: 'Brouillon' } only %}
+                                        <span>Créée le {{ row.date|french_date }}</span>
+                                    {% elseif row.state == 'scheduled' %}
+                                        {% include 'partials/status_badge.html.twig' with { solid: 'primary', label: 'Programmée le ' ~ row.scheduled_for } only %}
+                                    {% else %}
+                                        {% include 'partials/status_badge.html.twig' with { solid: 'success', label: 'Publiée' } only %}
+                                        <span>Publiée le {{ row.date|french_date }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span>{{ row.date|french_date }}</span>
+                                {% endif %}
                                 {% if row.form_badge == 'open' %}
                                     {% include 'partials/status_badge.html.twig' with { status: 'active', label: 'Formulaire ouvert' } only %}
                                 {% elseif row.form_badge == 'closed' %}
@@ -58,6 +79,7 @@
                                 {% if manage %}
                                     <span class="badge rounded-pill text-bg-light border">
                                         {% if article.visibility == 'public' %}Public
+                                        {% elseif article.visibility == 'identified' %}Membres connectés
                                         {% elseif article.visibility == 'chief' %}Chefs
                                         {% elseif article.visibility == 'admin' %}Chefs d'Unité
                                         {% else %}Lien direct

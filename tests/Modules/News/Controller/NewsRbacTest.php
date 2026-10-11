@@ -84,7 +84,7 @@ class NewsRbacTest extends TestCase
 
         $articleRepository = new ArticleRepository($this->pdo);
         $formRepository = new FormRepository($this->pdo);
-        $this->articleId = $articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $this->articleId = NewsTestHelper::publish($this->pdo, $articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
         // response_role_min is 'intendant' here specifically so the
         // responses/export route tests below isolate the ROUTE-level
         // role_min guard from FormController's own extra in-controller

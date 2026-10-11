@@ -60,6 +60,7 @@
 import { expect, test } from '@playwright/test';
 
 import { loginAsAdmin } from '../support/admin-login.js';
+import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dialog.js';
 import { waitForMail } from '../support/maildrop.js';
 import { waitOutHumanCheckDelay } from '../support/human-check.js';
 import { openModal } from '../support/modal.js';
@@ -212,7 +213,10 @@ test('a chief publishes an article with a paying form, a family signs up and is 
     // Every receivable names its category (issue #838).
     await paymentSettings.getByLabel('Catégorie').selectOption({ label: 'Weekend de section' });
 
-    await page.getByRole('button', { name: 'Enregistrer' }).click();
+    // Published straight away (issue #845): a draft takes no response.
+    await waitForConfirmReady(page);
+    await page.getByRole('button', { name: 'Publier', exact: true }).click();
+    await answerConfirmation(page);
 
     // Saving lands back on the article's own management page
     // (NewsController::store()), now with an id — which is also where the

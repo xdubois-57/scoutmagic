@@ -69,7 +69,7 @@ class ScanServiceTest extends TestCase
      */
     private function event(string $title, bool $issuesTicket = true, ?string $eventDate = null): array
     {
-        $articleId = $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId));
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
             null, null, false, 'chief', null, null, $issuesTicket, $eventDate, null
@@ -125,6 +125,23 @@ class ScanServiceTest extends TestCase
         $this->assertNotContains($notTicketed, $ids);
     }
 
+    /**
+     * An event whose article is not online yet has no door to hold
+     * (issue #845): its form takes no booking before publication.
+     */
+    public function testAnEventWhoseArticleIsNotOnlineIsNotOffered(): void
+    {
+        [$articleId, $formId] = $this->event('Souper programmé');
+        $this->dinnerFields($formId);
+        $this->booking($formId, [], 'a@test.com');
+        $this->articles->setPublication($articleId, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+
+        $this->assertSame([], $this->service()->listControllableEvents(Role::SUPERADMIN));
+
+        $this->articles->setPublication($articleId, Article::STATUS_DRAFT, null);
+        $this->assertSame([], $this->service()->listControllableEvents(Role::SUPERADMIN));
+    }
+
     public function testTheEventNearestTodayComesFirst(): void
     {
         [, $lastYear] = $this->event('Souper spaghetti 2025', true, '2025-03-15');
@@ -147,7 +164,7 @@ class ScanServiceTest extends TestCase
         // closes_at closes the REGISTRATIONS — a dinner on 14 March closes
         // its bookings on the 10th. Filtering on it would hide the event
         // on precisely the evening it is being controlled.
-        $articleId = $this->articles->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articles->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId));
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
             null, '2020-01-01', true, 'chief', null, null, true, '2026-03-14', null

@@ -44,9 +44,12 @@ class NewsMenuHookServiceTest extends TestCase
         $this->accountId = (int) $this->pdo->lastInsertId();
     }
 
-    private function form(bool $issuesTicket): void
+    private function form(bool $issuesTicket, bool $online = true): void
     {
         $articleId = $this->articles->create('Souper', Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
+        if ($online) {
+            NewsTestHelper::publish($this->pdo, $articleId);
+        }
         $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
             null, null, false, 'chief', null, null, $issuesTicket
@@ -58,6 +61,17 @@ class NewsMenuHookServiceTest extends TestCase
         $this->form(false);
 
         // A dead entry in a menu is worse than no entry at all.
+        $this->assertSame([], $this->hook->getMenuEntries('chief@test.com'));
+    }
+
+    /**
+     * A ticketed form whose article is still a draft delivers no ticket
+     * yet (issue #845): no shortcut for it.
+     */
+    public function testATicketedFormOfADraftCarriesNoEntry(): void
+    {
+        $this->form(true, online: false);
+
         $this->assertSame([], $this->hook->getMenuEntries('chief@test.com'));
     }
 

@@ -50,6 +50,31 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- post, while an indexed page is offered to every search, forever,
     -- and sends anonymous visitors to a 403.
     is_indexed BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Whether the article is out (issue #845). Two stored states only;
+    -- « programmée » is read, never stored: `published` with a
+    -- published_at still in the future. Service\ArticleService::isLive()
+    -- is the one place that answers « is it online? » in PHP, and
+    -- Repository\ArticleRepository::liveCondition() the one place that
+    -- answers it in SQL.
+    --
+    -- The defaults stand in for a backfill: an article that existed
+    -- before this column is `published`, dated the day the schema is
+    -- applied. The editor never relies on them — it writes `draft` and a
+    -- NULL date itself.
+    status ENUM('draft', 'published') NOT NULL DEFAULT 'published',
+    -- Set once, at the FIRST publication — the click, or the scheduled
+    -- time — and never moved after, not even by a return to draft and a
+    -- republication. Only an article scheduled and not yet online may
+    -- have it changed. NULL for a draft that was never published. It is
+    -- the date the site shows and sorts on.
+    published_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Whether the author is still owed « Votre actualité est en ligne »
+    -- (issue #845, part 2): raised by a scheduling, lowered by whoever
+    -- claims it first — Task\PublishScheduledArticlesHandler at the time,
+    -- or a manual « Publier maintenant » / return to draft, which owe
+    -- nothing. Claiming it is what makes a replayed or doubled run
+    -- notify once.
+    publication_notice_pending BOOLEAN NOT NULL DEFAULT FALSE,
     seo_keywords TEXT NULL,
     seo_stop_date DATE NULL,
     short_url_code VARCHAR(10) NULL,
@@ -61,6 +86,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- explicitly by Repository\ArticleRepository::update() instead.
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_news_visibility (visibility),
+    INDEX idx_news_status_published (status, published_at),
     CONSTRAINT fk_news_article_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
     CONSTRAINT fk_news_article_image FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

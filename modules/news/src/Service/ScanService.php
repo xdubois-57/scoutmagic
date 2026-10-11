@@ -146,7 +146,10 @@ class ScanService
             }
 
             $article = $this->articles->findById($form->newsArticleId);
-            if ($article === null) {
+            // An article that is not online offers no event to control
+            // (issue #845) — back in draft, its tickets stay valid, and the
+            // event returns to this list with its republication.
+            if ($article === null || !ArticleService::isOnline($article)) {
                 continue;
             }
 

@@ -3,7 +3,10 @@
 {% block title %}{{ article.title }} — {{ site_name }}{% endblock %}
 
 {% block head_meta %}
-    {% if not article.isEffectivelyIndexed() %}
+    {# An article that is not online is shown to its managers only (issue
+       #845): nothing about it is offered to a search engine yet, whatever
+       its own setting says. #}
+    {% if not is_live or not article.isEffectivelyIndexed() %}
         <meta name="robots" content="noindex">
     {% elseif article.seoKeywords %}
         <meta name="keywords" content="{{ article.seoKeywords }}">
@@ -15,9 +18,27 @@
 
 {% block content %}
     <div>
+        {#
+          Shown to a manager only, the one reader this page has before
+          publication (issue #845; Controller\NewsController::show()):
+          everybody else is told the article is not online and sees nothing
+          of it.
+        #}
+        {% if not is_live %}
+            <div class="alert alert-info d-flex flex-column flex-sm-row gap-2 align-items-sm-center justify-content-between" data-news-not-live>
+                <div>
+                    <strong>{{ state == 'scheduled' ? 'Programmée pour le ' ~ scheduled_for : 'Brouillon — non publiée' }}</strong>
+                    <div class="small">Vous la voyez parce que vous gérez les actualités. Personne d'autre ne peut l'ouvrir, même avec le lien.</div>
+                </div>
+                {% if can_edit %}
+                    <a href="/news/{{ article.id }}/gerer" class="btn btn-outline-primary flex-shrink-0">Ouvrir l'éditeur</a>
+                {% endif %}
+            </div>
+        {% endif %}
+
         {% include 'partials/page_header.html.twig' with {
             title: article.title,
-            subtitle: article.createdAt|french_date ~ (author_name ? ' · ' ~ author_name : ''),
+            subtitle: article.displayDate()|french_date ~ (author_name ? ' · ' ~ author_name : ''),
         } only %}
 
         {% if article.imageFileId %}
@@ -42,7 +63,21 @@
                     <div class="alert alert-danger">{{ submit_error }}</div>
                 {% endif %}
 
-                {% if requires_login %}
+                {% if not is_live %}
+                    {# The form as it will be, but closed: before
+                       publication it takes no response from anybody, its
+                       managers included — Controller\FormController
+                       refuses one on the server too (issue #845). #}
+                    <fieldset disabled>
+                        {% for row in fields %}
+                            {% if not row.field.isNonInput() %}
+                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+                            {% endif %}
+                        {% endfor %}
+                        <button type="button" class="btn btn-primary w-100 w-sm-auto">Envoyer</button>
+                    </fieldset>
+                    <p class="form-text mb-0 mt-2">Le formulaire n'accepte aucune réponse avant la publication.</p>
+                {% elseif requires_login %}
                     <div class="alert alert-info">
                         Connectez-vous pour remplir ce formulaire.
                         <a href="/login" class="alert-link">Se connecter</a>

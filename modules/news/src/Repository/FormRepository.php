@@ -128,17 +128,22 @@ class FormRepository
     }
 
     /**
-     * Whether any form at all delivers a ticket — the one question the
+     * Whether any form of an ONLINE article delivers a ticket — the one question the
      * conditional « Scanner un billet » menu entry asks
      * (Menu\NewsMenuEntryProvider). A unit that never runs a ticketed
      * event must not carry a dead entry in its menu, and that is checked
      * on every menu build, so it is a bounded EXISTS rather than a list.
      */
-    public function anyFormIssuesTickets(): bool
+    public function anyFormIssuesTickets(?\DateTimeImmutable $now = null): bool
     {
-        $stmt = $this->pdo->query('SELECT 1 FROM news_forms WHERE issues_ticket = 1 LIMIT 1');
+        // Only a form whose article is online counts (issue #845): the
+        // shortcut leads to the door screen, which lists online events
+        // only.
+        $stmt = $this->pdo->prepare('SELECT 1 FROM news_forms f JOIN news_articles a ON a.id = f.news_article_id '
+            . 'WHERE f.issues_ticket = 1 AND ' . ArticleRepository::liveCondition('a') . ' LIMIT 1');
+        $stmt->execute([($now ?? new \DateTimeImmutable())->format('Y-m-d H:i:s')]);
 
-        return $stmt !== false && $stmt->fetchColumn() !== false;
+        return $stmt->fetchColumn() !== false;
     }
 
     /**

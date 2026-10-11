@@ -9233,6 +9233,15 @@ if ($isEnabled('news')) {
         $fileRepository,
         $financeExpectedReceivableForOthers
     );
+    // A cover belongs to its article, and is refused while the article is
+    // not online except to whoever manages the news (issue #845) — decided
+    // at each request for the image, so a scheduled article's cover opens
+    // at the very minute the article does. Registered before the guard is
+    // built, further down.
+    $fileOwnershipCheckers[] = new \Modules\News\File\NewsCoverOwnershipChecker(
+        $newsArticleRepo,
+        $newsArticleService
+    );
     $newsFormService = new \Modules\News\Service\FormService(
         $newsFormRepo,
         $newsFieldRepo,

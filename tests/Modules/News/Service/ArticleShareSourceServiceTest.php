@@ -44,6 +44,21 @@ final class ArticleShareSourceServiceTest extends TestCase
         $this->assertFalse($shared?->shareable);
     }
 
+    /**
+     * Nothing is shared of an article that is not online yet (issue #845):
+     * its address would only lead to « pas encore en ligne ».
+     */
+    public function testAnArticleThatIsNotOnlineIsNotDescribed(): void
+    {
+        $draft = new Article(5, 'Inscriptions', Article::VISIBILITY_PUBLIC, false, true, null, null, 'abc', 7, '2026-09-01', '2026-09-01', null, 11, Article::STATUS_DRAFT, null);
+        $scheduled = new Article(5, 'Inscriptions', Article::VISIBILITY_PUBLIC, false, true, null, null, 'abc', 7, '2026-09-01', '2026-09-01', null, 11, Article::STATUS_PUBLISHED, '2999-01-01 08:00:00');
+
+        $this->assertNull($this->service($draft)->describe(5, 'chief', 7));
+        $this->assertNull($this->service($scheduled)->describe(5, 'chief', 7));
+        // The page still exists: it answers « pas encore en ligne » itself.
+        $this->assertSame('/s/abc', $this->service($draft)->pagePath(5));
+    }
+
     public function testAnArticleTheCallerMayNotEditIsNotThere(): void
     {
         $service = $this->service($this->article(Article::VISIBILITY_PUBLIC, 'abc'));
@@ -113,7 +128,7 @@ final class ArticleShareSourceServiceTest extends TestCase
 
     private function article(string $visibility, ?string $code): Article
     {
-        return new Article(5, 'Inscriptions', $visibility, false, true, null, null, $code, 7, '2026-09-01', '2026-09-01', null, 11);
+        return new Article(5, 'Inscriptions', $visibility, false, true, null, null, $code, 7, '2026-09-01', '2026-09-01', null, 11, Article::STATUS_PUBLISHED, '2026-09-01 10:00:00');
     }
 
     private function service(Article $article): ArticleShareSourceService

@@ -13,7 +13,7 @@
 // see. A regression here is a stored-XSS path, so the cases below are
 // written as an allowlist specification rather than as a tour of the
 // implementation.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 // The real site-wide toolboxes, loaded by base.html.twig before every page
 // script — same order here (static side-effect imports run in order).
 import '../../public/assets/js/api.js';
@@ -363,7 +363,7 @@ describe('news-form-builder.js: addFieldEditRow() is only ever handed a literal'
 // of them are only ever a courtesy: the server refuses indexing for
 // `direct_link` and `identified` on its own (Service\ArticleService::
 // enforceSeoRules), and derives the form's access from the same value.
-// Hiding the SEO panel spares the author a section that would be
+// Disabling the SEO controls spares the author a choice that would be
 // discarded; it is never the protection. These cases pin the rules as a
 // table so a fifth visibility cannot be added without deciding them.
 describe('news-form-builder.js: visibilityUiState()', () => {
@@ -378,18 +378,14 @@ describe('news-form-builder.js: visibilityUiState()', () => {
         });
     });
 
-    it('offers the SEO panel only where indexing is actually possible', () => {
-        expect(visibilityUiState('public').showSeoSection).toBe(true);
-        expect(visibilityUiState('chief').showSeoSection).toBe(true);
-        expect(visibilityUiState('admin').showSeoSection).toBe(true);
-    });
-
-    it('hides the SEO panel for the two visibilities the server refuses to index', () => {
-        // direct_link: in no list at all. identified: a crawler never
-        // signs in, so an indexed page would publish the title, the
-        // summary and the cover image of a members-only article.
-        expect(visibilityUiState('direct_link').showSeoSection).toBe(false);
-        expect(visibilityUiState('identified').showSeoSection).toBe(false);
+    it('enables indexing for a Public article only', () => {
+        // Issue #845: every other visibility is refused by the server —
+        // direct_link is in no list, and identified, chief and admin pages
+        // would send a search engine's visitors to a refusal.
+        expect(visibilityUiState('public').seoEnabled).toBe(true);
+        ['identified', 'chief', 'admin', 'direct_link'].forEach((v) => {
+            expect(visibilityUiState(v).seoEnabled, v).toBe(false);
+        });
     });
 
     it('shows each explanatory note only under its own visibility', () => {
@@ -407,7 +403,7 @@ describe('news-form-builder.js: visibilityUiState()', () => {
         const state = visibilityUiState('something-else');
 
         expect(state.formAccessIsPublic).toBe(false);
-        expect(state.showSeoSection).toBe(true);
+        expect(state.seoEnabled).toBe(false);
         expect(state.showDirectLinkHelp).toBe(false);
         expect(state.showIdentifiedHelp).toBe(false);
     });
@@ -443,5 +439,69 @@ describe('news-form-builder.js: createRichTextEditor()', () => {
         // on an element a browser would happily let you type into.
         expect(editable.contentEditable).toBe('true');
         expect(editable.getAttribute('role')).toBe('textbox');
+    });
+});
+
+// The Référencement card is disabled outside « Public » (issue #845), and
+// coming back to « Public » re-enables it — but never the AI keywords
+// button on its own: that one also needs a title or some content, and
+// stays disabled while its request runs.
+describe('news-form-builder.js: the Référencement card follows the visibility', () => {
+    async function loadEditor(title) {
+        document.body.innerHTML = `
+            <input name="title" value="${title}">
+            <div id="news-visibility-group">
+                <input type="radio" name="visibility" value="public" checked>
+                <input type="radio" name="visibility" value="identified">
+            </div>
+            <div id="news-seo-section">
+                <input type="checkbox" id="is_indexed">
+                <button type="button" id="news-ai-keywords-btn"><i></i></button>
+            </div>`;
+        vi.resetModules();
+        await import('../../public/assets/js/news-form-builder.js?editor=' + Math.random());
+        return {
+            indexed: document.getElementById('is_indexed'),
+            keywords: document.getElementById('news-ai-keywords-btn'),
+        };
+    }
+
+    function choose(value) {
+        const radio = document.querySelector(`input[name="visibility"][value="${value}"]`);
+        radio.checked = true;
+        radio.dispatchEvent(new window.Event('change'));
+    }
+
+    it('back to Public, re-enables the card but not the AI keywords without a title', async () => {
+        const { indexed, keywords } = await loadEditor('');
+        choose('identified');
+        expect(indexed.disabled).toBe(true);
+        expect(keywords.disabled).toBe(true);
+
+        choose('public');
+
+        expect(indexed.disabled).toBe(false);
+        expect(keywords.disabled).toBe(true);
+    });
+
+    it('back to Public with a title, re-enables the AI keywords too', async () => {
+        const { keywords } = await loadEditor('Souper');
+        choose('identified');
+        expect(keywords.disabled).toBe(true);
+
+        choose('public');
+
+        expect(keywords.disabled).toBe(false);
+    });
+
+    it('leaves a keywords request in flight disabled', async () => {
+        const { keywords } = await loadEditor('Souper');
+        keywords.disabled = true;
+        keywords.dataset.busy = '1';
+
+        choose('identified');
+        choose('public');
+
+        expect(keywords.disabled).toBe(true);
     });
 });

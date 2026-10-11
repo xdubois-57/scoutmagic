@@ -1,0 +1,27 @@
+{% extends "base.html.twig" %}
+
+{#
+  What anybody but a manager sees of an article that is not online yet
+  (issue #845; Controller\NewsController::renderNotOnline()). Nothing of
+  the article itself — no title, no summary, no image: only that it is
+  not online, and when it will be if it is scheduled. It is what the QR
+  code of a poster printed in advance leads to. Answered with a 404 and
+  noindex, so no crawler keeps it and no preview is built from it.
+#}
+
+{% block title %}Actualité pas encore en ligne — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    <meta name="robots" content="noindex">
+{% endblock %}
+
+{% block content %}
+    <div class="text-center py-5 mx-auto" style="max-width: 32rem;">
+        <i class="bi bi-clock fs-2 d-block mb-2 text-body-secondary" aria-hidden="true"></i>
+        <h1 class="h3 mb-2">Cette actualité n'est pas encore en ligne.</h1>
+        {% if scheduled_for %}
+            <p class="mb-0">Elle le sera le {{ scheduled_for }}.</p>
+        {% endif %}
+        <a href="/news" class="btn btn-outline-primary mt-3">Voir les actualités</a>
+    </div>
+{% endblock %}

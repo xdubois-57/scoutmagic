@@ -21,6 +21,7 @@
       action_url: '/news/new',          -- optional
       action_icon: 'bi-plus-lg',        -- optional, defaults to bi-plus-lg
       badge: '2025-2026',               -- optional, see below
+      badge_solid: 'dark',              -- optional: the badge as a solid state
   } only %}
 
   `badge` states WHICH data the page is showing — almost always the scout
@@ -32,6 +33,11 @@
   substitute: on the three pages that pushed for this, the year was there
   and unreadable, buried mid-paragraph in grey small text.
 
+  `badge_solid` ('dark', 'primary' or 'success') draws that badge as a
+  STATE rather than a context — partials/status_badge.html.twig's solid
+  variant — for a page whose subject has one, like an article's « Brouillon »
+  (issue #845).
+
   The action is the page's PRIMARY action — btn-primary, at most one per
   screen (design.md §7.4); creation actions always live here, never as a
   full-width band under the title and never in green. A page needing a
@@ -42,7 +48,9 @@
     <div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
             <h1 class="h3 mb-0">{{ title }}</h1>
-            {% if badge|default('') %}<span class="badge text-bg-secondary">{{ badge }}</span>{% endif %}
+            {% if badge|default('') and badge_solid|default('') %}
+                {% include 'partials/status_badge.html.twig' with { label: badge, solid: badge_solid } only %}
+            {% elseif badge|default('') %}<span class="badge text-bg-secondary">{{ badge }}</span>{% endif %}
         </div>
         {% if subtitle|default('') %}
             <p class="text-body-secondary small mb-0 mt-1">{{ subtitle }}</p>

@@ -11,9 +11,11 @@ namespace Modules\News\Service;
 use Core\File\FileRepository;
 use Core\Module\HomeNewsProvider;
 use Core\Security\Role;
+use Core\Service\DateInput;
 use Core\Url\ShortUrlService;
 use Core\View\EditableContentService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\News\File\NewsCoverOwnershipChecker;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
@@ -38,6 +40,160 @@ class ArticleService implements HomeNewsProvider
     public function findById(int $id): ?Article
     {
         return $this->articleRepository->findById($id);
+    }
+
+    /**
+     * « Is it online? » — the one answer to that question in PHP (issue
+     * #845); Repository\ArticleRepository::liveCondition() is the same
+     * test in SQL. Online means published and dated now or earlier, so an
+     * article programmed for later becomes online at its time with nothing
+     * having to flip it.
+     */
+    public function isLive(Article $article, ?\DateTimeImmutable $now = null): bool
+    {
+        return self::isOnline($article, $now);
+    }
+
+    /**
+     * isLive(), for a caller that holds the repository but not this
+     * service (Service\ScanService) — the same single test, not a copy.
+     */
+    public static function isOnline(Article $article, ?\DateTimeImmutable $now = null): bool
+    {
+        if ($article->status !== Article::STATUS_PUBLISHED || $article->publishedAt === null) {
+            return false;
+        }
+
+        $publishedAt = self::readDate($article->publishedAt);
+
+        return $publishedAt !== null && $publishedAt <= ($now ?? new \DateTimeImmutable());
+    }
+
+    /**
+     * The state an article is shown in: Article::STATE_DRAFT,
+     * STATE_SCHEDULED or STATE_PUBLISHED — read from the two stored
+     * values, never stored itself.
+     */
+    public function state(Article $article, ?\DateTimeImmutable $now = null): string
+    {
+        if ($article->status !== Article::STATUS_PUBLISHED) {
+            return Article::STATE_DRAFT;
+        }
+
+        return $this->isLive($article, $now) ? Article::STATE_PUBLISHED : Article::STATE_SCHEDULED;
+    }
+
+    /**
+     * Whether $role may open /news/{id}: the visibility gate (canView())
+     * AND, for an article that is not online, managing the news — the
+     * `chief` floor of the editing routes. Holding the address is not
+     * enough before publication, a « Lien direct » article included.
+     */
+    public function canRead(Article $article, Role $role, ?\DateTimeImmutable $now = null): bool
+    {
+        if (!$this->canView($article, $role)) {
+            return false;
+        }
+
+        return $this->isLive($article, $now) || self::managesNews($role);
+    }
+
+    /**
+     * Whether $role is one of « ceux qui gèrent les actualités »: the
+     * `chief` floor every editing route of this module carries
+     * (module.json). One spelling, used by the page, the form refusal and
+     * the cover's ownership checker alike.
+     */
+    public static function managesNews(Role $role): bool
+    {
+        return $role->hasAccess(Role::CHIEF);
+    }
+
+    /**
+     * Puts the article online now — or keeps the publication date it was
+     * first given, if it already had one in the past (a republication
+     * after a return to draft keeps its date). An article still scheduled
+     * for later is brought forward to now: that is « Publier maintenant ».
+     */
+    public function publish(int $id, ?\DateTimeImmutable $now = null): Article
+    {
+        $article = $this->requireArticle($id);
+        $now ??= new \DateTimeImmutable();
+        $publishedAt = self::readDate($article->publishedAt);
+
+        $date = ($publishedAt === null || $publishedAt > $now) ? $now : $publishedAt;
+        $this->articleRepository->setPublication($id, Article::STATUS_PUBLISHED, $date->format('Y-m-d H:i:s'));
+
+        return $this->requireArticle($id);
+    }
+
+    /**
+     * Programs the article to go online at $at (issue #845, part 2) — the
+     * date it will show from then on. Only a draft that has never been
+     * online may be scheduled (a republication keeps its first date), and
+     * a scheduled article may have its time changed until it is online.
+     *
+     * Raises the author's notice: Task\PublishScheduledArticlesHandler
+     * tells them when the article is out. Nothing else waits for the
+     * time — the lists, the page and the cover read the date themselves.
+     */
+    public function schedule(int $id, \DateTimeImmutable $at, ?\DateTimeImmutable $now = null): Article
+    {
+        $article = $this->requireArticle($id);
+        $now ??= new \DateTimeImmutable();
+
+        $state = $this->state($article, $now);
+        if ($state === Article::STATE_PUBLISHED) {
+            throw new NewsException('Cette actualité est déjà en ligne.');
+        }
+        if ($state === Article::STATE_DRAFT && $article->publishedAt !== null) {
+            throw new NewsException(
+                'Cette actualité a déjà été en ligne : publiez-la, elle garde sa date de publication.'
+            );
+        }
+        if ($at <= $now) {
+            throw new NewsException('Cette heure est déjà passée : choisissez un moment à venir.');
+        }
+
+        $this->articleRepository->setPublication(
+            $id,
+            Article::STATUS_PUBLISHED,
+            $at->format('Y-m-d H:i:00'),
+            announce: true
+        );
+
+        return $this->requireArticle($id);
+    }
+
+    /**
+     * The moment the « Programmer » dialog sends: a date and a time, to the
+     * minute. Null when either is missing or is not a real one.
+     */
+    public static function readScheduleMoment(string $date, string $time): ?\DateTimeImmutable
+    {
+        return DateInput::parse('!Y-m-d H:i', trim($date) . ' ' . trim($time));
+    }
+
+    /**
+     * Takes the article off the site until it is published again.
+     * Nothing attached to it is touched: its form's responses, their
+     * receivables and their tickets stay as they are — the form only
+     * stops accepting new ones (Controller\FormController).
+     *
+     * The publication date of an article that has been online is kept, so
+     * a republication shows the same date. One that was only scheduled,
+     * and never online, loses its future date: it was never published.
+     */
+    public function unpublish(int $id, ?\DateTimeImmutable $now = null): Article
+    {
+        $article = $this->requireArticle($id);
+        $now ??= new \DateTimeImmutable();
+        $publishedAt = self::readDate($article->publishedAt);
+
+        $keep = $publishedAt !== null && $publishedAt <= $now ? $article->publishedAt : null;
+        $this->articleRepository->setPublication($id, Article::STATUS_DRAFT, $keep);
+
+        return $this->requireArticle($id);
     }
 
     public function getBodyHtml(int $articleId): string
@@ -113,7 +269,10 @@ class ArticleService implements HomeNewsProvider
                 // The 192px thumb, not the original: the homepage card renders
                 // this in a 56px box, and originals can weigh several MB.
                 'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
-                'created_at' => $article->createdAt,
+                // The key keeps its name (Core\Module\HomeNewsProvider's
+                // contract); the date it carries is the publication date,
+                // the one every list shows since issue #845.
+                'created_at' => $article->displayDate(),
             ],
             $this->articleRepository->findLatestByVisibilities($visibilities, $limit)
         );
@@ -253,7 +412,7 @@ class ArticleService implements HomeNewsProvider
 
         $code = $this->shortUrlService->createShortUrl('/news/' . $id, $createdBy);
         $this->articleRepository->setShortUrlCode($id, $code);
-        $this->syncCoverImageAccess($imageFileId, $visibility);
+        $this->syncCoverImageAccess($imageFileId, $visibility, $id);
 
         return $this->articleRepository->findById($id);
     }
@@ -297,7 +456,7 @@ class ArticleService implements HomeNewsProvider
         );
 
         $updated = $this->articleRepository->findById($id);
-        $this->syncCoverImageAccess($updated?->imageFileId, $visibility);
+        $this->syncCoverImageAccess($updated?->imageFileId, $visibility, $id);
 
         return $updated;
     }
@@ -318,14 +477,26 @@ class ArticleService implements HomeNewsProvider
      *
      * A no-op UPDATE when the id matches no row, which is what a caller
      * passing an image id from outside `files` gets.
+     *
+     * **The cover also belongs to its article** (issue #845): its owner is
+     * set to the article, and File\NewsCoverOwnershipChecker refuses it
+     * while the article is not online, except to whoever manages the
+     * news. That decision is taken at every request for the image — never
+     * by a task — so a scheduled article's cover opens at the very minute
+     * the article does, and closes again on a return to draft, with
+     * nothing to flip. `role_min` above stays the visibility's floor, in
+     * every state. An article saved before this existed has no owner on
+     * its cover and needs none — it is online; its next save, which is
+     * the only way it can stop being so, sets it.
      */
-    private function syncCoverImageAccess(?int $imageFileId, string $visibility): void
+    private function syncCoverImageAccess(?int $imageFileId, string $visibility, int $articleId): void
     {
         if ($imageFileId === null) {
             return;
         }
 
         $this->fileRepository->updateRoleMin($imageFileId, self::coverImageRoleMin($visibility));
+        $this->fileRepository->updateOwner($imageFileId, NewsCoverOwnershipChecker::OWNER_TYPE, $articleId);
     }
 
     /**
@@ -338,6 +509,14 @@ class ArticleService implements HomeNewsProvider
      */
     public function delete(int $id): void
     {
+        // Only a draft is deleted (issue #845), whoever asks: an article
+        // that is online or scheduled goes back to draft first. Checked
+        // here, where every route to a deletion passes.
+        $article = $this->articleRepository->findById($id);
+        if ($article !== null && $article->status !== Article::STATUS_DRAFT) {
+            throw new NewsException('Pour supprimer cette actualité, repassez-la d\'abord en brouillon.');
+        }
+
         $form = $this->formRepository->findByArticleId($id);
         if ($form !== null && $this->expectedReceivable !== null) {
             $this->expectedReceivable->deleteReceivablesForSource('news', $form->id);
@@ -350,6 +529,26 @@ class ArticleService implements HomeNewsProvider
     public function markHasForm(int $articleId, bool $hasForm): void
     {
         $this->articleRepository->setHasForm($articleId, $hasForm);
+    }
+
+    private function requireArticle(int $id): Article
+    {
+        $article = $this->articleRepository->findById($id);
+        if ($article === null) {
+            throw new NewsException('Article introuvable.');
+        }
+
+        return $article;
+    }
+
+    /**
+     * A stored DATETIME as an instant, or null when it is empty or will
+     * not read — never « now », which a bare constructor would answer for
+     * an empty string.
+     */
+    private static function readDate(?string $value): ?\DateTimeImmutable
+    {
+        return DateInput::fromStorage($value);
     }
 
     private function assertValidVisibility(string $visibility): void
@@ -367,15 +566,19 @@ class ArticleService implements HomeNewsProvider
     }
 
     /**
-     * direct_link AND identified visibility both force is_indexed =
-     * false, enforced here (service layer) not just hidden in the UI
-     * (module spec §16).
+     * Only a PUBLIC article may be indexed (issue #845): every other
+     * visibility is forced to « not indexed », with no keywords and no
+     * stop date — enforced here (service layer), not only greyed out in
+     * the editor (module spec §16).
      *
-     * They fail the same test for two different reasons: a direct_link
-     * article is deliberately in no list, and an `identified` one would
-     * be advertised by a search engine to visitors who then land on a
-     * 403 — the article is not in the anonymous list either, and that is
-     * the same decision.
+     * Each of the others fails for its own reason: a direct_link article
+     * is deliberately in no list; an `identified`, `chief` or `admin` one
+     * would be advertised by a search engine to visitors who then land on
+     * a refusal.
+     *
+     * A public article that is not online yet may keep the setting: it is
+     * stored, and the page stays `noindex` until it is online, because no
+     * visitor — crawler included — is shown it before then.
      *
      * Note this is NOT the og: question, and the two parted ways with
      * issue #211. A preview is built for a link somebody chose to post;
@@ -393,7 +596,7 @@ class ArticleService implements HomeNewsProvider
         ?string $seoStopDate
     ): array
     {
-        if (in_array($visibility, [Article::VISIBILITY_DIRECT_LINK, Article::VISIBILITY_IDENTIFIED], true)) {
+        if ($visibility !== Article::VISIBILITY_PUBLIC) {
             return [false, null, null];
         }
 

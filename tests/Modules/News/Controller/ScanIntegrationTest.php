@@ -127,7 +127,7 @@ class ScanIntegrationTest extends TestCase
         ?string $eventDate = null,
         string $responseRoleMin = 'chief'
     ): array {
-        $articleId = $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId));
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
             null, null, false, $responseRoleMin, null, null, $issuesTicket, $eventDate, null

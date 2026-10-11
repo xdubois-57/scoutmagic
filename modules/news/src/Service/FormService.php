@@ -221,6 +221,16 @@ class FormService
         return $this->responseRepository->countByFormId($formId) > 0;
     }
 
+    /**
+     * How many responses the form holds — the number « Repasser en
+     * brouillon » states before taking the article off the site (issue
+     * #845): they are all kept.
+     */
+    public function countResponses(int $formId): int
+    {
+        return $this->responseRepository->countByFormId($formId);
+    }
+
     public function findById(int $formId): ?NewsForm
     {
         return $this->formRepository->findById($formId);
