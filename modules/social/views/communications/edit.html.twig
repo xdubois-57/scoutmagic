@@ -231,6 +231,26 @@
         </div>
     {% endif %}
 
+    {# **What this content has already been through** (issue #706, IT-05),
+       at the head of the composer and not at the foot: a chief about to
+       share an album for the second time needs it before they write, not
+       after. Every share of every communication sharing this source —
+       the same album with a different message is a new communication
+       since IT-05 — and the hand-made ones are in it, because they are
+       publications like any other
+       ({@see \Modules\Social\Service\ShareHistory}). #}
+    {% if previous_shares is not empty %}
+        <div class="alert alert-warning small" data-previous-shares>
+            <strong>{{ source_label|default('cette communication')|capitalize }} a déjà été
+                {{ source_label == 'l\'actualité' ? 'partagée' : 'partagé' }}</strong>
+            <ul class="mb-0 mt-1">
+                {% for share in previous_shares %}
+                    <li>{{ share.label }} — le {{ share.date|french_date }}{% if share.author %}, par {{ share.author }}{% endif %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
     {# 3. The title written on the image. Read-only and taken from the
        source when there is one: an album's name is the album's. #}
     {% if from_source %}
@@ -285,7 +305,7 @@
     {% if source and source.blockedReason %}
         <div class="alert alert-warning">{{ source.blockedReason }}</div>
     {% endif %}
-    {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default('') } only %}
+    {% include '@social/share/_destinations.html.twig' with { destinations: destinations, offers_groups: offers_groups|default(false), groups: groups|default([]), csp_nonce: csp_nonce|default(''), shared_by_destination: shared_by_destination|default({}) } only %}
 
     <div class="alert alert-warning small" data-publish-warning>
         Sur Facebook et Instagram, une fois publié, c'est <strong>public</strong> et hors du site : personne ne pourra le reprendre d'ici.
@@ -316,9 +336,22 @@
     {# No « Enregistrer »: « Publier » is what saves (IT-01). #}
     <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center">
         <a class="btn btn-link" href="/medias-sociaux">Voir l'historique</a>
+        {# **The confirmation is built from the boxes actually ticked**
+           (issue #706, IT-05), so `data-confirm` is gone from here: a
+           fixed sentence cannot say « Cet album est déjà parti sur
+           Facebook le 12 septembre, avec le même message » for one
+           destination and « Jamais partagé ici. » for the next.
+           `social-publish-confirm.js` owns it now — a file of its own,
+           because `social-composer.js` returns at once on a page with no
+           card to draw while the confirmation has to stand either way —
+           and it keeps the two things the
+           fixed sentence carried — that a publication is public and
+           outside the site, and the gallery photo leaving sharp. With no
+           JavaScript the form posts with no dialog, as it did before
+           `data-confirm` existed; the server refuses nothing differently
+           for it. #}
         <button type="submit" name="action" value="publish" class="btn btn-primary"
-                data-confirm="Publier maintenant ? Sur Facebook et Instagram, c'est public et hors du site : personne ne pourra le reprendre d'ici."
-                data-confirm-label="Publier">
+                data-publish-confirm>
             <i class="bi bi-share" aria-hidden="true"></i> Publier
         </button>
     </div>
@@ -333,4 +366,8 @@
        appear rather than an error in the console. #}
     <script src="{{ asset('/assets/js/social-card.js') }}" defer></script>
     <script src="{{ asset('/assets/js/social-composer.js') }}" defer></script>
+    {# The confirmation, built from the boxes actually ticked (issue #706,
+       IT-05). After the composer, which is what shows the sharp-photo
+       hint this reads. #}
+    <script src="{{ asset('/assets/js/social-publish-confirm.js') }}" defer></script>
 {% endblock %}

@@ -1,10 +1,39 @@
 {# The destinations of a publishing form, each with its state
-   (Service\DestinationStates) — shared by the share page and a free
-   communication. #}
+   (Service\DestinationStates). One consumer since IT-01 retired the two
+   dedicated share pages — `communications/edit.html.twig`, whether it
+   opened from a source or from nothing — and it stays a partial because
+   it is the one block whose shape the mockup fixes destination by
+   destination.
+
+   **`data-shared-line`** carries what this source has already been
+   through at that destination (issue #706, IT-05), so the confirmation
+   `social-publish-confirm.js` builds can quote it for the boxes actually
+   ticked. It is the sentence WITHOUT its « avec le même message »
+   clause, and **`data-shared-caption`** is the text that destination
+   received: that clause compares the caption about to go, which lives in
+   a textarea the chief can still change, so only the browser can decide
+   it (`Service\ShareHistory::byDestination()`, CodeRabbit and
+   `Claude review` on PR #868). An attribute rather than a JSON blob in a <script>: Twig
+   escapes an attribute whatever a caption contains, and a caption can
+   contain anything. A destination with no attribute was never shared,
+   and the dialog says « Jamais partagé ici. » itself.
+
+   **`data-destination-label` is the checkbox's own label**, « Page
+   Facebook » and not « Facebook »: the dialog's block heading stands for
+   the box that was ticked, and a chief comparing the two must read the
+   same name twice. The mockup writes « Facebook » in both places because
+   its checkbox says « Facebook » too; ours names the account. The
+   SENTENCE inside the block keeps the short name — « est déjà parti sur
+   Facebook » — which is what reads in a sentence and what the mockup
+   writes there (`Service\ShareHistory`). CodeRabbit on PR #868. #}
 <fieldset class="mb-3">
     <legend class="h6">Publier sur</legend>
     {% for d in destinations %}
-        <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}">
+        {% set shared = shared_by_destination[d.value]|default(null) %}
+        <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}"
+             data-destination-label="{{ d.label }}"
+             {% if shared %}data-shared-line="{{ shared.sentence }}"
+             data-shared-caption="{{ shared.caption }}"{% endif %}>
             <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
                    id="dest-{{ d.value }}"
                    {{ d.state in ['available', 'failed'] ? '' : 'disabled' }}
@@ -69,7 +98,11 @@
                             <fieldset>
                                 <legend class="h6">Groupes où vous pouvez publier</legend>
                                 {% for g in groups %}
-                                    <div class="form-check form-check--line-aligned mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}">
+                                    {% set group_shared = shared_by_destination['group:' ~ g.id]|default(null) %}
+                                    <div class="form-check form-check--line-aligned mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}"
+                                         data-destination-label="{{ g.name }}"
+                                         {% if group_shared %}data-shared-line="{{ group_shared.sentence }}"
+                                         data-shared-caption="{{ group_shared.caption }}"{% endif %}>
                                         <input class="form-check-input" type="checkbox" name="groups[]" value="{{ g.id }}"
                                                id="group-{{ g.id }}" data-share-group-name="{{ g.name }}"
                                                {{ g.state in ['available', 'failed'] ? '' : 'disabled' }}

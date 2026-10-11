@@ -175,7 +175,10 @@ Le site est en test et **rien n'a encore été partagé**. Donc :
 - **Quand elle sert** : pour un album partagé sur Facebook (la publication de lien pointe vers elle),
   et pour **tout partage natif ou copie de lien**. Une actualité se partage sur Facebook par sa propre
   adresse. Une communication sans source part sur Facebook en publication photo.
-- **Elle est créée au premier partage qui en a besoin**, pas avant.
+- **Elle est créée au geste qui en a besoin**, pas avant. Pour l'icône de partage, ce geste est la
+  **pression** et non le clic (IT-05, tranché en relecture de la PR #868) : `navigator.share()` exige
+  une activation utilisateur que l'aller-retour réseau dépense. Une pression sans partage laisse donc
+  une page ; le prix est assumé, détaillé au § 47.9 de `specifications.md`.
 - **Elle reste en ligne**, sans retrait possible, même si la source est supprimée.
 - L'album lui-même **reste à `identified`** : la page publique n'expose ni ses autres photos ni son
   contenu.

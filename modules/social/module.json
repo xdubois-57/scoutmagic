@@ -2,7 +2,7 @@
   "id": "social",
   "name": "Réseaux sociaux",
   "description": "Relie la Page Facebook et le compte Instagram de l'unité, pour y publier depuis le site.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -223,6 +223,24 @@
       "method": "POST",
       "controller": "Modules\\Social\\Controller\\CommunicationController",
       "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/medias-sociaux/{id}/lien",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "link",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/medias-sociaux/{id}/partage",
+      "method": "POST",
+      "controller": "Modules\\Social\\Controller\\CommunicationController",
+      "action": "share",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""

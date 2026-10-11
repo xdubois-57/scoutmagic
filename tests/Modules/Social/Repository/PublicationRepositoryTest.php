@@ -78,6 +78,18 @@ final class PublicationRepositoryTest extends TestCase
         $this->assertTrue($this->repository->claim('article', 3, 'facebook', false, 7, $this->now, $this->stale));
     }
 
+    /**
+     * **No communications, no query.** `ShareHistory` asks this for every
+     * communication of a source, and a source nobody has written about
+     * yet answers an empty list — a `WHERE id IN ()` is not valid SQL,
+     * so the guard is the only thing between that case and a syntax
+     * error (issue #706, IT-05).
+     */
+    public function testNoCommunicationsIsAnsweredWithoutAQuery(): void
+    {
+        $this->assertSame([], $this->repository->forCommunications([]));
+    }
+
     private function claim(bool $retry): bool
     {
         return $this->repository->claim('album', 3, 'instagram', $retry, 7, $this->now, $this->stale);

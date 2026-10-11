@@ -13,11 +13,13 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
+use Core\Journal\JournalService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\UserAccountRepository;
 use Modules\Gallery\Api\PhotoPickerInterface;
+use Modules\Social\Api\DirectShare;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
@@ -30,8 +32,10 @@ use Modules\Social\Repository\Publication;
 use Modules\Social\Repository\PublicationRepository;
 use Modules\Social\Service\DestinationStates;
 use Modules\Social\Service\GroupPublishingService;
+use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
 use Modules\Social\Service\PublishRequest;
+use Modules\Social\Service\ShareHistory;
 use Modules\Social\Service\ShareSource;
 use Modules\Social\Service\ShareSourceResolver;
 use Twig\Environment;
@@ -84,13 +88,6 @@ final class CommunicationController extends AbstractController
 {
     public const HISTORY_PATH = '/medias-sociaux';
 
-    /**
-     * How long a second, byte-identical share of the same source counts
-     * as the same POST arriving twice rather than a decision taken again.
-     * Generous enough to cover a slow Meta round trip and the tap that
-     * follows it; short enough that a share meant later is still a share.
-     */
-    private const REPLAY_WINDOW_SECONDS = 120;
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
@@ -126,6 +123,32 @@ final class CommunicationController extends AbstractController
          */
         private readonly EncryptedFileStorageService $cardFiles,
         private readonly UserAccountRepository $accounts,
+        /**
+         * Where the link a chief copies or hands to the phone comes from
+         * (issue #706, IT-05) — and the only thing that creates that
+         * page, which is why the route answering it is a POST.
+         */
+        private readonly PublicPageService $publicPages,
+        /**
+         * What this SOURCE has already been through (issue #706, IT-05):
+         * the block at the head of the composer, and one sentence per
+         * destination for the confirmation.
+         */
+        private readonly ShareHistory $shareHistory,
+        /**
+         * Where a share made by hand is recorded at `security` level
+         * (issue #706, IT-05).
+         *
+         * Every other destination is journalled by `PublishingService`
+         * or `GroupPublishingService` at the same claim/publish juncture,
+         * and `SECURITY.md` § 6 states the rule for this module without
+         * carving anything out: « The journal records who published what,
+         * where ». A gesture that freezes a communication for good and
+         * hands its public page to a telephone is exactly that, and it
+         * was the one destination leaving no trace — `Claude review`
+         * found it on PR #868.
+         */
+        private readonly JournalService $journal,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
     ) {
@@ -149,10 +172,28 @@ final class CommunicationController extends AbstractController
         $names = $this->accounts->findNamesByIds($authorIds);
         $staleBefore = (new \DateTimeImmutable())->modify('-' . PublishingService::STALE_MINUTES . ' minutes');
         $platforms = $this->platformsShown();
+        // **Which of these the chief looking at them may share.** This
+        // page lists the whole unit's contents and is open to every
+        // chief, while the share icon's two routes answer 404 to anyone
+        // but the author or an administrator — so the button has to be
+        // offered only where it can work (`Claude review` on PR #868).
+        // One query for the lot: asking row by row would be thirty reads
+        // on a page that already has its own.
+        $shareable = $this->sources->shareableAmong(
+            array_values(array_map(
+                static fn (array $group): int => (int) $group['id'],
+                array_filter(
+                    $groups,
+                    static fn (array $group): bool => $group['kind'] === ShareSource::KIND_COMMUNICATION
+                )
+            )),
+            AuthSession::getRole(),
+            (int) AuthSession::getUserAccountId()
+        );
 
         $entries = [];
         foreach ($groups as $group) {
-            $entries[] = $this->historyEntry($group, $platforms, $names, $staleBefore);
+            $entries[] = $this->historyEntry($group, $platforms, $names, $staleBefore, $shareable);
         }
 
         return $this->render('@social/communications/history.html.twig', ['entries' => $entries]);
@@ -212,40 +253,35 @@ final class CommunicationController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        // **A replayed POST must not publish the album twice.** Creating
-        // the row and publishing it happen in one request, and the
-        // publication is keyed on the new row's own id, so a second
-        // identical POST would make a second row with a second key and
-        // sail past the unique constraint that used to stop it when the
-        // retired route published against the album's own id. Measured
-        // before this guard: two rows, two publications, two Facebook
-        // posts.
+        // **A replayed POST must not publish the album twice**, and since
+        // IT-05 the database is what says so: `create()` either inserts
+        // or hits `uq_social_communications_twin` and hands back the row
+        // that is already there (issue #793). Creating the row and
+        // publishing it happen in one request, and the publication is
+        // keyed on the new row's own id — so a second identical POST
+        // making a second row would sail past the unique constraint that
+        // stops a second publication. Measured before any of this: two
+        // rows, two publications, two Facebook posts.
         //
-        // **So the guard stops the duplicate ROW, and nothing else.** The
-        // request is then carried out against the row that already
-        // exists, exactly as a second « Publier » on a saved
-        // communication is: a destination already sent is refused by the
-        // unique key, with the sentence that says so, and a destination
-        // this click asks for and that one did not — the chief who shared
-        // to Facebook and then, straight away, to a discussion group —
-        // goes out. A twin never means « drop this »: deciding that from
-        // the text alone would have thrown the second share away in
-        // silence, since the caption the composer prefills is the same
-        // both times (raised in review on the pull request for IT-01).
-        if ($kind !== null) {
-            $twin = $this->communications->recentTwin(
-                $kind,
-                (int) $sourceId,
-                self::body($request),
-                AuthSession::getUserAccountId(),
-                (new \DateTimeImmutable())->modify('-' . self::REPLAY_WINDOW_SECONDS . ' seconds')
-            );
-            $existing = $twin === null ? null : $this->communications->find($twin);
-            if ($existing !== null) {
-                return $this->act($request, $existing);
-            }
-        }
-
+        // The guard stopped the duplicate ROW and nothing else, and that
+        // has not changed: the request is carried out against whichever
+        // row comes back, exactly as a second « Publier » on a saved
+        // communication is. A destination already sent is refused by
+        // `social_publications`' own key, with the sentence that says so,
+        // and a destination this click asks for and that one did not —
+        // the chief who shared to Facebook and then, straight away, to a
+        // discussion group — goes out. Answering the row never means
+        // « drop this »: deciding that from the text alone would have
+        // thrown the second share away in silence, since the caption the
+        // composer prefills is the same both times (raised in review on
+        // the pull request for IT-01).
+        //
+        // What IT-05 changed is the window. It was a SELECT before the
+        // INSERT over 120 seconds, which closed the sequential replay and
+        // left two simultaneous POSTs both passing; the key closes both,
+        // and makes the refusal permanent — the chantier's own rule,
+        // since the same source with a DIFFERENT message is a new
+        // communication, allowed with a warning.
         $id = $this->communications->create(
             // A source-backed communication has no title of its own: the
             // card's title IS the source's, read at every use, so writing
@@ -284,12 +320,21 @@ final class CommunicationController extends AbstractController
         }
 
         if (!$this->isFrozen($communication)) {
-            $this->communications->updateText(
+            $kept = $this->communications->updateText(
                 $communication->id,
                 $communication->hasSource() ? $communication->title : self::title($request),
                 self::body($request),
                 new \DateTimeImmutable()
             );
+            // **Refused: this text is already another communication of
+            // the same source** (the twin key, issue #793). Going on with
+            // the old text would publish something the chief did not
+            // write, so the draft is left as it is and the page says why.
+            if (!$kept) {
+                FlashMessage::set('error', self::twinRefusal($communication));
+
+                return $this->redirect(self::path($communication));
+            }
             $communication = $this->communications->find($communication->id) ?? $communication;
         }
 
@@ -629,7 +674,197 @@ final class CommunicationController extends AbstractController
         return $this->redirect(self::HISTORY_PATH);
     }
 
+    // ————— Sharing by hand, from the history —————
+
+    /**
+     * **The address of this communication's public page, creating it if
+     * this is the first share that needs one** (issue #706, IT-05).
+     *
+     * Answered to the share icon of the history, which needs the link
+     * before it can hand it to the phone's share sheet or to the
+     * clipboard. A POST and not a GET, because answering it CREATES the
+     * page.
+     *
+     * **It records nothing and freezes nothing**, and that is why it is a
+     * second route rather than one: a share sheet the chief dismisses is
+     * not a share, and the chantier says so in as many words. The history
+     * row and the freeze come from {@see share()}, called once the
+     * gesture has gone through.
+     *
+     * The page it mints for a sheet nobody completed stays online,
+     * unreachable by anyone who was never handed the token — the cost of
+     * asking for a link, and the reason nothing but an explicit gesture
+     * reaches this.
+     *
+     * @param array<string, string> $params
+     */
+    public function link(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
+        }
+        // **The source's own rule, before a permanent public address.**
+        // `mine()` answers « this chief may edit it », which is not
+        // « this may leave the site ». An actualité réservée aux
+        // animateurs, a source deleted since, an image still without a
+        // title: `PublishingService::publish()` and
+        // `GroupPublishingService::publish()` both refuse on
+        // `blockedReason` before claiming anything, and
+        // `PublicPageService::ensureUrlFor()` says in its own docblock
+        // that it is called from the publishing path and after a
+        // destination was claimed — which is where that question is
+        // asked. This route calls it with no destination at all, so it
+        // has to ask it itself.
+        //
+        // The cost of not asking was not a stale page but a leak:
+        // minting is irreversible, nothing in this module removes a
+        // page, and the card it then serves is cached a year, immutable,
+        // behind the token alone. A refused publishing attempt stores
+        // that card without freezing anything
+        // ({@see refreshPostedCard()}), so for a staff-only article the
+        // bytes were already waiting and one POST published them.
+        // `Claude review` found it on PR #868.
+        $source = $this->source($params);
+        if ($source === null) {
+            return $this->json(['success' => false, 'error' => 'Communication introuvable.'], 404);
+        }
+        if ($source->blockedReason !== null) {
+            return $this->json(['success' => false, 'error' => $source->blockedReason], 403);
+        }
+
+        $url = $this->publicPages->ensureUrlFor($source->id, new \DateTimeImmutable());
+        if ($url === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.',
+            ], 409);
+        }
+
+        return $this->json(['success' => true, 'url' => $url]);
+    }
+
+    /**
+     * **This share happened** — the sheet was carried through, or the
+     * link reached the clipboard (issue #706, IT-05).
+     *
+     * Recorded as a publication like any other, against its own
+     * destination key, which is what makes the history show it AND what
+     * freezes the communication: `isFrozen()` is « this communication has
+     * at least one publication ». The chantier asks for every share to
+     * freeze, the link copy included — the applications re-read the
+     * public page at every display, so a card changed afterwards would
+     * not be the one the recipients were sent.
+     *
+     * Called only after the browser's own promise resolved, so a
+     * dismissed sheet reaches nothing here. The site never claims the
+     * message was SENT: it knows the link left, and no answer comes back.
+     *
+     * @param array<string, string> $params
+     */
+    public function share(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrfJson($request)) !== null) {
+            return $guard;
+        }
+        $communication = $this->mine($params);
+        // **Read from the body stream, not from `getBody()`.** The one
+        // caller is `ScoutMagicApi.postJson()`, which sends
+        // `Content-Type: application/json`, and PHP fills `$_POST` for a
+        // form body only — so `getBody('kind')` answered '' on every real
+        // request and this route refused every share ever made from a
+        // browser. The CSRF token came through the `X-CSRF-Token` header
+        // and hid nothing of it; the controller test passed because it
+        // built the `Request` with a parsed body, which is a shape no
+        // transport produces. `Claude review` found it on PR #868. The
+        // rest of the site decodes the raw body for the same reason
+        // (`Core\Http\Controller\PushSubscriptionController`).
+        $payload = json_decode($request->getRawBody(), true);
+        $asked = is_array($payload) ? ($payload['kind'] ?? null) : null;
+        $kind = is_string($asked) ? DirectShare::tryFrom($asked) : null;
+        if ($communication === null || $kind === null) {
+            return $this->json(['success' => false, 'error' => 'Partage inconnu.'], 404);
+        }
+
+        $now = new \DateTimeImmutable();
+        // The caption and title are frozen with the rest, so the row
+        // carries what the public page shows rather than the draft's
+        // current text.
+        // **`retry: true`, so a row left `pending` repairs itself.**
+        // `claim()` and `markPublished()` are two statements: a request
+        // that dies between them leaves a `pending` row which freezes the
+        // communication, shows no date and offers no « Réessayer » —
+        // there is nothing to retry for a gesture. Without this flag
+        // every later gesture answered `recorded: false` and the row
+        // stayed broken for good. With it, clicking share again past
+        // `STALE_MINUTES` takes the row over and finishes it; the gesture
+        // IS the confirmation a retry needs, there being no form to tick.
+        // A `published` row is still never re-claimed, so the same share
+        // twice is recorded once. CodeRabbit on PR #868.
+        $claimed = $this->publications->claim(
+            ShareSource::KIND_COMMUNICATION,
+            $communication->id,
+            $kind->value,
+            true,
+            AuthSession::getUserAccountId(),
+            $now,
+            $now->modify('-' . PublishingService::STALE_MINUTES . ' minutes'),
+            $this->frozenTitle($communication) ?? $communication->title,
+            $this->frozenCaption($communication) ?? $communication->body
+        );
+
+        // Already there: the same communication shared the same way
+        // twice. The history said it once, and saying it again would be
+        // the same message at the same place — the one thing this module
+        // always refuses.
+        if (!$claimed) {
+            return $this->json(['success' => true, 'recorded' => false]);
+        }
+
+        $this->publications->markPublished(
+            ShareSource::KIND_COMMUNICATION,
+            $communication->id,
+            $kind->value,
+            '',
+            $now,
+            $now
+        );
+
+        // **At `security`, like every other publication of this module**
+        // (`SECURITY.md` § 6). No caption and no address: what an audit
+        // needs is who handed out what, and where — the page's own
+        // address is a capability, and it is already journalled once at
+        // its creation.
+        $this->journal->log(
+            'social',
+            'published',
+            'security',
+            $kind->label() . ' : communication n° ' . $communication->id,
+            ['source' => ShareSource::KIND_COMMUNICATION, 'source_id' => $communication->id, 'gesture' => $kind->value],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'recorded' => true]);
+    }
+
     // ————— Internals —————
+
+    /**
+     * What to say when the twin key refuses an edit: the chief typed, in
+     * this draft, the text of a communication this album or article
+     * already has.
+     */
+    private static function twinRefusal(Communication $communication): string
+    {
+        // **The source is never null here.** A communication written from
+        // nothing has a NULL `body_hash` (`CommunicationRepository::
+        // create()`), so the twin key cannot refuse ITS edit — writing a
+        // branch for that case would read as a state that can happen.
+        // The `??` is for an unknown source KIND, which `sourceLabel()`
+        // answers null for, and that is a different question.
+        return 'Ce texte est déjà celui d\'une autre communication de '
+            . (ShareSourceResolver::sourceLabel((string) $communication->sourceKind) ?? 'la même source')
+            . '. Modifiez-le, ou repartez de celle qui existe.';
+    }
 
     /**
      * What a form's button asked: go and choose a gallery photo, take the
@@ -804,6 +1039,10 @@ final class CommunicationController extends AbstractController
         // What is being shared, for the one line above the card — from the
         // row once there is one, from the prefill before that.
         $sourceKind = $communication->sourceKind ?? $prefill?->kind;
+        // The album's or the article's own id — never the
+        // communication's. On a prefill it is what « Partager » named; on
+        // a saved row it is the column that remembered it.
+        $sourceId = $communication->sourceId ?? $prefill?->id;
         $fromSource = $sourceKind !== null && $sourceKind !== ShareSource::KIND_COMMUNICATION;
 
         return $this->render('@social/communications/edit.html.twig', [
@@ -851,6 +1090,22 @@ final class CommunicationController extends AbstractController
                 ($source->link ?? null) !== null => 'article',
                 default => 'page',
             },
+            // **What this source has already been through** (issue #706,
+            // IT-05): every share of every communication sharing it, not
+            // just this row's — the same album with a different message
+            // is a new communication since IT-05, so a chief opening the
+            // composer for the third time has two earlier ones behind
+            // them. Reading only the row in hand would show an empty
+            // history to the one person who needs it most.
+            'previous_shares' => $this->shareHistory->lines($sourceKind, $sourceId),
+            // One sentence per destination, for the confirmation the
+            // browser builds from the boxes actually ticked — and the
+            // caption that went, so IT CAN decide « avec le même
+            // message », the case that almost always means somebody
+            // forgot they had already shared it. That verdict is not
+            // computed here: the text it is about is in a textarea the
+            // chief can still change (`Claude review` on PR #868).
+            'shared_by_destination' => $this->shareHistory->byDestination($sourceKind, $sourceId),
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
@@ -993,6 +1248,20 @@ final class CommunicationController extends AbstractController
     private function isFrozen(Communication $communication): bool
     {
         return $this->publications->forSource(ShareSource::KIND_COMMUNICATION, $communication->id) !== [];
+    }
+
+    /**
+     * The title the first destination received, which every later one
+     * receives too — the album's name as it stood then, for a
+     * source-backed share whose own column stays empty by design.
+     */
+    private function frozenTitle(Communication $communication): ?string
+    {
+        foreach ($this->publications->forSource(ShareSource::KIND_COMMUNICATION, $communication->id) as $publication) {
+            return $publication->sourceTitle;
+        }
+
+        return null;
     }
 
     /**
@@ -1139,10 +1408,18 @@ final class CommunicationController extends AbstractController
      * @param array{kind: string, id: int, publications: array<string, Publication>} $group
      * @param list<SocialPlatform> $platforms
      * @param array<int, array{first_name: ?string, last_name: ?string}> $names
+     * @param array<int, true> $shareable the communications this caller
+     *        may share, as a set — the share icon is drawn for those and
+     *        for no others
      * @return array<string, mixed>
      */
-    private function historyEntry(array $group, array $platforms, array $names, \DateTimeImmutable $staleBefore): array
-    {
+    private function historyEntry(
+        array $group,
+        array $platforms,
+        array $names,
+        \DateTimeImmutable $staleBefore,
+        array $shareable
+    ): array {
         $publications = $group['publications'];
         $first = null;
         foreach ($publications as $publication) {
@@ -1163,6 +1440,17 @@ final class CommunicationController extends AbstractController
                 $destinations[$key] = [$publication->destinationLabel ?? 'Groupe de discussion', 'bi-people'];
             }
         }
+        // And one per share the chief made by hand (issue #706, IT-05),
+        // on the same footing and for the same reason: a share sheet or a
+        // copied link is something that HAPPENED, not a standing
+        // destination, so it has no « Jamais partagé ici » state to show
+        // and appears only once it exists.
+        foreach ($publications as $key => $publication) {
+            $direct = DirectShare::tryFrom($key);
+            if ($direct !== null) {
+                $destinations[$key] = [$direct->label(), $direct->icon()];
+            }
+        }
 
         $rows = [];
         foreach ($destinations as $key => [$label, $icon]) {
@@ -1174,19 +1462,62 @@ final class CommunicationController extends AbstractController
                 'state' => match (true) {
                     $publication === null => 'not_requested',
                     $publication->isPublished() => 'published',
+                    // **A gesture never reads as a failure**, however
+                    // long its row has sat there (`Claude review` on PR
+                    // #868). `isRetryable()` turns any `pending` row
+                    // into `failed` past `STALE_MINUTES`, which is right
+                    // for a destination the site posts to and wrong for
+                    // one it only handed a link to: `share()` writes the
+                    // row then marks it published in two statements, so
+                    // a browser killed in between — the phone handing
+                    // off to WhatsApp, this feature's own path — leaves
+                    // it `pending`. Read a quarter of an hour later it
+                    // claimed « Échec : la publication a été
+                    // interrompue. » beside a « Réessayer » whose
+                    // address is the null below, for a gesture that
+                    // failed at nothing and was published nowhere.
+                    //
+                    // « En cours » is the truth and it is also the way
+                    // out: clicking the icon again past the same delay
+                    // takes the row over and finishes it, which is why
+                    // `share()` claims with `retry: true`.
+                    DirectShare::tryFrom($key) !== null => 'pending',
                     $publication->isRetryable($staleBefore) => 'failed',
                     default => 'pending',
                 },
                 'publication' => $publication,
-                // Unencoded: the router matches the raw path, and a
-                // destination key (`group:3`) is valid in one as it is.
-                'retry_path' => self::HISTORY_PATH . '/reessayer/'
-                    . $group['kind'] . '/' . $group['id'] . '/' . $key,
+                // Said plainly so the view does not have to read the key:
+                // a hand-made share is dated, never « Publié ».
+                'direct' => DirectShare::tryFrom($key) !== null,
+                // **No retry for a share made by hand** (issue #706,
+                // IT-05): nothing failed, and nothing could be resent —
+                // the site handed a link to the phone or to the
+                // clipboard and never learnt what followed. The view
+                // needs the null to leave the button out rather than
+                // offer an address that would answer 404.
+                'retry_path' => DirectShare::tryFrom($key) !== null
+                    ? null
+                    // Unencoded: the router matches the raw path, and a
+                    // destination key (`group:3`) is valid in one as it
+                    // is.
+                    : self::HISTORY_PATH . '/reessayer/'
+                        . $group['kind'] . '/' . $group['id'] . '/' . $key,
             ];
         }
 
         return [
             'kind' => $group['kind'],
+            // The id the share icon posts to, and null where there is
+            // nothing to offer: an entry with no communication behind it
+            // — a share recorded against an album's own key, from before
+            // the composer existed — or a colleague's communication,
+            // which the two routes refuse. A button that always answers
+            // 404 is worse than no button, and in a unit with more than
+            // one chief it was every entry but one's.
+            'share_id' => $group['kind'] === ShareSource::KIND_COMMUNICATION
+                && isset($shareable[(int) $group['id']])
+                    ? $group['id']
+                    : null,
             'title' => $first->sourceTitle ?? '',
             'caption' => mb_strimwidth($first->caption ?? '', 0, 80, '…'),
             'date' => $first?->attemptedAt,

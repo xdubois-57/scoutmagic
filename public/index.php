@@ -10983,6 +10983,24 @@ if ($isEnabled('social')) {
             // $uploadHandler, which would re-encode it.
             $encryptedFileStorageService,
             $userAccountRepo,
+            // Where « Partager » and « Copier le lien » on the history
+            // get their address (issue #706, IT-05) — the same instance
+            // the publishing service asks, so one page per
+            // communication whichever path creates it.
+            $socialPublicPages,
+            // What a SOURCE has already been through (issue #706, IT-05)
+            // — read across every communication sharing it, since the
+            // same album with a different message is a new one.
+            new \Modules\Social\Service\ShareHistory(
+                $socialCommunicationRepo,
+                $socialPublicationRepo,
+                $userAccountRepo
+            ),
+            // A share made by hand is journalled like every other
+            // publication of this module (issue #706, IT-05): it freezes
+            // the communication for good and hands its public page over,
+            // and `SECURITY.md` § 6 carves nothing out for it.
+            $journalService,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds
         )

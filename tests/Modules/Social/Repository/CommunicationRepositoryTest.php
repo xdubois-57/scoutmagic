@@ -23,12 +23,14 @@ use Tests\Modules\Social\SocialTestHelper as H;
 final class CommunicationRepositoryTest extends TestCase
 {
     private CommunicationRepository $repository;
+    private \PDO $pdo;
     private \DateTimeImmutable $now;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         H::createTables($pdo);
+        $this->pdo = $pdo;
         $this->repository = new CommunicationRepository($pdo);
         $this->now = new \DateTimeImmutable('2026-10-10 21:00:00');
     }
@@ -140,6 +142,246 @@ final class CommunicationRepositoryTest extends TestCase
         $this->assertSame($mine, $this->repository->findByPublicToken(str_repeat('a', 64))?->id);
         $this->assertNull($this->repository->findByPublicToken(str_repeat('b', 64)));
         $this->assertNull($this->repository->findByPublicToken(''), 'an empty token must not be asked of the column');
+    }
+
+    /**
+     * **The same source, the same text and the same chief are the same
+     * communication** (issue #793, #706 IT-05), and `create()` answers
+     * the row already there rather than making a second one.
+     *
+     * The duplicate key IS the signal: no SELECT runs before the INSERT,
+     * so there is no window two simultaneous POSTs can both pass —
+     * which is what the 120-second read this replaces could not close.
+     */
+    public function testTheSameShareTwiceAnswersTheRowAlreadyThere(): void
+    {
+        $first = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+        $again = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+
+        $this->assertSame($first, $again);
+        $this->assertSame(1, $this->rows());
+        // Nothing of the first row is touched: its text is what the first
+        // share settled.
+        $this->assertSame('Les photos sont en ligne', $this->repository->find($first)?->body);
+    }
+
+    /**
+     * **Four things make a twin**, and changing any one of them makes a
+     * new communication: the text (« permis, avec avertissement » is the
+     * chantier's rule for it), the source, the album, and the chief —
+     * two animateurs sharing the same album with the same words are two
+     * people who each decided to.
+     */
+    public function testChangingAnyOneOfTheFourMakesANewCommunication(): void
+    {
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+
+        $this->repository->create('', 'Il en reste à voir !', 7, $this->now, 'album', 3);
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 4);
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'article', 3);
+        $this->repository->create('', 'Les photos sont en ligne', 8, $this->now, 'album', 3);
+
+        $this->assertSame(5, $this->rows());
+    }
+
+    /**
+     * **A communication written from nothing is never a twin.** Its
+     * `body_hash` stays null, so the key matches no row — and that is the
+     * behaviour wanted, not a loophole: without a source there is
+     * nothing to be a duplicate OF, and two « Bonne année » posts are two
+     * posts somebody wrote twice on purpose.
+     */
+    public function testTwoFreeCommunicationsWithTheSameTextAreTwoCommunications(): void
+    {
+        $first = $this->repository->create('Bonne année', 'Meilleurs vœux', 7, $this->now);
+        $second = $this->repository->create('Bonne année', 'Meilleurs vœux', 7, $this->now);
+
+        $this->assertNotSame($first, $second);
+        $this->assertSame(2, $this->rows());
+    }
+
+    /**
+     * **The key must name the text the row HOLDS**, not the one it was
+     * born with (`Claude review` on PR #868).
+     *
+     * A draft stays editable until a destination claims it, so « created
+     * as A, edited to B » is an ordinary path — the caption refused by
+     * Instagram, the expired token, the chief who simply rewrote their
+     * sentence. With a stale hash, a later share of A answered THIS row
+     * and published B in its place, which is the worst of the two: the
+     * chief typed one text and another one left.
+     */
+    public function testAnEditedDraftIsTheTwinOfItsNewTextAndNotOfItsOld(): void
+    {
+        $id = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+
+        $this->assertTrue($this->repository->updateText($id, '', 'Il en reste à voir !', $this->now));
+
+        // **One assertion for the three facts**, because PHPUnit stops at
+        // the first failure and a stale hash breaks them one at a time:
+        // the new text finds this row, the old one — which no row holds
+        // any more — makes its own, and there are two rows and not three.
+        $this->assertSame(
+            ['the new text finds it' => true, 'the old text does not' => true, 'rows' => 2],
+            [
+                'the new text finds it' =>
+                    $this->repository->create('', 'Il en reste à voir !', 7, $this->now, 'album', 3) === $id,
+                'the old text does not' =>
+                    $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3) !== $id,
+                'rows' => $this->rows(),
+            ]
+        );
+    }
+
+    /**
+     * **And an edit into an existing twin is refused, not crashed.** By
+     * the module's own rule those two ARE one communication, so the
+     * database says no; the caller turns that `false` into a sentence and
+     * leaves the draft alone.
+     */
+    public function testAnEditIntoAnotherCommunicationsTextIsRefused(): void
+    {
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+        $draft = $this->repository->create('', 'Il en reste à voir !', 7, $this->now, 'album', 3);
+
+        // Refusal and « changes nothing » in one assertion: either half
+        // alone would leave the other unproved on a mutation.
+        $this->assertSame(
+            ['refused' => true, 'body' => 'Il en reste à voir !'],
+            [
+                'refused' => !$this->repository->updateText($draft, '', 'Les photos sont en ligne', $this->now),
+                'body' => $this->repository->find($draft)?->body,
+            ]
+        );
+    }
+
+    /**
+     * A communication with no source stays nobody's twin after an edit
+     * too: the hash is NULL on the way in {@see
+     * \Modules\Social\Repository\CommunicationRepository::create()} and
+     * the UPDATE keeps it so, from the row's own `source_kind`.
+     */
+    public function testAnEditedFreeCommunicationStaysNobodysTwin(): void
+    {
+        $id = $this->create();
+
+        $this->assertTrue($this->repository->updateText($id, 'Bonne année', 'Meilleurs vœux', $this->now));
+
+        $this->assertSame(
+            ['hash' => null, 'a second one is its own row' => true],
+            [
+                'hash' => $this->pdo->query('SELECT body_hash FROM social_communications WHERE id = ' . $id)
+                    ->fetchColumn() ?: null,
+                'a second one is its own row' =>
+                    $this->repository->create('Bonne année', 'Meilleurs vœux', 7, $this->now) !== $id,
+            ]
+        );
+    }
+
+    /**
+     * **No author, no twin**, and that is the unique key's own arithmetic
+     * (CodeRabbit on PR #868): `created_by` is one of its four columns,
+     * and a NULL in any of them collides with nothing. So the hash is
+     * NULL too — a hash written beside a null author would promise a
+     * refusal the database cannot make, and `twin()` carried a branch for
+     * it that could never run.
+     */
+    public function testWithNoAuthorThereIsNoTwinToFind(): void
+    {
+        $first = $this->repository->create('', 'Les photos sont en ligne', null, $this->now, 'album', 3);
+        $second = $this->repository->create('', 'Les photos sont en ligne', null, $this->now, 'album', 3);
+
+        $this->assertSame(
+            ['two rows' => true, 'hash' => null],
+            [
+                'two rows' => $first !== $second,
+                'hash' => $this->pdo->query('SELECT body_hash FROM social_communications WHERE id = ' . $first)
+                    ->fetchColumn() ?: null,
+            ]
+        );
+    }
+
+    /**
+     * **Only a duplicate key is swallowed.** `create()` reads the driver
+     * code to tell a replay from a real database failure, and a
+     * `catch (\PDOException)` that answered a row for every one of them
+     * would turn a broken table, a lost connection or a NOT NULL into a
+     * silent « here is your communication ».
+     *
+     * Proved by removing the table the test staged — the one mutation
+     * that can only fail through this path.
+     */
+    public function testADatabaseFailureThatIsNotADuplicateIsRaised(): void
+    {
+        $this->pdo->exec('DROP TABLE social_communications');
+
+        $this->expectException(\PDOException::class);
+
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+    }
+
+    /** The same discrimination on the UPDATE, which has its own catch. */
+    public function testAnUpdateFailureThatIsNotADuplicateIsRaised(): void
+    {
+        $id = $this->create();
+        $this->pdo->exec('DROP TABLE social_communications');
+
+        $this->expectException(\PDOException::class);
+
+        $this->repository->updateText($id, 'Bonne année', 'Meilleurs vœux', $this->now);
+    }
+
+    /**
+     * **The key named a row that is not there.** Something deleted it
+     * between the INSERT and the read — the only way this happens — and
+     * the answer is to raise rather than hand back a zero that would
+     * publish against row 0.
+     *
+     * Staged with a trigger that raises SQLite's own constraint error
+     * without writing anything, which is exactly the shape
+     * `isDuplicate()` reads. This class's database is SQLite by
+     * construction ({@see \Tests\DatabaseTestHelper::createTestDatabase()}),
+     * so the dialect is not a portability question here.
+     */
+    public function testATwinTheKeyNamedButThatIsGoneIsRaised(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_insert BEFORE INSERT ON social_communications'
+            . " BEGIN SELECT RAISE(ABORT, 'UNIQUE constraint failed: staged'); END"
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('The twin this key named is not there any more.');
+
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+    }
+
+    /**
+     * Who wrote each of them, in one query — what « Ce qui est parti »
+     * needs to know whether to draw the share icon on thirty entries
+     * without thirty reads (issue #706, IT-05).
+     */
+    public function testTheAuthorsOfSeveralCommunicationsAreReadAtOnce(): void
+    {
+        $mine = $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+        $theirs = $this->repository->create('', 'Autre texte', 8, $this->now, 'album', 3);
+        $orphan = $this->repository->create('Sans auteur', 'Texte', null, $this->now);
+
+        $this->assertSame(
+            [$mine => 7, $theirs => 8, $orphan => null],
+            $this->repository->creatorsOf([$mine, $theirs, $orphan])
+        );
+    }
+
+    /** No ids, no query — `WHERE id IN ()` is not valid SQL. */
+    public function testNoIdsIsAnsweredWithoutAQuery(): void
+    {
+        $this->assertSame([], $this->repository->creatorsOf([]));
+    }
+
+    private function rows(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();
     }
 
     private function create(): int

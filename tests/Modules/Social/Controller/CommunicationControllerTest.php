@@ -33,6 +33,7 @@ use Modules\Social\Service\GroupPublishingService;
 use Tests\Modules\Social\FakeGroupPublisher;
 use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
+use Modules\Social\Service\ShareHistory;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Http\Controller\RecordingJournalRepository;
@@ -62,6 +63,13 @@ final class CommunicationControllerTest extends TestCase
     public const ARTICLE_ID = 77;
 
     /**
+     * An article réservée aux animateurs — `shareable` false — which is
+     * the one `blockedReason` that is an authorisation and not a
+     * reminder: the news module says this text may not leave the site.
+     */
+    public const ARTICLE_STAFF_ONLY_ID = 78;
+
+    /**
      * Whether the one album `albumSource()` describes has a cover photo.
      * Reset in setUp, so a test that clears it cannot reach another.
      */
@@ -85,6 +93,13 @@ final class CommunicationControllerTest extends TestCase
      */
     private static bool $albumReachable = true;
 
+    /**
+     * The site's own address, which the public page needs and a fresh
+     * installation has not got. Switchable for the one test about the
+     * refusal; reset in setUp, like the album's statics above.
+     */
+    private static string $baseUrl = 'https://unite.example';
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -103,6 +118,7 @@ final class CommunicationControllerTest extends TestCase
         self::$albumTitle = self::ALBUM_TITLE;
         self::$albumReachable = true;
         self::$articleCover = null;
+        self::$baseUrl = 'https://unite.example';
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -168,8 +184,9 @@ final class CommunicationControllerTest extends TestCase
         // Deliberately a count and not a comment: a route added to the
         // manifest without a thought for who may reach it fails HERE,
         // before the two tests below have anything to say. 14 since
-        // IT-02 added the card's two background routes.
-        self::assertCount(14, $cases);
+        // IT-02 added the card's two background routes, 16 since IT-05
+        // added the link and the share a chief makes by hand.
+        self::assertCount(16, $cases);
 
         return $cases;
     }
@@ -195,6 +212,12 @@ final class CommunicationControllerTest extends TestCase
         }
         AuthSession::login($this->author, 'claire@unite.be', 'chief');
         $body = $method === 'POST' ? ['_csrf_token' => $this->csrf()] : [];
+        if (str_ends_with($path, '/partage')) {
+            // Which gesture it was: this route answers 404 without it,
+            // like any other route missing what it is about, and that
+            // 404 is not the refusal this test is looking for.
+            $body['kind'] = 'copy';
+        }
 
         $response = $this->route($method, $path, $action, $body, null, $id);
 
@@ -1229,9 +1252,15 @@ final class CommunicationControllerTest extends TestCase
      * publication is keyed on the NEW row's own id — so a second
      * identical POST made a second row with a second key and sailed past
      * the unique constraint that stopped this when the retired route
-     * published against the album's own id. Measured before the guard:
+     * published against the album's own id. Measured before any guard:
      * two rows, two publications, two Facebook posts. Raised in review on
      * the pull request for IT-01.
+     *
+     * **What stops it since IT-05 is the database**, not a window:
+     * `uq_social_communications_twin` raises on the second INSERT and
+     * `create()` hands back the row already there (issue #793). The
+     * SELECT-then-INSERT it replaces could be passed by two simultaneous
+     * POSTs, neither having committed when the other read.
      */
     public function testAReplayedShareDoesNotPublishTheAlbumTwice(): void
     {
@@ -1391,8 +1420,10 @@ final class CommunicationControllerTest extends TestCase
 
     /**
      * The other side: the same album with a DIFFERENT message is a new
-     * share and stays allowed — which is why the text is part of what
-     * tells a replay from a decision.
+     * share and stays allowed — which is why the text is part of the
+     * unique key, through its hash, and what tells a replay from a
+     * decision. « Permis, avec avertissement » is the chantier's rule for
+     * it, and the warning is the composer's own confirmation.
      */
     public function testTheSameAlbumWithAnotherMessageIsStillANewShare(): void
     {
@@ -1411,6 +1442,750 @@ final class CommunicationControllerTest extends TestCase
             2,
             (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
             'a second message about the same album was refused'
+        );
+    }
+
+    // ————— What this source has already been through —————
+
+    /**
+     * **The previous shares sit at the HEAD of the composer** (issue
+     * #706, IT-05), and they are read across every communication sharing
+     * the source — the same album with a different message is a new
+     * communication since IT-05, so the second share has the first one
+     * behind it in another row entirely.
+     *
+     * At the head and not at the foot: a chief about to share an album
+     * again needs it before they write, not after.
+     */
+    public function testTheComposerShowsWhatThisAlbumAlreadyWentThrough(): void
+    {
+        $this->loginAuthor();
+        // A first share, published and recorded against its own row.
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        // The composer opened again from the album, with nothing saved
+        // yet for this second message.
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('a déjà été partagé', $flat);
+        $this->assertStringContainsString('Page Facebook — le', $flat);
+    }
+
+    /** A communication written from nothing has no « already » to show. */
+    public function testAFreeCommunicationShowsNoPreviousShares(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()->create($this->get(), [])->getBody();
+
+        $this->assertStringNotContainsString('data-previous-shares', $html);
+    }
+
+    /**
+     * The sentence the confirmation will quote travels in the markup, per
+     * destination — an attribute and not a JSON blob in a `<script>`,
+     * because Twig escapes an attribute whatever a caption contains.
+     */
+    public function testEachDestinationCarriesWhatAlreadyWentThere(): void
+    {
+        $this->loginAuthor();
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        // Facebook carries it; Instagram, never used, carries nothing and
+        // the dialog says « Jamais partagé ici. » itself.
+        $this->assertMatchesRegularExpression(
+            '#data-destination="facebook"[^>]*data-shared-line="Cet album est déjà parti sur Facebook#',
+            $flat
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '#data-destination="instagram"[^>]*data-shared-line#',
+            $flat
+        );
+    }
+
+    // ————— Sharing by hand, from the history —————
+
+    /**
+     * **The link route creates the page and records nothing** (issue
+     * #706, IT-05).
+     *
+     * Two routes rather than one, and this is the half that explains why:
+     * the share sheet needs the address before it can offer it, and a
+     * sheet the chief then dismisses is not a share. So asking for the
+     * link must leave the history and the freeze untouched.
+     */
+    public function testAskingForTheLinkMintsThePageAndRecordsNothing(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        $token = (string) $this->communications->find($id)?->publicToken;
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $token);
+        $this->assertSame('https://unite.example/partage/' . $token, $answer['url'] ?? null);
+        $this->assertSame(
+            [],
+            $this->publications->forSource('communication', $id),
+            'asking for a link is not a share'
+        );
+    }
+
+    /** Asked twice, it is the same page: one communication, one address. */
+    public function testAskingTwiceGivesTheSameAddress(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $first = json_decode(
+            $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id])->getBody(),
+            true
+        );
+        $second = json_decode(
+            $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id])->getBody(),
+            true
+        );
+
+        $this->assertSame($first['url'], $second['url']);
+    }
+
+    /**
+     * **What the source refuses to publish, this route may not mint a
+     * public page for** (`Claude review` on PR #868).
+     *
+     * `mine()` answers « this chief may edit it », and the route took
+     * that for « this may leave the site ». They are not the same
+     * question, and `PublishingService::publish()` and
+     * `GroupPublishingService::publish()` both ask the second one — on
+     * `blockedReason` — before claiming anything.
+     *
+     * The staff-only article is the case that makes it a leak rather
+     * than an untidiness. The news module answers `shareable` false,
+     * « Publier » refuses the attempt — and refuses it WITHOUT claiming
+     * a row, so `isFrozen()` stays false and
+     * {@see CommunicationController::refreshPostedCard()} has already
+     * stored the card that attempt drew. One POST on this route then
+     * minted a permanent, unrevocable address serving that card, cached
+     * a year and immutable, to anyone holding the token: exactly what
+     * `shareable` exists to prevent.
+     *
+     * The vanished album is the same guard reached by the other shape —
+     * a source that answers nothing rather than « not you ». Both are
+     * asserted because both are reachable from the history page, and
+     * one line decides them.
+     *
+     * @param bool $albumReachable whether the gallery still answers for
+     *                             the album this communication opened
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('sourcesThatRefuseToLeave')]
+    public function testNoPublicPageIsMintedForASourceThatRefusesToLeave(
+        string $kind,
+        int $sourceId,
+        bool $albumReachable,
+        string $expected
+    ): void {
+        self::$albumReachable = $albumReachable;
+        $id = $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            $kind,
+            $sourceId
+        );
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        // One assertion and not three: PHPUnit stops at the first
+        // failure, so « refused » proved on its own would leave « and
+        // minted nothing » unproved — and that second half is the whole
+        // finding, a page being irreversible once it exists.
+        $this->assertSame(
+            ['status' => 403, 'error' => $expected, 'minted' => null],
+            [
+                'status' => $response->getStatusCode(),
+                'error' => $answer['error'] ?? null,
+                'minted' => $this->communications->find($id)?->publicToken,
+            ]
+        );
+    }
+
+    /** @return array<string, array{string, int, bool, string}> */
+    public static function sourcesThatRefuseToLeave(): array
+    {
+        return [
+            'an article the news module keeps for the staff' => [
+                'article',
+                self::ARTICLE_STAFF_ONLY_ID,
+                true,
+                'Cette actualité est réservée aux animateurs : elle ne peut pas quitter le site.',
+            ],
+            'an album that is gone, or no longer theirs' => [
+                'album',
+                self::ALBUM_ID,
+                false,
+                'L\'album partagé n\'existe plus, ou n\'est plus à vous : cette communication ne peut plus'
+                    . ' être publiée.',
+            ],
+        ];
+    }
+
+    /**
+     * **A share made by hand freezes the communication**, which is the
+     * chantier's rule and the reason these rows are publications rather
+     * than a table of their own: `isFrozen()` is « this communication has
+     * at least one publication ».
+     *
+     * It matters beyond tidiness. The applications re-read the public
+     * page at every display, so a card the chief changed after copying
+     * the link would not be the card the recipients were sent.
+     */
+    public function testARecordedShareFreezesTheCommunication(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $publication = $this->publications->forSource('communication', $id)['copy'] ?? null;
+        $this->assertNotNull($publication);
+        $this->assertTrue($publication->isPublished());
+        // Frozen: the composer refuses to change the text now, which is
+        // what the editor's own `frozen` flag drives.
+        $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
+        $this->assertStringContainsString('readonly', $html);
+    }
+
+    /**
+     * The history says which gesture it was, and **never that anything
+     * was sent**: the site handed a link to the clipboard, and no answer
+     * ever came back to it.
+     */
+    public function testTheHistoryNamesTheGestureAndClaimsNothingMore(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+        $this->controller()->share($this->postJson(['kind' => 'native']), ['id' => (string) $id]);
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertStringContainsString('Partagé depuis le téléphone', $flat);
+        $this->assertStringNotContainsString('Publié le', $flat);
+        $this->assertStringNotContainsString('envoyé', $flat);
+        // And nothing to retry: nothing failed, and nothing could be
+        // resent.
+        $this->assertStringNotContainsString('Réessayer la publication sur Partagé', $flat);
+    }
+
+    /**
+     * **The same communication shared the same way twice is refused**, by
+     * the same unique key that refuses a second publication to a
+     * destination already served. The history said it once.
+     */
+    public function testTheSameGestureTwiceIsRecordedOnce(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+        $second = $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $this->assertSame(200, $second->getStatusCode());
+        $this->assertFalse(json_decode($second->getBody(), true)['recorded'] ?? true);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM social_publications WHERE destination = 'copy'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * **The share icon is offered only where it can work** (`Claude
+     * review` on PR #868).
+     *
+     * « Ce qui est parti » lists the whole unit's contents and every
+     * chief may read it, while the icon's two routes answer 404 to
+     * anybody but the author or an administrator. So a chief was shown
+     * the button on each of their colleagues' communications, and it
+     * refused every time — in a unit with more than one chief, that is
+     * every entry but their own.
+     */
+    public function testTheShareIconIsOfferedOnlyOnWhatThisChiefMayShare(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        $this->loginAuthor();
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 0],
+            [
+                'mine' => substr_count($html, '/medias-sociaux/' . $mine . '/lien'),
+                'theirs' => substr_count($html, '/medias-sociaux/' . $theirs . '/lien'),
+            ]
+        );
+    }
+
+    /**
+     * An administrator may share any of them, which is the other half of
+     * `editableCommunication()`'s rule — and the half a test of the
+     * author alone would have let drift.
+     */
+    public function testAnAdministratorIsOfferedTheIconOnEveryCommunication(): void
+    {
+        $mine = $this->communication('Le mien', 'Les photos sont en ligne', self::PHOTO);
+        $theirs = $this->communications->create('Le leur', 'Autre texte', $this->other, new \DateTimeImmutable());
+        $this->failedInstagram($mine);
+        $this->failedInstagram($theirs);
+        AuthSession::login($this->author, 'claire@unite.be', 'admin');
+
+        $html = $this->controller()->history($this->get(), [])->getBody();
+
+        $this->assertSame(
+            ['mine' => 1, 'theirs' => 1],
+            [
+                'mine' => substr_count($html, '/medias-sociaux/' . $mine . '/lien'),
+                'theirs' => substr_count($html, '/medias-sociaux/' . $theirs . '/lien'),
+            ]
+        );
+    }
+
+    /**
+     * **Both JSON routes prove the request first** (issue #706, IT-05).
+     *
+     * They write — one mints a public page that can never be withdrawn,
+     * the other freezes a communication — so a stale tab must not be
+     * able to do either. `guardCsrfJson()` answers 403 with the site's
+     * own sentence rather than a bare refusal, and the browser's helper
+     * shows it.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('jsonRoutes')]
+    public function testAJsonRouteWithoutAValidTokenIsRefused(string $action): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->{$action}(
+            new \Tests\RequestWithInput('POST', '/medias-sociaux/x', [], [], [], [], '{"kind":"copy"}'),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            ['status' => 403, 'minted' => null, 'recorded' => []],
+            [
+                'status' => $response->getStatusCode(),
+                'minted' => $this->communications->find($id)?->publicToken,
+                'recorded' => $this->publications->forSource('communication', $id),
+            ]
+        );
+    }
+
+    /** @return array<string, array{string}> */
+    public static function jsonRoutes(): array
+    {
+        return ['the link' => ['link'], 'the record' => ['share']];
+    }
+
+    /**
+     * Somebody else's communication has no link to offer, and says so the
+     * way every other route of this controller does: it is not there.
+     * Minting a page for it would be writing to a row the caller may not
+     * even read.
+     */
+    public function testTheLinkOfSomebodyElsesCommunicationIsNotMinted(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        AuthSession::login($this->other, 'autre@unite.be', 'chief');
+
+        $response = $this->controller()->link($this->post([]), ['id' => (string) $id]);
+
+        $this->assertSame(
+            ['status' => 404, 'minted' => null],
+            ['status' => $response->getStatusCode(), 'minted' => $this->communications->find($id)?->publicToken]
+        );
+    }
+
+    /**
+     * **No site address, no link**, and the answer names the setting to
+     * fill rather than failing silently: the public page's whole address
+     * is built on it, and a token minted now would be stranded behind an
+     * address nobody can reach.
+     */
+    public function testWithNoSiteAddressTheLinkIsRefusedWithTheSettingToFill(): void
+    {
+        self::$baseUrl = '';
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post([]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        $this->assertSame(
+            ['status' => 409, 'error' => 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.'],
+            ['status' => $response->getStatusCode(), 'error' => $answer['error'] ?? null]
+        );
+    }
+
+    /**
+     * **A share made by hand is journalled, at `security`, like every
+     * other publication of this module** (`Claude review` on PR #868).
+     *
+     * `SECURITY.md` § 6 states the rule without carving anything out:
+     * « The journal records who published what, where ». This gesture
+     * freezes the communication for good and hands its public page to a
+     * telephone, and it was the one destination leaving no trace at all.
+     *
+     * The line carries no caption and no address: an audit needs who
+     * handed out what and where, and the page's address is a capability
+     * — already journalled once, at its creation.
+     */
+    public function testAShareMadeByHandLeavesItsOwnJournalLine(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $line = null;
+        foreach ($this->journal->entries as $entry) {
+            if ($entry['type'] === 'published') {
+                $line = $entry;
+            }
+        }
+
+        // One assertion for the five facts: PHPUnit stops at the first
+        // failure, and « journalled » and « journalled WITHOUT the
+        // caption » are opposite findings that a missing line would both
+        // satisfy if they were asserted apart.
+        $this->assertSame(
+            [
+                'lines' => 1,
+                'level' => 'security',
+                'description' => 'Lien copié : communication n° ' . $id,
+                'gesture' => 'copy',
+                'user' => $this->author,
+                'no caption' => true,
+            ],
+            [
+                'lines' => $this->journal->countOf('published'),
+                'level' => $line['level'] ?? null,
+                'description' => $line['description'] ?? null,
+                'gesture' => json_decode($line['context'] ?? '[]', true)['gesture'] ?? null,
+                'user' => $line['user'] ?? null,
+                'no caption' => !str_contains($this->journal->textOf('published'), 'Les photos sont en ligne'),
+            ]
+        );
+    }
+
+    /**
+     * **A gesture left half-written repairs itself** (CodeRabbit on PR
+     * #868).
+     *
+     * `claim()` and `markPublished()` are two statements, so a request
+     * that dies between them leaves a `pending` row — which freezes the
+     * communication, has no date to show and offers no « Réessayer »,
+     * there being nothing to retry for a gesture. Claimed without the
+     * retry flag, every later click answered `recorded: false` and the
+     * row stayed broken for good. The click IS the confirmation here:
+     * there is no form to tick.
+     */
+    public function testAGestureLeftPendingIsTakenOverByTheNextOne(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        // The row a request that died between the two statements leaves:
+        // claimed long enough ago to be stale, never published.
+        $old = new \DateTimeImmutable('-1 hour');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $old,
+            $old->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $response = $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $this->assertSame(
+            ['recorded' => true, 'published' => true],
+            [
+                'recorded' => json_decode($response->getBody(), true)['recorded'] ?? null,
+                'published' => $this->publications->forSource('communication', $id)['copy']?->isPublished(),
+            ]
+        );
+    }
+
+    /**
+     * And while it is waiting, the history says « En cours » rather than
+     * dating it: the direct branch sat BESIDE the published state instead
+     * of under it, so a row with no `publishedAt` printed « Le  à », two
+     * holes where a date belongs (CodeRabbit on PR #868).
+     *
+     * Asserted on the sentence that must appear, not on the holes: this
+     * class flattens runs of whitespace before matching — otherwise a
+     * sentence wrapped in the template would fail on its indentation —
+     * so « Le  à » is « Le à » by the time any assertion sees it, and a
+     * test looking for the two spaces could not fail.
+     */
+    public function testAGesturePendingIsNotDatedInTheHistory(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $now = new \DateTimeImmutable();
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $now,
+            $now->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertStringContainsString('En cours', $flat);
+    }
+
+    /**
+     * **And it still says « En cours » a quarter of an hour later**, not
+     * « Échec » beside a « Réessayer » that leads nowhere (`Claude
+     * review` on PR #868).
+     *
+     * `Publication::isRetryable()` turns any `pending` row into a
+     * failure past `PublishingService::STALE_MINUTES` — right for a
+     * destination the site posts to, where a row stuck in progress means
+     * the call never came back, and wrong for one it only handed a link
+     * to. `share()` claims the row and marks it published in two
+     * statements, so a browser killed in between leaves it `pending`;
+     * and being killed there is this feature's own path, the phone
+     * handing off to WhatsApp as soon as the sheet is answered.
+     *
+     * What showed was « Échec : la publication a été interrompue. » and
+     * a retry button whose address is the deliberate null of
+     * `historyEntry()` — a dead control under a sentence about a failure
+     * that never happened, for a gesture published nowhere.
+     *
+     * The three facts are one assertion because they are one defect:
+     * « En cours » alone would still pass with the failure sentence
+     * printed beside it.
+     */
+    public function testAGestureLeftPendingStillReadsAsInProgressOnceStale(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        // Claimed an hour ago and never marked published: the row
+        // `share()` leaves behind when the request dies between its two
+        // statements, read well past the fifteen minutes.
+        $attempted = (new \DateTimeImmutable())->modify('-1 hour');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $attempted,
+            $attempted->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertSame(
+            ['in progress' => true, 'claims a failure' => false, 'offers a retry' => false],
+            [
+                'in progress' => str_contains($flat, 'En cours'),
+                'claims a failure' => str_contains($flat, 'Échec'),
+                'offers a retry' => str_contains($flat, 'Réessayer la publication sur'),
+            ]
+        );
+    }
+
+    /** An unknown gesture is refused rather than recorded as something. */
+    public function testAnUnknownGestureIsRefused(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->share(
+            $this->postJson(['kind' => 'carrier-pigeon']),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            ['status' => 404, 'recorded' => []],
+            ['status' => $response->getStatusCode(), 'recorded' => $this->publications->forSource('communication', $id)]
+        );
+    }
+
+    /**
+     * **An edit into another communication's text is refused with a
+     * sentence**, not with a 500 (`Claude review` on PR #868).
+     *
+     * The twin key says the same album with the same message by the same
+     * chief is ONE communication (issue #793), and it says it on the
+     * UPDATE as well as on the INSERT. So a draft typed into the text of
+     * a communication this album already has cannot be saved — and the
+     * chief is told why, with their draft left exactly as they typed it.
+     * Carrying on with the old text would publish something they did not
+     * write.
+     */
+    public function testADraftEditedIntoAnExistingCommunicationsTextIsRefused(): void
+    {
+        $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            self::ALBUM_ID
+        );
+        $draft = $this->communications->create(
+            '',
+            'Il en reste à voir !',
+            $this->author,
+            new \DateTimeImmutable(),
+            'album',
+            self::ALBUM_ID
+        );
+        $this->loginAuthor();
+
+        $this->controller()->update(
+            $this->post(['body' => 'Les photos sont en ligne', 'action' => 'publish', 'destinations' => ['instagram']]),
+            ['id' => (string) $draft]
+        );
+
+        // One assertion for the three facts — the sentence, the draft
+        // left alone, nothing published — because PHPUnit stops at the
+        // first failure and `FlashMessage::get()` consumes, so a second
+        // read would answer nothing whatever the code did.
+        $this->assertSame(
+            ['said' => true, 'body' => 'Il en reste à voir !', 'published' => []],
+            [
+                'said' => str_contains(
+                    (string) (FlashMessage::get()['message'] ?? ''),
+                    'déjà celui d\'une autre communication'
+                ),
+                'body' => $this->communications->find($draft)?->body,
+                'published' => $this->meta->requests,
+            ]
+        );
+    }
+
+    /**
+     * **The gesture is read from the transport that carries it**, and
+     * from nowhere else (`Claude review` on PR #868).
+     *
+     * Every test above now posts the payload the way the browser does —
+     * `ScoutMagicApi.postJson()`, `Content-Type: application/json`, body
+     * stream — which is what makes them able to catch this at all. This
+     * one pins the other half: a `kind` sitting only where `$_POST` would
+     * be is not read, because no caller can put it there. That was the
+     * defect's exact shape, green in a test that built the `Request` by
+     * hand while every real share answered « Partage inconnu. ».
+     */
+    public function testAGestureThatNoTransportCouldHaveDeliveredIsRefused(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->share(
+            new \Tests\RequestWithInput(
+                'POST',
+                '/medias-sociaux/x',
+                [],
+                ['_csrf_token' => $this->csrf(), 'kind' => 'copy'],
+                [],
+                [],
+                ''
+            ),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            ['status' => 404, 'recorded' => []],
+            ['status' => $response->getStatusCode(), 'recorded' => $this->publications->forSource('communication', $id)]
+        );
+    }
+
+    /**
+     * **The refusal has no expiry date**, which is the whole difference
+     * between IT-05's key and the 120-second window it replaces (issue
+     * #793).
+     *
+     * A row written long ago still matches, so a POST replayed an hour
+     * later — a form left open in a tab, a request retried by a flaky
+     * network — finds that row instead of making a second one. Under the
+     * window it made a second row, a second publication and a second
+     * Facebook post, and the window could not be widened without
+     * refusing a share meant later: a hash key does not have to choose,
+     * because the same source with the same text IS the same
+     * communication whenever it arrives.
+     */
+    public function testAReplayLongAfterTheOldWindowStillFindsItsRow(): void
+    {
+        $this->loginAuthor();
+        $body = [
+            'source_kind' => 'album',
+            'source_id' => (string) self::ALBUM_ID,
+            'body' => 'Les photos sont en ligne',
+            'action' => 'publish',
+            'destinations' => ['facebook'],
+        ];
+
+        $this->controller()->store($this->post($body), []);
+        // Older than any window this code ever had.
+        $this->pdo->exec("UPDATE social_communications SET created_at = '2020-01-01 00:00:00'");
+        $this->controller()->store($this->post($body), []);
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn(),
+            'the replay made a second communication an hour later'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM social_publications')->fetchColumn()
         );
     }
 
@@ -2015,13 +2790,27 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringNotContainsString('Nouvelle communication', $html);
     }
 
+    /**
+     * **Publishing still asks, and since IT-05 the dialog is built in the
+     * browser** from the boxes actually ticked — so the button carries
+     * `data-publish-confirm` and no fixed sentence.
+     *
+     * A fixed `data-confirm` could not say « Cet album est déjà parti sur
+     * Facebook le 12 septembre, avec le même message » for one
+     * destination and « Jamais partagé ici. » for the next, and the
+     * chantier asks for exactly that. `social-publish-confirm.js` owns it
+     * and keeps what the sentence carried; the Vitest spec is where the
+     * dialog's own content is pinned.
+     */
     public function testPublishingAsksForConfirmationButSavingDoesNot(): void
     {
         $this->loginAuthor();
 
         $html = $this->controller()->create($this->get(), [])->getBody();
 
-        $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-confirm="Publier maintenant \?#', $html);
+        $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-publish-confirm#', $html);
+        $this->assertStringContainsString('social-publish-confirm.js', $html);
+        // And nothing else on this form may grow a fixed confirmation.
         $this->assertDoesNotMatchRegularExpression('#value="save"[^>]*data-confirm#', $html);
         $this->assertStringNotContainsString('<form method="post" action="/medias-sociaux" enctype="multipart/form-data" data-confirm', $html);
     }
@@ -2589,7 +3378,13 @@ final class CommunicationControllerTest extends TestCase
                 '{platform}' => 'instagram',
             ]);
 
-        return $front->handle(new Request($method, $concrete, [], $body, [], []));
+        // The body travels BOTH ways: parsed, as a form POST delivers it,
+        // and in the input stream, as `ScoutMagicApi.postJson()` does. A
+        // route that reads only one of the two is then exercised through
+        // the transport it actually has (see `postJson()` below).
+        return $front->handle(
+            new \Tests\RequestWithInput($method, $concrete, [], $body, [], [], (string) json_encode($body))
+        );
     }
 
     /**
@@ -2654,6 +3449,21 @@ final class CommunicationControllerTest extends TestCase
 
             public function describe(int $articleId, string $role, int $accountId): ?\Modules\News\Api\SharedArticle
             {
+                // The staff-only one is described like any other — it
+                // exists, it has a cover and an address — and says only
+                // that it may not be shared. That is the whole point:
+                // nothing about it is missing, so nothing but the
+                // `shareable` flag can stop it leaving.
+                if ($articleId === CommunicationControllerTest::ARTICLE_STAFF_ONLY_ID) {
+                    return new \Modules\News\Api\SharedArticle(
+                        CommunicationControllerTest::ARTICLE_STAFF_ONLY_ID,
+                        'Réunion de staff',
+                        'https://unite.example/s/staff',
+                        $this->cover,
+                        false
+                    );
+                }
+
                 return $articleId === CommunicationControllerTest::ARTICLE_ID
                     ? new \Modules\News\Api\SharedArticle(
                         CommunicationControllerTest::ARTICLE_ID,
@@ -2714,18 +3524,22 @@ final class CommunicationControllerTest extends TestCase
 
     private function controller(): CommunicationController
     {
-        $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
+        $settings = new RemoteBackupSettingsDouble(['base_url' => self::$baseUrl]);
         $journal = new JournalService($this->journal);
         $cards = new CardService(new CardRepository($this->pdo), new CardRenderer(), $settings, $journal, $this->storage . '/cards');
         $files = new FileRepository($this->pdo);
         $reader = new StoredFileReader($files, new EncryptedFileStorageService($files, H::encryption(), $this->storage), $this->storage);
+        // One instance, shared by the publisher and the controller, so a
+        // page minted by « Publier » is the same page « Copier le lien »
+        // hands over (issue #706, IT-05).
+        $publicPages = new PublicPageService($this->communications, $settings, $journal);
         $publishing = new PublishingService(
             $this->connections,
             $this->publications,
             $cards,
             $settings,
             $journal,
-            new PublicPageService($this->communications, $settings, $journal),
+            $publicPages,
             new MetaClient($this->meta, static function (int $seconds): void {
             })
         );
@@ -2758,6 +3572,15 @@ final class CommunicationControllerTest extends TestCase
             // publish a card and then check what reached a destination.
             new EncryptedFileStorageService($files, H::encryption(), $this->storage),
             new UserAccountRepository($this->pdo, H::encryption()),
+            $publicPages,
+            new ShareHistory(
+                $this->communications,
+                $this->publications,
+                new UserAccountRepository($this->pdo, H::encryption())
+            ),
+            // The same journal the publishing service writes to, so a
+            // test can read a hand-made share's own line out of it.
+            $journal,
             $this->picker,
             []
         );
@@ -2792,6 +3615,34 @@ final class CommunicationControllerTest extends TestCase
     private function post(array $body): Request
     {
         return new Request('POST', '/medias-sociaux/x', [], $body + ['_csrf_token' => $this->csrf()], [], []);
+    }
+
+    /**
+     * A POST whose payload arrived as **JSON**, the way
+     * `ScoutMagicApi.postJson()` sends it: in the body stream, where PHP
+     * never fills `$_POST`.
+     *
+     * `post()` above hands the controller a parsed body, which is what a
+     * form delivers — and a shape no JSON transport ever produces. The
+     * share route read its `kind` from there and so answered 404 on every
+     * real request, with the test green, until `Claude review` found it on
+     * PR #868. The CSRF token stays in the parsed body because production
+     * carries it in the `X-CSRF-Token` header, which `CsrfGuard` reads
+     * from `$_SERVER` and no test can hand to a `Request` object.
+     *
+     * @param array<string, mixed> $json
+     */
+    private function postJson(array $json): Request
+    {
+        return new \Tests\RequestWithInput(
+            'POST',
+            '/medias-sociaux/x',
+            [],
+            ['_csrf_token' => $this->csrf()],
+            [],
+            [],
+            (string) json_encode($json)
+        );
     }
 
     private function get(): Request

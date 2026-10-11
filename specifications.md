@@ -3483,9 +3483,17 @@ Seule une actualité publique, en lien direct ou réservée aux membres
 identifiés peut quitter le site : ce sont les visibilités dont l'image est
 déjà un fichier public.
 
-**Une seule fois par destination.** Le serveur refuse une deuxième
-publication du même album ou de la même actualité au même endroit, même
-si la page est renvoyée deux fois. Une destination en échec se retente
+**Une seule fois par communication et par destination.** Le serveur
+refuse une deuxième publication de la **même communication** au même
+endroit, même si la page est renvoyée deux fois — et pour toujours, sans
+fenêtre de temps : le même album, le même message, le même animateur
+**sont** la même communication, et c'est une clé unique de la base qui le
+dit. Le même album avec un **autre** message est, lui, une communication
+nouvelle, et il peut repartir là où il est déjà allé : c'est permis, avec
+avertissement (§ 47.7). La règle vaut aussi quand on **réécrit** un
+brouillon : lui donner le texte d'une communication que cet album a déjà
+revient à en faire la même, ce que le site refuse en une phrase, sans
+toucher à ce qui est écrit. Une destination en échec se retente
 seulement si la case de confirmation est cochée, et les destinations déjà
 publiées ne sont pas touchées. Après « Publier », la page se réaffiche
 avec un message qui dit, destination par destination, ce qui est parti
@@ -3518,13 +3526,35 @@ dans cet ordre :
    destinations. » Téléverser prend un clic : le bouton ouvre le sélecteur
    de fichiers et l'envoi part dès qu'un fichier est choisi (JPEG, PNG ou
    WebP, 10 Mo au plus) ;
-4. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
-5. **le texte de la publication** (2 200 caractères) ;
-6. **les destinations**, avec leur état comme au § 47.6, l'avertissement
+4. **ce que cette source a déjà connu**, quand elle a déjà été partagée :
+   un bloc d'avertissement, une ligne par partage déjà parti — la
+   destination, la date, l'auteur —, **tous les partages de toutes les
+   communications qui partagent cette source**, partages faits à la main
+   compris (§ 47.10). Il ne barre rien : ce qu'il s'agit d'éviter est
+   l'oubli, pas la répétition voulue ;
+5. **le titre sur l'image** (120 caractères, obligatoire pour publier) ;
+6. **le texte de la publication** (2 200 caractères) ;
+7. **les destinations**, avec leur état comme au § 47.6, l'avertissement
    que c'est public et hors du site, puis « Publier ».
 
-Les points 3 et 4 n'apparaissent pas quand l'image vient d'une source
-(§ 47.6) : l'image et le titre sont ceux de l'album ou de l'actualité. **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
+**« Publier » demande confirmation, destination par destination.** La
+fenêtre reprend chaque destination cochée — et chaque groupe de
+discussion retenu, nommé, et non la case qui les ouvre — avec, pour
+chacune, ce qu'elle a déjà reçu de cette source : « Cet album est déjà
+parti sur Facebook le 12 septembre 2026, avec le même message », ou
+« Jamais partagé ici. ». **« avec le même message » est la phrase pour
+laquelle cette fenêtre existe** : c'est le cas qui signale presque
+toujours un oubli. Elle se décide sur le texte **tel qu'il est au moment
+du clic**, et non tel qu'il était à l'ouverture de la page : réutiliser un
+album avec un texte neuf est précisément ce que cette version permet, donc
+un verdict calculé à l'affichage parlerait d'un message que le chef vient
+de réécrire. Elle dit aussi, comme avant, qu'une publication est
+publique et hors du site, et reprend l'avertissement du composeur quand
+une photo de la galerie part sans flou. Elle n'interdit rien.
+
+Les boutons du point 3 et le titre du point 5 n'apparaissent pas quand
+l'image vient d'une source (§ 47.6) : l'image et le titre sont ceux de
+l'album ou de l'actualité. **Il n'y a pas de « Enregistrer »** : « Publier » enregistre
 tout, un aller-retour vers la galerie ou un téléversement garde le
 brouillon seul, sans bouton ni mention, et rien n'est publié ni figé avant
 « Publier ». Après « Publier », retour à l'historique.
@@ -3557,9 +3587,10 @@ fabrication de l'image publiée. Pas de champ de recherche.
 
 **« Ce qui est parti »** montre les trente derniers contenus partis —
 albums, actualités et communications —, chacun avec son titre, le début
-de son texte, sa date et son auteur, et **une ligne par destination** :
-publié (avec sa date et « Voir »), échec (avec sa raison, conservée, et
-« Réessayer »), ou **non demandé**. « Voir » et « Réessayer » sont des
+de son texte, sa date et son auteur, **son icône de partage** (§ 47.10)
+et **une ligne par destination** : publié (avec sa date et « Voir »),
+échec (avec sa raison, conservée, et « Réessayer »), partagé à la main
+(§ 47.10), ou **non demandé**. « Voir » et « Réessayer » sont des
 icônes à la même place en bout de ligne ; une ligne sans action garde une
 case vide de même largeur. « Réessayer » ouvre une confirmation qui dit
 ce qui repart — le même texte, vers cette destination seulement, et
@@ -3633,10 +3664,21 @@ partagées. L'image a la sienne sous le même jeton,
 éphémère d'une heure qui sert Instagram : Facebook met l'aperçu en cache
 et revient relire la page des jours plus tard.
 
-**Elle naît au premier partage qui en a besoin**, et à aucun autre
-moment : ouvrir le composeur n'en crée pas. Elle **reste en ligne**
-ensuite, sans retrait possible, même si la source est supprimée — un lien
-déjà publié n'est plus à personne.
+**Elle naît du geste qui en a besoin, et d'aucun autre** : ouvrir le
+composeur n'en crée pas, afficher l'historique n'en crée pas. Elle
+**reste en ligne** ensuite, sans retrait possible, même si la source est
+supprimée — un lien déjà publié n'est plus à personne.
+
+**Pour l'icône de partage, ce geste est la pression du bouton et non le
+clic** (§ 47.10), et c'est un écart assumé : la feuille de partage du
+téléphone exige une activation utilisateur que l'aller-retour réseau
+dépense, donc l'adresse doit être demandée avant que le clic n'arrive.
+Une pression sur laquelle le chef se ravise laisse donc une page
+publique derrière elle. C'est le prix accepté : cette page n'est
+atteignable que par qui tient ses 32 octets, rien n'y mène, et elle ne
+montre que ce que le chef avait déjà composé. L'alternative était une
+feuille qui ne s'ouvre jamais sur un téléphone — l'appareil même pour
+lequel elle existe.
 
 **Elle n'est pas indexée.** L'adresse est l'autorisation, et un résultat
 de recherche la donnerait à des gens à qui personne ne l'a partagée. Un
@@ -3646,6 +3688,81 @@ ce qui est un autre acte.
 `SECURITY.md` § 6 décrit l'exception que cette page et son image font à
 « tout téléchargement passe par `/files/{id}` », et pourquoi elle est
 étroite.
+
+### 47.10 Partager soi-même, depuis l'historique
+
+Facebook et Instagram ne sont pas les seuls endroits où une unité raconte
+ce qu'elle a fait. Le plus utilisé est le téléphone : WhatsApp, un
+message, un courriel aux parents. Le site n'y publie pas et n'y publiera
+pas — il **tend le lien**.
+
+**Une icône de partage** sur chaque communication de « Ce qui est parti »,
+et une seule, dont le geste est décidé par l'appareil :
+
+- là où le navigateur offre la feuille de partage du système, elle
+  l'ouvre, avec le titre de la communication et l'adresse de sa page
+  publique (§ 47.9) ;
+- ailleurs, elle **copie l'adresse** dans le presse-papiers et le dit sous
+  le bouton.
+
+Sans JavaScript le bouton n'apparaît pas, plutôt que d'apparaître mort :
+l'adresse qu'il lui faut n'existe pas encore, elle est créée par la
+demande que **la pression** envoie — pas le clic. La feuille de partage
+exige une activation utilisateur que l'aller-retour réseau dépense, donc
+l'adresse part en chemin dès `pointerdown` (ou dès Entrée ou Espace au
+clavier, pour que le bouton ne dépende pas de l'appareil), et le clic
+n'a plus qu'à ouvrir la feuille. Ce que cela crée de trop est décrit au
+§ 47.9. Si le réseau est plus lent que le doigt, le clic attend quand
+même et l'activation peut être perdue : le lien va alors au
+presse-papiers, et l'historique écrit « Lien copié », parce que c'est ce
+qui s'est passé.
+
+**Il n'apparaît pas non plus sur la communication d'un autre.** La liste
+montre tout ce que l'unité a publié, et chaque animateur la lit ; mais
+partager une communication reste réservé à son auteur et aux
+administrateurs, comme la modifier. Un bouton qui refuserait à chaque clic
+serait pire que pas de bouton.
+
+**Ce que la source refuse de laisser partir, l'icône ne le partage pas.**
+Une actualité réservée aux animateurs, un album supprimé ou qui n'est plus
+à vous, une image sans titre : ce sont les refus du § 47.6, et ils valent
+ici aussi — une page publique, une fois créée, ne se reprend pas, et son
+image reste lisible par qui tient l'adresse. Le clic répond alors la
+raison, celle-là même que le composeur affiche, et ne crée aucune page.
+
+Ce bouton-là n'est pas celui du paragraphe précédent : il refuse en
+nommant la cause, qui peut disparaître — l'album revient, le titre
+s'écrit —, là où un bouton posé sur la communication d'un autre refuserait
+toujours et sans rien apprendre à personne.
+
+**Le partage fige la communication**, comme une publication : dès le
+premier, quel qu'il soit, l'image, le titre et le texte ne changent plus.
+Ce n'est pas une précaution de principe — les applications relisent la
+page à chaque affichage, et une image modifiée après coup ne serait plus
+celle que les destinataires ont reçue, au bout du même lien.
+
+**Une feuille refermée sans aller au bout ne fige rien et n'écrit rien** :
+c'est le navigateur, et lui seul, qui dit si le geste a été mené à son
+terme. Ouvrir le lien se fait en deux temps pour cette raison : la page
+publique est créée d'abord — il faut bien une adresse à partager —, le
+partage n'est enregistré qu'ensuite, et seulement s'il a eu lieu.
+
+**L'historique l'écrit comme il le sait** : « Partagé depuis le téléphone »
+ou « Lien copié », avec la date et l'heure, **jamais** « Publié » ni
+« envoyé ». Le site a tendu un lien ; ce qui en a été fait ensuite ne lui
+revient pas. Ces lignes n'ont donc ni « Voir » ni « Réessayer » : il n'y a
+pas de publication distante à aller voir, et refaire le geste se fait avec
+l'icône, pas avec un bouton de reprise.
+
+Chaque geste est une destination à part entière, et la règle « une seule
+fois » vaut pour lui comme pour les autres : la même communication copiée
+deux fois ne s'inscrit qu'une, et le deuxième clic copie bien le lien sans
+rien ajouter à l'historique.
+
+**Le journal l'inscrit** comme il inscrit une publication : le geste, la
+communication, qui l'a fait — ni le texte, ni l'adresse. Un partage fige
+une communication pour toujours et met sa page publique entre les mains de
+quelqu'un ; c'est un acte qu'un audit doit pouvoir lire.
 
 
 ## 48. Finances — l'import des extraits bancaires (module finance)
