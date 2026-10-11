@@ -33,6 +33,7 @@ use Modules\Social\Service\GroupPublishingService;
 use Tests\Modules\Social\FakeGroupPublisher;
 use Modules\Social\Service\PublicPageService;
 use Modules\Social\Service\PublishingService;
+use Modules\Social\Service\ShareHistory;
 use Modules\Social\Service\ShareSourceResolver;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Http\Controller\RecordingJournalRepository;
@@ -1429,6 +1430,92 @@ final class CommunicationControllerTest extends TestCase
         );
     }
 
+    // ————— What this source has already been through —————
+
+    /**
+     * **The previous shares sit at the HEAD of the composer** (issue
+     * #706, IT-05), and they are read across every communication sharing
+     * the source — the same album with a different message is a new
+     * communication since IT-05, so the second share has the first one
+     * behind it in another row entirely.
+     *
+     * At the head and not at the foot: a chief about to share an album
+     * again needs it before they write, not after.
+     */
+    public function testTheComposerShowsWhatThisAlbumAlreadyWentThrough(): void
+    {
+        $this->loginAuthor();
+        // A first share, published and recorded against its own row.
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        // The composer opened again from the album, with nothing saved
+        // yet for this second message.
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('a déjà été partagé', $flat);
+        $this->assertStringContainsString('Page Facebook — le', $flat);
+    }
+
+    /** A communication written from nothing has no « already » to show. */
+    public function testAFreeCommunicationShowsNoPreviousShares(): void
+    {
+        $this->loginAuthor();
+
+        $html = $this->controller()->create($this->get(), [])->getBody();
+
+        $this->assertStringNotContainsString('data-previous-shares', $html);
+    }
+
+    /**
+     * The sentence the confirmation will quote travels in the markup, per
+     * destination — an attribute and not a JSON blob in a `<script>`,
+     * because Twig escapes an attribute whatever a caption contains.
+     */
+    public function testEachDestinationCarriesWhatAlreadyWentThere(): void
+    {
+        $this->loginAuthor();
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        // Facebook carries it; Instagram, never used, carries nothing and
+        // the dialog says « Jamais partagé ici. » itself.
+        $this->assertMatchesRegularExpression(
+            '#data-destination="facebook"[^>]*data-shared-line="Cet album est déjà parti sur Facebook#',
+            $flat
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '#data-destination="instagram"[^>]*data-shared-line#',
+            $flat
+        );
+    }
+
     // ————— Sharing by hand, from the history —————
 
     /**
@@ -2209,13 +2296,27 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringNotContainsString('Nouvelle communication', $html);
     }
 
+    /**
+     * **Publishing still asks, and since IT-05 the dialog is built in the
+     * browser** from the boxes actually ticked — so the button carries
+     * `data-publish-confirm` and no fixed sentence.
+     *
+     * A fixed `data-confirm` could not say « Cet album est déjà parti sur
+     * Facebook le 12 septembre, avec le même message » for one
+     * destination and « Jamais partagé ici. » for the next, and the
+     * chantier asks for exactly that. `social-publish-confirm.js` owns it
+     * and keeps what the sentence carried; the Vitest spec is where the
+     * dialog's own content is pinned.
+     */
     public function testPublishingAsksForConfirmationButSavingDoesNot(): void
     {
         $this->loginAuthor();
 
         $html = $this->controller()->create($this->get(), [])->getBody();
 
-        $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-confirm="Publier maintenant \?#', $html);
+        $this->assertMatchesRegularExpression('#value="publish"[^>]*\s+data-publish-confirm#', $html);
+        $this->assertStringContainsString('social-publish-confirm.js', $html);
+        // And nothing else on this form may grow a fixed confirmation.
         $this->assertDoesNotMatchRegularExpression('#value="save"[^>]*data-confirm#', $html);
         $this->assertStringNotContainsString('<form method="post" action="/medias-sociaux" enctype="multipart/form-data" data-confirm', $html);
     }
@@ -2957,6 +3058,11 @@ final class CommunicationControllerTest extends TestCase
             new EncryptedFileStorageService($files, H::encryption(), $this->storage),
             new UserAccountRepository($this->pdo, H::encryption()),
             $publicPages,
+            new ShareHistory(
+                $this->communications,
+                $this->publications,
+                new UserAccountRepository($this->pdo, H::encryption())
+            ),
             $this->picker,
             []
         );

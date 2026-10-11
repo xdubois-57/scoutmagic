@@ -10960,6 +10960,14 @@ if ($isEnabled('social')) {
             // the publishing service asks, so one page per
             // communication whichever path creates it.
             $socialPublicPages,
+            // What a SOURCE has already been through (issue #706, IT-05)
+            // — read across every communication sharing it, since the
+            // same album with a different message is a new one.
+            new \Modules\Social\Service\ShareHistory(
+                $socialCommunicationRepo,
+                $socialPublicationRepo,
+                $userAccountRepo
+            ),
             $galleryPhotoPickerForOthers,
             $linkedMemberIds
         )

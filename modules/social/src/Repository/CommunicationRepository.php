@@ -138,6 +138,28 @@ class CommunicationRepository
         return $driverCode === 1062 || ($driverCode === 19 && str_contains($e->getMessage(), 'UNIQUE'));
     }
 
+    /**
+     * Every communication sharing this source, newest first (issue #706,
+     * IT-05).
+     *
+     * Several is the normal case since IT-05: the same album with a
+     * different message is a new communication, on purpose. So « what
+     * this album has already been through » is read across all of them —
+     * {@see \Modules\Social\Service\ShareHistory}.
+     *
+     * @return list<int>
+     */
+    public function idsForSource(string $sourceKind, int $sourceId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id FROM social_communications'
+            . ' WHERE source_kind = ? AND source_id = ? ORDER BY id DESC'
+        );
+        $statement->execute([$sourceKind, $sourceId]);
+
+        return array_map(static fn (mixed $id): int => (int) $id, $statement->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function updateText(int $id, string $title, string $body, \DateTimeImmutable $now): void
     {
         $this->pdo->prepare('UPDATE social_communications SET title = ?, body = ?, updated_at = ? WHERE id = ?')

@@ -41,6 +41,37 @@ class PublicationRepository
     }
 
     /**
+     * Every publication of these communications, flat (issue #706,
+     * IT-05).
+     *
+     * Not keyed by destination, unlike {@see forSource()}: several
+     * communications sharing one album can each have gone to Facebook,
+     * and a key would keep one of them. {@see
+     * \Modules\Social\Service\ShareHistory} wants them all and picks
+     * the most recent per destination itself.
+     *
+     * @param list<int> $communicationIds
+     * @return list<Publication>
+     */
+    public function forCommunications(array $communicationIds): array
+    {
+        if ($communicationIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($communicationIds), '?'));
+        $statement = $this->pdo->prepare(
+            self::SELECT . ' WHERE source_kind = ? AND source_id IN (' . $placeholders . ')'
+        );
+        $statement->execute([\Modules\Social\Service\ShareSource::KIND_COMMUNICATION, ...$communicationIds]);
+
+        return array_map(
+            static fn (array $row): Publication => self::hydrate($row),
+            $statement->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * The publications of the most recently tried contents — « Ce qui est
      * parti » — grouped by content, newest content first; each group keyed
      * by destination.
