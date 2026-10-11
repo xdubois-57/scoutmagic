@@ -292,6 +292,12 @@ Elle tourne **sur la passe de reprise, après la migration et après la réconci
 la purge de rétention** de `finishRestore()` — sauf l'annulation des tâches (point 5), qui ne peut pas
 attendre cette passe.
 
+**Le dépôt `portable_secrets_hold` doit survivre jusque-là.** Aujourd'hui, la branche portable de
+`resumeMigration()` le supprime (`@unlink()`) **avant** `reconcileStorageBindings()` : à l'heure de la
+remise en place, il n'y aurait plus rien à lire, et le retour arrière de son `catch`, qui le relit
+(`restoreSecretsHeldAside()`), ne pourrait plus rendre les secrets. Déplace cette suppression après la
+remise en place réussie ; tout retour arrière le relit avant qu'il soit supprimé.
+
 1. **La liste des sauvegardes est celle d'aujourd'hui.** Les lignes `backups` restaurées sont
    remplacées par celles mises de côté, **avec les mêmes identifiants** — c'est ce qui garde les mots de
    passe attachés à la bonne sauvegarde. Les lignes `files` des sauvegardes restaurées sont retirées ;
@@ -300,9 +306,11 @@ attendre cette passe.
    `files` d'un fichier de l'unité n'est jamais touchée.** `requested_by` passe à `NULL` si le compte
    n'existe pas dans la base restaurée.
 2. **Les mots de passe des sauvegardes sont ceux d'aujourd'hui.** Restauration ordinaire :
-   `secrets.enc` n'est pas remplacé, rien à faire. Restauration portable : les `backup_password_{id}`
-   d'aujourd'hui remplacent ceux de l'archive, et ceux de l'archive qui ne correspondent à aucune
-   sauvegarde gardée sont retirés. **Jamais un mot de passe ne reste attaché à l'identifiant d'une autre
+   `secrets.enc` n'est pas remplacé, rien à faire. Restauration portable : **l'ensemble** des
+   `backup_password_*` est remplacé par celui d'aujourd'hui — tous ceux de l'archive sont retirés,
+   puis ceux d'aujourd'hui réécrits. Une sauvegarde gardée sans mot de passe aujourd'hui (la plupart
+   des types n'en ont pas) n'hérite donc jamais de celui que l'archive portait pour le même
+   identifiant. **Jamais un mot de passe ne reste attaché à l'identifiant d'une autre
    sauvegarde** : un test le fixe.
 3. **Les réglages hors site sont ceux d'aujourd'hui.** Restauration ordinaire et « Configuration
    seule » : les réglages mis de côté sont réécrits ; la phrase, dans `secrets.enc`, n'a pas bougé.
@@ -464,7 +472,9 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   pour la restauration ordinaire et la portable : liste des sauvegardes identique, mêmes identifiants,
   copie de sécurité présente ; ligne `files` d'une sauvegarde dont l'identifiant est pris par un fichier
   de l'unité → nouvel identifiant, fichier de l'unité intact ; mots de passe gardés et jamais attachés à
-  une autre sauvegarde ; réglages hors site gardés, et la règle portable avec et sans destination ;
+  une autre sauvegarde, y compris une sauvegarde gardée sans mot de passe dont l'identifiant en a un
+  dans l'archive ; restauration portable dont la migration ou la remise en place échoue → secrets
+  d'aujourd'hui rendus ; réglages hors site gardés, et la règle portable avec et sans destination ;
   journal d'aujourd'hui suivi des lignes de la restauration, sans collision d'identifiant même quand
   la restauration a écrit sur des identifiants mis de côté, compte absent → `NULL` ; tâches ramenées
   annulées et comptées dans la passe du remplacement — aucune ne s'exécute à la passe de reprise —,
