@@ -17,7 +17,8 @@ les séparer en plusieurs PR ferait attendre la CI plusieurs fois pour rien.
 **Pour qui.** La personne qui restaure n'est pas une experte du site, et elle le fait en urgence, sous
 stress. Chaque écran dit ce qui va se passer, en français courant ; le site fait lui-même tout ce qu'il
 peut faire ; il refuse tôt plutôt que d'échouer tard ; et rien de ce qui existait avant la restauration
-n'est perdu sans qu'on l'ait demandé.
+n'est perdu sans qu'on l'ait demandé — hormis les tâches planifiées en attente, qui repartent d'un état
+propre (partie 3).
 
 ---
 
@@ -251,9 +252,17 @@ entre l'affichage et le clic :
 
 Une restauration ramène **les données de l'unité** à une date. Elle ne ramène pas ce qui décrit **ce
 serveur et ce qui s'y est passé** : la liste de ses sauvegardes et leurs mots de passe, ses réglages
-hors site, son journal, ses tâches. Ces éléments sont **mis de côté avant que la base soit remplacée,
-puis remis tels quels** une fois le schéma restauré à jour — sur le modèle de `StorageBindingSnapshot`
-(#832), pour la restauration ordinaire, la restauration portable et « Configuration seule ».
+hors site, son journal. Ces éléments sont **mis de côté avant que la base soit remplacée, puis remis
+tels quels** une fois le schéma restauré à jour — sur le modèle de `StorageBindingSnapshot` (#832),
+pour la restauration ordinaire, la restauration portable et « Configuration seule ».
+
+**Les tâches planifiées, elles, ne sont pas gardées : elles repartent d'un état propre** (point 5).
+Ni les tâches ponctuelles en attente à la date restaurée, ni celles en attente aujourd'hui ne
+s'exécutent après la restauration ; seules les chaînes récurrentes sont ré-amorcées, d'après les
+réglages. Une tâche ponctuelle d'aujourd'hui — une sauvegarde manuelle ou un envoi demandés juste
+avant — est donc abandonnée : c'est voulu, une tâche préparée contre l'état d'avant n'a plus de sens
+contre l'état restauré. Le journal le dit : avant le remplacement, le nombre de tâches ponctuelles
+en attente est relevé par tâche, et l'événement du point 5 le reprend.
 
 ### La mise de côté
 
