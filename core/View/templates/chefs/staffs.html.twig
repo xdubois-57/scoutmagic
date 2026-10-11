@@ -156,11 +156,15 @@
                                 </span>
                             {% endif %}
                             {% if member.mobile %}
-                                <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
-                                {{ phone(member.mobile, 'text-decoration-none') }}
+                                <span>
+                                    <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
+                                    {{ phone(member.mobile, 'text-decoration-none') }}
+                                </span>
                             {% elseif member.phone %}
-                                <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
-                                {{ phone(member.phone, 'text-decoration-none') }}
+                                <span>
+                                    <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
+                                    {{ phone(member.phone, 'text-decoration-none') }}
+                                </span>
                             {% endif %}
                             {% if member.email %}
                                 <a href="mailto:{{ member.email }}" class="text-decoration-none text-truncate"
