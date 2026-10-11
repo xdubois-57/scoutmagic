@@ -26,6 +26,7 @@ import { answerConfirmation, waitForConfirmReady } from '../../support/confirm-d
 import { answerCookieBanner } from '../../support/cookie-banner.js';
 import { openModal } from '../../support/modal.js';
 import { pngBuffer } from '../../support/png.js';
+import { scaled } from '../../support/timeouts.js';
 
 const ARTICLE_TITLE = `Hors ligne ${Date.now()}`;
 const PASS_DONE_KEY = 'scoutmagic-offline-prefetch';
@@ -92,6 +93,11 @@ async function expectRendered(images) {
 }
 
 test('the list is held offline without being opened, with its images, and nothing else is kept', async ({ page, context }) => {
+    // A whole journey — an article published, two passes run, the network
+    // cut and restored, the article back to draft and deleted: past the
+    // default 60 s on a CI runner that measures coverage, while each step
+    // keeps its own timeout.
+    test.setTimeout(scaled(120_000));
     await fakeTheInstalledApp(context);
 
     /** @type {string[]} */
