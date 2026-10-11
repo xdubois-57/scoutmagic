@@ -63,16 +63,14 @@ class RegistrationConfigController extends AbstractController
     private const NOTICE_CONTENT_KEY = 'registration_management_notice';
 
     /**
-     * Waitlist management: the master switch, and the two ratio thresholds
-     * that only mean anything while it is on. All three are declared in
-     * module.json and stored in `settings` like any other — they are
-     * *surfaced* here, inside the capacity box they belong to, rather than
-     * owned here, exactly as the form's open/close state and the recurring
-     * schedule already are.
+     * Waitlist management: the master switch. It and the two occupancy
+     * thresholds it governs (Service\SlotService::SETTING_THRESHOLD_YES /
+     * SETTING_THRESHOLD_MAYBE) are declared in module.json and stored in
+     * `settings` like any other — they are *surfaced* here, inside the
+     * capacity box they belong to, rather than owned here, exactly as the
+     * form's open/close state and the recurring schedule already are.
      */
     private const SETTING_WAITLIST_ENABLED = 'registration_waitlist_enabled';
-    private const SETTING_THRESHOLD_AVAILABLE = 'registration_waitlist_threshold_available';
-    private const SETTING_THRESHOLD_LIMITED = 'registration_waitlist_threshold_limited';
 
     public function __construct(
         protected Environment $twig,
@@ -202,8 +200,9 @@ class RegistrationConfigController extends AbstractController
 
     /**
      * POST /config/inscriptions — saves the capacity box: the grid itself,
-     * the waitlist switch that governs it, and the two ratio thresholds
-     * that only mean anything while that switch is on. Age brackets (entry
+     * the waitlist switch that governs it, and the two occupancy thresholds
+     * (« Oui jusqu'à … % », « Peut-être jusqu'à … % ») that only mean
+     * anything while that switch is on. Age brackets (entry
      * age/duration per branch) are no longer configured here —
      * Repository\AgeBracketRepository resolves them directly from
      * Core\Member\MemberYearService::BRANCHES, the same central federation
@@ -237,31 +236,32 @@ class RegistrationConfigController extends AbstractController
 
         $waitlistEnabled = (string) $request->getBody('waitlist_enabled', '0') === '1';
 
-        // The two thresholds are rendered only while the switch is already
-        // on, so a submission that turns the waitlist OFF — and equally one
-        // that turns it back ON — carries neither of them. An ABSENT field
-        // is not an emptied one: the stored values are left exactly as they
-        // are, and come back unchanged. Only fields actually submitted are
-        // validated, and an inconsistent pair refuses the whole save rather
-        // than applying half of it.
+        // The two thresholds stay on the page while the switch is off, but
+        // DISABLED — a disabled field is not submitted. So a submission made
+        // with the switch off, and equally the one that turns it back on,
+        // carries neither of them. An ABSENT field is not an emptied one: the
+        // stored values are left exactly as they are, and come back
+        // unchanged. Only fields actually submitted are validated, and an
+        // invalid pair refuses the whole save rather than applying half of it.
         /** @var array<string, string> $thresholdWrites setting key => value, empty when nothing was submitted */
         $thresholdWrites = [];
-        $rawAvailable = $request->getBody('threshold_available', null);
-        $rawLimited = $request->getBody('threshold_limited', null);
-        if ($waitlistEnabled && ($rawAvailable !== null || $rawLimited !== null)) {
-            $available = self::parseThreshold($rawAvailable);
-            $limited = self::parseThreshold($rawLimited);
-            if ($available === null || $limited === null || $limited >= $available) {
+        $rawYes = $request->getBody('threshold_yes_percent', null);
+        $rawMaybe = $request->getBody('threshold_maybe_percent', null);
+        if ($waitlistEnabled && ($rawYes !== null || $rawMaybe !== null)) {
+            $yes = SlotMath::parseThresholdPercent($rawYes);
+            $maybe = SlotMath::parseThresholdPercent($rawMaybe);
+            if ($yes === null || $maybe === null || !SlotMath::isValidThresholdPair($yes, $maybe)) {
                 FlashMessage::set(
                     'error',
-                    'Seuils invalides : indiquez deux nombres entre 0 et 1, le seuil « attente limitée » '
-                    . 'devant être inférieur au seuil « places disponibles ». Rien n\'a été enregistré.'
+                    'Seuils invalides : indiquez deux nombres entiers de ' . SlotMath::THRESHOLD_MIN_PERCENT
+                    . ' à ' . SlotMath::THRESHOLD_MAX_PERCENT . ' %, le seuil « Oui » devant être inférieur au '
+                    . 'seuil « Peut-être ». Rien n\'a été enregistré.'
                 );
                 return $this->redirect('/config/inscriptions');
             }
             $thresholdWrites = [
-                self::SETTING_THRESHOLD_AVAILABLE => self::formatThreshold($available),
-                self::SETTING_THRESHOLD_LIMITED => self::formatThreshold($limited),
+                SlotService::SETTING_THRESHOLD_YES => (string) $yes,
+                SlotService::SETTING_THRESHOLD_MAYBE => (string) $maybe,
             ];
         }
 
@@ -309,37 +309,6 @@ class RegistrationConfigController extends AbstractController
         }
 
         return max(0, (int) $trimmed);
-    }
-
-    /**
-     * A waitlist threshold is a ratio in [0, 1]. Null means "not a usable
-     * ratio", which save() turns into a refusal rather than into a number
-     * that would silently change how full every branch looks. A comma is
-     * accepted as the decimal separator — the field is French, and 0,5 is
-     * what a chief types.
-     */
-    private static function parseThreshold(mixed $value): ?float
-    {
-        if (!is_scalar($value)) {
-            return null;
-        }
-        $trimmed = str_replace(',', '.', trim((string) $value));
-        if ($trimmed === '' || !is_numeric($trimmed)) {
-            return null;
-        }
-        $ratio = (float) $trimmed;
-
-        return ($ratio < 0 || $ratio > 1) ? null : $ratio;
-    }
-
-    /**
-     * Back to the plain dot-decimal string the setting stores and
-     * Service\SlotService reads with a `(float)` cast — never a
-     * locale-formatted one.
-     */
-    private static function formatThreshold(float $ratio): string
-    {
-        return rtrim(rtrim(number_format($ratio, 4, '.', ''), '0'), '.') ?: '0';
     }
 
     /**
@@ -587,24 +556,22 @@ class RegistrationConfigController extends AbstractController
 
             // Waitlist management, surfaced inside the capacity box rather
             // than hidden away in Configuration > Réglages. When it is off,
-            // the two thresholds and the waitlist columns of the capacity
-            // table are not rendered at all — they describe a mechanism
-            // that is not running (their stored values are untouched).
+            // the waitlist columns of the capacity table are not rendered,
+            // and the two thresholds stay visible but disabled — they
+            // describe a mechanism that is not running, and their stored
+            // values are untouched.
             'waitlist_enabled' => $this->settingService->get(
                 self::SETTING_WAITLIST_ENABLED,
                 'registration',
                 '1'
             ) === '1',
-            'threshold_available' => (string) $this->settingService->get(
-                self::SETTING_THRESHOLD_AVAILABLE,
-                'registration',
-                '0.5'
-            ),
-            'threshold_limited' => (string) $this->settingService->get(
-                self::SETTING_THRESHOLD_LIMITED,
-                'registration',
-                '0.1'
-            ),
+            // The pair the levels are actually computed with — the stored
+            // one, or the defaults when the stored pair is unusable — so the
+            // fields never show a number the page does not apply.
+            'level_thresholds' => $this->slotService->levelThresholds(),
+            'level_thresholds_unusable' => $this->slotService->storedThresholdsAreUnusable(),
+            'threshold_min_percent' => SlotMath::THRESHOLD_MIN_PERCENT,
+            'threshold_max_percent' => SlotMath::THRESHOLD_MAX_PERCENT,
             'default_capacity' => SlotService::DEFAULT_CAPACITY,
 
             'selectable_years' => $years['selectable'],

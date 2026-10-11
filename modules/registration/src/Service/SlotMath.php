@@ -12,8 +12,8 @@ use Modules\Registration\Repository\AgeBracket;
 
 /**
  * Pure translation between a "slot" (branch × year-in-branch, the module's
- * unit of measure — see module docs) and a birth year, plus the waitlist
- * tier ratio math. No database access, so this stays trivially unit
+ * unit of measure — see module docs) and a birth year, plus the occupancy
+ * level math. No database access, so this stays trivially unit
  * testable — Service\SlotService is the DB-touching orchestration layer
  * that feeds this class real data.
  *
@@ -39,9 +39,18 @@ use Modules\Registration\Repository\AgeBracket;
  */
 final class SlotMath
 {
-    public const TIER_AVAILABLE = 'available';
-    public const TIER_LIMITED = 'limited';
-    public const TIER_HEAVY = 'heavy';
+    /**
+     * The three levels of a slot. The recommendation says them as Oui /
+     * Peut-être / Non, the public page as « Disponible » / « Limitée » /
+     * « Complet » — one value each, read through the same two thresholds.
+     */
+    public const LEVEL_YES = 'yes';
+    public const LEVEL_MAYBE = 'maybe';
+    public const LEVEL_NO = 'no';
+
+    /** The bounds of a threshold, in percent of the places occupied. */
+    public const THRESHOLD_MIN_PERCENT = 1;
+    public const THRESHOLD_MAX_PERCENT = 120;
 
     /**
      * @param string $referenceMonthDay "MM-DD", e.g. "12-31"
@@ -94,83 +103,87 @@ final class SlotMath
     }
 
     /**
-     * The slot that "feeds" the given (branch, year-in-branch) slot: the
-     * one rank below in the same branch, or — for year-in-branch 1 — the
-     * last year of the branch immediately before it in $orderedBrackets
-     * (canonical branch order, see Repository\AgeBracketRepository::
-     * findAllOrdered()). Null when there is no such feeder (year-in-branch
-     * 1 of the very first configured branch).
+     * The level of a slot at a given occupancy — the ONE reading of the
+     * thresholds, shared by the public page (Oui = « Disponible »,
+     * Peut-être = « Limitée », Non = « Complet »), the chief's capacity
+     * check, and the recommendation built on top of them. Two readings of
+     * the same two percentages would let a family read « Disponible » for
+     * a slot the chief is told is already in « Peut-être ».
      *
-     * @param array<AgeBracket> $orderedBrackets
-     * @return array{age_branch_id: int, year_in_branch: int}|null
-     */
-    public static function feederSlot(array $orderedBrackets, int $ageBranchId, int $yearInBranch): ?array
-    {
-        if ($yearInBranch > 1) {
-            return ['age_branch_id' => $ageBranchId, 'year_in_branch' => $yearInBranch - 1];
-        }
-
-        $index = null;
-        foreach ($orderedBrackets as $i => $bracket) {
-            if ($bracket->ageBranchId === $ageBranchId) {
-                $index = $i;
-                break;
-            }
-        }
-        if ($index === null || $index === 0) {
-            return null;
-        }
-
-        $previous = $orderedBrackets[$index - 1];
-
-        return ['age_branch_id' => $previous->ageBranchId, 'year_in_branch' => $previous->lastYearInBranch()];
-    }
-
-    /**
-     * Ratio-based tier — the module spec is explicit that a fixed number
-     * of remaining spots means nothing without the slot's own capacity as
-     * context (a 40-member unit and a 200-member unit shouldn't read the
-     * same absolute number the same way).
+     * The model is an OCCUPANCY ratio, `occupied / capacity`, compared to
+     * two percentages with the bound INCLUDED: « Oui jusqu'à 70 % » still
+     * answers Oui at exactly 70 %, « Peut-être jusqu'à 100 % » still
+     * answers Peut-être with every place taken, and Non starts strictly
+     * above the second one. The comparison is done in integers
+     * (`occupied × 100 ≤ percent × capacity`), never on a float ratio, so
+     * a bound that falls exactly on a number of places cannot be missed by
+     * a rounding error.
      *
      * **A null capacity is NOT a zero one**, and this signature is where
      * that rule is enforced for the whole module:
      *
-     * - `null` — no limit recorded for this slot. There is no tier to
-     *   compute: `null` comes back, and every caller must render that as
-     *   "no limit" rather than as a level. A slot like this is never
-     *   announced full and never feeds a waitlist.
-     * - `0` — the slot is deliberately CLOSED. That genuinely is "heavy":
-     *   there is no room, on purpose.
+     * - `null` — no limit recorded for this slot: always Oui, whatever the
+     *   occupancy. It is never announced full.
+     * - `0` — the slot is deliberately CLOSED: always Non, even empty.
      *
-     * Taking `int` here used to be enough because the column was
-     * `NOT NULL DEFAULT 0`; now that an empty box means "pas de limite",
-     * an `int` parameter would let PHP coerce the null to 0 at the call
-     * site and quietly announce an unconfigured branch as complete.
+     * Taking `int` here would let PHP coerce a null to 0 at the call site
+     * and quietly announce an unconfigured branch as complete.
      */
-    public static function tierForRemaining(
+    public static function levelForOccupancy(
         ?int $capacity,
-        int $remainingEstimate,
-        float $availableThreshold,
-        float $limitedThreshold
-    ): ?string
-    {
+        int $occupied,
+        int $yesPercent,
+        int $maybePercent
+    ): string {
         if ($capacity === null) {
-            return null;
+            return self::LEVEL_YES;
         }
         if ($capacity <= 0) {
-            return self::TIER_HEAVY;
+            return self::LEVEL_NO;
         }
 
-        $ratio = $remainingEstimate / $capacity;
-
-        if ($ratio >= $availableThreshold) {
-            return self::TIER_AVAILABLE;
+        $occupiedHundredths = $occupied * 100;
+        if ($occupiedHundredths <= $yesPercent * $capacity) {
+            return self::LEVEL_YES;
         }
-        if ($ratio >= $limitedThreshold) {
-            return self::TIER_LIMITED;
+        if ($occupiedHundredths <= $maybePercent * $capacity) {
+            return self::LEVEL_MAYBE;
         }
 
-        return self::TIER_HEAVY;
+        return self::LEVEL_NO;
+    }
+
+    /**
+     * One threshold as a chief types it: a whole number of percent between
+     * THRESHOLD_MIN_PERCENT and THRESHOLD_MAX_PERCENT. Null for anything
+     * else — empty, decimal, negative, out of range, not a number — so the
+     * caller refuses it rather than storing a value that would silently
+     * change how full every slot looks.
+     */
+    public static function parseThresholdPercent(mixed $value): ?int
+    {
+        if (!is_scalar($value)) {
+            return null;
+        }
+        $trimmed = trim((string) $value);
+        if (preg_match('/^\d{1,3}$/', $trimmed) !== 1) {
+            return null;
+        }
+        $percent = (int) $trimmed;
+
+        return $percent >= self::THRESHOLD_MIN_PERCENT && $percent <= self::THRESHOLD_MAX_PERCENT
+            ? $percent
+            : null;
+    }
+
+    /**
+     * The two thresholds only make sense in order: « Oui » must stop
+     * strictly before « Peut-être » does, or the Peut-être band would be
+     * empty or inverted.
+     */
+    public static function isValidThresholdPair(int $yesPercent, int $maybePercent): bool
+    {
+        return $yesPercent < $maybePercent;
     }
 
     private static function extractYear(string $date): ?int

@@ -308,6 +308,46 @@ class RegistrationTestHelper
     }
 
     /**
+     * The slot capacities, wired out of real collaborators — the module's
+     * one projection (ForecastService) included, since the occupancy of a
+     * slot IS that projection (chantier #843, IT-02) and a double would
+     * only ever confirm that the test and the test agree about who will be
+     * where next year.
+     */
+    public static function slotService(
+        \PDO $pdo,
+        \Core\Security\EncryptionService $encryption,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Registration\Service\SlotService {
+        $connection = \Core\Database\Connection::withPdo($pdo);
+        $sectionService = new \Core\Member\SectionService(
+            new \Core\Member\Repository\SectionRepository($connection),
+            new \Core\Member\Repository\MemberProfileRepository(
+                $connection,
+                $encryption,
+                new \Core\Badge\MemberBadgeRepository($pdo)
+            )
+        );
+        $roster = new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption);
+
+        return new \Modules\Registration\Service\SlotService(
+            $roster,
+            new \Core\Config\ScoutYearService($pdo),
+            $settingService,
+            new \Modules\Registration\Repository\AgeBracketRepository($pdo),
+            new \Modules\Registration\Repository\SlotCapacityRepository($pdo),
+            new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption),
+            new \Modules\Registration\Service\ForecastService(
+                $roster,
+                $encryption,
+                $sectionService,
+                self::passageService($pdo, $encryption)
+            ),
+            new \Modules\Registration\Repository\ReenrollmentRepository($pdo, $encryption)
+        );
+    }
+
+    /**
      * The module's own projection, wired out of real collaborators.
      *
      * IT-17 scopes name matching to the projected population of the
@@ -338,14 +378,7 @@ class RegistrationTestHelper
 
         return new \Modules\Registration\Service\ProjectedPopulationService(
             new \Modules\Registration\Service\ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption), $encryption, $sectionService, $passageService),
-            new \Modules\Registration\Service\SlotService(
-                new \Modules\Registration\Repository\PassageRosterRepository($pdo, $encryption),
-                new \Core\Config\ScoutYearService($pdo),
-                $settingService,
-                $ageBracketRepository,
-                new \Modules\Registration\Repository\SlotCapacityRepository($pdo),
-                $requestRepository
-            ),
+            self::slotService($pdo, $encryption, $settingService),
             new \Core\Config\ScoutYearService($pdo),
             $sectionService,
             $requestRepository,

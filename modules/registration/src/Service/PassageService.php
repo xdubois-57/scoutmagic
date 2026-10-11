@@ -53,6 +53,7 @@ class PassageService
      * @return array<int, array{
      *   request: \Modules\Registration\Repository\RegistrationRequest,
      *   slot: ?array{age_branch_id: int, year_in_branch: int},
+     *   branch_sort_order: ?int,
      *   slot_label: string,
      *   desired_section_label: ?string,
      *   siblings: array<int, array{name: string, section_label: ?string}>,
@@ -103,6 +104,7 @@ class PassageService
             $rows[] = [
                 'request' => $request,
                 'slot' => $slot,
+                'branch_sort_order' => $this->branchSortOrderOf($brackets, $slot),
                 'slot_label' => $this->slotLabel($brackets, $slot),
                 'desired_section_label' => $request->desiredSectionId !== null
                     ? ($sectionLabels[$request->desiredSectionId] ?? '—')
@@ -639,5 +641,28 @@ class PassageService
         }
 
         return 'Non déterminé';
+    }
+
+    /**
+     * The canonical sort order of the branch a request's slot belongs to —
+     * the same identity Service\ForecastService gives the members it
+     * projects, so Service\SlotService places a request and a member in a
+     * slot by one key. Null when the birth date fits no branch.
+     *
+     * @param array<\Modules\Registration\Repository\AgeBracket> $brackets
+     * @param array{age_branch_id: int, year_in_branch: int}|null $slot
+     */
+    private function branchSortOrderOf(array $brackets, ?array $slot): ?int
+    {
+        if ($slot === null) {
+            return null;
+        }
+        foreach ($brackets as $bracket) {
+            if ($bracket->ageBranchId === $slot['age_branch_id']) {
+                return $bracket->branchSortOrder;
+            }
+        }
+
+        return null;
     }
 }

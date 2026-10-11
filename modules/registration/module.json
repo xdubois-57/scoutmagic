@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.11.0",
+  "version": "6.12.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -704,7 +704,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Gérer les listes d'attente",
-      "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont disponibles, l'attente limitée ou l'attente importante, et la page Inscriptions de l'Espace chefs d'U affiche le restant et le niveau vu par le public. Quand inactif, rien de tout cela n'apparaît nulle part et les deux seuils ci-dessous ne servent à rien. Se règle aussi depuis l'encart « Capacités par branche » de Configuration > Inscriptions."
+      "description": "Quand actif, la page publique annonce à côté de chaque année de naissance si les places sont « Disponible », « Limitée » ou « Complet », et la page Formulaire d'inscription de l'Espace chefs d'U affiche le restant et le niveau vu par le public. Quand inactif, rien de tout cela n'apparaît nulle part et les deux seuils « Oui jusqu'à … % » et « Peut-être jusqu'à … % » sont sans effet, leurs valeurs étant conservées. Se règle aussi depuis l'encart « Capacités par branche » du Formulaire d'inscription."
     },
     {
       "key": "registration_reference_date",
@@ -714,18 +714,20 @@
       "description": "Jour et mois (MM-JJ) utilisés pour déterminer l'âge d'un enfant au sein de l'année scoute ciblée, et donc son créneau (branche × rang). Par défaut le 31 décembre (12-31)."
     },
     {
-      "key": "registration_waitlist_threshold_available",
-      "default_value": "0.5",
-      "type": "text",
-      "label": "Seuil « places disponibles »",
-      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « places disponibles ». Ex. : 0.5 = au moins la moitié de la capacité encore libre."
+      "key": "registration_threshold_yes_percent",
+      "default_value": "70",
+      "type": "number",
+      "label": "Oui jusqu'à … % de places occupées",
+      "description": "Pourcentage d'occupation d'une année de parcours (places occupées par l'effectif projeté et les demandes acceptées, rapportées à sa capacité) jusqu'auquel elle reste « Oui » — « Disponible » pour les familles. Borne incluse. Nombre entier de 1 à 120, inférieur au seuil « Peut-être ». Une capacité vide est toujours « Oui », une capacité 0 toujours « Non ». Se règle dans l'encart « Capacités par branche » du Formulaire d'inscription.",
+      "validation_regex": "^([1-9]|[1-9]\\d|1[01]\\d|120)$"
     },
     {
-      "key": "registration_waitlist_threshold_limited",
-      "default_value": "0.1",
-      "type": "text",
-      "label": "Seuil « attente limitée »",
-      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « attente limitée » plutôt que « attente importante ». Doit être inférieur au seuil « places disponibles ». Ne sert que si « Gérer les listes d'attente » est actif ; se règle alors dans l'encart « Capacités par branche » de Configuration > Inscriptions."
+      "key": "registration_threshold_maybe_percent",
+      "default_value": "100",
+      "type": "number",
+      "label": "Peut-être jusqu'à … % de places occupées",
+      "description": "Pourcentage d'occupation d'une année de parcours jusqu'auquel elle est « Peut-être » — « Limitée » pour les familles ; au-delà, elle est « Non » — « Complet ». Borne incluse. Nombre entier de 1 à 120, supérieur au seuil « Oui ». Au-delà de 100, l'unité accepte plus de monde que de places en comptant sur les départs non annoncés. Se règle dans l'encart « Capacités par branche » du Formulaire d'inscription.",
+      "validation_regex": "^([1-9]|[1-9]\\d|1[01]\\d|120)$"
     },
     {
       "key": "registration_unit_alert_email",

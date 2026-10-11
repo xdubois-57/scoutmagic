@@ -14,7 +14,7 @@
 // Service\SlotService::birthYearsByBranch() rows the « nés en… » table
 // above renders (base.html.twig's `offline-config-data` precedent).
 // Reusing that exact data avoids a round trip and keeps this preview
-// trivially in sync with the branch capacities and waitlist tiers shown
+// trivially in sync with the branch capacities and public levels shown
 // above it.
 //
 // Birth YEAR only, deliberately: that is the precision the server-side
@@ -31,11 +31,13 @@
         return;
     }
 
+    // Service\SlotMath's three levels, read through the same thresholds
+    // as the chief's recommendation, in the words a family reads.
     /** @type {Record<string, string>} */
-    var TIER_LABELS = {
-        available: 'Disponible',
-        limited: 'Limitée',
-        heavy: 'Complet'
+    var LEVEL_LABELS = {
+        yes: 'Disponible',
+        maybe: 'Limitée',
+        no: 'Complet'
     };
 
     var slots = data.birthYearSlots || [];
@@ -188,8 +190,8 @@
 
         var text = 'Branche prévue : ' + match.branch_label
             + ' — ' + match.year_in_branch + 'ᵉ année.';
-        if (waitlistEnabled && match.tier && TIER_LABELS[match.tier]) {
-            text += ' ' + TIER_LABELS[match.tier] + '.';
+        if (waitlistEnabled && match.level && LEVEL_LABELS[match.level]) {
+            text += ' ' + LEVEL_LABELS[match.level] + '.';
         }
         // textContent, not innerHTML: a branch label is configured text.
         hint.textContent = text;

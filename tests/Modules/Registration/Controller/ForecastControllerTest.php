@@ -18,10 +18,8 @@ use Modules\Registration\Controller\ForecastController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
-use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
-use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -62,8 +60,7 @@ class ForecastControllerTest extends TestCase
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
-        $slotService = new SlotService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository, $slotCapacityRepository, $requestRepository);
+        $slotService = RegistrationTestHelper::slotService($this->pdo, $encryption, $settingService);
         $transferRepository = new SectionTransferRepository($this->pdo);
         $passageService = new PassageService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $transferRepository, $requestRepository, $ageBracketRepository);
         $forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), $encryption, $sectionService, $passageService);

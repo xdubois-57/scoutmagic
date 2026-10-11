@@ -16,11 +16,9 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\ProjectedMemberEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
-use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
 use Modules\Registration\Service\ProjectedPopulationService;
-use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -91,10 +89,7 @@ class ProjectedPopulationServiceTest extends TestCase
         $this->forecastService = new ForecastService(new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), $this->encryption, $sectionService, $passageService);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
-        $slotService = new SlotService(
-            new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $this->encryption), new \Core\Config\ScoutYearService($this->pdo), $settingService, $ageBracketRepository,
-            new SlotCapacityRepository($this->pdo), $this->requestRepository
-        );
+        $slotService = RegistrationTestHelper::slotService($this->pdo, $this->encryption, $settingService);
 
         $this->provider = new ProjectedPopulationService(
             $this->forecastService,

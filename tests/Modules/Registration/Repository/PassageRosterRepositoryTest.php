@@ -78,27 +78,36 @@ class PassageRosterRepositoryTest extends TestCase
         $this->assertSame(0, $this->roster->countLeavingAnimes($this->otherYearId));
     }
 
-    public function testFindAnimeAgesDecryptsOneEntryPerStayingAnime(): void
+    /**
+     * Desk's verdict on a member for one year, whatever their function:
+     * still there (active, not leaving), gone (inactive, or leaving), or —
+     * by absence — not said yet.
+     */
+    public function testFindStayingStatesTellsStayingFromGoneAndLeavesTheUnknownOut(): void
     {
-        $twoFunctions = $this->insertMemberYear(
-            $this->yearId,
-            [[$this->animeFunctionId, true], [$this->animeFunctionId, true]],
-            birthDate: '2017-03-04',
-            offset: 1
-        );
-        $noBirthDate = $this->insertMemberYear($this->yearId, [[$this->animeFunctionId, true]], birthDate: null);
-        $this->insertMemberYear($this->yearId, [[$this->animeFunctionId, true]], leaving: true);
-        $this->insertMemberYear($this->yearId, [[$this->chiefFunctionId, true]]);
-        $this->insertMemberYear($this->yearId, [[$this->animeFunctionId, false]]);
-        $this->insertMemberYear($this->otherYearId, [[$this->animeFunctionId, true]]);
+        $staying = $this->insertMemberYear($this->yearId, [[$this->chiefFunctionId, true]]);
+        $leaving = $this->insertMemberYear($this->yearId, [[$this->animeFunctionId, true]], leaving: true);
+        $inactive = $this->insertMemberYear($this->yearId, [[$this->animeFunctionId, true]], active: false);
+        $otherYearOnly = $this->insertMemberYear($this->otherYearId, [[$this->animeFunctionId, true]]);
 
-        $ages = $this->roster->findAnimeAges($this->yearId);
-        ksort($ages);
+        $states = $this->roster->findStayingStates(
+            [
+                $staying['member_id'],
+                $leaving['member_id'],
+                $inactive['member_id'],
+                $otherYearOnly['member_id'],
+                $staying['member_id'],
+            ],
+            $this->yearId
+        );
+        ksort($states);
 
         $this->assertSame([
-            $twoFunctions['member_year_id'] => ['birth_date' => '2017-03-04', 'scout_year_offset' => 1],
-            $noBirthDate['member_year_id'] => ['birth_date' => null, 'scout_year_offset' => 0],
-        ], $ages);
+            $staying['member_id'] => true,
+            $leaving['member_id'] => false,
+            $inactive['member_id'] => false,
+        ], $states);
+        $this->assertSame([], $this->roster->findStayingStates([], $this->yearId));
     }
 
     public function testFindGendersAndAgesAnswersEachMemberFromTheRequestedYearWhateverTheirRow(): void

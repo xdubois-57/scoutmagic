@@ -7,25 +7,13 @@ role_min: admin
 question: Comment accepter ou refuser une demande d'inscription ?
 question: Comment répondre à une famille qui attend une place ?
 paths: /config/inscriptions, /config/inscriptions/demandes/*
-related: inscrire-un-enfant, passage, annee-scoute
+related: capacites-et-listes-d-attente, inscrire-un-enfant, passage, annee-scoute
 ---
 
 La page « Formulaire d'inscription » rassemble tout le traitement des
 demandes : l'ouverture du formulaire, les capacités par branche, la
-liste des demandes et leur fiche.
-
-## Les capacités et les listes d'attente
-
-L'encart « Capacités par branche » dit combien de places chaque branche
-offre, par année. Une case vide signifie **pas de limite** : la branche
-n'est jamais annoncée complète. Pour la fermer, écrivez **0** — ce
-n'est pas la même chose. Une branche sans capacité en reçoit une de 15
-dès votre première visite.
-
-L'interrupteur « Gérer les listes d'attente » vit dans le même encart.
-Désactivé, plus personne ne voit la disponibilité des places, et les
-seuils qui la calculent disparaissent — vos valeurs reviennent si vous
-le réactivez.
+liste des demandes et leur fiche. Les capacités, les seuils et les listes
+d'attente ont leur propre sujet d'aide, lié ci-dessous.
 
 ## Le cycle d'une demande
 

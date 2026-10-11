@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Import\AgeBranchRepository;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -165,6 +166,7 @@ class ForecastService
      *         request_id: ?int,
      *         section_id: ?int,
      *         year_in_branch: ?int,
+     *         branch_sort_order: ?int,
      *         gender: string,
      *         birth_year: ?int,
      *         certain: bool,
@@ -221,6 +223,7 @@ class ForecastService
          *     array{
          *         section_id: ?int,
          *         year_in_branch: ?int,
+         *         branch_sort_order: ?int,
          *         gender: ?string,
          *         birth_year: ?int,
          *         certain: bool,
@@ -256,6 +259,7 @@ class ForecastService
                 'request_id' => null,
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $effectiveAge->yearInBranch,
+                'branch_sort_order' => self::branchSortOrder($effectiveAge),
                 'gender' => $this->classifyGender(
                     $row['gender_encrypted'] !== null
                         ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
@@ -318,6 +322,7 @@ class ForecastService
                 'request_id' => null,
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $projectedAge->yearInBranch,
+                'branch_sort_order' => self::branchSortOrder($projectedAge),
                 'gender' => $this->classifyGender(
                     $row['gender_encrypted'] !== null
                         ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender')
@@ -348,11 +353,12 @@ class ForecastService
                     // which is also where the "non attribué" tallying now
                     // happens, so every row is accounted for exactly once.
                     'section_id' => $destinationSectionId !== null ? (int) $destinationSectionId : null,
-                    // year_in_branch/gender/birth_year all resolved below in
+                    // year_in_branch/branch/gender/birth_year all resolved below in
                     // one pass, keyed by member_id — the rank is derived
                     // from the member's own projected effective age (which
                     // honours scout_year_offset), never hardcoded to 1.
                     'year_in_branch' => null,
+                    'branch_sort_order' => null,
                     'gender' => null,
                     'birth_year' => null,
                     'certain' => false,
@@ -388,6 +394,7 @@ class ForecastService
                 // unassigned (null here) — see the matching (c) comment above.
                 'section_id' => $request->intendedSectionId,
                 'year_in_branch' => $row['slot']['year_in_branch'] ?? null,
+                'branch_sort_order' => $row['branch_sort_order'],
                 'gender' => $this->classifyGender($request->gender),
                 'birth_year' => $request->birthYear(),
                 'certain' => false,
@@ -426,11 +433,9 @@ class ForecastService
      *         branch_label: string,
      *         branch_sort_order: int,
      *         year_in_branch: int,
-     *         capacity: int,
-     *         projected: int,
-     *         accepted: int,
-     *         remaining: int,
-     *         tier: string
+     *         capacity: ?int,
+     *         remaining: ?int,
+     *         level: string
      *     }
      * > $capacityBreakdown
      * @return array<
@@ -438,7 +443,7 @@ class ForecastService
      *     array{
      *         label: string,
      *         color: string,
-     *         rows: array<int, array{year_in_branch: int, capacity: int, remaining: int, tier: string}>
+     *         rows: array<int, array{year_in_branch: int, capacity: ?int, remaining: ?int, level: string}>
      *     }
      * >
      */
@@ -464,7 +469,7 @@ class ForecastService
                 'year_in_branch' => $row['year_in_branch'],
                 'capacity' => $row['capacity'],
                 'remaining' => $row['remaining'],
-                'tier' => $row['tier'],
+                'level' => $row['level'],
             ];
         }
 
@@ -517,8 +522,8 @@ class ForecastService
 
     /**
      * (c)'s branch-change rows only carry a member_id — this resolves their
-     * gender, birth year AND year-in-branch in one extra pass rather than
-     * re-querying per row.
+     * gender, birth year, branch AND year-in-branch in one extra pass rather
+     * than re-querying per row.
      *
      * The rank is computed through MemberYearService::getEffectiveAge()
      * against the TARGET year's reference year, honouring the member's own
@@ -555,11 +560,15 @@ class ForecastService
                 ? MemberYearService::extractBirthYear($source['birth_date'])
                 : null;
             $row['birth_year'] = $birthYear;
-            $row['year_in_branch'] = $source !== null
-                ? $this->memberYearService
-                    ->getEffectiveAge($birthYear, $source['scout_year_offset'], $targetReferenceYear)
-                    ->yearInBranch
+            $projectedAge = $source !== null
+                ? $this->memberYearService->getEffectiveAge(
+                    $birthYear,
+                    $source['scout_year_offset'],
+                    $targetReferenceYear
+                )
                 : null;
+            $row['year_in_branch'] = $projectedAge?->yearInBranch;
+            $row['branch_sort_order'] = $projectedAge !== null ? self::branchSortOrder($projectedAge) : null;
             unset($row['needs_resolution']);
         }
         unset($row);
@@ -755,6 +764,18 @@ class ForecastService
         $branch = MemberYearService::branchForSortOrder($sortOrder);
 
         return $branch !== null ? $branch['age_max'] - $branch['age_min'] + 1 : 4;
+    }
+
+    /**
+     * The canonical sort order of the branch an effective age lands in —
+     * the identity Repository\AgeBracketRepository's brackets carry, so a
+     * projected row can be placed in its (branch, year-in-branch) slot by
+     * Service\SlotService without recomputing an age. Null outside the
+     * four animés branches.
+     */
+    private static function branchSortOrder(\Core\Member\EffectiveAge $age): ?int
+    {
+        return $age->branchName !== null ? AgeBranchRepository::canonicalSortOrder($age->branchName) : null;
     }
 
     private function classifyGender(?string $gender): string

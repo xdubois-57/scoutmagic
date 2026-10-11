@@ -184,40 +184,6 @@ class PassageRosterRepository
     }
 
     /**
-     * The birth date, decrypted, and the chief's offset of every animé of
-     * $scoutYearId who is not leaving — what `Service\SlotService` needs to
-     * place each of them in the slot they occupy today. One entry per
-     * member_year, however many functions it holds: the join multiplies
-     * rows, and counting those would replace one over-count by another.
-     *
-     * @return array<int, array{birth_date: ?string, scout_year_offset: int}> member_year id => age inputs
-     */
-    public function findAnimeAges(int $scoutYearId): array
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT DISTINCT my.id, my.birth_date_encrypted, my.scout_year_offset
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
-               AND ' . self::NOT_STAFF
-        );
-        $stmt->execute([$scoutYearId]);
-
-        $ages = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $ages[(int) $row['id']] = [
-                'birth_date' => $row['birth_date_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
-                    : null,
-                'scout_year_offset' => (int) $row['scout_year_offset'],
-            ];
-        }
-
-        return $ages;
-    }
-
-    /**
      * Gender and birth date, decrypted, and the chief's offset of each of
      * $memberIds on their $scoutYearId row — active or not, animé or not:
      * the caller already knows who they are and only needs what to project
@@ -356,6 +322,38 @@ class PassageRosterRepository
         }
 
         return $labels;
+    }
+
+    /**
+     * Whether Desk still has each of $memberIds in $scoutYearId: true for
+     * an active row not marked leaving, false for an inactive row or one
+     * marked leaving — any function, animé or not. A member with no row
+     * that year is absent, which is a third answer (« Desk has not said
+     * yet »), not a false.
+     *
+     * @param array<int, int> $memberIds
+     * @return array<int, bool> member id => still there
+     */
+    public function findStayingStates(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique($memberIds));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id, is_active, leaving FROM member_years
+             WHERE member_id IN (' . $placeholders . ') AND scout_year_id = ?'
+        );
+        $stmt->execute([...$memberIds, $scoutYearId]);
+
+        $states = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $states[(int) $row['member_id']] = (int) $row['is_active'] === 1 && (int) $row['leaving'] === 0;
+        }
+
+        return $states;
     }
 
     /**

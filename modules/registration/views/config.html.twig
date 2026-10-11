@@ -154,33 +154,52 @@
                            {{ waitlist_enabled ? 'checked' : '' }}>
                     <label class="form-check-label" for="waitlist_enabled">Gérer les listes d'attente</label>
                     <span class="form-text d-block">
-                        Quand c'est actif, la page publique annonce pour chaque année de naissance si les places sont
-                        disponibles, l'attente limitée ou l'attente importante, et le tableau « Vérification des
-                        capacités » ci-dessous affiche le restant et le niveau vu par le public. Quand ce n'est pas
-                        actif, rien de tout cela n'apparaît nulle part.
+                        Quand c'est actif, la page publique annonce pour chaque année de naissance « Disponible »,
+                        « Limitée » ou « Complet », et le tableau « Vérification des capacités » ci-dessous affiche le
+                        restant et le niveau vu par le public. Quand ce n'est pas actif, rien de tout cela n'apparaît
+                        nulle part.
                     </span>
                 </div>
 
-                {% if waitlist_enabled %}
-                    <div class="row g-2 mb-3">
-                        <div class="col-12 col-sm-6 col-md-4">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'threshold_available', field_name: 'threshold_available',
-                                label: 'Seuil « places disponibles »', value: threshold_available,
-                                placeholder: '0.5', size: 'sm', wrapper_class: '',
-                                help: 'Part de la capacité encore libre au-delà de laquelle un créneau est annoncé « disponible ». Ex. : 0.5 = au moins la moitié.',
-                            } only %}
+                {# Both thresholds stay on the page while waitlists are not managed:
+                   disabled, so the browser does not submit them and save() leaves
+                   the stored values exactly as they are. #}
+                <div class="row g-2 mb-3">
+                    {% if level_thresholds_unusable %}
+                        <div class="col-12">
+                            <div class="alert alert-warning small mb-0">
+                                Les seuils enregistrés ne sont pas utilisables (deux nombres entiers de
+                                {{ threshold_min_percent }} à {{ threshold_max_percent }}, « Oui » inférieur à
+                                « Peut-être ») : les valeurs ci-dessous, celles par défaut, s'appliquent jusqu'à ce que
+                                vous les enregistriez.
+                            </div>
                         </div>
-                        <div class="col-12 col-sm-6 col-md-4">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'threshold_limited', field_name: 'threshold_limited',
-                                label: 'Seuil « attente limitée »', value: threshold_limited,
-                                placeholder: '0.1', size: 'sm', wrapper_class: '',
-                                help: 'En dessous du seuil précédent, part encore libre au-delà de laquelle l\'attente est annoncée « limitée » plutôt qu\'« importante ». Doit être inférieur au seuil « places disponibles ».',
-                            } only %}
-                        </div>
+                    {% endif %}
+                    {% if not waitlist_enabled %}
+                        <p class="col-12 small text-body-secondary mb-0">
+                            Désactivés tant que la gestion des listes d'attente est coupée. Les valeurs enregistrées
+                            sont conservées.
+                        </p>
+                    {% endif %}
+                    <div class="col-12 col-sm-6 col-md-4">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'threshold_yes_percent', field_name: 'threshold_yes_percent',
+                            label: "Oui jusqu'à … % de places occupées", type: 'number',
+                            value: level_thresholds.yes, min: threshold_min_percent, max: threshold_max_percent,
+                            step: 1, inputmode: 'numeric', size: 'sm', wrapper_class: '',
+                            disabled: not waitlist_enabled,
+                        } only %}
                     </div>
-                {% endif %}
+                    <div class="col-12 col-sm-6 col-md-4">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'threshold_maybe_percent', field_name: 'threshold_maybe_percent',
+                            label: "Peut-être jusqu'à … % de places occupées", type: 'number',
+                            value: level_thresholds.maybe, min: threshold_min_percent, max: threshold_max_percent,
+                            step: 1, inputmode: 'numeric', size: 'sm', wrapper_class: '',
+                            disabled: not waitlist_enabled,
+                        } only %}
+                    </div>
+                </div>
 
                 <p class="text-body-secondary small mb-3">
                     Une case vide veut dire <strong>pas de limite</strong> : la branche n'est jamais annoncée complète
@@ -428,19 +447,22 @@
                                        fermée, exactement l'erreur que la colonne nullable existe pour
                                        éviter. Le 0, lui, s'affiche bien comme 0. #}
                                     <td>{% if row.capacity is null %}<span class="text-body-secondary">Sans limite</span>{% else %}{{ row.capacity }}{% endif %}</td>
-                                    {% if not is_past_year %}<td>{{ row.projected }}</td>{% endif %}
+                                    {% if not is_past_year %}
+                                        <td>
+                                            {{ row.projected }}
+                                            {% if row.silent > 0 %}<span class="small text-body-secondary">(dont {{ row.silent }} sans réponse)</span>{% endif %}
+                                        </td>
+                                    {% endif %}
                                     <td>{{ row.accepted }}</td>
                                     {% if show_waitlist_columns %}
                                         <td>{% if row.remaining is null %}<span class="text-body-secondary">—</span>{% else %}{{ row.remaining }}{% endif %}</td>
                                         <td>
-                                            {% if row.tier is null %}
-                                                <span class="badge text-bg-secondary">Sans limite</span>
-                                            {% elseif row.tier == 'available' %}
+                                            {% if row.level == 'yes' %}
                                                 <span class="badge text-bg-success">Disponible</span>
-                                            {% elseif row.tier == 'limited' %}
-                                                <span class="badge text-bg-warning">Attente limitée</span>
+                                            {% elseif row.level == 'maybe' %}
+                                                <span class="badge text-bg-warning">Limitée</span>
                                             {% else %}
-                                                <span class="badge text-bg-danger">Attente importante</span>
+                                                <span class="badge text-bg-danger">Complet</span>
                                             {% endif %}
                                         </td>
                                     {% endif %}
@@ -449,6 +471,15 @@
                         </tbody>
                     </table>
                 </div>
+                {% if not is_past_year %}
+                    <p class="small text-body-secondary mb-0">
+                        L'effectif projeté place chaque animé selon son année de parcours réelle, y compris ceux qui
+                        avancent ou restent d'une année en plus. Un animé dont la famille n'a rien répondu à la
+                        réinscription est compté comme restant : seuls les départs annoncés (par la famille ou par un
+                        chef) le retirent. Les demandes acceptées comptent tant qu'elles occupent une place, qu'elles
+                        soient déjà encodées dans Desk ou non.
+                    </p>
+                {% endif %}
             </div>
         </div>
 

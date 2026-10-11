@@ -73,90 +73,94 @@ class SlotMathTest extends TestCase
         $this->assertNull(SlotMath::slotForBirthDate($brackets, '2006-01-01', 2026));
     }
 
-    public function testFeederSlotWithinSameBranch(): void
-    {
-        $brackets = [$this->baladins(), $this->louveteaux(), $this->eclaireurs()];
-
-        $this->assertSame(
-            ['age_branch_id' => 2, 'year_in_branch' => 2],
-            SlotMath::feederSlot($brackets, 2, 3)
-        );
-    }
-
-    public function testFeederSlotCrossesIntoPreviousBranchAtYearOne(): void
-    {
-        $brackets = [$this->baladins(), $this->louveteaux(), $this->eclaireurs()];
-
-        // Louveteaux year 1 is fed by Baladins' LAST year (2).
-        $this->assertSame(
-            ['age_branch_id' => 1, 'year_in_branch' => 2],
-            SlotMath::feederSlot($brackets, 2, 1)
-        );
-    }
-
-    public function testFeederSlotIsNullForTheFirstYearOfTheFirstBranch(): void
-    {
-        $brackets = [$this->baladins(), $this->louveteaux()];
-
-        $this->assertNull(SlotMath::feederSlot($brackets, 1, 1));
-    }
-
-    public function testTierForRemainingAboveAvailableThreshold(): void
-    {
-        // capacity 10, remaining 6 ⇒ ratio 0.6 ⇒ >= 0.5 available threshold.
-        $this->assertSame(SlotMath::TIER_AVAILABLE, SlotMath::tierForRemaining(10, 6, 0.5, 0.1));
-    }
-
-    public function testTierForRemainingBetweenThresholds(): void
-    {
-        // capacity 10, remaining 2 ⇒ ratio 0.2 ⇒ between 0.1 and 0.5.
-        $this->assertSame(SlotMath::TIER_LIMITED, SlotMath::tierForRemaining(10, 2, 0.5, 0.1));
-    }
-
-    public function testTierForRemainingBelowLimitedThreshold(): void
-    {
-        // capacity 10, remaining 0 (or negative — oversubscribed) ⇒ heavy.
-        $this->assertSame(SlotMath::TIER_HEAVY, SlotMath::tierForRemaining(10, 0, 0.5, 0.1));
-        $this->assertSame(SlotMath::TIER_HEAVY, SlotMath::tierForRemaining(10, -3, 0.5, 0.1));
-    }
-
     /**
-     * Zero is a real, deliberate value — "cette branche est fermée" — and
-     * it keeps meaning exactly what it always meant.
+     * The level table at the bounds the chantier names (70 %, 100 %,
+     * 120 %): occupancy / capacity compared with the bound INCLUDED.
+     *
+     * @return array<string, array{?int, int, int, int, string}>
      */
-    public function testTierForRemainingIsHeavyWhenCapacityIsZero(): void
+    public static function levelCases(): array
     {
-        $this->assertSame(SlotMath::TIER_HEAVY, SlotMath::tierForRemaining(0, 0, 0.5, 0.1));
+        return [
+            // capacity, occupied, yes %, maybe %, level
+            'empty slot' => [10, 0, 70, 100, SlotMath::LEVEL_YES],
+            'just under 70 %' => [10, 6, 70, 100, SlotMath::LEVEL_YES],
+            'exactly 70 % is still Oui' => [10, 7, 70, 100, SlotMath::LEVEL_YES],
+            'just over 70 %' => [10, 8, 70, 100, SlotMath::LEVEL_MAYBE],
+            'exactly 100 % is still Peut-être' => [10, 10, 70, 100, SlotMath::LEVEL_MAYBE],
+            'just over 100 %' => [10, 11, 70, 100, SlotMath::LEVEL_NO],
+            'exactly 120 % is still Peut-être' => [10, 12, 70, 120, SlotMath::LEVEL_MAYBE],
+            'just over 120 %' => [10, 13, 70, 120, SlotMath::LEVEL_NO],
+            'Oui beyond 100 %' => [10, 11, 110, 120, SlotMath::LEVEL_YES],
+            // 70 % of 15 is 10.5 places: 10 is inside, 11 is not.
+            'a bound between two places, below' => [15, 10, 70, 100, SlotMath::LEVEL_YES],
+            'a bound between two places, above' => [15, 11, 70, 100, SlotMath::LEVEL_MAYBE],
+            'every place of 15 taken' => [15, 15, 70, 100, SlotMath::LEVEL_MAYBE],
+            'one more than 15' => [15, 16, 70, 100, SlotMath::LEVEL_NO],
+            'no limit, empty' => [null, 0, 70, 100, SlotMath::LEVEL_YES],
+            'no limit is always Oui, however full' => [null, 500, 70, 100, SlotMath::LEVEL_YES],
+            'closed, even empty' => [0, 0, 70, 100, SlotMath::LEVEL_NO],
+            'closed whatever the thresholds' => [0, 0, 119, 120, SlotMath::LEVEL_NO],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('levelCases')]
+    public function testLevelForOccupancy(?int $capacity, int $occupied, int $yes, int $maybe, string $expected): void
+    {
+        $this->assertSame($expected, SlotMath::levelForOccupancy($capacity, $occupied, $yes, $maybe));
     }
 
     /**
-     * The heart of the NULL/0 distinction, at the one place it is decided
-     * for the whole module: NO recorded capacity is NOT a capacity of
-     * zero. It has no tier at all — not "heavy", not "available" — so a
-     * caller has to make its own explicit decision about what "pas de
-     * limite" looks like on its own screen instead of inheriting "complet"
-     * by accident.
-     */
-    public function testTierForRemainingHasNoTierAtAllWhenCapacityIsNull(): void
-    {
-        $this->assertNull(SlotMath::tierForRemaining(null, 0, 0.5, 0.1));
-        $this->assertNull(SlotMath::tierForRemaining(null, -50, 0.5, 0.1));
-    }
-
-    /**
-     * The regression this whole change exists to prevent: an unconfigured
-     * branch reading exactly like a full one. Same remaining estimate,
-     * same thresholds — only the capacity differs, and the two answers
-     * must not be the same.
+     * The regression the nullable capacity exists to prevent: an
+     * unconfigured branch reading exactly like a closed one. Same
+     * occupancy, same thresholds — only the capacity differs, and the two
+     * answers must be opposite.
      */
     public function testAnUnlimitedSlotIsNeverTheSameAnswerAsAClosedOne(): void
     {
-        $unlimited = SlotMath::tierForRemaining(null, 0, 0.5, 0.1);
-        $closed = SlotMath::tierForRemaining(0, 0, 0.5, 0.1);
+        $this->assertSame(SlotMath::LEVEL_YES, SlotMath::levelForOccupancy(null, 0, 70, 100));
+        $this->assertSame(SlotMath::LEVEL_NO, SlotMath::levelForOccupancy(0, 0, 70, 100));
+    }
 
-        $this->assertNotSame($closed, $unlimited);
-        $this->assertSame(SlotMath::TIER_HEAVY, $closed);
-        $this->assertNull($unlimited);
+    /**
+     * @return array<string, array{mixed, ?int}>
+     */
+    public static function thresholdInputs(): array
+    {
+        return [
+            'the default Oui' => ['70', 70],
+            'the lowest bound' => ['1', 1],
+            'the highest bound' => ['120', 120],
+            'spaces around' => [' 85 ', 85],
+            'an integer already' => [100, 100],
+            'zero' => ['0', null],
+            'above the highest bound' => ['121', null],
+            'a decimal' => ['70.5', null],
+            'a French decimal' => ['70,5', null],
+            'negative' => ['-5', null],
+            'a percent sign' => ['70 %', null],
+            'empty' => ['', null],
+            'not a number' => ['beaucoup', null],
+            'absent' => [null, null],
+            'an array' => [['70'], null],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('thresholdInputs')]
+    public function testParseThresholdPercent(mixed $input, ?int $expected): void
+    {
+        $this->assertSame($expected, SlotMath::parseThresholdPercent($input));
+    }
+
+    public function testThresholdPairMustBeStrictlyOrdered(): void
+    {
+        $this->assertTrue(SlotMath::isValidThresholdPair(70, 100));
+        $this->assertTrue(SlotMath::isValidThresholdPair(119, 120));
+        $this->assertFalse(
+            SlotMath::isValidThresholdPair(100, 100),
+            'an equal pair, leaving no room for the middle level, is refused'
+        );
+        $this->assertFalse(SlotMath::isValidThresholdPair(100, 70), 'an inverted pair is refused');
     }
 
     public function testAgeForSlotAddsYearInBranchOffsetToEntryAge(): void

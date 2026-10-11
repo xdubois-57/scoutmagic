@@ -209,15 +209,16 @@ CREATE TABLE registration_secondary_emails (
 --
 -- `capacity` is NULLABLE on purpose, and NULL IS NOT ZERO. The two carry
 -- opposite meanings and nothing may conflate them:
---   NULL — no limit recorded for this slot. It is never announced full,
---          never feeds a waitlist, and gets no availability tier at all.
+--   NULL — no limit recorded for this slot. It is never announced full:
+--          its level is always « Oui » (« Disponible »).
 --   0    — the slot is deliberately CLOSED to registrations, which is a
---          real thing a chief may want to say and the only way to say it.
+--          real thing a chief may want to say and the only way to say it:
+--          its level is always « Non » (« Complet »).
 -- An empty box on /config/inscriptions stores NULL, and a typed 0 stores 0.
 -- The classic PHP trap is a NULL read as a number, silently becoming 0 and
 -- flipping an unconfigured branch to "complet" — which is why every read
 -- path stays `?int` all the way down to Service\SlotMath::
--- tierForRemaining(), rather than casting on the way out of the database.
+-- levelForOccupancy(), rather than casting on the way out of the database.
 -- A slot with no row at all is seeded with the module's default capacity
 -- the first time a chief opens the management page (Service\SlotService::
 -- seedMissingCapacities()); rows written before this column became

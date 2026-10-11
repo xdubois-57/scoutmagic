@@ -16,12 +16,10 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\ProjectedMemberEmailRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
-use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
 use Modules\Registration\Service\PassageStatisticsService;
 use Modules\Registration\Service\ProjectedPopulationService;
-use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
@@ -97,9 +95,10 @@ final class ProjectedPopulationOverReferenceDatasetTest extends TestCase
 
         $this->provider = new ProjectedPopulationService(
             $this->forecastService,
-            new SlotService(
-                new \Modules\Registration\Repository\PassageRosterRepository($this->pdo, $encryption), new \Core\Config\ScoutYearService($this->pdo), new SettingService(new SettingRepository($this->pdo)),
-                $ageBracketRepository, new SlotCapacityRepository($this->pdo), $requestRepository
+            RegistrationTestHelper::slotService(
+                $this->pdo,
+                $encryption,
+                new SettingService(new SettingRepository($this->pdo))
             ),
             new ScoutYearService($this->pdo),
             $sectionService,
