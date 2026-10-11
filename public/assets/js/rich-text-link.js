@@ -1334,7 +1334,7 @@
             if (child.nodeName === 'UL' || child.nodeName === 'OL') {
                 lines.push([]);
             } else {
-                lines[lines.length - 1].push(child);
+                lines.at(-1)?.push(child);
             }
         });
 
@@ -1387,10 +1387,7 @@
                 });
                 // A line of bare whitespace — the indentation between two
                 // nested lists — is not something the author selected.
-                var blank = nodes.every(function (child) {
-                    return (child.textContent || '').trim() === '' && !(child.nodeType === Node.ELEMENT_NODE && (child.nodeName === 'IMG' || /** @type {Element} */ (child).querySelector('img')));
-                });
-                if (touched && !blank) {
+                if (touched && !nodes.every(isBlank)) {
                     lines.push({ item: item, nodes: nodes, before: null });
                 }
             });
@@ -1404,6 +1401,20 @@
         });
 
         return { lines: lines, range: range };
+    }
+
+    /**
+     * Whether $node shows nothing: no text but whitespace, and no image.
+     *
+     * @param {ChildNode} node
+     * @returns {boolean}
+     */
+    function isBlank(node) {
+        if ((node.textContent || '').trim() !== '') {
+            return false;
+        }
+
+        return node.nodeName !== 'IMG' && !(node instanceof Element && node.querySelector('img'));
     }
 
     /**
@@ -1469,7 +1480,7 @@
      */
     function liftOutOfLists(block, surface) {
         var item = block.parentElement;
-        while (item && item.tagName === 'LI' && surface.contains(item) && item !== surface) {
+        while (item?.tagName === 'LI' && surface.contains(item) && item !== surface) {
             var list = item.parentElement;
             if (!list) {
                 return;
@@ -1497,16 +1508,29 @@
             if (after.hasChildNodes()) {
                 block.after(after);
             }
-            // Whitespace counts as empty — the canonical form drops such an
-            // item on save, so the screen must not keep an empty bullet —
-            // but an item still holding an image or a nested list is kept.
-            if (!item.hasChildNodes() || (item.textContent || '').trim() === '' && !item.querySelector('img, ul, ol')) {
-                item.remove();
-            }
-            if (!list.querySelector(':scope > li')) {
-                list.remove();
-            }
+            removeIfEmpty(item, list);
             item = block.parentElement;
+        }
+    }
+
+    /**
+     * Removes $item once its block has left it, if nothing is left in it,
+     * and $list with it if that was its last item.
+     *
+     * Whitespace counts as empty — the canonical form drops such an item on
+     * save, so the screen must not keep an empty bullet — but an item still
+     * holding an image or a nested list is kept.
+     *
+     * @param {HTMLElement} item
+     * @param {HTMLElement} list
+     * @returns {void}
+     */
+    function removeIfEmpty(item, list) {
+        if (!item.hasChildNodes() || (item.textContent || '').trim() === '' && !item.querySelector('img, ul, ol')) {
+            item.remove();
+        }
+        if (!list.querySelector(':scope > li')) {
+            list.remove();
         }
     }
 
@@ -1605,10 +1629,22 @@
             restored.setEnd(bounds.end, bounds.endOffset);
         } else {
             restored.setStartBefore(blocks[0]);
-            restored.setEndAfter(blocks[blocks.length - 1]);
+            restored.setEndAfter(/** @type {HTMLElement} */ (blocks.at(-1)));
         }
 
         return { range: restored, engine: engine };
+    }
+
+    /**
+     * The engine's own formatBlock, for what holds no list item. The angle
+     * brackets are the form the other two toolbars already used and the
+     * one every engine accepts; a bare `h2` is not.
+     *
+     * @param {'h2'|'h3'|'p'} tag
+     * @returns {void}
+     */
+    function formatBlockByEngine(tag) {
+        document.execCommand('formatBlock', false, '<' + tag + '>');
     }
 
     // ————— The toolbar —————
@@ -1660,11 +1696,8 @@
                     if (!moved) {
                         // The argument editable.js never passed at all — it
                         // sent null, and a formatBlock with no block to
-                        // format is a button that does nothing. The angle
-                        // brackets are the form the other two toolbars
-                        // already used and the one every engine accepts; a
-                        // bare `h2` is not.
-                        document.execCommand(command, false, '<' + tag + '>');
+                        // format is a button that does nothing.
+                        formatBlockByEngine(tag);
                     }
                 } else {
                     document.execCommand(command || '', false, null);
@@ -1679,7 +1712,7 @@
                     if (moved.engine) {
                         // What the selection held outside the list — no
                         // list item left in it now for the engine to wrap.
-                        document.execCommand('formatBlock', false, '<' + tag + '>');
+                        formatBlockByEngine(tag);
                     }
                 }
                 if (afterCommand) afterCommand();
