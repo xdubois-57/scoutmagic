@@ -412,6 +412,56 @@ final class PublishingServiceTest extends TestCase
         $this->assertNull((new CommunicationRepository($this->pdo))->find($id)?->publicToken);
     }
 
+    /**
+     * **An album whose page would have nothing to show is refused, not
+     * reshaped.**
+     *
+     * `card_file_id` is null whenever the browser posted no drawn canvas
+     * — JavaScript off, a photo still loading — which
+     * `CommunicationController::refreshPostedCard()` documents as a
+     * supported case, the publication composing a card server-side
+     * instead. That composition reaches Instagram and the groups; it
+     * cannot reach the public page, which serves the kept file and
+     * nothing else. Left alone, this published a Facebook link to a page
+     * with no image at all, where the same input used to go out as a
+     * photo post with one. Found in review on the pull request for IT-04.
+     *
+     * Refused in `refusal()`, so nothing is claimed and nothing is
+     * frozen: the chief can draw the card and try again. And no public
+     * page is minted for a publication that never happened.
+     */
+    public function testAnAlbumWithNoKeptCardIsRefusedOnFacebookRatherThanSentAsAPhoto(): void
+    {
+        $id = $this->savedAlbumShare();
+
+        $outcomes = $this->publish($this->communicationBackedAlbum($id, null), [SocialPlatform::Facebook]);
+
+        $this->assertFalse($outcomes[0]->published);
+        $this->assertStringContainsString('n\'a pas d\'image enregistrée', (string) $outcomes[0]->message);
+        $this->assertNull($this->request('/feed'), 'nothing left');
+        $this->assertNull($this->request('/photos'), 'and nothing was quietly reshaped into a photo');
+        $this->assertNull((new CommunicationRepository($this->pdo))->find($id)?->publicToken);
+        $this->assertSame([], $this->publications->forSource(ShareSource::KIND_COMMUNICATION, $id));
+    }
+
+    /**
+     * Instagram is untouched by that refusal: it receives a card composed
+     * server-side, as it always has, because what it needs is bytes at an
+     * address and not a page.
+     */
+    public function testInstagramStillTakesAnAlbumWithNoKeptCard(): void
+    {
+        $id = $this->savedAlbumShare();
+
+        $outcomes = $this->publish($this->communicationBackedAlbum($id, null), [SocialPlatform::Instagram]);
+
+        $this->assertTrue($outcomes[0]->published);
+        $this->assertStringStartsWith(
+            'https://unite.example/partage/carte/',
+            $this->request('/media')['fields']['image_url'] ?? ''
+        );
+    }
+
     /** A row for the share, so the page it mints belongs to something. */
     private function savedAlbumShare(): int
     {
@@ -429,7 +479,7 @@ final class PublishingServiceTest extends TestCase
      * An album share as the composer saves it: recorded against the
      * communication, speaking as an album.
      */
-    private function communicationBackedAlbum(int $id): ShareSource
+    private function communicationBackedAlbum(int $id, ?string $card = 'CARD-BYTES'): ShareSource
     {
         return new ShareSource(
             ShareSource::KIND_COMMUNICATION,
@@ -443,7 +493,13 @@ final class PublishingServiceTest extends TestCase
             '/medias-sociaux/' . $id,
             null,
             'https://unite.example/gallery/3',
-            ShareSource::KIND_ALBUM
+            ShareSource::KIND_ALBUM,
+            null,
+            // The card the browser drew and posted at « Publier ». Its
+            // absence is a refusal since the review of IT-04, not a
+            // fallback: the page Facebook is pointed at shows this card
+            // and nothing else.
+            $card
         );
     }
 

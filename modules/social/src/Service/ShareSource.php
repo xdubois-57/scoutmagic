@@ -149,20 +149,32 @@ final class ShareSource
      * and not when a draft is opened. Two rules would have drifted apart
      * on exactly that gap.
      *
-     * **`kind` as well as `spokenKind()`**, and that is the album case's
-     * whole subtlety: the public page belongs to the COMMUNICATION, so
-     * there has to be one. A retry of a share made before the composer
-     * existed still reaches
-     * `Controller\CommunicationController::retry()` through
-     * `…/reessayer/album/{albumId}/…`, where this object carries the
-     * ALBUM's own id and no communication row stands behind it. That
-     * share keeps going as a photo post, which is what it has always
-     * been — rather than pointing Facebook at a page built from an
-     * unrelated row that happens to share the number.
+     * **It asks about the CONTENT, never about the shape this object
+     * happens to be in**, and that distinction is the fix for a bug this
+     * predicate had on its first day. It carried
+     * `kind === KIND_COMMUNICATION`, to keep the publisher from minting a
+     * page against an album's id — a real concern, but the wrong place
+     * for it. The composer opened from « Partager » holds the PREFILL
+     * shape (`kind = KIND_ALBUM`, built by `ShareSourceResolver::album()`
+     * before any row exists), so the sentence read « Voici exactement ce
+     * qui sera publié » while `store()`, in the very same request,
+     * created the row, re-resolved it as a communication and sent
+     * Facebook a link. The one promise this predicate exists to keep,
+     * broken on the first share of every album. Found in review on the
+     * pull request for IT-04.
+     *
+     * An album whose page would have nothing to show — no kept card — is
+     * turned down by
+     * {@see \Modules\Social\Service\PublishingService::refusal()}
+     * before anything is recorded, never quietly reshaped into a photo
+     * post: that is how a chief ends up with something other than what
+     * the composer promised. The one shape that does fall back is a
+     * retry keyed on an album's own id, which has no communication row to
+     * own a page and was never promised a link by anything
+     * ({@see \Modules\Social\Service\PublishingService::facebookLink()}).
      */
     public function facebookReceivesLink(): bool
     {
-        return $this->link !== null
-            || ($this->kind === self::KIND_COMMUNICATION && $this->spokenKind() === self::KIND_ALBUM);
+        return $this->link !== null || $this->spokenKind() === self::KIND_ALBUM;
     }
 }

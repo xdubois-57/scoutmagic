@@ -1498,6 +1498,36 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **The very first share of an album, where the row does not exist
+     * yet.**
+     *
+     * This is the request that creates the public page, and it is the one
+     * the sentence got wrong: the composer opened from « Partager » holds
+     * the PREFILL `ShareSource` — `kind = KIND_ALBUM`, built before any
+     * row — and the predicate required `KIND_COMMUNICATION`, so it read
+     * « Voici exactement ce qui sera publié » while `store()`, in the
+     * same request, created the row, re-resolved it as a communication
+     * and sent Facebook a link. The one promise that predicate exists to
+     * keep, broken on the first share of every album, and invisible to
+     * the test below because that one starts from a saved row. Found in
+     * review on the pull request for IT-04.
+     */
+    public function testTheComposerSaysFacebookWillLinkBeforeTheRowEvenExists(): void
+    {
+        $this->loginAuthor();
+
+        $flat = self::flattened(
+            $this->controller()
+                ->createFromSource($this->get(), ['kind' => 'album', 'id' => (string) self::ALBUM_ID])
+                ->getBody()
+        );
+
+        $this->assertStringContainsString('Sur Facebook, c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('une page de ce site qui montre cette carte', $flat);
+        $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
+    }
+
+    /**
      * **An album says « a link » too since IT-04, and says something
      * else about the card** — the opposite of what this test pinned for
      * IT-03, when an album went to the Page as a photo.

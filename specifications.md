@@ -3429,7 +3429,12 @@ du composeur, à l'enregistrement, à chaque aperçu et à chaque publication.
   en cours ; indisponible, avec la raison — un album sans photo de
   couverture ou une actualité sans image pour Instagram, une actualité
   réservée aux animateurs ou aux administrateurs, un compte dont Meta
-  n'accepte plus l'autorisation, un site sans adresse ;
+  n'accepte plus l'autorisation, un site sans adresse, et **une
+  communication sans image enregistrée dont la source est un album** :
+  sur la Page elle part en lien vers une page de ce site (§ 47.9) qui
+  doit montrer cette image, et rien n'y part sans elle. Les autres
+  destinations, qui reçoivent des octets et non une page, l'acceptent
+  toujours — le serveur compose alors la carte ;
 - l'avertissement : « Une fois publié, c'est public et hors du site : ni
   vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
   l'adresse est écrite sur l'image — elle n'est pas cliquable sur
@@ -3609,7 +3614,11 @@ page est ce que Facebook, WhatsApp ou Messenger peuvent lire.
 
 **Ce qu'elle montre** : l'image qui a été publiée, le titre et le texte
 que la première destination a reçus, et un bouton **« Voir sur le
-site »** qui mène à la source. Rien d'autre — ni les autres photos de
+site »** qui mène à la source. Cette image est **celle que le navigateur
+a dessinée**, et rien d'autre : la page ne compose rien et ne relit
+jamais la source. C'est pour cela qu'un album dont le navigateur n'a pas
+envoyé l'image est refusé sur la Page (§ 47.6) — une page sans image y
+ferait un aperçu vide. Rien d'autre — ni les autres photos de
 l'album, ni le corps d'une actualité. Si la source a été supprimée
 depuis, le bouton disparaît et la page continue d'afficher ce qui a été
 publié.
