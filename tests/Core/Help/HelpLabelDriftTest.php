@@ -102,7 +102,6 @@ final class HelpLabelDriftTest extends TestCase
         'departs' => ['ne se réinscrit pas', 'décocher'],
         'publier-une-actualite' => ['membres liés au compte'],
         'reponses-au-formulaire' => ['qui peut consulter les réponses'],
-        'retrospectives' => ['lien seul'],
         // Two questions the assistant can and cannot answer, and two ways
         // of asking it the same thing — what a reader would type, never a
         // control. This topic is about a field one writes into, so its

@@ -18,6 +18,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\LoginReturn;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use Modules\Retro\Repository\Board;
@@ -82,9 +83,10 @@ class RetroBoardController extends AbstractController
      * go on, the refusal otherwise. Every /r/{token} route calls it — the
      * rule itself lives in Service\BoardAccess, never here.
      *
-     * Nobody logged in: a page is sent to the login page, a script gets
-     * a 401 it can say something about. Logged in below the board's
-     * floor: a 403, page or JSON alike.
+     * Nobody logged in: a page is sent to the login page, which brings the
+     * visitor back to this board once logged in (LoginReturn, issue #833);
+     * a script gets a 401 it can say something about. Logged in below the
+     * board's floor: a 403, page or JSON alike.
      */
     private function refuse(Board $board, Request $request, bool $json): ?Response
     {
@@ -98,7 +100,7 @@ class RetroBoardController extends AbstractController
             BoardAccess::ALLOWED => null,
             BoardAccess::LOGIN_REQUIRED => $json
                 ? $this->json(['success' => false, 'error' => BoardAccess::LOGIN_MESSAGE], 401)
-                : $this->redirect('/login'),
+                : $this->redirect(LoginReturn::loginUrl('/r/' . $board->token)),
             default => $json
                 ? $this->json(['success' => false, 'error' => BoardAccess::FORBIDDEN_MESSAGE], 403)
                 : $this->forbidden(BoardAccess::FORBIDDEN_MESSAGE, $request),

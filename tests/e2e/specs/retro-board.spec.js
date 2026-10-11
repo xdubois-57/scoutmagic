@@ -64,11 +64,18 @@
 // The second scenario in this file is the one chief-side behaviour none of
 // that can reach, because it is the browser itself that decides what the
 // server receives.
+//
+// The third is the way IN to a board that needs a login (issue #833): the
+// link a chief hands out sends a logged-out member through the login page
+// and BACK to the board — a round trip of a short-link redirect, a
+// server redirect, a session-held return path and auth.js's own redirect
+// that no single PHP or Vitest test runs end to end — and the same
+// member is refused once the board is narrowed to the animators.
 import { expect, test } from '@playwright/test';
 
 import { answerConfirmation } from '../support/confirm-dialog.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
-import { loginAsAdmin } from '../support/admin-login.js';
+import { loginAsAdmin, logoutControl, submitMemberLogin } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -422,5 +429,67 @@ test('a board linked to a calendar event derives its title server-side, from a f
     await expect(page.locator('#retro-date')).toBeDisabled();
 
     expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+test('a member who follows the link of a board for members logs in and lands back on it, and is refused once it is for animators only', async ({ page, browser }) => {
+    test.setTimeout(scaled(90_000));
+
+    const title = `Rétro membres E2E ${Date.now()}`;
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+    await page.goto('/retro/create', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Titre').fill(title);
+    await page.getByLabel('Membre identifié', { exact: true }).check();
+    await page.getByRole('button', { name: 'Créer la rétrospective' }).click();
+    await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
+
+    const boardCard = page.locator('.card', { hasText: title });
+    await expect(boardCard.getByText('Membre identifié')).toBeVisible();
+    await boardCard.getByRole('link', { name: 'Configurer' }).click();
+    await page.waitForURL(/\/retro\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
+    const editUrl = page.url();
+    const shareUrl = (await page.locator('.text-break', { hasText: '/s/' }).innerText()).trim();
+
+    const memberContext = await browser.newContext();
+    try {
+        const member = await memberContext.newPage();
+        /** @type {string[]} */
+        const memberErrors = [];
+        member.on('pageerror', (error) => memberErrors.push(error.message));
+
+        // Logged out: the board sends the visitor to log in, carrying the
+        // board's own address as the way back.
+        await member.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+        await expect(member).toHaveURL(/\/login\?return=%2Fr%2F[^&]+$/);
+        const boardPath = decodeURIComponent(new URL(member.url()).searchParams.get('return') ?? '');
+        await answerCookieBanner(member);
+
+        // …and back to that board, not to the home page.
+        await submitMemberLogin(member);
+        await member.waitForURL(`**${boardPath}`, { waitUntil: 'domcontentloaded' });
+        await expect(member.getByRole('heading', { name: title })).toBeVisible();
+        await expect(logoutControl(member)).toBeVisible();
+
+        // Nobody has voted yet, so the chief may still narrow the board.
+        await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+        await page.getByLabel('Animateurs', { exact: true }).check();
+        await page.getByRole('button', { name: 'Enregistrer' }).click();
+        await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
+
+        // The same member, still logged in, is now refused — by the board,
+        // not sent round the login page again.
+        const refused = await member.goto(boardPath, { waitUntil: 'domcontentloaded' });
+        expect(refused?.status()).toBe(403);
+        await expect(member.getByText('Cette rétrospective est réservée aux animateurs.')).toBeVisible();
+
+        expect(memberErrors, 'uncaught JavaScript error in the member\'s browser').toEqual([]);
+    } finally {
+        await memberContext.close();
+    }
+
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });

@@ -36,9 +36,9 @@ Si le connecteur IA du site est actif, chaque mot déposé peut être
 vérifié avant publication. Trois modes :
 
 - **Désactivée** : aucun contrôle automatique.
-- **Avertissement** : un mot jugé blessant déclenche une mise en
-  garde et une reformulation proposée — mais la personne reste libre
-  de publier son texte tel quel.
+- **Avertissement** (par défaut) : un mot jugé blessant déclenche
+  une mise en garde et une reformulation proposée — mais la
+  personne reste libre de publier son texte tel quel.
 - **Obligatoire** : la reformulation est exigée, le texte d'origine
   ne peut pas être publié.
 

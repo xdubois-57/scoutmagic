@@ -12,9 +12,11 @@ related: retrospectives
 ---
 
 Ce tableau recueille les impressions après une activité de l'unité.
-Vous y êtes arrivé par un lien ou un code QR : aucune connexion n'est
-nécessaire, et **personne ne saura qui a écrit quoi** — ni les
-animateurs, ni le Staff d'Unité. L'encadré « Pourquoi c'est vraiment
+Vous y êtes arrivé par un lien ou un code QR. Selon le tableau, il
+faut être connecté pour participer : la page de connexion s'affiche
+alors, puis vous ramène au tableau. Un tableau réservé aux animateurs
+reste fermé aux autres comptes. Connecté ou non, **personne ne saura
+qui a écrit quoi** — ni les animateurs, ni le Staff d'Unité. L'encadré « Pourquoi c'est vraiment
 anonyme ? » du tableau l'explique.
 
 ## Déposer un mot
@@ -44,8 +46,9 @@ apparaîtront à la fin.
   apparaissent sans recharger la page.
 - Un tableau « Clôturé » se lit encore, mais n'accepte plus ni mot ni
   vote.
-- Si le tableau limite les doublons par appareil, changer de
-  téléphone en cours de route peut redonner des points — jouez le
+- Sur un tableau en lien public, les votes sont comptés par
+  appareil : changer de téléphone en cours de route peut redonner des
+  points — jouez le
   jeu : l'exercice ne vaut que par la sincérité des réponses.
 - Restez bienveillant : on commente l'activité, jamais les personnes.
   Un mot déplacé peut être masqué par le chef d'unité.
