@@ -140,6 +140,15 @@ du conducteur passent sans changement de logique ; seul le texte cherché
 suit le nouveau format (`+32 478 12 34 56`), et l'absence est vérifiée sur
 les chiffres seuls, ce qui couvre les deux écritures.
 
+**Un champ libre qui n'est pas un numéro s'affiche tel quel.** Le
+numéro d'un locataire, d'un contact de camp ou de la page de suivi est
+saisi librement : « 0475 12 34 56 ou 02 123 45 67 » y est possible. Lu
+chiffre par chiffre, il deviendrait un seul numéro inventé, proposé à
+l'appel. `phone()` n'en fait donc un lien que si le texte n'est écrit
+qu'avec des chiffres, des espaces et `+ ( ) . / -`, et compte de 8 à 15
+chiffres une fois lu ; sinon le texte saisi s'affiche, sans lien. Relevé
+par la revue de la PR d'IT-03.
+
 **Le contrôle demandé.** `PhoneNumbersGoThroughThePhoneFunctionTest`
 échoue si un `href="tel:` écrit à la main revient dans
 `core/View/templates/` ou `modules/*/views/` (e-mails exceptés), et si l'un

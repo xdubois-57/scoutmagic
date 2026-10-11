@@ -67,6 +67,42 @@ final class PhoneExtensionTest extends TestCase
         $this->assertSame('', $this->render('{{ phone(n) }}', ['n' => ' - / ']));
     }
 
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function notOneNumber(): array
+    {
+        return [
+            'two numbers joined by a word' => ['0475 12 34 56 ou 02 123 45 67'],
+            'a number and a note' => ['+33 6 12 34 56 78 (après 18h)'],
+            'two numbers joined by a slash' => ['0475 12 34 56 / 02 123 45 67'],
+            'too short to be a number' => ['112'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('notOneNumber')]
+    public function testAValueThatIsNotOneNumberIsShownAsTypedWithoutALink(string $raw): void
+    {
+        $html = $this->render('{{ phone(n) }}', ['n' => $raw]);
+
+        $this->assertStringNotContainsString('<a', $html);
+        $this->assertSame(htmlspecialchars($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $html);
+    }
+
+    public function testATypedValueIsEscaped(): void
+    {
+        $this->assertSame(
+            '&lt;b&gt;0475&lt;/b&gt;',
+            $this->render('{{ phone(n) }}', ['n' => '<b>0475</b>'])
+        );
+    }
+
+    public function testTheLongestNumbersStillAreNumbers(): void
+    {
+        $this->assertStringContainsString('href="tel:+352691123456"', $this->render('{{ phone("00352 691 123 456") }}'));
+        $this->assertStringContainsString('href="tel:+3281223344"', $this->render('{{ phone("(081) 22.33.44") }}'));
+    }
+
     public function testTheClassArgumentIsEscaped(): void
     {
         $html = $this->render('{{ phone(n, c) }}', ['n' => '0472546771', 'c' => '"><script>x</script>']);
