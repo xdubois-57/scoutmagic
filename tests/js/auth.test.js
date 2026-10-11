@@ -1004,7 +1004,10 @@ describe('auth.js: where a login goes (#833)', () => {
         await boot();
         const { afterLogin } = globalThis.ScoutMagicAuthInternals;
         for (const target of [undefined, null, 42, '', 'r/abc', '//evil.example', '/\\evil.example',
-            'https://evil.example', 'javascript:alert(1)', '/a//b']) {
+            'https://evil.example', 'javascript:alert(1)', '/a//b',
+            // A browser strips tab, LF and CR before parsing: the first three
+            // would become //evil.example. The other control characters go too.
+            '/\t/evil.example', '/\n/evil.example', '/\r/evil.example', '/\u0000x', '/\u007fx']) {
             expect(afterLogin(target)).toBe('/');
         }
     });

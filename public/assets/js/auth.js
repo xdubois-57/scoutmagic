@@ -30,13 +30,17 @@
      * session (Core\Security\LoginReturn, issue #833), or `/`. The server
      * only ever sends an internal path; this refuses anything else anyway,
      * so a broken or tampered answer cannot send the visitor off the site.
+     * Control characters included, as SafeRedirect::internalPath() does: a
+     * browser drops a tab or a line break from a URL before reading it, so
+     * `/<tab>/evil.example` would land on `//evil.example`.
      *
      * @param {unknown} target
      * @returns {string}
      */
     function afterLogin(target) {
         if (typeof target !== 'string' || target.charAt(0) !== '/'
-            || target.indexOf('//') !== -1 || target.indexOf('\\') !== -1) {
+            || target.indexOf('//') !== -1 || target.indexOf('\\') !== -1
+            || Array.from(target).some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f)) {
             return '/';
         }
         return target;
