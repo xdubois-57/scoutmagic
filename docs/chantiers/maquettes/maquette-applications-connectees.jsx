@@ -422,12 +422,15 @@ export default function MaquetteApplicationsConnectees() {
     // identifier) plays the newly requested one, whatever the app's scope list is.
     const optional = app.scopes.filter((s) => s !== "openid");
     const newlyAsked = optional[optional.length - 1] ?? null;
-    const already = consentExtended ? app.scopes.filter((s) => s !== newlyAsked) : [];
+    // An app asking only for the identifier has nothing to add: the variant then
+    // falls back to the ordinary first-consent screen rather than claiming new scopes.
+    const extended = consentExtended && newlyAsked !== null;
+    const already = extended ? app.scopes.filter((s) => s !== newlyAsked) : [];
     return (
       <AuthShell>
         <h1 className="text-xl font-semibold mb-1">{app.name}</h1>
         <p className="text-gray-700 mb-4">
-          {consentExtended
+          {extended
             ? <>demande des informations supplémentaires sur ton compte <strong>Xavier</strong>.</>
             : <>souhaite utiliser ton compte <strong>Xavier</strong> pour te connecter.</>}
         </p>
@@ -438,7 +441,7 @@ export default function MaquetteApplicationsConnectees() {
               <span aria-hidden="true" className="text-green-700">✓</span>
               <span>
                 <span className="font-medium">{s.label}</span>
-                {consentExtended && !already.includes(s.id) && <> <Pill tone="blue">Nouveau</Pill></>}
+                {extended && !already.includes(s.id) && <> <Pill tone="blue">Nouveau</Pill></>}
                 <span className="block text-gray-600">{s.detail}</span>
               </span>
             </li>
