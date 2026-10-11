@@ -595,6 +595,19 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(range.endContainer.textContent).toBe('un');
     });
 
+    // Both ends in a list item, and a paragraph between the two lists: the
+    // ends alone would leave that paragraph out of the command.
+    it('leaves to the engine a paragraph between two lists that the selection holds', async () => {
+        const { surface, press } = await editing('<ul><li>un</li></ul><p>milieu</p><ul><li>deux</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><p>milieu</p><h2>deux</h2>');
+        expect(execCommand).toHaveBeenCalledTimes(1);
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');

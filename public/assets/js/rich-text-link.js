@@ -1455,17 +1455,28 @@
     }
 
     /**
-     * Whether $node lies inside a list item of $surface.
+     * Whether $range reaches anything visible outside every list item of
+     * $surface — a paragraph above the list, or one between two lists.
+     * Every node, not the two ends only: a selection from one list to
+     * another holds the paragraph between them, which is the engine's to
+     * format once the items have moved.
      *
-     * @param {Node} node
+     * @param {Range} range
      * @param {HTMLElement} surface
      * @returns {boolean}
      */
-    function isInListItem(node, surface) {
-        var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
-        var item = element?.closest('li') ?? null;
+    function touchesOutsideLists(range, surface) {
+        var walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+        for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+            var visible = node.nodeType === Node.TEXT_NODE
+                ? (node.textContent || '').trim() !== ''
+                : node.nodeName === 'IMG';
+            if (visible && range.intersectsNode(node) && !node.parentElement?.closest('li')) {
+                return true;
+            }
+        }
 
-        return !!item && surface.contains(item) && item !== surface;
+        return false;
     }
 
     /**
@@ -1617,7 +1628,7 @@
         }
         var range = found.range;
         var bounds = { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset };
-        var engine = !range.collapsed && (!isInListItem(bounds.start, surface) || !isInListItem(bounds.end, surface));
+        var engine = !range.collapsed && touchesOutsideLists(range, surface);
 
         var blocks = found.lines.map(function (line) {
             return lineToBlock(line, surface, tag);
