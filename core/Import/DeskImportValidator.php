@@ -232,9 +232,10 @@ final class DeskImportValidator
         }
 
         if (!DeskDateParser::isPlausibleBirthDate($date, $today)) {
+            $earliest = DateInput::requireFromStorage(DeskDateParser::EARLIEST_BIRTH_DATE, 'earliest birth date');
+
             return $this->cell('Date de naissance', $value) . ' invraisemblable : elle doit être comprise entre le '
-                . DateInput::requireFromStorage(DeskDateParser::EARLIEST_BIRTH_DATE, 'earliest birth date')->format('d/m/Y')
-                . ' et aujourd\'hui.';
+                . $earliest->format('d/m/Y') . ' et aujourd\'hui.';
         }
 
         return null;

@@ -70,10 +70,12 @@ class ImportController extends AbstractController
     {
         $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
 
-        return $this->render('admin/import.html.twig', $this->importPageData($currentYear['id']) + [
+        $data = $this->importPageData($currentYear['id']) + [
             'import_result' => null,
             'import_rejection' => null,
-        ]);
+        ];
+
+        return $this->render('admin/import.html.twig', $data);
     }
 
     /**
@@ -324,13 +326,15 @@ class ImportController extends AbstractController
             // flash: a refused file can carry dozens of them, and the
             // administrator needs all of them to correct it in one round.
             // Nothing was written and nothing kept (issue #854).
-            return $this->render('admin/import.html.twig', $this->importPageData($scoutYearId) + [
+            $data = $this->importPageData($scoutYearId) + [
                 'import_result' => null,
                 'import_rejection' => [
                     'summary' => $e->summary(),
                     'messages' => $e->listedMessages(),
                 ],
-            ]);
+            ];
+
+            return $this->render('admin/import.html.twig', $data);
         } catch (ImportException $e) {
             FlashMessage::set('error', $e->getMessage());
             return $this->redirect('/admin/import');
@@ -346,9 +350,11 @@ class ImportController extends AbstractController
         // disabled ($registrationReconciliation is null then).
         $this->registrationReconciliation?->reconcileForYear($scoutYearId);
 
-        return $this->render('admin/import.html.twig', $this->importPageData($scoutYearId) + [
+        $data = $this->importPageData($scoutYearId) + [
             'import_result' => $result,
             'import_rejection' => null,
-        ]);
+        ];
+
+        return $this->render('admin/import.html.twig', $data);
     }
 }
