@@ -430,7 +430,11 @@
             if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !state.showDirectLinkHelp);
             if (identifiedHelp) identifiedHelp.classList.toggle('d-none', !state.showIdentifiedHelp);
             if (seoSection) {
-                seoSection.querySelectorAll('input, button').forEach(function (control) {
+                // The AI keywords button is not toggled here: it also
+                // needs a title or some content, and must stay disabled
+                // while its request runs — updateAiButtonsState() decides
+                // it, on the change below.
+                seoSection.querySelectorAll('input, button:not(#news-ai-keywords-btn)').forEach(function (control) {
                     /** @type {HTMLInputElement|HTMLButtonElement} */ (control).disabled = !state.seoEnabled;
                 });
             }
@@ -440,7 +444,10 @@
         }
 
         visibilityGroup.querySelectorAll('input').forEach(function (input) {
-            input.addEventListener('change', updateVisibilityUi);
+            input.addEventListener('change', function () {
+                updateVisibilityUi();
+                updateAiButtonsState();
+            });
         });
         updateVisibilityUi();
     }
