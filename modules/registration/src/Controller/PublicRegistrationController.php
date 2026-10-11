@@ -441,7 +441,10 @@ class PublicRegistrationController extends AbstractController
             }
         }
 
-        if (!in_array($fields['gender'], ['M', 'F', 'X'], true)) {
+        // Desk's own three values (issue #871): F, H for a boy, X. The Desk
+        // import refuses anything else (#854), so a request carries the
+        // same letters a member imported from Desk does.
+        if (!in_array($fields['gender'], ['F', 'H', 'X'], true)) {
             $errors[] = 'Genre invalide.';
         }
 

@@ -351,6 +351,50 @@ class PublicRegistrationControllerTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
     }
 
+    /**
+     * Issue #871: the form speaks Desk's own genders — F, H for a boy, X —
+     * the three values the Desk import accepts (#854). A boy is stored as
+     * H, exactly as a member imported from Desk is.
+     */
+    public function testTheFormOffersDesksGendersAndStoresABoyAsH(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), [])->getBody();
+        $this->assertMatchesRegularExpression('/<option value="H"[^>]*>\s*Garçon\s*</', $body);
+        $this->assertStringNotContainsString('<option value="M"', $body);
+
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields(['child_first_name' => 'Hugo', 'gender' => 'H']),
+                $hcFields
+            ), [], []),
+            []
+        );
+
+        $this->assertSubmissionAccepted($response);
+        $stored = (string) $this->pdo->query(
+            'SELECT gender_encrypted FROM registration_requests ORDER BY id DESC LIMIT 1'
+        )->fetchColumn();
+        $this->assertSame('H', $this->encryption->decrypt($stored, 'registration_requests.gender'));
+    }
+
+    /** A forged M — the letter the form used to send — is refused like any unknown gender. */
+    public function testAGenderOutsideDesksValuesIsRefused(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(['gender' => 'M']), $hcFields), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('Genre invalide.', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
     public function testBotFillingHoneypotIsRejectedWithoutPersisting(): void
     {
         $hcFields = $this->humanCheckFields();

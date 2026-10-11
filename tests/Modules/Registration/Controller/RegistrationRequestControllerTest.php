@@ -319,7 +319,7 @@ class RegistrationRequestControllerTest extends TestCase
         $id1 = $this->createRequest();
         $id2 = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Noa',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'Rue Test', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'Rue Test', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'noa@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, [])['id'];

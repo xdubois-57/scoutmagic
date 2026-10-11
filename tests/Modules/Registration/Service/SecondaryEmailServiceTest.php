@@ -168,7 +168,7 @@ class SecondaryEmailServiceTest extends TestCase
             RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31'),
             [
                 'parent_name' => 'P2', 'child_last_name' => 'L2', 'child_first_name' => 'F2',
-                'gender' => 'M', 'birth_date' => '2020-01-01', 'street' => 'S', 'number' => '1',
+                'gender' => 'H', 'birth_date' => '2020-01-01', 'street' => 'S', 'number' => '1',
                 'postal_code' => '1000', 'city' => 'V', 'email' => 'other@example.com',
                 'phone1' => '000', 'phone2' => null, 'remarks' => null,
             ],

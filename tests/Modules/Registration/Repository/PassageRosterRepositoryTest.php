@@ -142,7 +142,7 @@ class PassageRosterRepositoryTest extends TestCase
         bool $leaving = false,
         bool $active = true,
         ?string $birthDate = '2016-01-01',
-        ?string $gender = 'M',
+        ?string $gender = 'H',
         int $offset = 0
     ): array {
         $memberId = RegistrationTestHelper::insertMember($this->pdo, 'DESK-' . bin2hex(random_bytes(4)));
