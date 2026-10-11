@@ -355,8 +355,8 @@ class RetroChiefController extends AbstractController
                 [
                     'value' => 'animators',
                     'label' => 'Animateurs',
-                    'help' => 'Réservée aux animateurs connectés (intendant ou plus). Le lien apparaît dans leur agenda '
-                        . 'et leur flux ICS tant que la rétrospective est ouverte.',
+                    'help' => 'Réservée aux animateurs connectés (intendant ou plus). '
+                        . 'Le lien apparaît dans leur agenda et leur flux ICS tant que la rétrospective est ouverte.',
                 ],
                 [
                     'value' => 'identified',
