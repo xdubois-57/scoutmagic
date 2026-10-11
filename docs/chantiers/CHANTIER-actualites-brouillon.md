@@ -171,9 +171,20 @@ Pour un brouillon, et pour une actualité programmée pas encore en ligne :
   `/news/{id}/poster` fonctionne pour un brouillon et une actualité programmée. Préparer l'affiche
   d'une actualité programmée à l'avance est précisément l'usage visé. Le lien court mène à la page de
   l'actualité, qui applique la règle ci-dessus.
-- **Sa couverture n'est pas publique** : `coverImageRoleMin()` tient compte de l'état — une actualité
-  qui n'est pas en ligne a une couverture réservée à `chief`. Le passage en ligne applique la règle
-  de visibilité habituelle ; le retour en brouillon la referme.
+- **Sa couverture n'est pas publique, et l'état se décide à la demande de l'image, jamais par une
+  tâche** : sinon, entre la mise en ligne d'une actualité programmée et le passage d'une tâche, les
+  vignettes de `/news` et l'image de sa page seraient cassées (403) pour son public.
+  - `files.role_min` de la couverture suit la seule **visibilité**, comme aujourd'hui
+    (`coverImageRoleMin()`), quel que soit l'état ; il n'est plus réécrit à la publication.
+  - La couverture porte un propriétaire (`owner_type` / `owner_id` = l'actualité), et le module
+    enregistre un `FileOwnershipCheckerInterface` que `FileAccessGuard` consulte à chaque demande :
+    il refuse tant que l'actualité n'est pas en ligne (`isLive()`), sauf à ceux qui gèrent les
+    actualités, et accepte sinon.
+  - Elle s'ouvre donc **à la minute exacte** de la mise en ligne, sans tâche, et se referme d'elle-même
+    au retour en brouillon.
+  - Les couvertures existantes reçoivent leur propriétaire par le même circuit que le schéma (pas de
+    tâche de reprise) ; vérifie que l'indexation (`FileIndexingPolicyInterface`) et l'aperçu de lien
+    d'une actualité en ligne restent inchangés.
 
 ### Le bloc « Affiche & QR code »
 
@@ -235,15 +246,16 @@ Pour un brouillon, et pour une actualité programmée pas encore en ligne :
 - **L'apparition dans les listes ne dépend d'aucune tâche** : les requêtes filtrent sur
   `published_at <= maintenant`. À l'heure dite, l'actualité est en ligne.
 - **Une tâche planifiée** (`publish_scheduled_articles`, déclarée dans `module.json`) fait, pour chaque
-  actualité passée en ligne depuis son dernier passage, ce qui ne peut pas se déduire d'une requête :
-  - **ouvrir l'accès à la couverture** selon la règle de visibilité ;
-  - **envoyer la notification** à l'auteur.
+  actualité passée en ligne depuis son dernier passage, la seule chose qui ne peut pas se déduire
+  d'une requête : **envoyer la notification** à l'auteur. L'accès à la couverture ne dépend pas d'elle
+  (voir « Ce qu'une actualité qui n'est pas en ligne ne fait pas »).
   Elle tourne avec le cron du site, chaque minute. Elle ne traite chaque actualité qu'une fois : marque ce qui a été fait (une colonne ou une table,
   selon ce qui est le plus simple), pour qu'un passage manqué ou répété ne doublonne rien. Le léger
-  décalage entre l'heure de mise en ligne et le passage de la tâche est acceptable : seul l'aperçu de
-  lien en dépend.
-- Une actualité qu'on **publie** ou qu'on **publie maintenant** à la main fait les deux tout de suite,
-  sans attendre la tâche — sauf la notification, qui n'a de sens que pour une mise en ligne programmée.
+  décalage entre l'heure de mise en ligne et le passage de la tâche est acceptable : seule la
+  notification en dépend.
+- Une actualité qu'on **publie** ou qu'on **publie maintenant** à la main n'attend rien : elle est en
+  ligne, couverture comprise, dès l'enregistrement. Elle ne notifie pas : la notification n'a de sens
+  que pour une mise en ligne programmée.
 
 ### La notification
 
@@ -265,8 +277,9 @@ gestionnaires, lien direct compris ; aucune balise d'aperçu et `noindex` ; rép
 refusées pour tous ; événement absent du scan et du menu ; partage refusé ; affiche et lien court
 disponibles dans tous les états ; message « pas encore en ligne » pour un visiteur, avec la date pour
 une actualité programmée et sans aucun contenu de l'actualité ;
-couverture fermée en brouillon, ouverte à la publication, refermée au retour en brouillon ;
-apparition à l'heure dite sans tâche ; tâche qui ouvre la couverture et notifie une seule fois ;
+couverture refusée en brouillon et avant l'heure programmée, servie dès la minute de mise en ligne
+sans aucune tâche, refusée de nouveau au retour en brouillon, toujours servie aux gestionnaires ;
+apparition à l'heure dite sans tâche ; tâche qui notifie une seule fois ;
 publication manuelle immédiate sans notification ; tri et date affichée par `published_at` ;
 suppression d'un brouillon acceptée, d'une actualité publiée ou programmée refusée côté serveur et
 absente de l'éditeur ; bouton « Partager » avec son texte, et boutons du bloc affiche dans un seul
