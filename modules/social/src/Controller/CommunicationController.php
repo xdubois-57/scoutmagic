@@ -784,12 +784,14 @@ final class CommunicationController extends AbstractController
      */
     private static function twinRefusal(Communication $communication): string
     {
-        $label = $communication->sourceKind === null
-            ? null
-            : ShareSourceResolver::sourceLabel($communication->sourceKind);
-
+        // **The source is never null here.** A communication written from
+        // nothing has a NULL `body_hash` (`CommunicationRepository::
+        // create()`), so the twin key cannot refuse ITS edit — writing a
+        // branch for that case would read as a state that can happen.
+        // The `??` is for an unknown source KIND, which `sourceLabel()`
+        // answers null for, and that is a different question.
         return 'Ce texte est déjà celui d\'une autre communication de '
-            . ($label ?? 'la même source')
+            . (ShareSourceResolver::sourceLabel((string) $communication->sourceKind) ?? 'la même source')
             . '. Modifiez-le, ou repartez de celle qui existe.';
     }
 

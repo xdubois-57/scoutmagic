@@ -149,6 +149,33 @@ describe('the confirmation', () => {
     });
 });
 
+describe('a page without the dialog', () => {
+    /**
+     * **The button stays an ordinary submit.** The composer's « Publier »
+     * must work where `confirm.js` did not load — the form posts and the
+     * server decides, exactly as before any confirmation existed — and
+     * the retry page posts to the same controller with no such button at
+     * all.
+     */
+    it('leaves the form alone when there is no confirmer', async () => {
+        delete window.ScoutMagicConfirm;
+
+        await load();
+        button().click();
+        await settle();
+
+        expect([asked, submitted]).toEqual([null, undefined]);
+    });
+
+    it('does nothing on a page with no publish button', async () => {
+        document.body.innerHTML = '<form><button type="submit">Enregistrer</button></form>';
+
+        await load();
+
+        expect(document.querySelector('[data-publish-confirm]')).toBeNull();
+    });
+});
+
 describe('answering it', () => {
     it('submits with the publish button as the submitter', async () => {
         await load();

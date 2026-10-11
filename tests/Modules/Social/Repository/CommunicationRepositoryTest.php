@@ -301,6 +301,61 @@ final class CommunicationRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * **Only a duplicate key is swallowed.** `create()` reads the driver
+     * code to tell a replay from a real database failure, and a
+     * `catch (\PDOException)` that answered a row for every one of them
+     * would turn a broken table, a lost connection or a NOT NULL into a
+     * silent « here is your communication ».
+     *
+     * Proved by removing the table the test staged — the one mutation
+     * that can only fail through this path.
+     */
+    public function testADatabaseFailureThatIsNotADuplicateIsRaised(): void
+    {
+        $this->pdo->exec('DROP TABLE social_communications');
+
+        $this->expectException(\PDOException::class);
+
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+    }
+
+    /** The same discrimination on the UPDATE, which has its own catch. */
+    public function testAnUpdateFailureThatIsNotADuplicateIsRaised(): void
+    {
+        $id = $this->create();
+        $this->pdo->exec('DROP TABLE social_communications');
+
+        $this->expectException(\PDOException::class);
+
+        $this->repository->updateText($id, 'Bonne année', 'Meilleurs vœux', $this->now);
+    }
+
+    /**
+     * **The key named a row that is not there.** Something deleted it
+     * between the INSERT and the read — the only way this happens — and
+     * the answer is to raise rather than hand back a zero that would
+     * publish against row 0.
+     *
+     * Staged with a trigger that raises SQLite's own constraint error
+     * without writing anything, which is exactly the shape
+     * `isDuplicate()` reads. This class's database is SQLite by
+     * construction ({@see \Tests\DatabaseTestHelper::createTestDatabase()}),
+     * so the dialect is not a portability question here.
+     */
+    public function testATwinTheKeyNamedButThatIsGoneIsRaised(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_insert BEFORE INSERT ON social_communications'
+            . " BEGIN SELECT RAISE(ABORT, 'UNIQUE constraint failed: staged'); END"
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('The twin this key named is not there any more.');
+
+        $this->repository->create('', 'Les photos sont en ligne', 7, $this->now, 'album', 3);
+    }
+
     private function rows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM social_communications')->fetchColumn();

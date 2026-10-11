@@ -195,11 +195,11 @@ final class ShareHistory
             // `label()`'s « Page Facebook », which belongs to the
             // checkbox that names the account. Inside a sentence the
             // short name is what reads.
-            return ucfirst(self::subject($sourceKind)) . ' est déjà parti sur '
+            return ucfirst(self::subject($sourceKind)) . ' est déjà ' . self::gone($sourceKind) . ' sur '
                 . ucfirst($platform->value) . ' le ' . $when . ',' . $message . '.';
         }
 
-        return 'Déjà parti le ' . $when . ',' . $message . '.';
+        return 'Déjà ' . self::gone($sourceKind) . ' le ' . $when . ',' . $message . '.';
     }
 
     /** « cet album », « cette actualité », « cette communication ». */
@@ -210,5 +210,22 @@ final class ShareHistory
             ShareSource::KIND_ARTICLE => 'cette actualité',
             default => 'cette communication',
         };
+    }
+
+    /**
+     * The participle, agreeing with {@see subject()}: « cet album est
+     * déjà **parti** », « cette actualité est déjà **partie** ». An album
+     * is the only masculine subject of the three.
+     *
+     * It was a fixed « parti », which read as a spelling mistake on the
+     * one screen that quotes this sentence — and `AGENTS.md` is explicit
+     * that a French interface error is a bug and never a detail. A test
+     * written to reach an uncovered line is what found it, which is the
+     * second time on this chantier that a coverage hole was hiding
+     * something real.
+     */
+    private static function gone(?string $sourceKind): string
+    {
+        return $sourceKind === ShareSource::KIND_ALBUM ? 'parti' : 'partie';
     }
 }

@@ -167,10 +167,12 @@
             });
     }
 
-    buttons.forEach(function (button) {
-        if (!(button instanceof HTMLElement)) {
-            return;
-        }
+    buttons.forEach(function (node) {
+        // A cast and not an `instanceof` guard: the selector only ever
+        // matches the history's own `<button>`, so the guard was a branch
+        // no test could reach, written for the typechecker. The same
+        // reasoning as the `.dataset` reads above.
+        const button = /** @type {HTMLElement} */ (node);
         button.hidden = false;
         button.addEventListener('click', function () {
             // `void`: the chain reports to the chief itself — through the

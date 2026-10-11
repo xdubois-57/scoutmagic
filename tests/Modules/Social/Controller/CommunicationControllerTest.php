@@ -86,6 +86,13 @@ final class CommunicationControllerTest extends TestCase
      */
     private static bool $albumReachable = true;
 
+    /**
+     * The site's own address, which the public page needs and a fresh
+     * installation has not got. Switchable for the one test about the
+     * refusal; reset in setUp, like the album's statics above.
+     */
+    private static string $baseUrl = 'https://unite.example';
+
     private \PDO $pdo;
     private int $author;
     private int $other;
@@ -104,6 +111,7 @@ final class CommunicationControllerTest extends TestCase
         self::$albumTitle = self::ALBUM_TITLE;
         self::$albumReachable = true;
         self::$articleCover = null;
+        self::$baseUrl = 'https://unite.example';
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -1628,6 +1636,82 @@ final class CommunicationControllerTest extends TestCase
             1,
             (int) $this->pdo->query("SELECT COUNT(*) FROM social_publications WHERE destination = 'copy'")
                 ->fetchColumn()
+        );
+    }
+
+    /**
+     * **Both JSON routes prove the request first** (issue #706, IT-05).
+     *
+     * They write — one mints a public page that can never be withdrawn,
+     * the other freezes a communication — so a stale tab must not be
+     * able to do either. `guardCsrfJson()` answers 403 with the site's
+     * own sentence rather than a bare refusal, and the browser's helper
+     * shows it.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('jsonRoutes')]
+    public function testAJsonRouteWithoutAValidTokenIsRefused(string $action): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->{$action}(
+            new \Tests\RequestWithInput('POST', '/medias-sociaux/x', [], [], [], [], '{"kind":"copy"}'),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(
+            ['status' => 403, 'minted' => null, 'recorded' => []],
+            [
+                'status' => $response->getStatusCode(),
+                'minted' => $this->communications->find($id)?->publicToken,
+                'recorded' => $this->publications->forSource('communication', $id),
+            ]
+        );
+    }
+
+    /** @return array<string, array{string}> */
+    public static function jsonRoutes(): array
+    {
+        return ['the link' => ['link'], 'the record' => ['share']];
+    }
+
+    /**
+     * Somebody else's communication has no link to offer, and says so the
+     * way every other route of this controller does: it is not there.
+     * Minting a page for it would be writing to a row the caller may not
+     * even read.
+     */
+    public function testTheLinkOfSomebodyElsesCommunicationIsNotMinted(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        AuthSession::login($this->other, 'autre@unite.be', 'chief');
+
+        $response = $this->controller()->link($this->post([]), ['id' => (string) $id]);
+
+        $this->assertSame(
+            ['status' => 404, 'minted' => null],
+            ['status' => $response->getStatusCode(), 'minted' => $this->communications->find($id)?->publicToken]
+        );
+    }
+
+    /**
+     * **No site address, no link**, and the answer names the setting to
+     * fill rather than failing silently: the public page's whole address
+     * is built on it, and a token minted now would be stranded behind an
+     * address nobody can reach.
+     */
+    public function testWithNoSiteAddressTheLinkIsRefusedWithTheSettingToFill(): void
+    {
+        self::$baseUrl = '';
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post([]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        $this->assertSame(
+            ['status' => 409, 'error' => 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.'],
+            ['status' => $response->getStatusCode(), 'error' => $answer['error'] ?? null]
         );
     }
 
@@ -3175,7 +3259,7 @@ final class CommunicationControllerTest extends TestCase
 
     private function controller(): CommunicationController
     {
-        $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
+        $settings = new RemoteBackupSettingsDouble(['base_url' => self::$baseUrl]);
         $journal = new JournalService($this->journal);
         $cards = new CardService(new CardRepository($this->pdo), new CardRenderer(), $settings, $journal, $this->storage . '/cards');
         $files = new FileRepository($this->pdo);

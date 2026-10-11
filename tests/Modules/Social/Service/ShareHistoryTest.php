@@ -201,6 +201,41 @@ final class ShareHistoryTest extends TestCase
         );
     }
 
+    /**
+     * **A discussion group reads under its own name**, kept on the
+     * publication row, and falls back to « Groupe de discussion » for a
+     * row written before that column existed — a group is not a
+     * `SocialPlatform` and not a `DirectShare`, so it is the one label
+     * the service cannot look up.
+     */
+    public function testAGroupIsNamedInTheBlockByTheNameItWasPublishedUnder(): void
+    {
+        $this->share('Les photos sont en ligne', 'group:3', '2026-09-14 10:00:00');
+
+        $this->assertSame(
+            'Groupe de discussion',
+            $this->history->lines(ShareSource::KIND_ALBUM, self::ALBUM)[0]['label'],
+            'the row carries no destination_label, so the generic name stands'
+        );
+    }
+
+    /**
+     * An article is « cette actualité » and not « cet album »: the
+     * sentence names what is being shared, and getting it wrong would
+     * read as a bug on the one screen that quotes it.
+     */
+    public function testAnArticleIsNamedAsOneInTheSentence(): void
+    {
+        $at = new \DateTimeImmutable('2026-09-12 10:00:00');
+        $id = $this->communications->create('', 'À lire', 7, $at, ShareSource::KIND_ARTICLE, 8);
+        $this->publications->claim(ShareSource::KIND_COMMUNICATION, $id, 'facebook', false, 7, $at, $at->modify('-15 minutes'), 'Rentrée', 'À lire');
+        $this->publications->markPublished(ShareSource::KIND_COMMUNICATION, $id, 'facebook', 'remote', $at, $at);
+
+        $line = $this->history->byDestination(ShareSource::KIND_ARTICLE, 8, 'À lire')['facebook']['line'];
+
+        $this->assertStringStartsWith('Cette actualité est déjà partie', $line);
+    }
+
     /** A destination this source never went to is simply absent. */
     public function testADestinationNeverUsedIsAbsent(): void
     {

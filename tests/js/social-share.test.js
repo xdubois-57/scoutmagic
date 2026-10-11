@@ -102,6 +102,35 @@ describe('the share button', () => {
     });
 });
 
+describe('a page with nothing to share', () => {
+    /**
+     * « Ce qui est parti » can be empty, or hold only entries with no
+     * public page yet. The script must then do nothing at all — not
+     * throw, which would take down whatever runs after it.
+     */
+    it('does nothing when there is no share button', async () => {
+        document.body.innerHTML = '<p>Rien n’est encore parti.</p>';
+
+        await load();
+
+        expect(document.querySelectorAll('[data-share-communication]')).toHaveLength(0);
+    });
+
+    /**
+     * And the live region is the history's, not this script's: a page
+     * that renders the button without it still shares, silently.
+     */
+    it('shares without a live region to write into', async () => {
+        document.querySelector('[data-share-feedback]').remove();
+
+        await load();
+        button().click();
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien', '/medias-sociaux/7/partage']);
+    });
+});
+
 describe('without a share sheet', () => {
     it('copies the link, records a copy, and says so', async () => {
         await load();
