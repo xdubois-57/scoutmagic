@@ -215,7 +215,7 @@ export default function MaquetteApplicationsConnectees() {
     }
     if (draft.id === null) {
       const id = Math.max(...apps.map((a) => a.id)) + 1;
-      const created = { ...draft, id, clientId: "sm_" + Math.random().toString(16).slice(2, 12) };
+      const created = { ...draft, id, clientId: "sm_" + String(id).padStart(10, "0") };
       setApps([...apps, created]);
       setCurrentId(id);
       setDraft(created);
@@ -632,11 +632,12 @@ export default function MaquetteApplicationsConnectees() {
   );
 }
 
+// Fixed placeholder values: a mockup never generates anything secret.
+const FAKE_SECRETS = ["EXAMPLE-SECRET-not-a-real-value-0001", "EXAMPLE-SECRET-not-a-real-value-0002"];
+let fakeSecretIndex = 0;
 function fakeSecret() {
-  const a = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < 40; i++) s += a[Math.floor(Math.random() * a.length)];
-  return s;
+  fakeSecretIndex = (fakeSecretIndex + 1) % FAKE_SECRETS.length;
+  return FAKE_SECRETS[fakeSecretIndex];
 }
 
 function integrationMd(app) {
