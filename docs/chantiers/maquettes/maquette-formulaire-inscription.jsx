@@ -1012,11 +1012,11 @@ export default function MaquetteFormulaireInscription() {
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-slate-600">Oui jusqu'à … % de places occupées</span>
-              <input type="number" disabled={!wl} min={1} max={cfg.maybeTo - 1} value={cfg.yesTo} onChange={(e) => set({ yesTo: Math.max(1, Math.min(Number(e.target.value), cfg.maybeTo - 1)) })} className="min-h-[44px] w-full rounded border px-3" />
+              <input type="number" disabled={!wl} min={1} max={cfg.maybeTo - 1} value={cfg.yesTo} onChange={(e) => { const v = e.target.valueAsNumber; if (Number.isNaN(v)) return; set({ yesTo: Math.max(1, Math.min(v, cfg.maybeTo - 1)) }); }} className="min-h-[44px] w-full rounded border px-3" />
             </label>
             <label className="text-sm">
               <span className="mb-1 block text-slate-600">Peut-être jusqu'à … % de places occupées</span>
-              <input type="number" disabled={!wl} min={cfg.yesTo + 1} max={SLIDER_MAX} value={cfg.maybeTo} onChange={(e) => set({ maybeTo: Math.min(SLIDER_MAX, Math.max(Number(e.target.value), cfg.yesTo + 1)) })} className="min-h-[44px] w-full rounded border px-3" />
+              <input type="number" disabled={!wl} min={cfg.yesTo + 1} max={SLIDER_MAX} value={cfg.maybeTo} onChange={(e) => { const v = e.target.valueAsNumber; if (Number.isNaN(v)) return; set({ maybeTo: Math.min(SLIDER_MAX, Math.max(v, cfg.yesTo + 1)) }); }} className="min-h-[44px] w-full rounded border px-3" />
             </label>
           </div>
           {cfg.maybeTo > 100 && (

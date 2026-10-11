@@ -42,15 +42,16 @@ extensions que la 8.3, plus `imap`) avant la première itération de code.
 
 **Divergences entre le document et la maquette** (relevées à la revue de la PR
 d'IT-00 ; le document dit lui-même que la maquette fait foi pour la hiérarchie
-de l'écran, les libellés et les états d'interaction, il est donc déposé tel
-quel et c'est la maquette qui l'emporte) :
+de l'écran, les libellés et les états d'interaction : c'est la maquette qui
+l'emporte, et les passages du document concernés ont été alignés sur elle dans
+la même PR, pour qu'un lecteur du seul document ne construise pas l'inverse) :
 
 - **La ligne verrouillée « Limite : le nombre de places de l'année de
   parcours ».** D5 et IT-03 la disent « en tête du classement » ; la maquette
   la place **après** la zone « Classement », avec « Toujours appliquée, en fin
   de classement ». C'est aussi ce que fait le moteur de la file : le
   classement d'abord, la limite de places mord à la fin. IT-03 suit la
-  maquette.
+  maquette ; D5 et IT-03 le disent désormais.
 - **L'exemple d'explication d'IT-03** (« Oui — 6 places restent en 1re année
   Louveteaux. Fratrie déjà présente dans l'unité. ») raisonne en places
   restantes, alors que le modèle raisonne en pourcentage d'occupation et
@@ -58,10 +59,13 @@ quel et c'est la maquette qui l'emporte) :
   explications suivent celles que construit `recommend()` dans la maquette
   (« Oui — règle « Toujours Oui » : fratrie déjà présente dans l'unité. »,
   « 1re demande classée sur 3 pour … Avant elle, N places sur C seraient
-  occupées (P %) … »).
-- Deux corrections de forme dans la maquette elle-même : les identifiants de
-  la page « fiche » passent en anglais (`detailId`, `RequestDetail`), et une
-  phrase de confirmation qui disait « Les 1 décision déjà prise » est accordée.
+  occupées (P %) … »). L'exemple du document est remplacé par deux exemples
+  construits comme ceux de la maquette.
+- Trois corrections dans la maquette elle-même : les identifiants de la page
+  « fiche » passent en anglais (`detailId`, `RequestDetail`) ; une phrase de
+  confirmation qui disait « Les 1 décision déjà prise » est accordée ; vider un
+  champ de seuil ne fait plus sauter la valeur à une borne (la saisie vide est
+  ignorée — le produit fera de même).
 
 **Faits à trancher en cours de route** (section « Faits vérifiés et pièges »
 du document) : R1 dans IT-02, R2 dans IT-02, R3 dans IT-05, R4 dans IT-03, R5

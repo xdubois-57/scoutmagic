@@ -181,8 +181,9 @@ Les demandes d'une même année de parcours sont évaluées **dans une file** :
 2. Les autres demandes sont **classées lexicographiquement** par les critères actifs, dans l'ordre
    choisi, puis par date de dépôt.
 3. Chaque demande est jugée sur **l'occupation qui la précède, comme si toutes celles qui sont
-   devant elle étaient acceptées**. La première ligne verrouillée de la liste de priorités est :
-   « Limite : le nombre de places de l'année de parcours ».
+   devant elle étaient acceptées**. Une ligne verrouillée suit la zone « Classement » :
+   « Limite : le nombre de places de l'année de parcours » (toujours appliquée, en fin de
+   classement).
 
 Exclusions : un **doublon** (même nom + même date de naissance — `name_dob_blind_index` — dans la même
 année) sort de la file, **sauf la plus ancienne** ; une demande **hors des tranches d'âge** n'a pas de
@@ -348,11 +349,13 @@ de `SlotMath`, `PublicRegistrationControllerTest` (niveau public), tests de proj
 - Service de recommandation : file D5, règles « Toujours Oui » / classement / désactivées, doublons,
   hors tranche d'âge, « Ancienne demande restée sans place » (lit le motif de refus de D6 — la
   colonne est créée ici, l'écran de saisie vient d'IT-04), explication courte construite **depuis les
-  critères réellement évalués** (« Oui — 6 places restent en 1re année Louveteaux. Fratrie déjà
-  présente dans l'unité. »).
+  critères réellement évalués**, sur le modèle de `recommend()` dans la maquette (« Oui — règle
+  « Toujours Oui » : fratrie déjà présente dans l'unité. », « Oui — 1re demande classée sur 3 pour
+  Louveteaux · 1re année. Avant elle, 6 places sur 15 seraient occupées (40 %), dans la limite du
+  « Oui » (70 %). »).
 - Réglage de l'ordre des critères : stockage d'une structure (zone + rang) dans les settings.
   Défauts : *Fratrie* en « Toujours Oui » ; *Ancienne demande restée sans place* et *Ordre d'arrivée*
-  en classement. La ligne « Limite : … » est verrouillée en tête du classement.
+  en classement. La ligne « Limite : … » est verrouillée après la zone « Classement ».
 - **Réglages › Capacités** : case « Gérer les listes d'attente » ; glissière à deux poignées
   (1–120 %, vert à gauche) + deux champs numériques synchronisés + exemple chiffré sur une capacité
   (« places déjà occupées ») ; tout grisé / désactivé si la case est décochée, **valeurs conservées**.
