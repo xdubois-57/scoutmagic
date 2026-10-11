@@ -63,6 +63,13 @@ final class CommunicationControllerTest extends TestCase
     public const ARTICLE_ID = 77;
 
     /**
+     * An article réservée aux animateurs — `shareable` false — which is
+     * the one `blockedReason` that is an authorisation and not a
+     * reminder: the news module says this text may not leave the site.
+     */
+    public const ARTICLE_STAFF_ONLY_ID = 78;
+
+    /**
      * Whether the one album `albumSource()` describes has a cover photo.
      * Reset in setUp, so a test that clears it cannot reach another.
      */
@@ -1569,6 +1576,89 @@ final class CommunicationControllerTest extends TestCase
         );
 
         $this->assertSame($first['url'], $second['url']);
+    }
+
+    /**
+     * **What the source refuses to publish, this route may not mint a
+     * public page for** (`Claude review` on PR #868).
+     *
+     * `mine()` answers « this chief may edit it », and the route took
+     * that for « this may leave the site ». They are not the same
+     * question, and `PublishingService::publish()` and
+     * `GroupPublishingService::publish()` both ask the second one — on
+     * `blockedReason` — before claiming anything.
+     *
+     * The staff-only article is the case that makes it a leak rather
+     * than an untidiness. The news module answers `shareable` false,
+     * « Publier » refuses the attempt — and refuses it WITHOUT claiming
+     * a row, so `isFrozen()` stays false and
+     * {@see CommunicationController::refreshPostedCard()} has already
+     * stored the card that attempt drew. One POST on this route then
+     * minted a permanent, unrevocable address serving that card, cached
+     * a year and immutable, to anyone holding the token: exactly what
+     * `shareable` exists to prevent.
+     *
+     * The vanished album is the same guard reached by the other shape —
+     * a source that answers nothing rather than « not you ». Both are
+     * asserted because both are reachable from the history page, and
+     * one line decides them.
+     *
+     * @param bool $albumReachable whether the gallery still answers for
+     *                             the album this communication opened
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('sourcesThatRefuseToLeave')]
+    public function testNoPublicPageIsMintedForASourceThatRefusesToLeave(
+        string $kind,
+        int $sourceId,
+        bool $albumReachable,
+        string $expected
+    ): void {
+        self::$albumReachable = $albumReachable;
+        $id = $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            $this->author,
+            new \DateTimeImmutable(),
+            $kind,
+            $sourceId
+        );
+        $this->loginAuthor();
+
+        $response = $this->controller()->link($this->post(['_csrf_token' => $this->csrf()]), ['id' => (string) $id]);
+        $answer = json_decode($response->getBody(), true);
+
+        // One assertion and not three: PHPUnit stops at the first
+        // failure, so « refused » proved on its own would leave « and
+        // minted nothing » unproved — and that second half is the whole
+        // finding, a page being irreversible once it exists.
+        $this->assertSame(
+            ['status' => 403, 'error' => $expected, 'minted' => null],
+            [
+                'status' => $response->getStatusCode(),
+                'error' => $answer['error'] ?? null,
+                'minted' => $this->communications->find($id)?->publicToken,
+            ]
+        );
+    }
+
+    /** @return array<string, array{string, int, bool, string}> */
+    public static function sourcesThatRefuseToLeave(): array
+    {
+        return [
+            'an article the news module keeps for the staff' => [
+                'article',
+                self::ARTICLE_STAFF_ONLY_ID,
+                true,
+                'Cette actualité est réservée aux animateurs : elle ne peut pas quitter le site.',
+            ],
+            'an album that is gone, or no longer theirs' => [
+                'album',
+                self::ALBUM_ID,
+                false,
+                'L\'album partagé n\'existe plus, ou n\'est plus à vous : cette communication ne peut plus'
+                    . ' être publiée.',
+            ],
+        ];
     }
 
     /**
@@ -3304,6 +3394,21 @@ final class CommunicationControllerTest extends TestCase
 
             public function describe(int $articleId, string $role, int $accountId): ?\Modules\News\Api\SharedArticle
             {
+                // The staff-only one is described like any other — it
+                // exists, it has a cover and an address — and says only
+                // that it may not be shared. That is the whole point:
+                // nothing about it is missing, so nothing but the
+                // `shareable` flag can stop it leaving.
+                if ($articleId === CommunicationControllerTest::ARTICLE_STAFF_ONLY_ID) {
+                    return new \Modules\News\Api\SharedArticle(
+                        CommunicationControllerTest::ARTICLE_STAFF_ONLY_ID,
+                        'Réunion de staff',
+                        'https://unite.example/s/staff',
+                        $this->cover,
+                        false
+                    );
+                }
+
                 return $articleId === CommunicationControllerTest::ARTICLE_ID
                     ? new \Modules\News\Api\SharedArticle(
                         CommunicationControllerTest::ARTICLE_ID,

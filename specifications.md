@@ -3704,6 +3704,18 @@ partager une communication reste réservé à son auteur et aux
 administrateurs, comme la modifier. Un bouton qui refuserait à chaque clic
 serait pire que pas de bouton.
 
+**Ce que la source refuse de laisser partir, l'icône ne le partage pas.**
+Une actualité réservée aux animateurs, un album supprimé ou qui n'est plus
+à vous, une image sans titre : ce sont les refus du § 47.6, et ils valent
+ici aussi — une page publique, une fois créée, ne se reprend pas, et son
+image reste lisible par qui tient l'adresse. Le clic répond alors la
+raison, celle-là même que le composeur affiche, et ne crée aucune page.
+
+Ce bouton-là n'est pas celui du paragraphe précédent : il refuse en
+nommant la cause, qui peut disparaître — l'album revient, le titre
+s'écrit —, là où un bouton posé sur la communication d'un autre refuserait
+toujours et sans rien apprendre à personne.
+
 **Le partage fige la communication**, comme une publication : dès le
 premier, quel qu'il soit, l'image, le titre et le texte ne changent plus.
 Ce n'est pas une précaution de principe — les applications relisent la

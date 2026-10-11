@@ -91,22 +91,33 @@ final class PublicPageService
      * The page's address, bringing it into being if this is the first
      * share that needs one.
      *
-     * **Called from the publishing path and nowhere else.** The roadmap
-     * says the page is created at the first share that needs it, not
-     * before, and « not before » includes every time the composer is
-     * merely opened or previewed: a page that exists is a page that stays
-     * (nothing in this module removes one), so minting one on a page view
-     * would leave a permanent public address behind a draft nobody ever
-     * published.
+     * **Called from a share that is already going out, and nowhere
+     * else.** The roadmap says the page is created at the first share
+     * that needs it, not before, and « not before » includes every time
+     * the composer is merely opened or previewed: a page that exists is
+     * a page that stays (nothing in this module removes one), so minting
+     * one on a page view would leave a permanent public address behind a
+     * draft nobody ever published.
      *
-     * **And after the destination was claimed**, which is what keeps a
-     * page from outliving an attempt that never happened: `publish()`
-     * refuses a destination — no usable connection, a caption over
-     * Instagram's limit, an album with no cover — before `claim()`
-     * records anything, and `send()` only runs once a row exists. The
-     * page therefore comes into being exactly where the freeze does, on
-     * a recorded attempt, succeeded or failed; a retry of a failed one
-     * finds the page already there and publishes the same address.
+     * **And only once the source agreed to leave the site.** On the
+     * publishing path that is settled by order alone: `publish()`
+     * refuses a destination — a blocked source, no usable connection, a
+     * caption over Instagram's limit, an album with no cover — before
+     * `claim()` records anything, and `send()` only runs once a row
+     * exists. The page therefore comes into being exactly where the
+     * freeze does, on a recorded attempt, succeeded or failed; a retry of
+     * a failed one finds the page already there and publishes the same
+     * address.
+     *
+     * `CommunicationController::link()` (issue #706, IT-05) is the
+     * second caller and claims nothing: the share sheet needs the
+     * address before the gesture it would record. So it asks the
+     * source's `blockedReason` itself, before calling this — the review
+     * of PR #868 found it minting a page for an article the news module
+     * keeps for the staff, which is the one refusal that is an
+     * authorisation rather than a reminder. **A third caller owes the
+     * same question**: this method does not ask it, and cannot, having
+     * only an id.
      *
      * Null when the site does not know its own address, and then nothing
      * is minted either: a token whose URL cannot be built authorises

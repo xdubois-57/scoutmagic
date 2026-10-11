@@ -703,12 +703,36 @@ final class CommunicationController extends AbstractController
         if (($guard = $this->guardCsrfJson($request)) !== null) {
             return $guard;
         }
-        $communication = $this->mine($params);
-        if ($communication === null) {
+        // **The source's own rule, before a permanent public address.**
+        // `mine()` answers « this chief may edit it », which is not
+        // « this may leave the site ». An actualité réservée aux
+        // animateurs, a source deleted since, an image still without a
+        // title: `PublishingService::publish()` and
+        // `GroupPublishingService::publish()` both refuse on
+        // `blockedReason` before claiming anything, and
+        // `PublicPageService::ensureUrlFor()` says in its own docblock
+        // that it is called from the publishing path and after a
+        // destination was claimed — which is where that question is
+        // asked. This route calls it with no destination at all, so it
+        // has to ask it itself.
+        //
+        // The cost of not asking was not a stale page but a leak:
+        // minting is irreversible, nothing in this module removes a
+        // page, and the card it then serves is cached a year, immutable,
+        // behind the token alone. A refused publishing attempt stores
+        // that card without freezing anything
+        // ({@see refreshPostedCard()}), so for a staff-only article the
+        // bytes were already waiting and one POST published them.
+        // `Claude review` found it on PR #868.
+        $source = $this->source($params);
+        if ($source === null) {
             return $this->json(['success' => false, 'error' => 'Communication introuvable.'], 404);
         }
+        if ($source->blockedReason !== null) {
+            return $this->json(['success' => false, 'error' => $source->blockedReason], 403);
+        }
 
-        $url = $this->publicPages->ensureUrlFor($communication->id, new \DateTimeImmutable());
+        $url = $this->publicPages->ensureUrlFor($source->id, new \DateTimeImmutable());
         if ($url === null) {
             return $this->json([
                 'success' => false,

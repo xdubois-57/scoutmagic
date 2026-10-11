@@ -34,6 +34,14 @@ auraient en main.
 Si vous refermez la feuille de partage sans aller au bout, **rien n'est
 partagé et rien n'est figé**.
 
+## Quand l'icône refuse
+
+Certaines communications ne peuvent pas quitter le site, et l'icône le dit
+au lieu de préparer un lien : une **actualité réservée aux animateurs**,
+un **album supprimé** ou qui n'est plus à vous, une image **sans titre**.
+C'est la même règle que « Publier », posée au même endroit — un lien
+public, une fois créé, ne se reprend pas.
+
 ## L'historique ne dit que ce qu'il sait
 
 Il écrit « Partagé depuis le téléphone » ou « Lien copié », avec la date.
