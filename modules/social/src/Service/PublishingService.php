@@ -265,7 +265,7 @@ class PublishingService
         if ($base === '') {
             return 'Renseignez d\'abord l\'adresse du site dans Configuration > Réglages.';
         }
-        if ($this->needsImage($source, $platform) && ($source->image === null || $source->image === '')) {
+        if ($this->needsImage($source, $platform) && !$source->hasImageToPublish()) {
             // `spokenKind()`, not `kind`: a saved source-backed share is
             // recorded as a `communication`, and deciding by that alone
             // answered « Choisissez d'abord une image » beside every

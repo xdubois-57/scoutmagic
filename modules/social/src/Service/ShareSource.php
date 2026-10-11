@@ -98,4 +98,30 @@ final class ShareSource
     {
         return $this->originKind ?? $this->kind;
     }
+
+    /**
+     * Whether there is an image to publish at all — **the kept card
+     * counts**, and counts first.
+     *
+     * The two refusal gates (`PublishingService::refusal()` and
+     * `GroupPublishingService`'s match) predate the kept card and tested
+     * `image` alone, while `cardBytes()` and
+     * `GroupPublishingService::card()` serve the card without ever
+     * touching `image`. So a FROZEN share whose live cover disappeared
+     * afterwards — the album's cover photo deleted, its storage briefly
+     * unreadable — was refused on every remaining destination with
+     * « Cet album n'a pas encore de photo de couverture », although the
+     * card it would have sent was sitting right there. And `frozen`
+     * disables the composer's image buttons, so the chief had no way
+     * out: the destination stayed refused for good.
+     *
+     * One method rather than the same condition twice, because that
+     * duplication is exactly what let the two gates fall behind the
+     * card. Found in the review of #850.
+     */
+    public function hasImageToPublish(): bool
+    {
+        return ($this->card !== null && $this->card !== '')
+            || ($this->image !== null && $this->image !== '');
+    }
 }

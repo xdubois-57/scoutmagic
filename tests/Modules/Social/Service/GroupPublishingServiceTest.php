@@ -196,6 +196,31 @@ final class GroupPublishingServiceTest extends TestCase
         $this->assertSame([], $this->groups->posts);
     }
 
+    /**
+     * The same gate, on the group side, and the same blind spot: it read
+     * `image` alone while `card()` reads the kept card first and never
+     * touches `image`. A frozen share whose album lost its cover was
+     * refused in every group although the card was there, and the
+     * composer's image buttons are closed once frozen. Found in the
+     * review of #850; `ShareSource::hasImageToPublish()` now carries the
+     * rule for both gates.
+     */
+    public function testAKeptCardReachesAGroupEvenWhenTheAlbumLostItsCover(): void
+    {
+        $kept = (new CardRenderer())->render(H::groupPhoto(), 'Camp', 'unite.example', true, 0.025);
+        $coverless = new ShareSource(
+            'album', 3, 'Camp', null, true, null, 'unite.example/gallery/3', 'x', '/gallery/3/edit',
+            null, 'https://unite.example/gallery/3',
+            blurRatio: 0.025,
+            card: $kept
+        );
+
+        $outcome = $this->publish($coverless, [3])[0];
+
+        $this->assertTrue($outcome->published, 'refused although the card was there: ' . $outcome->message);
+        $this->assertSame($kept, (string) $this->groups->posts[0]['image']);
+    }
+
     public function testTheGroupKeyIsReadStrictly(): void
     {
         $this->assertSame(3, GroupPublishingService::groupIdOf('group:3'));

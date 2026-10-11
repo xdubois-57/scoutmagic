@@ -185,6 +185,52 @@ final class PublishingServiceTest extends TestCase
         $this->assertSame([], $this->meta->requests);
     }
 
+    /**
+     * A kept card IS an image, and the refusal gate has to agree.
+     *
+     * The gate predates the kept card and tested `image` alone, while
+     * `cardBytes()` serves the card without ever reading `image`. So a
+     * frozen share whose album lost its cover afterwards — the photo
+     * deleted, its storage briefly unreadable — was refused on every
+     * remaining destination although the card it would have sent was
+     * right there; and the composer's image buttons are closed once
+     * frozen, so the chief could never repair it. Found in the review
+     * of #850.
+     */
+    public function testAKeptCardIsEnoughEvenWhenTheAlbumLostItsCover(): void
+    {
+        $kept = (new \Modules\Social\Card\CardRenderer())
+            ->render(H::groupPhoto(), 'Camp', 'unite.example', true, 0.025);
+        $coverless = new ShareSource(
+            'album',
+            3,
+            'Camp',
+            // The live cover is gone, and the album itself is not
+            // blocked: it still exists and is still this chief's.
+            null,
+            true,
+            null,
+            'unite.example/gallery/3',
+            'x',
+            '/gallery/3/edit',
+            null,
+            null,
+            null,
+            null,
+            card: $kept
+        );
+
+        $outcomes = $this->publish($coverless, [SocialPlatform::Instagram]);
+
+        $this->assertTrue(
+            $outcomes[0]->published,
+            'the kept card was refused as « no image », with no way for the chief to repair it: '
+                . $outcomes[0]->message
+        );
+        $this->assertStringNotContainsString('photo de couverture', $outcomes[0]->message);
+        $this->assertNotSame([], $this->meta->requests, 'Instagram was handed nothing');
+    }
+
     public function testASiteWithoutItsAddressPublishesNothing(): void
     {
         $this->settings->values = [];

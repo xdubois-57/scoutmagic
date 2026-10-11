@@ -99,7 +99,7 @@ final class GroupPublishingService
             $refusal = match (true) {
                 $group === null => 'Vous ne pouvez pas publier dans ce groupe.',
                 $source->blockedReason !== null => $source->blockedReason,
-                $source->image === null || $source->image === '' => 'Aucune publication ne part sans image.',
+                !$source->hasImageToPublish() => 'Aucune publication ne part sans image.',
                 default => null,
             };
             if ($refusal !== null) {
