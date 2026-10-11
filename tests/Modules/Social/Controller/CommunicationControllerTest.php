@@ -1986,6 +1986,61 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('En cours', $flat);
     }
 
+    /**
+     * **And it still says « En cours » a quarter of an hour later**, not
+     * « Échec » beside a « Réessayer » that leads nowhere (`Claude
+     * review` on PR #868).
+     *
+     * `Publication::isRetryable()` turns any `pending` row into a
+     * failure past `PublishingService::STALE_MINUTES` — right for a
+     * destination the site posts to, where a row stuck in progress means
+     * the call never came back, and wrong for one it only handed a link
+     * to. `share()` claims the row and marks it published in two
+     * statements, so a browser killed in between leaves it `pending`;
+     * and being killed there is this feature's own path, the phone
+     * handing off to WhatsApp as soon as the sheet is answered.
+     *
+     * What showed was « Échec : la publication a été interrompue. » and
+     * a retry button whose address is the deliberate null of
+     * `historyEntry()` — a dead control under a sentence about a failure
+     * that never happened, for a gesture published nowhere.
+     *
+     * The three facts are one assertion because they are one defect:
+     * « En cours » alone would still pass with the failure sentence
+     * printed beside it.
+     */
+    public function testAGestureLeftPendingStillReadsAsInProgressOnceStale(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        // Claimed an hour ago and never marked published: the row
+        // `share()` leaves behind when the request dies between its two
+        // statements, read well past the fifteen minutes.
+        $attempted = (new \DateTimeImmutable())->modify('-1 hour');
+        $this->publications->claim(
+            'communication',
+            $id,
+            'copy',
+            false,
+            $this->author,
+            $attempted,
+            $attempted->modify('-1 day'),
+            'Week-end',
+            'Les photos sont en ligne'
+        );
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->history($this->get(), [])->getBody());
+
+        $this->assertSame(
+            ['in progress' => true, 'claims a failure' => false, 'offers a retry' => false],
+            [
+                'in progress' => str_contains($flat, 'En cours'),
+                'claims a failure' => str_contains($flat, 'Échec'),
+                'offers a retry' => str_contains($flat, 'Réessayer la publication sur'),
+            ]
+        );
+    }
+
     /** An unknown gesture is refused rather than recorded as something. */
     public function testAnUnknownGestureIsRefused(): void
     {

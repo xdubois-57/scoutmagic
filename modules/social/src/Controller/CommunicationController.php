@@ -1462,6 +1462,26 @@ final class CommunicationController extends AbstractController
                 'state' => match (true) {
                     $publication === null => 'not_requested',
                     $publication->isPublished() => 'published',
+                    // **A gesture never reads as a failure**, however
+                    // long its row has sat there (`Claude review` on PR
+                    // #868). `isRetryable()` turns any `pending` row
+                    // into `failed` past `STALE_MINUTES`, which is right
+                    // for a destination the site posts to and wrong for
+                    // one it only handed a link to: `share()` writes the
+                    // row then marks it published in two statements, so
+                    // a browser killed in between — the phone handing
+                    // off to WhatsApp, this feature's own path — leaves
+                    // it `pending`. Read a quarter of an hour later it
+                    // claimed « Échec : la publication a été
+                    // interrompue. » beside a « Réessayer » whose
+                    // address is the null below, for a gesture that
+                    // failed at nothing and was published nowhere.
+                    //
+                    // « En cours » is the truth and it is also the way
+                    // out: clicking the icon again past the same delay
+                    // takes the row over and finishes it, which is why
+                    // `share()` claims with `retry: true`.
+                    DirectShare::tryFrom($key) !== null => 'pending',
                     $publication->isRetryable($staleBefore) => 'failed',
                     default => 'pending',
                 },
