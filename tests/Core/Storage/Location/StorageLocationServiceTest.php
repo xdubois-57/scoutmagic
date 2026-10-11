@@ -669,6 +669,33 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
     }
 
+    /**
+     * The shared folder is recognised by its id, not its name: renamed in
+     * Drive, and with no other location to give it away, it is still
+     * refused — deleting the location would trash everything it holds.
+     */
+    public function testARenamedSharedFolderIsStillRefused(): void
+    {
+        $drive = new FakeDrive('folder-1-courant-01');
+        $service = $this->serviceOn($drive);
+        $id = $service->create(
+            StorageLocationType::GoogleDrive,
+            'Photos des galeries',
+            $this->driveConfig($drive),
+            (string) (new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org'))->toStorage()
+        );
+        $drive->files['scoutmagic-1']['name'] = 'Ancien ScoutMagic';
+        $drive->files['folder-1-courant-01']['trashed'] = true;
+
+        try {
+            $service->attachDriveFolder($id, 'scoutmagic-1', true);
+            $this->fail('The shared folder must not be attached under another name.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('dossier commun', $e->getMessage());
+        }
+        $this->assertSame('folder-1-courant-01', $this->driveFolderOf($id));
+    }
+
     /** Without an account, the folder cannot be looked at: nothing is attached. */
     public function testADisconnectedDriveLocationCannotBeAttachedToAFolder(): void
     {

@@ -375,6 +375,11 @@ class StorageLocationService
             $usable = $folder !== null && $folder['folder'] && !$folder['trashed'];
             $holdsFiles = $usable && $backend->list('', null, 1)->objects !== [];
             $overlap = $usable ? $this->overlappingLocation($backend, $folderId, $folder, $othersByFolder) : null;
+            $sharedParent = $usable && in_array(
+                $folderId,
+                self::sharedParentsOf($backend, [$config->folderId]),
+                true
+            );
         } catch (StorageLocationException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -401,7 +406,7 @@ class StorageLocationService
                 "Le dossier « {$folder['name']} » est dans la corbeille de Google Drive : restaurez-le d'abord."
             );
         }
-        if ($folder['name'] === Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME) {
+        if ($sharedParent || $folder['name'] === Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME) {
             throw new StorageLocationException(
                 'C\'est le dossier commun « ' . Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' », qui '
                     . 'range les dossiers de tous les emplacements : choisissez celui de cet emplacement, à '
@@ -457,6 +462,26 @@ class StorageLocationService
         }
 
         return null;
+    }
+
+    /**
+     * The shared `ScoutMagic` folder by id, not by name — an operator may
+     * have renamed it in Drive: whatever folder holds this location's own
+     * folder, in the trash or not. (One that holds another location's is
+     * refused already, as overlapping it.) Read only; a folder this
+     * account cannot see contributes nothing.
+     *
+     * @param list<string> $locationFolderIds
+     * @return list<string>
+     */
+    private static function sharedParentsOf(Backend\GoogleDriveBackend $backend, array $locationFolderIds): array
+    {
+        $parents = [];
+        foreach (array_filter($locationFolderIds, static fn (string $id): bool => $id !== '') as $id) {
+            array_push($parents, ...($backend->describeFolder($id)['parents'] ?? []));
+        }
+
+        return array_values(array_unique($parents));
     }
 
     /**
