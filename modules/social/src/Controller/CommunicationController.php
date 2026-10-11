@@ -797,6 +797,7 @@ final class CommunicationController extends AbstractController
             'gallery_available' => $this->photos !== null && !$fromSource,
             'uploadable' => !$fromSource,
             'from_source' => $fromSource,
+            'image_is_settled' => self::imageIsSettled($source, $fromSource),
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
@@ -903,6 +904,36 @@ final class CommunicationController extends AbstractController
     }
 
     /**
+     * Whether the image a later destination or a retry receives is
+     * settled — which is NOT the same as the share being frozen.
+     *
+     * Freezing settles the text always, and the image only where there
+     * is something to settle it with:
+     *
+     * - **A kept card** settles it, whatever the source does afterwards.
+     * - **A communication with an image of its OWN** settles it too,
+     *   even with no card: the photo and the title are this row's own
+     *   columns, so composing again gives the same card.
+     * - **A source-backed share with NO kept card** does not. The title
+     *   and the cover are read from the album or the article at every
+     *   publication, so renaming it between a Facebook post and an
+     *   Instagram retry sends two different cards. Reachable for a share
+     *   made before IT-02, for a browser with no `DataTransfer`
+     *   constructor, and — since `dropStoredCard()` — for any attempt
+     *   published from a canvas that never drew.
+     *
+     * Both the composer's frozen notice and the retry page promised « the
+     * same image » unconditionally, which is false in that third case;
+     * the retry page even had `from_source` passed to it and no longer
+     * read it. Found in the review of #850, in the round after the one
+     * that made the third case easier to reach.
+     */
+    private static function imageIsSettled(?ShareSource $source, bool $fromSource): bool
+    {
+        return !$fromSource || ($source?->card !== null && $source->card !== '');
+    }
+
+    /**
      * Once one destination has been tried, the communication is what was
      * sent, and stays so.
      */
@@ -988,7 +1019,7 @@ final class CommunicationController extends AbstractController
      * @param array<string, string> $params
      * @return array{
      *     source: ShareSource, key: string, platform: ?SocialPlatform, label: string, failed: Publication,
-     *     published: list<Publication>
+     *     from_source: bool, image_is_settled: bool, source_label: ?string, published: list<Publication>
      * }|null
      */
     private function retryContext(array $params): ?array
@@ -1019,26 +1050,31 @@ final class CommunicationController extends AbstractController
             return null;
         }
 
+        // Whether the title and image come from an album or an article.
+        // Read from the KIND, not from `$id`: on this route `$id` is a
+        // communication key only when the kind says so, which is why
+        // `$source` above branches the same way. A legacy
+        // `…/reessayer/album/{albumId}/…` carries an album key, so
+        // looking a communication up by it read an unrelated or missing
+        // row. Any kind but `communication` IS the source.
+        $fromSource = (string) ($params['kind'] ?? '') !== ShareSource::KIND_COMMUNICATION
+            || ($this->communications->find($id)?->hasSource() ?? false);
+
         return [
             'source' => $source,
             'key' => $key,
             'platform' => $platform,
             'label' => $platform?->label() ?? ($failed->destinationLabel ?? 'le groupe'),
             'failed' => $failed,
-            // Whether the title and image come from an album or an
-            // article, and are therefore read again at this retry rather
-            // than kept from the first publication. The page says so
-            // instead of promising « the same image » — see the frozen
-            // notice in edit.html.twig for the whole reason.
-            //
-            // Read from the KIND, not from `$id`: on this route `$id` is a
-            // communication key only when the kind says so, which is why
-            // `$source` above branches the same way. A legacy
-            // `…/reessayer/album/{albumId}/…` carries an album key, so
-            // looking a communication up by it read an unrelated or
-            // missing row. Any kind but `communication` IS the source.
-            'from_source' => (string) ($params['kind'] ?? '') !== ShareSource::KIND_COMMUNICATION
-                || ($this->communications->find($id)?->hasSource() ?? false),
+            'from_source' => $fromSource,
+            // Which, with the kept card, decides the sentence this page
+            // leads with. {@see self::imageIsSettled()}
+            'image_is_settled' => self::imageIsSettled($source, $fromSource),
+            // « l'album » or « l'actualité », to name what the image
+            // would be read from again. `originKind` on a
+            // communication-backed share, the kind itself on a legacy
+            // `…/reessayer/album/{id}/…` link.
+            'source_label' => ShareSourceResolver::sourceLabel($source->originKind ?? $source->kind),
             'published' => array_values(array_filter(
                 $publications,
                 static fn (Publication $p): bool => $p->isPublished()

@@ -172,21 +172,32 @@
             le même vers toutes les destinations.
         </p>
     {% elseif frozen %}
-        {# One message for both cases now (issue #706, IT-02). It used to
-           say less for a source-backed share, and truthfully so: only the
-           TEXT was frozen, while the title and the image were read from
-           the album or the article at each publication — rename the album
-           between a Facebook post and an Instagram retry and the two
-           destinations got different cards. IT-02 settles it by keeping
-           the image the browser drew and sending that one to every later
-           attempt, title drawn on it included. What is still read at the
-           source is the right to share it at all, and the title the
-           history records; neither changes what has already left. The
-           review of #850 found this notice still promising the old
-           behaviour. #}
+        {# Two messages, and the condition is NOT `frozen` (issue #706,
+           IT-02). Freezing settles the text always; it settles the image
+           only where there is something to settle it with — a kept card,
+           or a communication whose photo and title are its own columns.
+           A source-backed share with no kept card still reads the
+           album's title and cover at every publication, so renaming it
+           between a Facebook post and an Instagram retry sends two
+           different cards.
+
+           This notice said less for a source-backed share and truthfully
+           so; the review of #850 found it promising the old behaviour,
+           and the fix then promised « the same image » to everyone —
+           which is the opposite error, and the SAME review found it in
+           the round after. `image_is_settled` carries the rule for this
+           page and for retry.html.twig at once.
+           {@see CommunicationController::imageIsSettled()} #}
         <div class="alert alert-info small mb-4">
-            Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
-            pour que chaque destination reçoive la même chose.
+            {% if image_is_settled %}
+                Cette communication est déjà partie vers une destination : l'image et le texte ne changent plus,
+                pour que chaque destination reçoive la même chose.
+            {% else %}
+                Cette communication est déjà partie vers une destination : le texte ne change plus.
+                L'image, elle, est refaite à partir de {{ source_label|default('la source') }} à chaque
+                envoi, aucune carte n'ayant été conservée à la première tentative : un titre ou une photo
+                de couverture changés depuis repartiront donc tels qu'ils sont aujourd'hui.
+            {% endif %}
         </div>
     {% endif %}
 

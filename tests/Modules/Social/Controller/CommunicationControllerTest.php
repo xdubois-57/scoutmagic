@@ -1419,7 +1419,14 @@ final class CommunicationControllerTest extends TestCase
      * both cases get the same sentence. This test pinned the old wording
      * faithfully and is what caught the correction.
      */
-    public function testAFrozenSourceBackedShareSaysTheImageIsFixedToo(): void
+    /**
+     * No card was ever kept here — nothing posted one — so the image is
+     * NOT fixed: every publication reads the album's title and cover
+     * again. The notice promising « l'image et le texte ne changent
+     * plus » to EVERY frozen share was the review of #850's finding, one
+     * round after the same review had found it promising too little.
+     */
+    public function testAFrozenShareWithNoKeptCardSaysOnlyTheTextIsFixed(): void
     {
         $id = $this->sourceBackedCommunication();
         $at = new \DateTimeImmutable('-1 day');
@@ -1439,11 +1446,38 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->edit($this->get(), ['id' => (string) $id])->getBody();
 
-        $this->assertStringContainsString('l\'image et le texte ne changent plus', $html);
-        // And no longer promises that a renamed album would reach a
-        // later destination with its new title: the card carries the old
-        // one.
-        $this->assertStringNotContainsString('restent ceux de', $html);
+        $flat = self::flattened($html);
+        $this->assertStringContainsString('le texte ne change plus', $flat);
+        $this->assertStringContainsString('est refaite à partir de l\'album', $flat);
+        $this->assertStringNotContainsString('l\'image et le texte ne changent plus', $flat);
+    }
+
+    /**
+     * And with a card kept, the same notice may promise the image too —
+     * the other half of the rule, which had no test of its own, which is
+     * how the unconditional promise went unnoticed.
+     */
+    public function testAFrozenShareWithAKeptCardSaysTheImageIsFixedToo(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->loginAuthor();
+        $this->postedCard('Le titre du jour');
+        $this->controller()->update(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        $flat = self::flattened($this->controller()->edit($this->get(), ['id' => (string) $id])->getBody());
+
+        $this->assertStringContainsString('l\'image et le texte ne changent plus', $flat);
+        $this->assertStringNotContainsString('est refaite à partir de', $flat);
     }
 
     /**
@@ -1924,7 +1958,11 @@ final class CommunicationControllerTest extends TestCase
      * that very retry. It now says so. Raised in review on the pull
      * request for IT-01, alongside the frozen notice in the composer.
      */
-    public function testTheRetryPagePromisesTheSameImageForASourceBackedShareToo(): void
+    /**
+     * The same rule on the retry page, which had `from_source` passed to
+     * it and had stopped reading it altogether.
+     */
+    public function testTheRetryPageOfAShareWithNoKeptCardSaysTheImageIsReadAgain(): void
     {
         $id = $this->sourceBackedCommunication();
         $this->failedInstagram($id);
@@ -1933,8 +1971,39 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('La même image et le même texte', $html);
-        $this->assertStringNotContainsString('relus à la source', $html);
+        $this->assertStringContainsString('Le même texte repartira', $html);
+        $this->assertStringContainsString('sera refaite', $html);
+        $this->assertStringNotContainsString('La même image et le même texte', $html);
+    }
+
+    /** And with a card kept, the retry page may promise the image too. */
+    public function testTheRetryPageOfAShareWithAKeptCardPromisesTheSameImage(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->loginAuthor();
+        $this->postedCard('Le titre du jour');
+        $this->controller()->update(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+        // The card is now stored, and Instagram is a destination that
+        // failed — the shape this page is reached in.
+        $this->failedInstagram($id);
+
+        $flat = self::flattened($this->controller()->confirmRetry(
+            $this->get(),
+            ['kind' => 'communication', 'id' => (string) $id, 'platform' => 'instagram']
+        )->getBody());
+
+        $this->assertStringContainsString('La même image et le même texte', $flat);
+        $this->assertStringNotContainsString('sera refaite', $flat);
     }
 
     /**
@@ -1953,7 +2022,12 @@ final class CommunicationControllerTest extends TestCase
      * route included, because the kept card is what travels. The route
      * still has to resolve and render, which is what this keeps.
      */
-    public function testALegacyAlbumRetryStillRendersAndPromisesTheSameImage(): void
+    /**
+     * A legacy `…/reessayer/album/{id}/…` link has no communication row
+     * at all, so there is no card to keep and the album is read again —
+     * which is the opposite of what this test used to assert.
+     */
+    public function testALegacyAlbumRetryStillRendersAndSaysTheImageIsReadAgain(): void
     {
         $at = new \DateTimeImmutable('-1 hour');
         $this->publications->claim(
@@ -1973,8 +2047,10 @@ final class CommunicationControllerTest extends TestCase
 
         $html = $this->controller()->confirmRetry($this->get(), $params)->getBody();
 
-        $this->assertStringContainsString('La même image et le même texte', $html);
-        $this->assertStringNotContainsString('relus à la source', $html);
+        $flat = self::flattened($html);
+        $this->assertStringContainsString('Le même texte repartira', $flat);
+        $this->assertStringContainsString('sera refaite à partir de l\'album', $flat);
+        $this->assertStringNotContainsString('La même image et le même texte', $flat);
     }
 
     /**
@@ -2160,6 +2236,28 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /** The same, for bytes that are deliberately not a card. */
+    /**
+     * The page's text with every run of whitespace collapsed to one
+     * space.
+     *
+     * A sentence in a Twig file wraps where the file wraps, so asserting
+     * on one that spans two source lines fails on the indentation rather
+     * than on the words — and re-indenting the template would otherwise
+     * break a test that is about what the page SAYS.
+     */
+    private static function flattened(string $html): string
+    {
+        // Entities decoded too: Twig escapes what a VARIABLE carries, so
+        // « l'album » reaches the page as `l&#039;album` while the
+        // literal words around it keep their apostrophes. A test about
+        // what the page says should not have to know which half is which.
+        return (string) preg_replace(
+            '/\s+/u',
+            ' ',
+            html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8')
+        );
+    }
+
     /**
      * What a POST from a browser that drew nothing looks like: the card
      * field simply absent.
