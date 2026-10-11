@@ -395,6 +395,25 @@ describe('auth.js: magic-link polling', () => {
         await vi.waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(countBefore));
     });
 
+    // Issue #833: the first confirmed answer spends the return path, so a
+    // second poll in flight would come back with `/` — and could win.
+    it('never sends a second poll while one is still in flight', async () => {
+        await startPolling();
+        let resolvePoll = () => {};
+        global.fetch.mockImplementation(() => new Promise((resolve) => { resolvePoll = resolve; }));
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+
+        await vi.advanceTimersByTimeAsync(3000); // the tick's poll is in flight
+        const countInFlight = fetch.mock.calls.length;
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(3000); // and the next tick too
+        expect(fetch.mock.calls.length).toBe(countInFlight);
+
+        resolvePoll({ json: () => Promise.resolve({ confirmed: false }) });
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch.mock.calls.length).toBe(countInFlight + 1);
+    });
+
     it('does NOT check when the visibilitychange fires with the tab going hidden', async () => {
         await startPolling();
         global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: false }) });

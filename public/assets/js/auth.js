@@ -192,8 +192,20 @@
     });
 
     function startPolling(pollId) {
+        // One poll at a time. The 3s tick and the visibility handler below
+        // can fire together (a throttled tab brought back), and the first
+        // confirmed answer spends the return path server-side
+        // (LoginReturn::consume(), issue #833): a second request in flight
+        // would get `/`, and could be the answer acted on.
+        var inFlight = false;
+
         function checkOnce() {
+            if (inFlight) {
+                return;
+            }
+            inFlight = true;
             fetch('/auth/poll/' + pollId)
+                .finally(function() { inFlight = false; })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.confirmed && pollingInterval) {
