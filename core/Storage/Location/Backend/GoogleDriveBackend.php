@@ -1010,12 +1010,24 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
      * Read before a location is attached to a folder, so that a typo, a
      * file or a folder in the trash is refused rather than saved.
      *
-     * @return array{name: string, trashed: bool, folder: bool}|null
+     * @return array{name: string, trashed: bool, folder: bool, parents: list<string>}|null
      * @throws DriveAccessException
      */
     public function describeRootFolder(): ?array
     {
-        return $this->client->describeFile($this->accessToken(), $this->rootFolderId());
+        return $this->describeFolder($this->rootFolderId());
+    }
+
+    /**
+     * Any folder this account can see, by id — to walk up from one when
+     * deciding whether a folder lies inside another location's (#832).
+     *
+     * @return array{name: string, trashed: bool, folder: bool, parents: list<string>}|null
+     * @throws DriveAccessException
+     */
+    public function describeFolder(string $id): ?array
+    {
+        return $this->client->describeFile($this->accessToken(), $id);
     }
 
     /**

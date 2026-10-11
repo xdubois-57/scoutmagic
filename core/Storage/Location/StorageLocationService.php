@@ -65,6 +65,13 @@ class StorageLocationService
     public const DEFAULT_LABEL = 'Disque du serveur';
     public const DEFAULT_PATH = 'gallery';
 
+    /**
+     * How far up a Drive folder's parents are followed when checking that
+     * two locations do not overlap (#832). `ScoutMagic/<label>/` is two
+     * levels; this leaves room for a folder an operator nested by hand.
+     */
+    private const MAX_FOLDER_DEPTH = 10;
+
     public function __construct(
         private StorageLocationRepository $repository,
         private StorageBackendFactory $backendFactory,
@@ -329,16 +336,20 @@ class StorageLocationService
         if ($folderId === $config->folderId) {
             throw new StorageLocationException('Cet emplacement est déjà rattaché à ce dossier.');
         }
+        $othersByFolder = [];
         foreach ($this->repository->findAll() as $other) {
             if ($other->id !== $id
                 && $other->config instanceof Config\GoogleDriveLocationConfig
-                && $other->config->folderId === $folderId
+                && $other->config->folderId !== ''
             ) {
-                throw new StorageLocationException(
-                    "Ce dossier est déjà celui de l'emplacement « {$other->label} » : deux emplacements ne "
-                        . 'partagent jamais un dossier.'
-                );
+                $othersByFolder[$other->config->folderId] = $other->label;
             }
+        }
+        if (isset($othersByFolder[$folderId])) {
+            throw new StorageLocationException(
+                "Ce dossier est déjà celui de l'emplacement « {$othersByFolder[$folderId]} » : deux emplacements "
+                    . 'ne partagent jamais un dossier.'
+            );
         }
 
         $attached = new Config\GoogleDriveLocationConfig($config->clientId, $folderId, $config->connectedAt);
@@ -361,8 +372,11 @@ class StorageLocationService
                 throw new \LogicException('A Google Drive location built something else than a Drive backend.');
             }
             $folder = $backend->describeRootFolder();
-            $holdsFiles = $folder !== null && $folder['folder'] && !$folder['trashed']
-                && $backend->list('', null, 1)->objects !== [];
+            $usable = $folder !== null && $folder['folder'] && !$folder['trashed'];
+            $holdsFiles = $usable && $backend->list('', null, 1)->objects !== [];
+            $overlap = $usable ? $this->overlappingLocation($backend, $folderId, $folder, $othersByFolder) : null;
+        } catch (StorageLocationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             throw new StorageLocationException(
                 'Google Drive n\'a pas pu montrer ce dossier : rien n\'a été changé. '
@@ -387,6 +401,16 @@ class StorageLocationService
                 "Le dossier « {$folder['name']} » est dans la corbeille de Google Drive : restaurez-le d'abord."
             );
         }
+        if ($folder['name'] === Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME) {
+            throw new StorageLocationException(
+                'C\'est le dossier commun « ' . Config\GoogleDriveLocationConfig::PARENT_FOLDER_NAME . ' », qui '
+                    . 'range les dossiers de tous les emplacements : choisissez celui de cet emplacement, à '
+                    . 'l\'intérieur.'
+            );
+        }
+        if ($overlap !== null) {
+            throw new StorageLocationException($overlap);
+        }
         if ($holdsFiles && !$existingContentConfirmed) {
             throw new StorageLocationTargetNotEmptyException(
                 "Le dossier « {$folder['name']} » contient déjà des fichiers. Si vous confirmez, cet emplacement "
@@ -399,6 +423,59 @@ class StorageLocationService
         unset($this->locationsById[$id]);
 
         return $folder['name'];
+    }
+
+    /**
+     * Why $folderId cannot be this location's because of another one, or
+     * null: it lies inside another location's folder, or another
+     * location's folder lies inside it. Either way the two would share
+     * files — and deleting the outer one would put the inner one in the
+     * trash with it. Looked up through the parents Google reports, a few
+     * levels at most; a folder this account cannot see ends the walk.
+     *
+     * @param array{parents: list<string>} $folder
+     * @param array<string, string> $othersByFolder folder id → label
+     */
+    private function overlappingLocation(
+        Backend\GoogleDriveBackend $backend,
+        string $folderId,
+        array $folder,
+        array $othersByFolder
+    ): ?string {
+        foreach (self::ancestorsOf($backend, $folder['parents']) as $ancestor) {
+            if (isset($othersByFolder[$ancestor])) {
+                return "Ce dossier est rangé dans celui de l'emplacement « {$othersByFolder[$ancestor]} » : les "
+                    . 'deux partageraient des fichiers. Choisissez un dossier à part.';
+            }
+        }
+        foreach ($othersByFolder as $otherFolderId => $label) {
+            $other = $backend->describeFolder($otherFolderId);
+            if ($other !== null && in_array($folderId, self::ancestorsOf($backend, $other['parents']), true)) {
+                return "Ce dossier contient celui de l'emplacement « {$label} » : supprimer l'un mettrait l'autre "
+                    . 'à la corbeille. Choisissez un dossier à part.';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<string> $parents
+     * @return list<string> the folders above, nearest first
+     */
+    private static function ancestorsOf(Backend\GoogleDriveBackend $backend, array $parents): array
+    {
+        $ancestors = [];
+        $next = $parents[0] ?? null;
+        for ($depth = 0; $next !== null && $depth < self::MAX_FOLDER_DEPTH; $depth++) {
+            if (in_array($next, $ancestors, true)) {
+                break;
+            }
+            $ancestors[] = $next;
+            $next = $backend->describeFolder($next)['parents'][0] ?? null;
+        }
+
+        return $ancestors;
     }
 
     /**

@@ -36,7 +36,8 @@ fiche de l'emplacement.
   contient vos fichiers, telle que Google Drive l'affiche dans votre
   navigateur. Le site le désigne par cette adresse, jamais par son
   nom. Il vérifie que c'est bien un dossier, hors de la corbeille, qu'il
-  peut voir et qu'aucun autre emplacement n'utilise. S'il contient déjà
+  peut voir et qu'aucun autre emplacement n'utilise, ni directement ni
+  en le contenant. Le dossier commun **ScoutMagic** lui-même est refusé. S'il contient déjà
   des fichiers, il vous demande de confirmer. Rien n'y est copié,
   déplacé ni renommé.
 - **Créer un nouveau dossier** : un dossier vide au nom de

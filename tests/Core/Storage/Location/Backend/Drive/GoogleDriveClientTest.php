@@ -919,7 +919,7 @@ final class GoogleDriveClientTest extends TestCase
         ]);
 
         $this->assertSame(
-            ['name' => 'Galeries', 'trashed' => true, 'folder' => true],
+            ['name' => 'Galeries', 'trashed' => true, 'folder' => true, 'parents' => []],
             $client->describeFile('token', 'f')
         );
     }

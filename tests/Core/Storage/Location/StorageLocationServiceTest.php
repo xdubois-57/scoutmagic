@@ -622,6 +622,12 @@ class StorageLocationServiceTest extends TestCase
             'another location\'s' => ['dossier-autre-00001', 'Sauvegardes'],
             'its own' => ['folder-1-courant-01', 'déjà rattaché'],
             'not an address' => ['?', 'Collez l\'adresse'],
+            // Deleting a location trashes its folder with all it holds: one
+            // attached around or inside another location's would take that
+            // location's files with it.
+            'the shared parent' => ['scoutmagic-1', 'dossier commun'],
+            'inside another location\'s' => ['sous-dossier-autre1', 'rangé dans celui'],
+            'around another location\'s' => ['conteneur-0000001', 'contient celui'],
         ];
     }
 
@@ -642,7 +648,9 @@ class StorageLocationServiceTest extends TestCase
         $drive->put('note.txt', 'x', 'text/plain', $parent);
         $file = array_key_last($drive->files);
         $drive->files['fichier-pas-dossier1'] = $drive->files[$file];
-        $drive->addFolder('Autre', $parent, 'dossier-autre-00001');
+        $container = $drive->addFolder('Conteneur', $parent, 'conteneur-0000001');
+        $drive->addFolder('Autre', $container, 'dossier-autre-00001');
+        $drive->addFolder('Sous-dossier', 'dossier-autre-00001', 'sous-dossier-autre1');
         $service->create(
             StorageLocationType::GoogleDrive,
             'Sauvegardes',
