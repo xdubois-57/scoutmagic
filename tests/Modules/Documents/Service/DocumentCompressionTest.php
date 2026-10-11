@@ -46,11 +46,12 @@ final class DocumentCompressionTest extends TestCase
         DocumentsTestHelper::removeTree($this->storage);
     }
 
-    private function cronMeasured(?bool $procOpen, ?string $backend): void
+    /** @param int|null $ageSeconds how long ago the cron measured; a minute by default */
+    private function cronMeasured(?bool $procOpen, ?string $backend, ?int $ageSeconds = null): void
     {
         $this->settings->setInternal(CronExecutionFacts::SETTING, (string) json_encode(
             (new CronExecutionFacts(
-                1_800_000_000, 'cli', true, true, 'exec', 'code 0', null, null, $procOpen, $backend
+                time() - ($ageSeconds ?? 60), 'cli', true, true, 'exec', 'code 0', null, null, $procOpen, $backend
             ))->toArray()
         ));
     }
@@ -153,6 +154,29 @@ final class DocumentCompressionTest extends TestCase
         $this->assertNotNull($file);
         $this->assertSame("%PDF-1.4\n%%EOF\n", file_get_contents($this->storage . '/' . $file->relativePath));
         $this->assertSame(strlen("%PDF-1.4\n%%EOF\n"), $file->sizeBytes);
+    }
+
+    /**
+     * #804: the cron said « ready » long ago and has not been heard from
+     * since. A task queued now would wait for a cron that is not there, so
+     * the upload compresses itself instead.
+     */
+    public function testAStaleCronMeasurementIsNotTrustedToRunTheTask(): void
+    {
+        $this->cronMeasured(true, 'ghostscript', CronExecutionFacts::PDF_TRUST_SECONDS + 120);
+
+        $document = $this->service($this->shrinkingCompressor())->create(
+            'Règlement',
+            null,
+            'public',
+            DocumentsTestHelper::upload('r.pdf', self::bigPdf()),
+            null
+        );
+
+        $this->assertSame([], $this->queued());
+        $file = (new \Core\File\FileRepository($this->pdo))->findById($document->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame("%PDF-1.4\n%%EOF\n", file_get_contents($this->storage . '/' . $file->relativePath));
     }
 
     public function testAFileThatIsNotAPdfQueuesNothing(): void

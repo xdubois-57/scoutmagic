@@ -519,12 +519,13 @@ class DocumentService
      * otherwise — never a reason to refuse the upload.
      *
      * **Where it runs depends on who can compress (#804).** When the CRON's
-     * PHP has been measured able to (CronExecutionFacts::pdfReady()), the
-     * work is a task: the web PHP of a shared host may launch no program at
-     * all, so deciding here would silently never compress. The original is
-     * served until the task replaces it in place. Otherwise — the cron has
-     * not measured yet, or cannot compress — it is attempted here, as it
-     * always was, and does nothing where nothing is available.
+     * PHP has been measured able to, recently (CronExecutionFacts::
+     * pdfReadyAt()), the work is a task: the web PHP of a shared host may
+     * launch no program at all, so deciding here would silently never
+     * compress. The original is served until the task replaces it in place.
+     * Otherwise — the cron has not measured yet, cannot compress, or has not
+     * been heard from for a while — it is attempted here, as it always was,
+     * and does nothing where nothing is available.
      */
     private function compressIfPdf(int $fileId): void
     {
@@ -568,7 +569,7 @@ class DocumentService
         if ($this->scheduler === null || $this->settings === null) {
             return false;
         }
-        if (CronExecutionFacts::read($this->settings)?->pdfReady() !== true) {
+        if (CronExecutionFacts::read($this->settings)?->pdfReadyAt(AppClock::now()->getTimestamp()) !== true) {
             return false;
         }
 

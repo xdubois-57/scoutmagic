@@ -34,6 +34,12 @@ final class CronExecutionFacts
 {
     public const SETTING = 'cron_execution_facts';
     public const REFRESH_SECONDS = 600;
+    /**
+     * How long a « the cron compresses » answer is trusted: three refresh
+     * periods. A cron that has stopped keeps its last facts for ever, and a
+     * task queued on the strength of them would never run.
+     */
+    public const PDF_TRUST_SECONDS = 3 * self::REFRESH_SECONDS;
 
     public function __construct(
         public readonly int $probedAt,
@@ -101,6 +107,19 @@ final class CronExecutionFacts
         return $this->pdfProcOpen === true
             && $this->pdfBackend !== null
             && $this->pdfBackend !== PdfCompressor::BACKEND_NONE;
+    }
+
+    /**
+     * {@see pdfReady()}, and measured recently enough to be believed at $now (#804).
+     *
+     * What decides whether an upload is compressed by a task rather than by
+     * the upload itself: a stale « ready » from a cron that has since stopped
+     * would queue work nothing will ever do, where compressing in the upload
+     * at least has a chance.
+     */
+    public function pdfReadyAt(int $now): bool
+    {
+        return $this->pdfReady() && $now - $this->probedAt <= self::PDF_TRUST_SECONDS;
     }
 
     /**

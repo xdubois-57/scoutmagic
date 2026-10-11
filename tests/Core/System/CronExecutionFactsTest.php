@@ -139,6 +139,25 @@ class CronExecutionFactsTest extends TestCase
         $this->assertSame($ready, $facts->pdfReady());
     }
 
+    /**
+     * #804: a stale « ready » must not decide that an upload is left to the
+     * cron — a cron that stopped keeps its last facts for ever.
+     */
+    public function testAMeasurementIsBelievedOnlyWhileItIsRecent(): void
+    {
+        $facts = self::withPdf(true, 'ghostscript');
+        $at = $facts->probedAt;
+
+        $this->assertTrue($facts->pdfReadyAt($at));
+        $this->assertTrue($facts->pdfReadyAt($at + CronExecutionFacts::PDF_TRUST_SECONDS));
+        $this->assertFalse($facts->pdfReadyAt($at + CronExecutionFacts::PDF_TRUST_SECONDS + 1));
+        // A clock that reads earlier than the probe (skew) does not make it stale.
+        $this->assertTrue($facts->pdfReadyAt($at - 60));
+        // And no age makes a cron that cannot compress able to.
+        $this->assertFalse(self::withPdf(true, 'none')->pdfReadyAt($at));
+        $this->assertFalse(self::withPdf(null, null)->pdfReadyAt($at));
+    }
+
     public function testItMeasuresAgainOnlyOnceTheRefreshIntervalHasPassed(): void
     {
         $probes = 0;
