@@ -33,7 +33,7 @@
             <div>Rendez-vous : {{ _banner.meeting }}</div>
             <div>Destination : {{ _banner.destination }}</div>
             {% if _banner.role != 'driver' %}
-                <div>Conducteur : {{ _banner.driver }}{% if _banner.driver_phone %} · <strong>{{ _banner.driver_phone }}</strong>{% endif %}</div>
+                <div>Conducteur : {{ _banner.driver }}{% if _banner.driver_phone %} · <strong>{{ phone(_banner.driver_phone) }}</strong>{% endif %}</div>
             {% endif %}
             <div class="small mt-1">
                 <a href="{{ directions_url }}" target="_blank" rel="noopener noreferrer">Itinéraire vers {{ _banner.place }}</a>
@@ -46,7 +46,7 @@
                 {% for passenger in _banner.passengers %}
                     <div class="small">
                         {{ passenger.who|join(', ') }} · {{ passenger.by }}
-                        {% if passenger.phone %} · <strong>{{ passenger.phone }}</strong>{% endif %}
+                        {% if passenger.phone %} · <strong>{{ phone(passenger.phone) }}</strong>{% endif %}
                         {% include 'partials/status_badge.html.twig' with {
                             status: passenger.confirmed ? 'confirmed' : 'pending',
                             label: passenger.confirmed ? 'Place confirmée' : 'À confirmer',

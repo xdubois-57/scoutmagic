@@ -19,7 +19,7 @@
 
   A list of people to contact is only useful if it can be acted on: every
   name links to that person's fiche, every address is a `mailto:`, every
-  number a `tel:`, and one button turns the list into a mail-merge draft
+  number opens a call, a text or a message (phone()), and one button turns the list into a mail-merge draft
   (#727) — a draft, never a sending: the visitor lands on the composer.
   The draft is built server-side from the list's id, so what it holds is
   what the page shows. The people Desk holds no address for are COUNTED
@@ -73,7 +73,7 @@
                         {% endif %}
                         {% if line.phone %}
                             <div class="small">
-                                <a href="tel:{{ line.phone|replace({' ': '', '/': '', '.': ''}) }}">{{ line.phone }}</a>
+                                {{ phone(line.phone) }}
                             </div>
                         {% endif %}
                     </div>

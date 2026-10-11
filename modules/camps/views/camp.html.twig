@@ -116,7 +116,7 @@
                                     <div><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></div>
                                 {% endif %}
                                 {% if contact.phone %}
-                                    <div><a href="tel:{{ contact.phone|replace({' ': ''}) }}">{{ contact.phone }}</a></div>
+                                    <div>{{ phone(contact.phone) }}</div>
                                 {% endif %}
                                 {% if contact.otherDetails %}
                                     <div class="text-body-secondary">{{ contact.otherDetails }}</div>

@@ -34,7 +34,7 @@
                 <div class="alert alert-success small mt-3 mb-0">
                     <strong>Votre place est confirmée</strong> pour {{ _mine.who|join(' et ') }}.
                     {% if _mine.driver_phone %}
-                        <div class="mt-1">Téléphone du conducteur : <strong>{{ _mine.driver_phone }}</strong></div>
+                        <div class="mt-1">Téléphone du conducteur : <strong>{{ phone(_mine.driver_phone) }}</strong></div>
                     {% endif %}
                 </div>
             {% else %}
@@ -102,7 +102,7 @@
                             } only %}
                         </div>
                         <div class="small text-body-secondary">
-                            {{ request.by }}{% if request.phone %} · {{ request.phone }}{% endif %}
+                            {{ request.by }}{% if request.phone %} · {{ phone(request.phone) }}{% endif %}
                         </div>
                         {% if request.may_decide and not carpool.is_past %}
                             <div class="d-flex flex-wrap gap-2 mt-2">
