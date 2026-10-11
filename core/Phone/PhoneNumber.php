@@ -55,7 +55,11 @@ final class PhoneNumber
      */
     public static function parse(string $raw): ?self
     {
-        $raw = trim($raw);
+        // « +32 (0)472 … »: the national trunk zero written beside the
+        // country code, to be dialled from inside the country only. It is
+        // dropped where it is written that way and nowhere else — an
+        // Italian number keeps its leading zero after « +39 ».
+        $raw = trim((string) preg_replace('/\(\s*0\s*\)/', '', $raw));
         $digits = preg_replace('/\D+/', '', $raw) ?? '';
         if ($digits === '') {
             return null;
@@ -79,6 +83,12 @@ final class PhoneNumber
 
         if (str_starts_with($international, self::BELGIUM)) {
             $national = substr($international, strlen(self::BELGIUM));
+            // No Belgian number starts with 0 after its country code:
+            // « 0032 0472 … » is the trunk zero kept by habit.
+            if (str_starts_with($national, '0')) {
+                $national = ltrim($national, '0');
+                $international = self::BELGIUM . $national;
+            }
 
             return new self(
                 '+' . $international,
