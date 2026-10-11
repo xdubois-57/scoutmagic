@@ -1716,6 +1716,57 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **A share made by hand is journalled, at `security`, like every
+     * other publication of this module** (`Claude review` on PR #868).
+     *
+     * `SECURITY.md` § 6 states the rule without carving anything out:
+     * « The journal records who published what, where ». This gesture
+     * freezes the communication for good and hands its public page to a
+     * telephone, and it was the one destination leaving no trace at all.
+     *
+     * The line carries no caption and no address: an audit needs who
+     * handed out what and where, and the page's address is a capability
+     * — already journalled once, at its creation.
+     */
+    public function testAShareMadeByHandLeavesItsOwnJournalLine(): void
+    {
+        $id = $this->communication('Week-end', 'Les photos sont en ligne', self::PHOTO);
+        $this->loginAuthor();
+
+        $this->controller()->share($this->postJson(['kind' => 'copy']), ['id' => (string) $id]);
+
+        $line = null;
+        foreach ($this->journal->entries as $entry) {
+            if ($entry['type'] === 'published') {
+                $line = $entry;
+            }
+        }
+
+        // One assertion for the five facts: PHPUnit stops at the first
+        // failure, and « journalled » and « journalled WITHOUT the
+        // caption » are opposite findings that a missing line would both
+        // satisfy if they were asserted apart.
+        $this->assertSame(
+            [
+                'lines' => 1,
+                'level' => 'security',
+                'description' => 'Lien copié : communication n° ' . $id,
+                'gesture' => 'copy',
+                'user' => $this->author,
+                'no caption' => true,
+            ],
+            [
+                'lines' => $this->journal->countOf('published'),
+                'level' => $line['level'] ?? null,
+                'description' => $line['description'] ?? null,
+                'gesture' => json_decode($line['context'] ?? '[]', true)['gesture'] ?? null,
+                'user' => $line['user'] ?? null,
+                'no caption' => !str_contains($this->journal->textOf('published'), 'Les photos sont en ligne'),
+            ]
+        );
+    }
+
+    /**
      * **A gesture left half-written repairs itself** (CodeRabbit on PR
      * #868).
      *
@@ -3313,6 +3364,9 @@ final class CommunicationControllerTest extends TestCase
                 $this->publications,
                 new UserAccountRepository($this->pdo, H::encryption())
             ),
+            // The same journal the publishing service writes to, so a
+            // test can read a hand-made share's own line out of it.
+            $journal,
             $this->picker,
             []
         );

@@ -37,6 +37,17 @@
                             data-share-communication
                             data-share-link-url="/medias-sociaux/{{ entry.share_id }}/lien"
                             data-share-record-url="/medias-sociaux/{{ entry.share_id }}/partage"
+                            {# The sheet shows what is being shared, as
+                               specifications.md § 47.10 promises: « avec
+                               le titre de la communication et l'adresse
+                               de sa page publique ». It was the address
+                               alone until `Claude review` read the spec
+                               against the code on PR #868. From here
+                               rather than from the `/lien` answer: the
+                               page already has the title, and a second
+                               source for it could disagree with this
+                               one. #}
+                            data-share-title="{{ entry.title }}"
                             hidden
                             aria-label="Partager « {{ entry.title }} »" title="Partager">
                         <i class="bi bi-share" aria-hidden="true"></i>

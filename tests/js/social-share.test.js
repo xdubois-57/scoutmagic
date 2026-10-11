@@ -28,7 +28,8 @@ function buildPage() {
     document.body.innerHTML = `
         <button type="button" data-share-communication hidden
                 data-share-link-url="/medias-sociaux/7/lien"
-                data-share-record-url="/medias-sociaux/7/partage">Partager</button>
+                data-share-record-url="/medias-sociaux/7/partage"
+                data-share-title="Week-end de rentrée">Partager</button>
         <output data-share-feedback hidden></output>
     `;
 
@@ -151,6 +152,8 @@ describe('without a share sheet', () => {
         button().click();
         await settle();
 
+        // The clipboard takes the address alone: a title pasted into
+        // WhatsApp beside the link would be text nobody asked for.
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://unite.example/partage/abc');
         expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien', '/medias-sociaux/7/partage']);
         expect(posted[1].body).toEqual({ kind: 'copy' });
@@ -181,7 +184,13 @@ describe('with a share sheet', () => {
         button().click();
         await settle();
 
-        expect(navigator.share).toHaveBeenCalledWith({ url: 'https://unite.example/partage/abc' });
+        // **Title and address**, as specifications.md § 47.10 promises:
+        // a bare URL tells the chief's own contacts nothing about what
+        // they are being sent (`Claude review` on PR #868).
+        expect(navigator.share).toHaveBeenCalledWith({
+            title: 'Week-end de rentrée',
+            url: 'https://unite.example/partage/abc',
+        });
         expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
         expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien', '/medias-sociaux/7/partage']);
         expect(posted[1].body).toEqual({ kind: 'native' });
@@ -206,6 +215,23 @@ describe('with a share sheet', () => {
         expect(feedback().hidden).toBe(true);
         expect(feedback().textContent).toBe('');
         expect(window.location.reload).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A communication with no title — the history renders one for a row
+     * whose source has lost its own — hands the sheet the address alone
+     * rather than an empty title, which some sheets display as a blank
+     * line.
+     */
+    it('leaves the title out rather than sending an empty one', async () => {
+        button().removeAttribute('data-share-title');
+        navigator.share = vi.fn().mockResolvedValue(undefined);
+
+        await load();
+        button().click();
+        await settle();
+
+        expect(navigator.share).toHaveBeenCalledWith({ url: 'https://unite.example/partage/abc' });
     });
 
     it('says so when the sheet fails for any other reason', async () => {

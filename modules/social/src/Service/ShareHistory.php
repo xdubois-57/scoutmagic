@@ -85,17 +85,34 @@ final class ShareHistory
     }
 
     /**
-     * One sentence per destination key, for the confirmation.
+     * One sentence per destination key, for the confirmation — **without
+     * its « avec le même message » clause**, which only the browser can
+     * decide.
      *
      * The key is the destination's own (`facebook`, `group:3`, `copy`),
      * so the dialog can look up whichever boxes are ticked. A destination
      * this source never went to is absent, and the dialog then says
      * « Jamais partagé ici. » itself — there is nothing to date.
      *
-     * @param string $body the text about to be published
-     * @return array<string, array{line: string, same_message: bool}>
+     * **Why the clause is not computed here.** It compares the text
+     * about to go with the text that went, and the text about to go sits
+     * in a textarea the chief can still change after this page was
+     * rendered. A verdict baked in here was a verdict about the text as
+     * it stood at render time, so a chief who reused an album and then
+     * rewrote the caption was told « avec le même message » about a
+     * message they had just changed. A second case needed no editing at
+     * all: a stored body of `''`, which the controller's `??` kept as
+     * `''` while the template's `default` filter treated it as empty and
+     * showed the prefill — the two sides comparing different strings.
+     * `Claude review` found both on PR #868.
+     *
+     * So this answers the sentence and the caption that went, and
+     * `public/assets/js/social-publish-confirm.js` reads the live
+     * textarea and finishes the sentence. Nothing here compares texts.
+     *
+     * @return array<string, array{sentence: string, caption: string}>
      */
-    public function byDestination(?string $sourceKind, ?int $sourceId, string $body): array
+    public function byDestination(?string $sourceKind, ?int $sourceId): array
     {
         $latest = [];
         foreach ($this->ofSource($sourceKind, $sourceId) as $publication) {
@@ -111,10 +128,11 @@ final class ShareHistory
 
         $answers = [];
         foreach ($latest as $key => $publication) {
-            $same = trim($publication->caption) === trim($body);
             $answers[$key] = [
-                'line' => self::sentence($publication, $sourceKind, $same),
-                'same_message' => $same,
+                'sentence' => self::sentence($publication, $sourceKind),
+                // What that destination actually received, for the
+                // browser to compare the live text against.
+                'caption' => $publication->caption,
             ];
         }
 
@@ -178,7 +196,7 @@ final class ShareHistory
      * platform is named inside the sentence, a group is not — its name is
      * already the heading of the block it sits in.
      */
-    private static function sentence(Publication $publication, ?string $sourceKind, bool $same): string
+    private static function sentence(Publication $publication, ?string $sourceKind): string
     {
         $at = $publication->publishedAt ?? $publication->attemptedAt;
         // The site's one date format, year included. The mockup writes
@@ -187,7 +205,6 @@ final class ShareHistory
         // ambiguous without it — while a second date vocabulary in one
         // module would be a real divergence.
         $when = DateFilterExtension::frenchDate($at);
-        $message = $same ? ' avec le même message' : ' avec un autre message';
         $platform = SocialPlatform::tryFrom($publication->destination);
 
         if ($platform !== null) {
@@ -196,10 +213,10 @@ final class ShareHistory
             // checkbox that names the account. Inside a sentence the
             // short name is what reads.
             return ucfirst(self::subject($sourceKind)) . ' est déjà ' . self::gone($sourceKind) . ' sur '
-                . ucfirst($platform->value) . ' le ' . $when . ',' . $message . '.';
+                . ucfirst($platform->value) . ' le ' . $when;
         }
 
-        return 'Déjà ' . self::gone($sourceKind) . ' le ' . $when . ',' . $message . '.';
+        return 'Déjà ' . self::gone($sourceKind) . ' le ' . $when;
     }
 
     /** « cet album », « cette actualité », « cette communication ». */

@@ -17,11 +17,13 @@ let asked;
 /** Whether the form was submitted, and with which submitter. */
 let submitted;
 
-function buildPage({ shared = true, groupsTicked = false, sharp = false } = {}) {
+function buildPage({ shared = true, groupsTicked = false, sharp = false, caption = 'Les photos sont en ligne' } = {}) {
     document.body.innerHTML = `
         <form>
+            <textarea id="communication-body">${caption}</textarea>
             <div data-destination="facebook" data-destination-label="Facebook"
-                 ${shared ? 'data-shared-line="Cet album est déjà parti sur Facebook le 12 septembre 2026, avec le même message."' : ''}>
+                 ${shared ? 'data-shared-line="Cet album est déjà parti sur Facebook le 12 septembre 2026"'
+        + ' data-shared-caption="Les photos sont en ligne"' : ''}>
                 <input type="checkbox" name="destinations[]" value="facebook" checked>
             </div>
             <div data-destination="instagram" data-destination-label="Instagram">
@@ -31,7 +33,8 @@ function buildPage({ shared = true, groupsTicked = false, sharp = false } = {}) 
                 <input type="checkbox" name="destinations[]" value="groups" ${groupsTicked ? 'checked' : ''}>
             </div>
             <div data-group="3" data-destination-label="Groupe Pionniers"
-                 data-shared-line="Déjà parti le 14 septembre 2026, avec un autre message.">
+                 data-shared-line="Déjà parti le 14 septembre 2026"
+                 data-shared-caption="Un texte tout autre">
                 <input type="checkbox" name="groups[]" value="3" ${groupsTicked ? 'checked' : ''}>
             </div>
             <span data-card-blur-sharp ${sharp ? '' : 'hidden'}>Cette photo de la galerie part sans flou.</span>
@@ -91,10 +94,45 @@ describe('the confirmation', () => {
         button().click();
         await settle();
 
-        expect(asked.content[0].text).toContain('avec le même message');
+        expect(asked.content[0].text)
+            .toBe('Cet album est déjà parti sur Facebook le 12 septembre 2026, avec le même message.');
         expect(asked.content[0].tone).toBe('warning');
         expect(asked.content[1].text).toBe('Jamais partagé ici.');
         expect(asked.content[1].tone).toBe('muted');
+    });
+
+    /**
+     * **The verdict is about the text as it stands, not as the page was
+     * rendered** (`Claude review` on PR #868).
+     *
+     * The server cannot decide this: it built its sentence when the page
+     * was built, and reusing an album with a NEW message is exactly what
+     * IT-05 made possible — so a chief who rewrote the caption after
+     * loading was being told « avec le même message » about a message
+     * they had just changed. The comparison therefore reads the live
+     * field, and this is the test that proves it does.
+     */
+    it('reads the text as the chief has just rewritten it', async () => {
+        await load();
+        document.querySelector('#communication-body').value = 'Il en reste à voir !';
+        button().click();
+        await settle();
+
+        expect(asked.content[0].text)
+            .toBe('Cet album est déjà parti sur Facebook le 12 septembre 2026, avec un autre message.');
+    });
+
+    /** And the other way round: a text rewritten back to what it was. */
+    it('says « le même message » when the rewrite lands on the old text', async () => {
+        buildPage({ caption: 'Autre chose' });
+        await load();
+        document.querySelector('#communication-body').value = '  Les photos sont en ligne\n';
+        button().click();
+        await settle();
+
+        // Surrounding whitespace is not a different message — the
+        // comparison trims both sides, as the server's did.
+        expect(asked.content[0].text).toContain('avec le même message');
     });
 
     it('names each chosen group rather than the box that opens them', async () => {
@@ -107,6 +145,8 @@ describe('the confirmation', () => {
         // the group behind it.
         expect(asked.content.map((b) => b.title)).toEqual(['Facebook', 'Instagram', 'Groupe Pionniers']);
         expect(asked.content[2].text).toBe('Déjà parti le 14 septembre 2026, avec un autre message.');
+        // The group's own caption, not the album's: each destination
+        // compares what IT received.
     });
 
     /**

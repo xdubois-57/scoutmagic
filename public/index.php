@@ -10968,6 +10968,11 @@ if ($isEnabled('social')) {
                 $socialPublicationRepo,
                 $userAccountRepo
             ),
+            // A share made by hand is journalled like every other
+            // publication of this module (issue #706, IT-05): it freezes
+            // the communication for good and hands its public page over,
+            // and `SECURITY.md` § 6 carves nothing out for it.
+            $journalService,
             $galleryPhotoPickerForOthers,
             $linkedMemberIds
         )

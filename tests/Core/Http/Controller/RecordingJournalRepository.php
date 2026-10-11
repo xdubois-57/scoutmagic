@@ -25,7 +25,15 @@ use Core\Journal\JournalRepository;
  */
 final class RecordingJournalRepository extends JournalRepository
 {
-    /** @var list<array{type: string, description: string, context: string}> */
+    /**
+     * @var list<array{type: string, level: string, description: string,
+     *     context: string, user: ?int}>
+     *
+     * `level` and `user` are kept because some rules are about them and
+     * not about the wording: `SECURITY.md` asks for `security` on the
+     * acts an audit reads, and « who did it » is half of what a journal
+     * line is for. {@see countOf()} and {@see textOf()} answer the rest.
+     */
     public array $entries = [];
 
     public function __construct()
@@ -42,7 +50,13 @@ final class RecordingJournalRepository extends JournalRepository
         ?int $userId,
         ?string $ipAddress = null
     ): void {
-        $this->entries[] = ['type' => $type, 'description' => $description, 'context' => (string) $contextJson];
+        $this->entries[] = [
+            'type' => $type,
+            'level' => $level,
+            'description' => $description,
+            'context' => (string) $contextJson,
+            'user' => $userId,
+        ];
     }
 
     /** Everything one entry could show a human, in one string. */

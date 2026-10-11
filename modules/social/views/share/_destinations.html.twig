@@ -8,7 +8,12 @@
    **`data-shared-line`** carries what this source has already been
    through at that destination (issue #706, IT-05), so the confirmation
    `social-publish-confirm.js` builds can quote it for the boxes actually
-   ticked. An attribute rather than a JSON blob in a <script>: Twig
+   ticked. It is the sentence WITHOUT its « avec le même message »
+   clause, and **`data-shared-caption`** is the text that destination
+   received: that clause compares the caption about to go, which lives in
+   a textarea the chief can still change, so only the browser can decide
+   it (`Service\ShareHistory::byDestination()`, CodeRabbit and
+   `Claude review` on PR #868). An attribute rather than a JSON blob in a <script>: Twig
    escapes an attribute whatever a caption contains, and a caption can
    contain anything. A destination with no attribute was never shared,
    and the dialog says « Jamais partagé ici. » itself.
@@ -27,7 +32,8 @@
         {% set shared = shared_by_destination[d.value]|default(null) %}
         <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}"
              data-destination-label="{{ d.label }}"
-             {% if shared %}data-shared-line="{{ shared.line }}"{% endif %}>
+             {% if shared %}data-shared-line="{{ shared.sentence }}"
+             data-shared-caption="{{ shared.caption }}"{% endif %}>
             <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
                    id="dest-{{ d.value }}"
                    {{ d.state in ['available', 'failed'] ? '' : 'disabled' }}
@@ -95,7 +101,8 @@
                                     {% set group_shared = shared_by_destination['group:' ~ g.id]|default(null) %}
                                     <div class="form-check form-check--line-aligned mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}"
                                          data-destination-label="{{ g.name }}"
-                                         {% if group_shared %}data-shared-line="{{ group_shared.line }}"{% endif %}>
+                                         {% if group_shared %}data-shared-line="{{ group_shared.sentence }}"
+                                         data-shared-caption="{{ group_shared.caption }}"{% endif %}>
                                         <input class="form-check-input" type="checkbox" name="groups[]" value="{{ g.id }}"
                                                id="group-{{ g.id }}" data-share-group-name="{{ g.name }}"
                                                {{ g.state in ['available', 'failed'] ? '' : 'disabled' }}

@@ -44,6 +44,25 @@
     const NEVER = 'Jamais partagé ici.';
 
     /**
+     * The text about to be published, **as it stands right now**.
+     *
+     * This is the half of « avec le même message » that only the browser
+     * has: the server rendered its sentence when the page was built, and
+     * the chief may have rewritten the caption since — reusing an album
+     * with new text is exactly what IT-05 made possible. So the verdict
+     * is decided here, against the live field, and the server ships the
+     * caption that went rather than its own conclusion (`Claude review`
+     * on PR #868).
+     *
+     * @returns {string}
+     */
+    function liveCaption() {
+        const field = form.querySelector('#communication-body');
+
+        return field instanceof HTMLTextAreaElement ? field.value.trim() : '';
+    }
+
+    /**
      * One block per destination about to receive something, in the order
      * the page lists them.
      *
@@ -51,6 +70,10 @@
      */
     function blocks() {
         const out = [];
+        // Read once per click, not once per destination: the field
+        // cannot change while this loop runs, and the comparison must
+        // not be able to differ between two blocks of one dialog.
+        const caption = liveCaption();
 
         form.querySelectorAll('[data-destination]').forEach(function (row) {
             const box = row.querySelector('input[name="destinations[]"]');
@@ -64,13 +87,13 @@
                 form.querySelectorAll('[data-group]').forEach(function (groupRow) {
                     const groupBox = groupRow.querySelector('input[name="groups[]"]');
                     if (groupBox instanceof HTMLInputElement && groupBox.checked && !groupBox.disabled) {
-                        out.push(blockFor(/** @type {HTMLElement} */ (groupRow)));
+                        out.push(blockFor(/** @type {HTMLElement} */ (groupRow), caption));
                     }
                 });
                 return;
             }
 
-            out.push(blockFor(/** @type {HTMLElement} */ (row)));
+            out.push(blockFor(/** @type {HTMLElement} */ (row), caption));
         });
 
         return out;
@@ -78,19 +101,26 @@
 
     /**
      * @param {HTMLElement} row
+     * @param {string} caption the text about to be published, trimmed
      * @returns {{kind: 'box', tone: 'muted'|'warning', title: string, text: string}}
      */
-    function blockFor(row) {
-        const line = row.dataset.sharedLine || '';
+    function blockFor(row, caption) {
+        const sentence = row.dataset.sharedLine || '';
+        const title = row.dataset.destinationLabel || '';
+        if (sentence === '') {
+            // Muted where nothing went: the colour is the first thing
+            // read, and the only line worth stopping on is the one that
+            // says « already ».
+            return { kind: 'box', tone: 'muted', title: title, text: NEVER };
+        }
+
+        const same = (row.dataset.sharedCaption || '').trim() === caption;
 
         return {
             kind: 'box',
-            // Warning where something already went, muted where nothing
-            // did: the colour is the first thing read, and the only line
-            // worth stopping on is the one that says « already ».
-            tone: line === '' ? 'muted' : 'warning',
-            title: row.dataset.destinationLabel || '',
-            text: line === '' ? NEVER : line,
+            tone: 'warning',
+            title: title,
+            text: sentence + (same ? ', avec le même message.' : ', avec un autre message.'),
         };
     }
 

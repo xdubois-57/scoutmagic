@@ -86,39 +86,28 @@ final class ShareHistoryTest extends TestCase
     }
 
     /**
-     * **« avec le même message » is the sentence this whole dialog exists
-     * for.** Sharing the same album again with a different text is
-     * allowed on purpose; the identical text is the case that almost
-     * always means somebody forgot they had already shared it.
+     * **The sentence stops before « avec le même message », and the
+     * caption travels beside it** (`Claude review` on PR #868).
+     *
+     * That clause compares the text about to go, which sits in a
+     * textarea the chief can still change after this page was rendered —
+     * so a verdict decided here is a verdict about a text that may no
+     * longer exist. `social-publish-confirm.js` finishes the sentence
+     * against the live field; this answers the two halves it needs.
      */
-    public function testTheSentenceSaysWhetherTheMessageIsTheSame(): void
+    public function testTheSentenceStopsBeforeTheVerdictAndCarriesTheCaption(): void
     {
         $this->share('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00');
 
-        $same = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Les photos sont en ligne');
-        $other = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Il en reste à voir !');
+        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM);
 
-        $this->assertTrue($same['facebook']['same_message']);
         $this->assertSame(
-            'Cet album est déjà parti sur Facebook le 12 septembre 2026, avec le même message.',
-            $same['facebook']['line']
+            [
+                'sentence' => 'Cet album est déjà parti sur Facebook le 12 septembre 2026',
+                'caption' => 'Les photos sont en ligne',
+            ],
+            $answer['facebook']
         );
-        $this->assertFalse($other['facebook']['same_message']);
-        $this->assertStringContainsString('avec un autre message', $other['facebook']['line']);
-    }
-
-    /** Surrounding whitespace is not a different message. */
-    public function testWhitespaceAroundTheTextIsNotADifferentMessage(): void
-    {
-        $this->share('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00');
-
-        $answer = $this->history->byDestination(
-            ShareSource::KIND_ALBUM,
-            self::ALBUM,
-            "  Les photos sont en ligne\n"
-        );
-
-        $this->assertTrue($answer['facebook']['same_message']);
     }
 
     /**
@@ -130,9 +119,9 @@ final class ShareHistoryTest extends TestCase
     {
         $this->share('Les photos sont en ligne', 'group:3', '2026-09-14 10:00:00');
 
-        $line = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Autre chose')['group:3']['line'];
+        $sentence = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM)['group:3']['sentence'];
 
-        $this->assertSame('Déjà parti le 14 septembre 2026, avec un autre message.', $line);
+        $this->assertSame('Déjà parti le 14 septembre 2026', $sentence);
     }
 
     /**
@@ -146,10 +135,12 @@ final class ShareHistoryTest extends TestCase
         $this->share('Un texte ancien', 'facebook', '2026-09-01 10:00:00');
         $this->share('Le texte récent', 'facebook', '2026-09-20 10:00:00');
 
-        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Le texte récent');
+        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM);
 
-        $this->assertTrue($answer['facebook']['same_message']);
-        $this->assertStringContainsString('20 septembre 2026', $answer['facebook']['line']);
+        $this->assertSame(
+            ['sentence' => 'Cet album est déjà parti sur Facebook le 20 septembre 2026', 'caption' => 'Le texte récent'],
+            $answer['facebook']
+        );
     }
 
     /**
@@ -174,8 +165,7 @@ final class ShareHistoryTest extends TestCase
             ['lines' => [], 'sentences' => []],
             [
                 'lines' => $this->history->lines(ShareSource::KIND_ALBUM, self::ALBUM),
-                'sentences' =>
-                    $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Les photos sont en ligne'),
+                'sentences' => $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM),
             ]
         );
     }
@@ -190,14 +180,14 @@ final class ShareHistoryTest extends TestCase
         $this->recordAttempt('Le texte parti', 'facebook', '2026-09-12 10:00:00', published: true);
         $this->recordAttempt('Le texte refusé', 'facebook', '2026-09-20 10:00:00', published: false);
 
-        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Le texte refusé');
+        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM);
 
-        // The whole sentence at once: the date of the share that left,
-        // and « avec un autre message » — the refused text went nowhere,
-        // so it is not what this destination has.
+        // The date AND the caption of the share that left: the refused
+        // text went nowhere, so it is neither this destination's date
+        // nor the text the browser will compare against.
         $this->assertSame(
-            'Cet album est déjà parti sur Facebook le 12 septembre 2026, avec un autre message.',
-            $answer['facebook']['line']
+            ['sentence' => 'Cet album est déjà parti sur Facebook le 12 septembre 2026', 'caption' => 'Le texte parti'],
+            $answer['facebook']
         );
     }
 
@@ -231,9 +221,9 @@ final class ShareHistoryTest extends TestCase
         $this->publications->claim(ShareSource::KIND_COMMUNICATION, $id, 'facebook', false, 7, $at, $at->modify('-15 minutes'), 'Rentrée', 'À lire');
         $this->publications->markPublished(ShareSource::KIND_COMMUNICATION, $id, 'facebook', 'remote', $at, $at);
 
-        $line = $this->history->byDestination(ShareSource::KIND_ARTICLE, 8, 'À lire')['facebook']['line'];
+        $sentence = $this->history->byDestination(ShareSource::KIND_ARTICLE, 8)['facebook']['sentence'];
 
-        $this->assertStringStartsWith('Cette actualité est déjà partie', $line);
+        $this->assertStringStartsWith('Cette actualité est déjà partie', $sentence);
     }
 
     /** A destination this source never went to is simply absent. */
@@ -241,7 +231,7 @@ final class ShareHistoryTest extends TestCase
     {
         $this->share('Les photos sont en ligne', 'facebook', '2026-09-12 10:00:00');
 
-        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM, 'Les photos sont en ligne');
+        $answer = $this->history->byDestination(ShareSource::KIND_ALBUM, self::ALBUM);
 
         $this->assertArrayNotHasKey(SocialPlatform::Instagram->value, $answer);
     }

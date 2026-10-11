@@ -3544,7 +3544,11 @@ chacune, ce qu'elle a déjà reçu de cette source : « Cet album est déjà
 parti sur Facebook le 12 septembre 2026, avec le même message », ou
 « Jamais partagé ici. ». **« avec le même message » est la phrase pour
 laquelle cette fenêtre existe** : c'est le cas qui signale presque
-toujours un oubli. Elle dit aussi, comme avant, qu'une publication est
+toujours un oubli. Elle se décide sur le texte **tel qu'il est au moment
+du clic**, et non tel qu'il était à l'ouverture de la page : réutiliser un
+album avec un texte neuf est précisément ce que cette version permet, donc
+un verdict calculé à l'affichage parlerait d'un message que le chef vient
+de réécrire. Elle dit aussi, comme avant, qu'une publication est
 publique et hors du site, et reprend l'avertissement du composeur quand
 une photo de la galerie part sans flou. Elle n'interdit rien.
 
@@ -3717,6 +3721,11 @@ Chaque geste est une destination à part entière, et la règle « une seule
 fois » vaut pour lui comme pour les autres : la même communication copiée
 deux fois ne s'inscrit qu'une, et le deuxième clic copie bien le lien sans
 rien ajouter à l'historique.
+
+**Le journal l'inscrit** comme il inscrit une publication : le geste, la
+communication, qui l'a fait — ni le texte, ni l'adresse. Un partage fige
+une communication pour toujours et met sa page publique entre les mains de
+quelqu'un ; c'est un acte qu'un audit doit pouvoir lire.
 
 
 ## 48. Finances — l'import des extraits bancaires (module finance)

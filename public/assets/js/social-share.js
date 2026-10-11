@@ -86,19 +86,41 @@
      * Hands the link to the device, and answers which gesture happened —
      * or null when none did.
      *
+     * **The sheet carries the title as well as the address**, which is
+     * what `specifications.md` § 47.10 promises and what makes the sheet
+     * legible: a bare URL tells the chief's own contacts nothing about
+     * what they are being sent. It was the address alone until
+     * `Claude review` read the spec against this file on PR #868. The
+     * clipboard takes the address only — a title pasted into WhatsApp
+     * beside the link would be text nobody asked for.
+     *
      * @param {?string} url
+     * @param {string} title the communication's own, for the sheet
      * @returns {?string|Promise<?string>}
      */
-    function handed(url) {
+    function handed(url, title) {
         if (url === null) {
             return null;
         }
 
         const given = canShareSheet
-            ? navigator.share({ url: url }).then(function () { return 'native'; })
+            ? navigator.share(sheetPayload(url, title)).then(function () { return 'native'; })
             : clipboard.writeText(url).then(function () { return 'copy'; });
 
         return given.catch(refused);
+    }
+
+    /**
+     * What the share sheet is handed. The title is left out rather than
+     * sent empty: an empty `title` is still a title, and some sheets
+     * show it as a blank line.
+     *
+     * @param {string} url
+     * @param {string} title
+     * @returns {{url: string, title?: string}}
+     */
+    function sheetPayload(url, title) {
+        return title === '' ? { url: url } : { title: title, url: url };
     }
 
     /**
@@ -158,10 +180,17 @@
     function run(button) {
         const linkUrl = button.dataset.shareLinkUrl || '';
         const recordUrl = button.dataset.shareRecordUrl || '';
+        // Carried through the chain rather than held in the file: one
+        // history page has a button per communication, and a second
+        // click before the first mint resolved would otherwise hand the
+        // sheet the other communication's title.
+        const title = button.dataset.shareTitle || '';
 
         return api.postJson(linkUrl, {})
             .then(minted)
-            .then(handed)
+            .then(function (url) {
+                return handed(url, title);
+            })
             .then(function (kind) {
                 return kind === null ? undefined : record(recordUrl, kind);
             });

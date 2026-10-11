@@ -13,6 +13,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
+use Core\Journal\JournalService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
@@ -134,6 +135,20 @@ final class CommunicationController extends AbstractController
          * destination for the confirmation.
          */
         private readonly ShareHistory $shareHistory,
+        /**
+         * Where a share made by hand is recorded at `security` level
+         * (issue #706, IT-05).
+         *
+         * Every other destination is journalled by `PublishingService`
+         * or `GroupPublishingService` at the same claim/publish juncture,
+         * and `SECURITY.md` § 6 states the rule for this module without
+         * carving anything out: « The journal records who published what,
+         * where ». A gesture that freezes a communication for good and
+         * hands its public page to a telephone is exactly that, and it
+         * was the one destination leaving no trace — `Claude review`
+         * found it on PR #868.
+         */
+        private readonly JournalService $journal,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
     ) {
@@ -772,6 +787,20 @@ final class CommunicationController extends AbstractController
             $now
         );
 
+        // **At `security`, like every other publication of this module**
+        // (`SECURITY.md` § 6). No caption and no address: what an audit
+        // needs is who handed out what, and where — the page's own
+        // address is a capability, and it is already journalled once at
+        // its creation.
+        $this->journal->log(
+            'social',
+            'published',
+            'security',
+            $kind->label() . ' : communication n° ' . $communication->id,
+            ['source' => ShareSource::KIND_COMMUNICATION, 'source_id' => $communication->id, 'gesture' => $kind->value],
+            AuthSession::getUserAccountId()
+        );
+
         return $this->json(['success' => true, 'recorded' => true]);
     }
 
@@ -1028,14 +1057,13 @@ final class CommunicationController extends AbstractController
             // history to the one person who needs it most.
             'previous_shares' => $this->shareHistory->lines($sourceKind, $sourceId),
             // One sentence per destination, for the confirmation the
-            // browser builds from the boxes actually ticked. « avec le
-            // même message » is the case that almost always means
-            // somebody forgot they had already shared it.
-            'shared_by_destination' => $this->shareHistory->byDestination(
-                $sourceKind,
-                $sourceId,
-                (string) ($communication->body ?? $prefill->defaultCaption ?? '')
-            ),
+            // browser builds from the boxes actually ticked — and the
+            // caption that went, so IT CAN decide « avec le même
+            // message », the case that almost always means somebody
+            // forgot they had already shared it. That verdict is not
+            // computed here: the text it is about is in a textarea the
+            // chief can still change (`Claude review` on PR #868).
+            'shared_by_destination' => $this->shareHistory->byDestination($sourceKind, $sourceId),
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
