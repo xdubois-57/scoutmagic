@@ -317,6 +317,107 @@ final class PublicPageControllerTest extends TestCase
         $this->assertStringNotContainsString('archives', $body);
     }
 
+    /**
+     * **A card lost under its row answers 404, and the page survives it.**
+     *
+     * The row is what `show()` checks before advertising an `og:image`;
+     * proving the bytes are still readable would mean decrypting the card
+     * on every page view, for a crawler that may not ask for the image at
+     * all. So a storage failure shows up here and not in the page, which
+     * is the trade this route states — and which only a test with the row
+     * present and the file gone can see.
+     */
+    public function testACardLostUnderItsRowIsA404AndNotAnError(): void
+    {
+        $url = $this->sharedAlbumPage();
+        foreach ((array) glob($this->storage . '/*/*') as $entry) {
+            if (is_file((string) $entry)) {
+                unlink((string) $entry);
+            }
+        }
+
+        $this->assertSame(404, $this->get($this->pathOf($url) . '/carte.jpg')->getStatusCode());
+        $this->assertSame(200, $this->get($this->pathOf($url))->getStatusCode());
+    }
+
+    /**
+     * **A page whose publications all failed falls back to the row.**
+     *
+     * Reaching this needs a communication with a public page and no
+     * SUCCEEDED publication — a Facebook attempt that minted the page and
+     * then had Meta refuse it. `publishedAt` is null on every row, so
+     * there is no « first destination that received it », and the draft's
+     * own title and text are all the page can honestly show.
+     */
+    public function testWithNothingEverPublishedThePageShowsTheRowItself(): void
+    {
+        $id = $this->communications->create('Bonne année', 'Meilleurs vœux', 1, new \DateTimeImmutable());
+        $url = (string) $this->pages->ensureUrlFor($id, new \DateTimeImmutable());
+
+        $body = self::flattened($this->get($this->pathOf($url))->getBody());
+
+        $this->assertStringContainsString('<h1 class="h3 mb-4">Bonne année</h1>', $body);
+        $this->assertStringContainsString('Meilleurs vœux', $body);
+    }
+
+    /**
+     * And with one failed attempt beside one that succeeded, the
+     * successful one decides — **whichever order the query hands them
+     * back**. A pending or failed row has no `publishedAt`, so it can
+     * never displace a destination that actually received the
+     * publication.
+     *
+     * Both arrangements are run because `forSource()` has no `ORDER BY`
+     * and answers in the order of the index on (kind, id, destination):
+     * one order reaches the comparison with the failed row first and the
+     * other with it second, and only running both exercises the two
+     * sides of it. A single order would leave the claim in this
+     * docblock half-tested.
+     *
+     * @param array{0: string, 1: string} $failed    destination, title
+     * @param array{0: string, 1: string} $succeeded destination, title
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('bothOrders')]
+    public function testAFailedAttemptNeverDisplacesTheOneThatSucceeded(array $failed, array $succeeded): void
+    {
+        $id = $this->communications->create(
+            '',
+            'Les photos sont en ligne',
+            1,
+            new \DateTimeImmutable(),
+            ShareSource::KIND_ALBUM,
+            self::ALBUM_ID
+        );
+        $this->attempted($id, $failed[0], $failed[1]);
+        $this->published($id, $succeeded[0], $succeeded[1], '2026-10-01 09:00:00');
+        $url = (string) $this->pages->ensureUrlFor($id, new \DateTimeImmutable());
+
+        $body = self::flattened($this->get($this->pathOf($url))->getBody());
+
+        $this->assertStringContainsString('<h1 class="h3 mb-4">' . $succeeded[1] . '</h1>', $body);
+        $this->assertStringNotContainsString($failed[1], $body);
+    }
+
+    /**
+     * « facebook » comes back before « instagram » either way, so the
+     * first case meets the failed row first and the second meets it last.
+     *
+     * @return array<string, array{array{0: string, 1: string}, array{0: string, 1: string}}>
+     */
+    public static function bothOrders(): array
+    {
+        return [
+            'the failed one first' => [
+                ['facebook', 'Jamais parti'],
+                ['instagram', 'Week-end de rentrée'],
+            ],
+            'the failed one last' => [
+                ['instagram', 'Jamais parti'],
+                ['facebook', 'Week-end de rentrée'],
+            ],
+        ];
+    }
+
     // ————— Fixtures —————
 
     /** An album share, published once, with its card kept and a page minted. */
@@ -334,6 +435,23 @@ final class PublicPageControllerTest extends TestCase
         $this->publish($id, 'Week-end de rentrée');
 
         return (string) $this->pages->ensureUrlFor($id, new \DateTimeImmutable());
+    }
+
+    /** A destination claimed and never published: no `publishedAt`. */
+    private function attempted(int $id, string $destination, string $title): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->publications->claim(
+            ShareSource::KIND_COMMUNICATION,
+            $id,
+            $destination,
+            false,
+            1,
+            $now,
+            $now->modify('-15 minutes'),
+            $title,
+            'Les photos sont en ligne'
+        );
     }
 
     private function publish(int $id, string $title): void

@@ -115,6 +115,33 @@ final class CommunicationRepositoryTest extends TestCase
         $this->assertSame(7, $communication?->cardFileId, 'the card was lost when the blur was written again');
     }
 
+    /**
+     * The public page's token, written once and read back by it (issue
+     * #706, IT-04).
+     *
+     * **The empty token is refused before the query**, not matched
+     * against the column. Every row written before IT-04 carries NULL
+     * there, which `= ''` would never match anyway — but a caller asking
+     * for nothing should get an answer that does not depend on that
+     * coincidence, and this is the layer where « nothing » arrives.
+     */
+    public function testAPublicTokenIsAssignedOnceAndOpensItsOwnRow(): void
+    {
+        $mine = $this->create();
+        $other = $this->create();
+
+        $this->repository->assignPublicToken($mine, str_repeat('a', 64), $this->now);
+        // The second write finds the column already set and changes
+        // nothing: re-minting would orphan a page already published.
+        $this->repository->assignPublicToken($mine, str_repeat('b', 64), $this->now);
+
+        $this->assertSame(str_repeat('a', 64), $this->repository->find($mine)?->publicToken);
+        $this->assertNull($this->repository->find($other)?->publicToken);
+        $this->assertSame($mine, $this->repository->findByPublicToken(str_repeat('a', 64))?->id);
+        $this->assertNull($this->repository->findByPublicToken(str_repeat('b', 64)));
+        $this->assertNull($this->repository->findByPublicToken(''), 'an empty token must not be asked of the column');
+    }
+
     private function create(): int
     {
         return $this->repository->create('Week-end', 'Les photos sont en ligne', 7, $this->now);
