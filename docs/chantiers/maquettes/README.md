@@ -35,6 +35,7 @@ trouve être exécutable ailleurs.
 | `maquette-telephone.jsx` | Numéros de téléphone cliquables (#757) | La feuille d'actions d'un numéro — liste, tableau, page d'un membre, et la table de normalisation de l'affichage | IT-02 |
 | `maquette-reinscriptions.jsx` | Réinscriptions : campagne par année visée, sous-pages, dates prévues et confirmation (#796) | `/config/reinscription` (tableau de bord) et `/config/reinscription/reglages` — Chef d'Unité : les cinq états d'étape, les huit situations de l'année et les dialogues de confirmation | IT-03, IT-04 |
 | `actualites-brouillon.html` | Actualités : brouillon, publication et programmation (#845) | L'éditeur d'une actualité — gestionnaire, dans ses trois états (brouillon, programmée, publiée), et son bloc « Référencement » selon la visibilité ; la liste de gestion ; la page d'un brouillon vue par un gestionnaire, et celle d'une actualité pas encore en ligne vue par un visiteur ; les dialogues Publier, Programmer et Repasser en brouillon | Partie 1, Partie 2 |
+| `maquette-formulaire-inscription.jsx` | Formulaire d'inscription : sous-pages, recommandation et décisions automatisées (#843) | `/config/inscriptions` : Tableau de bord, Demandes (liste, dialogue de décision), Gabarits, Réglages, fiche d'une demande | IT-01, IT-03, IT-04, IT-07, IT-08, IT-09, IT-10 |
 
 ## Le cas du trombinoscope imprimable
 
