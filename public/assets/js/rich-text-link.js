@@ -1319,6 +1319,22 @@
     var ITEM_WRAPPERS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 
     /**
+     * Whether $item stands in a list of $surface. A bare `<li>` straight in
+     * the surface — stored content that never went through this editor
+     * can hold one, as neither sanitizer checks where an `<li>` sits — has
+     * no list to leave: the engine's formatBlock handles it like any text.
+     *
+     * @param {HTMLLIElement} item
+     * @param {HTMLElement} surface
+     * @returns {boolean}
+     */
+    function inAList(item, surface) {
+        var list = item.parentElement;
+
+        return !!list && list !== surface && (list.nodeName === 'UL' || list.nodeName === 'OL');
+    }
+
+    /**
      * The lines of $item: its children cut at each nested list. An item
      * holds one line, or several when a nested list sits between two runs
      * of its own text — `<li>avant<ul>…</ul>texte</li>`, which the
@@ -1370,7 +1386,7 @@
             var node = range.startContainer;
             var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
             var item = /** @type {HTMLLIElement|null} */ (element?.closest('li') ?? null);
-            if (!item || !surface.contains(item) || item === surface) {
+            if (!item || !surface.contains(item) || item === surface || !inAList(item, surface)) {
                 return { lines: [], range: range };
             }
 
@@ -1381,6 +1397,9 @@
         var lines = [];
         Array.from(surface.querySelectorAll('li')).forEach(function (li) {
             var item = /** @type {HTMLLIElement} */ (li);
+            if (!inAList(item, surface)) {
+                return;
+            }
             linesOf(item).forEach(function (nodes) {
                 var touched = nodes.some(function (child) {
                     return range.intersectsNode(child);
@@ -1493,7 +1512,10 @@
         var item = block.parentElement;
         while (item?.tagName === 'LI' && surface.contains(item) && item !== surface) {
             var list = item.parentElement;
-            if (!list) {
+            // Never the surface itself: lifting out of it would put the
+            // block outside the editor, and an emptied « list » removed
+            // would be the editor (see inAList()).
+            if (!list || list === surface || (list.nodeName !== 'UL' && list.nodeName !== 'OL')) {
                 return;
             }
 

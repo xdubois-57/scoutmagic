@@ -689,6 +689,18 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(surface.innerHTML).toBe('<h2>un</h2><h2><br></h2><h2>deux</h2>');
     });
 
+    // Stored content can hold an <li> straight in the surface: there is no
+    // list to leave, and the surface itself must never be taken for one.
+    it('leaves a bare item with no list around it to the engine, and keeps the editor in place', async () => {
+        const { surface, press } = await editing('<li>seul</li>', 'seul');
+
+        press('h2');
+
+        expect(surface.isConnected).toBe(true);
+        expect(surface.innerHTML).toBe('<li>seul</li>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
     it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
         const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
         select(surface, 'un', 'deux');
