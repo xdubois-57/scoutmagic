@@ -291,7 +291,10 @@ class StorageLocationService
         }
 
         try {
-            $holdsFiles = $this->backendFactory->probe($proposed, $secret)->list('', null, 1)->objects !== [];
+            $backend = $this->backendFactory->probe($proposed, $secret);
+            $holdsFiles = $backend instanceof Backend\EmptinessProbingBackend
+                ? $backend->holdsAnything()
+                : $backend->list('', null, 1)->objects !== [];
         } catch (\Throwable) {
             return;
         }
@@ -375,10 +378,15 @@ class StorageLocationService
             $usable = $folder !== null && $folder['folder'] && !$folder['trashed'];
             $holdsFiles = $usable && $backend->list('', null, 1)->objects !== [];
             $overlap = $usable ? $this->overlappingLocation($backend, $folderId, $folder, $othersByFolder) : null;
-            $sharedParent = $usable && in_array(
-                $folderId,
-                self::sharedParentsOf($backend, [$config->folderId]),
-                true
+            // The shared folder is the only one this site creates at the
+            // top of « Mon Drive »; a location's own is always inside it.
+            // So a folder with nothing above it but the drive itself is
+            // refused whatever its name — and so is the folder known to
+            // hold this location's own. (One holding another location's is
+            // refused as overlapping it, below, with a sharper reason.)
+            $sharedParent = $usable && (
+                count(self::ancestorsOf($backend, $folder['parents'])) < 2
+                || in_array($folderId, self::sharedParentsOf($backend, [$config->folderId]), true)
             );
         } catch (StorageLocationException $e) {
             throw $e;
@@ -466,10 +474,9 @@ class StorageLocationService
 
     /**
      * The shared `ScoutMagic` folder by id, not by name — an operator may
-     * have renamed it in Drive: whatever folder holds this location's own
-     * folder, in the trash or not. (One that holds another location's is
-     * refused already, as overlapping it.) Read only; a folder this
-     * account cannot see contributes nothing.
+     * have renamed it in Drive: whatever folder holds a location's own
+     * folder, in the trash or not. Read only; a folder this account cannot
+     * see contributes nothing.
      *
      * @param list<string> $locationFolderIds
      * @return list<string>

@@ -396,6 +396,22 @@ final class WebDavBackendTest extends TestCase
      * a single call on the share root therefore sees album FOLDERS and not
      * one media file.
      */
+    /**
+     * Whether a share holds anything is one PROPFIND on its top (#832):
+     * a big Nextcloud is not walked end to end to learn one bit.
+     */
+    public function testWhetherTheShareHoldsAnythingIsOneRequest(): void
+    {
+        $backend = $this->backend();
+        $this->assertFalse($backend->holdsAnything());
+
+        $backend->put('12/13/14/a.jpg', 'aa', 'image/jpeg');
+        $this->share->calls = [];
+
+        $this->assertTrue($backend->holdsAnything());
+        $this->assertCount(1, array_filter($this->share->calls, static fn (array $c): bool => $c['method'] === 'PROPFIND'));
+    }
+
     public function testListingReachesTheFilesInsideTheAlbumFolders(): void
     {
         $backend = $this->backend();

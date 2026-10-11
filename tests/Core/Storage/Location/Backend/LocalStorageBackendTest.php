@@ -28,6 +28,17 @@ class LocalStorageBackendTest extends TestCase
         }
     }
 
+    /** The first entry answers, a missing folder holds nothing, and nothing is created (#832). */
+    public function testWhetherTheFolderHoldsAnythingIsAnsweredFromItsTop(): void
+    {
+        $this->assertFalse($this->backend->holdsAnything());
+        $this->assertDirectoryDoesNotExist($this->storagePath . '/gallery');
+
+        mkdir($this->storagePath . '/gallery/5', 0777, true);
+
+        $this->assertTrue($this->backend->holdsAnything(), 'even an empty folder is worth a question');
+    }
+
     private function removeRecursively(string $dir): void
     {
         $items = new \RecursiveIteratorIterator(
