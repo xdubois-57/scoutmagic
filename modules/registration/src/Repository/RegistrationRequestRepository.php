@@ -245,7 +245,17 @@ class RegistrationRequestRepository
      */
     public function countPendingForYears(array $scoutYearIds): int
     {
-        return $this->countForYears($scoutYearIds, "status = 'pending'");
+        $scoutYearIds = self::distinctIds($scoutYearIds);
+        if ($scoutYearIds === []) {
+            return 0;
+        }
+        $placeholders = self::placeholdersFor($scoutYearIds);
+
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders}) AND status = 'pending'",
+            $scoutYearIds
+        );
     }
 
     /**
@@ -265,10 +275,18 @@ class RegistrationRequestRepository
      */
     public function countDecisionEmailsToSendForYears(array $scoutYearIds): int
     {
-        return $this->countForYears(
-            $scoutYearIds,
-            "((status IN ('accepted', 'encoded') AND accepted_email_sent_at IS NULL)"
-            . " OR (status = 'refused' AND refused_email_sent_at IS NULL))"
+        $scoutYearIds = self::distinctIds($scoutYearIds);
+        if ($scoutYearIds === []) {
+            return 0;
+        }
+        $placeholders = self::placeholdersFor($scoutYearIds);
+
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders})
+               AND ((status IN ('accepted', 'encoded') AND accepted_email_sent_at IS NULL)
+                    OR (status = 'refused' AND refused_email_sent_at IS NULL))",
+            $scoutYearIds
         );
     }
 
@@ -281,28 +299,49 @@ class RegistrationRequestRepository
      */
     public function countAcceptedNotEncodedForYears(array $scoutYearIds): int
     {
-        return $this->countForYears($scoutYearIds, "status = 'accepted'");
-    }
-
-    /**
-     * One COUNT(*) over the given scout years and a fixed, literal status
-     * condition — never a caller-supplied value: the three callers above
-     * pass constants, and every year id travels as a bound parameter.
-     *
-     * @param array<int> $scoutYearIds
-     */
-    private function countForYears(array $scoutYearIds, string $statusCondition): int
-    {
-        $scoutYearIds = array_values(array_unique(array_map('intval', $scoutYearIds)));
+        $scoutYearIds = self::distinctIds($scoutYearIds);
         if ($scoutYearIds === []) {
             return 0;
         }
+        $placeholders = self::placeholdersFor($scoutYearIds);
 
-        $placeholders = implode(', ', array_fill(0, count($scoutYearIds), '?'));
-        $stmt = $this->pdo->prepare(
-            "SELECT COUNT(*) FROM registration_requests WHERE scout_year_id IN ({$placeholders}) AND {$statusCondition}"
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders}) AND status = 'accepted'",
+            $scoutYearIds
         );
-        $stmt->execute($scoutYearIds);
+    }
+
+    /**
+     * The year ids once each, as integers — a repeated year must not need
+     * a second placeholder.
+     *
+     * @param array<int> $ids
+     * @return array<int, int>
+     */
+    private static function distinctIds(array $ids): array
+    {
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * One `?` per id, for an `IN (…)` whose values all travel as bound
+     * parameters.
+     *
+     * @param array<int, int> $ids
+     */
+    private static function placeholdersFor(array $ids): string
+    {
+        return implode(', ', array_fill(0, count($ids), '?'));
+    }
+
+    /**
+     * @param array<int, int> $params
+     */
+    private function countRows(string $sql, array $params): int
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
 
         return (int) $stmt->fetchColumn();
     }

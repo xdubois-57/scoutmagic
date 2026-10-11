@@ -4,23 +4,23 @@
    date has just passed and is still to be applied, and whether it is a
    29th of February — which exists one year in four, so this form refuses
    to save it back and says so before the chief tries.
-   `|date(…, false)` keeps the date's own timezone: an occurrence is a
-   calendar day, and converting its midnight to another zone could print
-   the day before. #}
+   `|iso_date` and `|date_fr` format the date in its own timezone: an
+   occurrence is a calendar day, and converting its midnight to another
+   zone could print the day before. #}
 {% set _date = field.date %}
 {% if _date is null %}
     {% set _help = none_help %}
 {% elseif field.leap_day %}
-    {% set _help = 'Prochaine ' ~ noun ~ ' : ' ~ _date|date('d/m/Y', false) ~ '. Le 29 février n\'existe pas chaque année : choisissez une autre date pour pouvoir enregistrer.' %}
+    {% set _help = 'Prochaine ' ~ noun ~ ' : ' ~ _date|date_fr ~ '. Le 29 février n\'existe pas chaque année : choisissez une autre date pour pouvoir enregistrer.' %}
 {% elseif field.pending %}
     {% set _help = 'Cette date vient de passer : ' ~ the_noun ~ ' aura lieu à la prochaine vérification automatique, dans l\'heure, puis chaque année.' %}
 {% else %}
-    {% set _help = 'Se répète chaque année. Prochaine ' ~ noun ~ ' : ' ~ _date|date('d/m/Y', false) ~ '.' %}
+    {% set _help = 'Se répète chaque année. Prochaine ' ~ noun ~ ' : ' ~ _date|date_fr ~ '.' %}
 {% endif %}
 {% include 'partials/form_field.html.twig' with {
     field_id: field_id, field_name: field_id,
     label: label, type: 'date',
-    value: _date is null ? '' : _date|date('Y-m-d', false),
+    value: _date is null ? '' : _date|iso_date,
     help: _help,
     wrapper_class: '',
 } only %}
