@@ -376,24 +376,46 @@ class ReceivablesOverviewService
         }
 
         $receivables = $this->repository->findByIds(array_keys($amounts));
-        $names = $this->debtorNames($receivables);
+        $labels = $this->labelsFor($receivables);
 
         $linked = [];
         foreach ($receivables as $receivable) {
-            $debtor = $receivable->label
-                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
             $linked[] = [
                 'id' => $receivable->id,
-                'label' => self::joinFragments([
-                    $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId),
-                    $debtor,
-                ]),
+                'label' => $labels[$receivable->id],
                 'amount_cents' => $amounts[$receivable->id] ?? 0,
                 'destination' => $this->destination($receivable->sourceModule, $receivable->sourceReferenceId, $viewer),
             ];
         }
 
         return $linked;
+    }
+
+    /**
+     * What each receivable is, in its source module's own words followed
+     * by its debtor — « Location LOC-D4E5F6 — Chalet des Pins — Jean
+     * Dupont » — for « Créances liées » and for a movement's description
+     * (issue #838). One describer call per receivable, one name lookup for
+     * all of them.
+     *
+     * @param \Modules\Finance\Repository\ExpectedReceivable[] $receivables
+     * @return array<int, string> receivable id => label
+     */
+    public function labelsFor(array $receivables): array
+    {
+        $names = $this->debtorNames($receivables);
+
+        $labels = [];
+        foreach ($receivables as $receivable) {
+            $debtor = $receivable->label
+                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
+            $labels[$receivable->id] = self::joinFragments([
+                $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId),
+                $debtor,
+            ]);
+        }
+
+        return $labels;
     }
 
     /**

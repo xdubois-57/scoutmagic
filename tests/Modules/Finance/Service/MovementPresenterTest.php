@@ -14,7 +14,8 @@ class MovementPresenterTest extends TestCase
     private function transaction(
         string $label,
         ?string $comment = null,
-        ?string $counterpartyName = null
+        ?string $counterpartyName = null,
+        float $amount = -20.0
     ): Transaction {
         return new Transaction(
             id: 1,
@@ -23,7 +24,7 @@ class MovementPresenterTest extends TestCase
             bankReference: null,
             transactionDate: '2026-10-01',
             label: $label,
-            amount: -20.0,
+            amount: $amount,
             categoryId: null,
             comment: $comment,
             source: Transaction::SOURCE_MANUAL,
@@ -101,13 +102,110 @@ class MovementPresenterTest extends TestCase
         $this->assertSame('Achat fournitures de bureau', MovementPresenter::description($movement, null));
     }
 
-    public function testDescriptionTruncatesLabelAt30Characters(): void
+    /**
+     * One bound for every description (issue #838), with an ellipsis —
+     * not the old thirty characters, which cut « Location LOC-D4E5F6 » in
+     * half.
+     */
+    public function testDescriptionIsBoundedWithAnEllipsis(): void
     {
-        $label = 'Achat de matériel de camping pour le camp été';
-        $movement = $this->transaction($label);
+        $movement = $this->transaction(str_repeat('Achat de matériel de camping ', 6));
 
-        $this->assertSame(mb_substr($label, 0, 30), MovementPresenter::description($movement, null));
-        $this->assertSame(30, mb_strlen(MovementPresenter::description($movement, null)));
+        $description = MovementPresenter::description($movement, null);
+
+        $this->assertSame(MovementPresenter::DESCRIPTION_MAX_LENGTH, mb_strlen($description));
+        $this->assertStringEndsWith('…', $description);
+    }
+
+    // --- the human description (issue #838) ---
+
+    public function testAMovementThatPaysAReceivableIsDescribedByIt(): void
+    {
+        $movement = $this->transaction('+++123/4567/89002+++', amount: 45.0, counterpartyName: 'J. DUPONT');
+
+        $this->assertSame(
+            'Location LOC-D4E5F6 — Chalet des Pins — J. DUPONT — Camps',
+            MovementPresenter::description($movement, null, [
+                'receivable_label' => 'Location LOC-D4E5F6 — Chalet des Pins',
+                'category' => 'Camps',
+            ])
+        );
+    }
+
+    public function testSeveralReceivablesNameTheLargestAndCountTheOthers(): void
+    {
+        $movement = $this->transaction('Famille Dupont', amount: 120.0);
+
+        $this->assertStringStartsWith(
+            'Campagne Cotisations — Jean Dupont (+ 2 autres créances)',
+            MovementPresenter::description($movement, null, [
+                'receivable_label' => 'Campagne Cotisations — Jean Dupont',
+                'other_receivables' => 2,
+            ])
+        );
+        $this->assertStringStartsWith(
+            'Campagne Cotisations (+ 1 autre créance)',
+            MovementPresenter::description($movement, null, ['receivable_label' => 'Campagne Cotisations', 'other_receivables' => 1])
+        );
+    }
+
+    /**
+     * A structured communication is an identifier: never shown. A credit
+     * carrying one that pays nothing is what « Paiements à traiter » calls
+     * it.
+     */
+    public function testAStructuredCommunicationIsNeverTheDescription(): void
+    {
+        $credit = $this->transaction('+++123/4567/89002+++', amount: 45.0);
+        $debit = $this->transaction('+++123/4567/89002+++', amount: -45.0);
+
+        $this->assertSame('Paiement non imputé', MovementPresenter::description($credit, null));
+        $this->assertSame('Paiement', MovementPresenter::description($debit, null));
+        $this->assertSame('Fournitures', MovementPresenter::description($debit, null, ['category' => 'Fournitures']));
+    }
+
+    public function testACreditDeclaredToPayNothingIsNotCalledUnimputed(): void
+    {
+        $credit = new Transaction(
+            id: 1, accountId: 1, fiscalYearId: 1, bankReference: null, transactionDate: '2026-10-01',
+            label: '+++123/4567/89002+++', amount: 45.0, categoryId: null, comment: null,
+            source: Transaction::SOURCE_IMPORT, importedAt: null, notAReceivableAt: '2026-10-02 10:00:00'
+        );
+
+        $this->assertSame('Virement reçu', MovementPresenter::description($credit, null));
+    }
+
+    /**
+     * The communication is taken out of the bank text; the words around
+     * it stay.
+     */
+    public function testTheBankTextKeepsItsWordsWithoutItsCommunication(): void
+    {
+        $movement = $this->transaction('Camp été +++123/4567/89002+++', amount: -45.0);
+
+        $this->assertSame('Camp été', MovementPresenter::description($movement, null));
+    }
+
+    /**
+     * A fragment already said is not said twice.
+     */
+    public function testRepeatedFragmentsAreSaidOnce(): void
+    {
+        $this->assertSame(
+            'Location LOC-1 — Jean Dupont — Camps',
+            MovementPresenter::compose(['Location LOC-1 — Jean Dupont', 'jean dupont', '', null, 'Camps', 'Camps'])
+        );
+    }
+
+    public function testAnInferredNameServesAsCounterpartyWhenTheBankGaveNone(): void
+    {
+        $movement = $this->transaction('PAYCONIQ');
+
+        $this->assertSame('Boulangerie Martin', MovementPresenter::counterparty($movement, null, 'Compte', 'Boulangerie Martin'));
+        $this->assertSame(
+            'Jean Dupont',
+            MovementPresenter::counterparty($this->transaction('X', counterpartyName: 'Jean Dupont'), null, 'Compte', 'Autre')
+        );
     }
 
     public function testDescriptionFallsBackToCommentWhenLabelIsNumericOnly(): void

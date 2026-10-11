@@ -111,7 +111,7 @@ class ReceiptControllerTest extends TestCase
         $this->controller = new ReceiptController(
             $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $financeService,
             $receiptService,
-            new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository),
+            FinanceTestHelper::movementDescriptions($this->pdo, $encryption),
             $journalService,
             $this->triageMail
         );
