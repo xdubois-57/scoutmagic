@@ -120,7 +120,6 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
 
     it('offers « Accueil » when a recent copy of the home page is saved', async () => {
         globalThis.caches = storage({ 'app-shell-1': {}, 'content-7-1.0': { '/': new Date().toUTCString() } });
-        document.body.dataset.stalenessDays = '30';
 
         await loadOfflinePage(DOM);
         await settle();
@@ -142,7 +141,6 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
     it('does not count a copy older than the service worker would serve', async () => {
         const fortyDaysAgo = new Date(Date.now() - 40 * 86400000).toUTCString();
         globalThis.caches = storage({ 'content-7-1.0': { '/': fortyDaysAgo } });
-        document.body.dataset.stalenessDays = '30';
 
         await loadOfflinePage(DOM);
         await settle();
@@ -186,12 +184,11 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
         expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
     });
 
-    // The figure baked into the page when it was precached outlives a
-    // change of the setting; the worker reads its config, and so must this.
+    // The worker reads its threshold from its config, never a figure the
+    // page could carry from the day it was precached; so must this.
     it('judges a copy by the service worker\'s own threshold, not the one baked into the page', async () => {
         const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toUTCString();
         globalThis.caches = storage({ 'content-7-1.0': { '/': tenDaysAgo } }, { ...CONFIG, staleness_days: 3 });
-        document.body.dataset.stalenessDays = '30';
 
         await loadOfflinePage(DOM);
         await settle();
