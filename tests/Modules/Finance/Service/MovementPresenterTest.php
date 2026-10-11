@@ -197,6 +197,21 @@ class MovementPresenterTest extends TestCase
         );
     }
 
+    /**
+     * The other way round: an earlier, shorter fragment inside a later,
+     * longer one — a BNP label that spells the counterparty out — is not
+     * said twice either.
+     */
+    public function testAnEarlierFragmentIsTakenOutOfALaterOneThatRepeatsIt(): void
+    {
+        $this->assertSame(
+            'Jean Dupont — VIREMENT AU COMPTE BE00 REFERENCE BANQUE : 123',
+            MovementPresenter::compose(['Jean Dupont', 'VIREMENT AU COMPTE BE00 JEAN DUPONT REFERENCE BANQUE : 123'])
+        );
+        // Nothing left but the repeated name: the later fragment goes.
+        $this->assertSame('Jean Dupont', MovementPresenter::compose(['Jean Dupont', 'JEAN DUPONT 12345']));
+    }
+
     public function testAnInferredNameServesAsCounterpartyWhenTheBankGaveNone(): void
     {
         $movement = $this->transaction('PAYCONIQ');

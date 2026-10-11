@@ -153,6 +153,17 @@ final class MovementPresenter
                 if (mb_stripos($already, $fragment) !== false) {
                     continue 2;
                 }
+                // The other way round — « VIREMENT … JEAN DUPONT … » after
+                // « Jean Dupont » — the name comes out of the later text
+                // rather than being said twice.
+                $fragment = trim((string) preg_replace(
+                    '/\s+/u',
+                    ' ',
+                    (string) preg_replace('/' . preg_quote($already, '/') . '/iu', ' ', $fragment)
+                ));
+            }
+            if (preg_match('/\p{L}/u', $fragment) !== 1) {
+                continue;
             }
             $kept[] = $fragment;
         }
