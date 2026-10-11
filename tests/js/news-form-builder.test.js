@@ -13,7 +13,7 @@
 // see. A regression here is a stored-XSS path, so the cases below are
 // written as an allowlist specification rather than as a tour of the
 // implementation.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 // The real site-wide toolboxes, loaded by base.html.twig before every page
 // script — same order here (static side-effect imports run in order).
 import '../../public/assets/js/api.js';
@@ -443,5 +443,51 @@ describe('news-form-builder.js: createRichTextEditor()', () => {
         // on an element a browser would happily let you type into.
         expect(editable.contentEditable).toBe('true');
         expect(editable.getAttribute('role')).toBe('textbox');
+    });
+
+    // #885: the article body had its own toolbar, which sent formatBlock a
+    // bare `h2` — not a form every engine accepts — and, like the shared
+    // one, let the engine wrap a whole list in a heading. Its standard
+    // buttons are now the shared toolbar's.
+    it('takes a list item out of its list when made a heading, and reports the change', () => {
+        const execCommand = vi.fn(() => true);
+        document.execCommand = execCommand;
+        const onChange = vi.fn();
+        const { wrapper, editable } = nfb.createRichTextEditor('<ul><li>un</li><li>deux</li></ul>', onChange, null);
+        document.body.replaceChildren(wrapper);
+
+        const range = document.createRange();
+        range.setStart(editable.querySelector('li').firstChild, 1);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        wrapper.querySelector('button[title="Titre 2"]').dispatchEvent(new Event('click'));
+
+        expect(editable.innerHTML).toBe('<h2>un</h2><ul><li>deux</li></ul>');
+        expect(execCommand).not.toHaveBeenCalled();
+        expect(onChange).toHaveBeenLastCalledWith('<h2>un</h2><ul><li>deux</li></ul>');
+    });
+
+    it('asks the engine for a heading in the angle brackets it accepts', () => {
+        const execCommand = vi.fn(() => true);
+        document.execCommand = execCommand;
+        const { wrapper, editable } = nfb.createRichTextEditor('<p>Bonjour</p>', null, null);
+        document.body.replaceChildren(wrapper);
+
+        const range = document.createRange();
+        range.selectNodeContents(editable.querySelector('p'));
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        wrapper.querySelector('button[title="Titre 3"]').dispatchEvent(new Event('click'));
+
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h3>');
+    });
+
+    it('keeps its own image button out of the shared toolbar', () => {
+        const { wrapper } = nfb.createRichTextEditor('', null, null);
+
+        const image = wrapper.querySelector('button[title="Insérer une image"]');
+        expect(image.dataset.command).toBeUndefined();
+        expect(wrapper.querySelectorAll('[data-command]')).toHaveLength(10);
     });
 });

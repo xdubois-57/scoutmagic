@@ -434,3 +434,137 @@ describe('ScoutMagicRichText.wireToolbar()', () => {
         expect(afterCommand).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a paragraph (#885)', () => {
+    /**
+     * The shared toolbar's three block buttons over a surface holding
+     * $html, with the caret inside the text node $caretIn.
+     *
+     * @param {string} html
+     * @param {string} caretIn the exact text of the node the caret sits in
+     */
+    async function editing(html, caretIn) {
+        const rt = await loadHelper();
+        document.body.innerHTML = `
+            <div id="modal">
+                <button data-command="formatBlock" data-value="h2">H2</button>
+                <button data-command="formatBlock" data-value="h3">H3</button>
+                <button data-command="formatBlock" data-value="p">P</button>
+            </div>
+            <div id="surface" contenteditable="true"></div>
+        `;
+        const surface = document.getElementById('surface');
+        surface.innerHTML = html;
+
+        const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+        let text = walker.nextNode();
+        while (text && text.textContent !== caretIn) {
+            text = walker.nextNode();
+        }
+        const range = document.createRange();
+        range.setStart(text, 1);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        const afterCommand = vi.fn();
+        rt.wireToolbar(document.getElementById('modal'), surface, afterCommand);
+
+        return {
+            rt,
+            surface,
+            afterCommand,
+            caretText: text,
+            press: (value) => document.querySelector('[data-value="' + value + '"]').dispatchEvent(new Event('click')),
+        };
+    }
+
+    it.each(['h2', 'h3', 'p'])('takes the first item out of its list as a <%s>', async (tag) => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul>', 'un');
+
+        press(tag);
+
+        expect(surface.innerHTML).toBe(`<${tag}>un</${tag}><ul><li>deux</li></ul>`);
+        expect(execCommand).not.toHaveBeenCalled();
+    });
+
+    it('cuts the list in two around an item in the middle', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'deux');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h2>deux</h2><ul><li>trois</li></ul>');
+    });
+
+    it('takes the last item out after the list, and removes a list left empty', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>suite</p>', 'deux');
+        press('h3');
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h3>deux</h3><p>suite</p>');
+
+        const alone = await editing('<ul><li>seul</li></ul>', 'seul');
+        alone.press('p');
+        expect(alone.surface.innerHTML).toBe('<p>seul</p>');
+    });
+
+    it('keeps the inline content of the item, bold and links included', async () => {
+        const { surface, press } = await editing(
+            '<ul><li><strong>Gras</strong> et <a href="https://lesscouts.be">lien</a></li></ul>',
+            ' et '
+        );
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2><strong>Gras</strong> et <a href="https://lesscouts.be">lien</a></h2>');
+    });
+
+    it('applies the same rule to a numbered list', async () => {
+        const { rt, surface, press } = await editing('<ol><li>un</li><li>deux</li><li>trois</li></ol>', 'deux');
+
+        press('p');
+
+        // No `start` on the second half: the canonical form would not keep
+        // it, and the screen would number differently from the saved text.
+        expect(surface.innerHTML).toBe('<ol><li>un</li></ol><p>deux</p><ol><li>trois</li></ol>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('saves exactly what is on screen: the canonical form keeps the heading', async () => {
+        const { rt, surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'deux');
+
+        press('h2');
+
+        // What the engine's formatBlock produced, <h2><ul>…</ul></h2>, was
+        // invalid — and the canonical form dropped the heading on save.
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('leaves the caret in the text it was in, and reports the change', async () => {
+        const { press, caretText, afterCommand } = await editing('<ul><li>un</li><li>deux</li></ul>', 'deux');
+
+        press('h2');
+
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.startContainer).toBe(caretText);
+        expect(range.startOffset).toBe(1);
+        expect(caretText.parentElement.tagName).toBe('H2');
+        // A move made by hand fires no `input`: the hook is how an editor
+        // with a hidden field or an onChange learns of it.
+        expect(afterCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes an item of a nested list out of both lists', async () => {
+        const { surface, press } = await editing('<ul><li>haut<ul><li>bas</li></ul></li><li>après</li></ul>', 'bas');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>haut</li></ul><h2>bas</h2><ul><li>après</li></ul>');
+    });
+
+    it('still hands a heading outside any list to the engine, so « Paragraphe » turns it back', async () => {
+        const { press } = await editing('<h2>Titre</h2>', 'Titre');
+
+        press('p');
+
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<p>');
+    });
+});

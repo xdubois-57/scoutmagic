@@ -1293,6 +1293,159 @@
         });
     }
 
+    // ————— A list item made a heading or a paragraph (#885) —————
+    //
+    // `formatBlock` inside a `<li>` does not make that item a heading. The
+    // engine climbs to the nearest block it knows how to format — the
+    // LIST — and wraps all of it: `<h2><ul><li>un</li></ul></h2>`. That is
+    // invalid HTML (a heading holds no list), « Paragraphe » then nests a
+    // `<p>` inside the `<h2>` instead of replacing it, so the item stays a
+    // heading on screen, and the canonical form drops the impossible `<h2>`
+    // on save, so the heading the author saw is gone after reopening.
+    //
+    // So for an item, the toolbar does the move itself, the same way for
+    // H2, H3 and « Paragraphe »: the item leaves its list — cut in two
+    // around it when it sat in the middle — and becomes the block asked
+    // for, keeping its inline content (bold, links…). What is on screen is
+    // then exactly what is saved. « Paragraphe » on an item gives what a
+    // second click on « Liste à puces » gives: plain text, out of the list.
+    //
+    // The browser's undo history does not record a change made by hand. The
+    // move is kept to one DOM operation per node and touches nothing outside
+    // the list, so Ctrl+Z after it undoes the commands before it rather than
+    // corrupting the text.
+
+    /** The tags a list item is made of when it is not plain inline content. */
+    var ITEM_WRAPPERS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+
+    /**
+     * The `<li>` holding the caret, if it is inside $surface.
+     *
+     * @param {HTMLElement} surface
+     * @returns {HTMLLIElement|null}
+     */
+    function listItemAtCaret(surface) {
+        var selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            return null;
+        }
+        var node = selection.getRangeAt(0).startContainer;
+        var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
+        var item = element?.closest('li') ?? null;
+
+        return item && surface.contains(item) && item !== surface ? /** @type {HTMLLIElement} */ (item) : null;
+    }
+
+    /**
+     * Takes $block out of the list item that holds it, and that list out
+     * of the item above it if the list was nested, until $block stands
+     * outside every list. Each list is cut in two around the item: what
+     * came before stays where it was, what came after follows $block.
+     *
+     * @param {HTMLElement} block already in place of the item's content
+     * @param {HTMLElement} surface
+     * @returns {void}
+     */
+    function liftOutOfLists(block, surface) {
+        var item = block.parentElement;
+        while (item && item.tagName === 'LI' && surface.contains(item) && item !== surface) {
+            var list = item.parentElement;
+            if (!list) {
+                return;
+            }
+
+            // What the item held after $block — a nested list, mostly —
+            // stays an item, at the head of the second half.
+            var rest = document.createElement('li');
+            while (block.nextSibling) {
+                rest.appendChild(block.nextSibling);
+            }
+            var after = /** @type {HTMLElement} */ (list.cloneNode(false));
+            if (rest.hasChildNodes()) {
+                after.appendChild(rest);
+            }
+            while (item.nextSibling) {
+                after.appendChild(item.nextSibling);
+            }
+            // A numbered list's second half starts again at 1. Carrying the
+            // count on would take a `start` attribute, which the canonical
+            // form does not keep: the screen would number 3 what the saved
+            // text numbers 1.
+
+            list.after(block);
+            if (after.hasChildNodes()) {
+                block.after(after);
+            }
+            if (!item.hasChildNodes() || item.textContent === '' && !item.querySelector('img')) {
+                item.remove();
+            }
+            if (!list.querySelector(':scope > li')) {
+                list.remove();
+            }
+            item = block.parentElement;
+        }
+    }
+
+    /**
+     * Makes the list item holding the caret a $tag block of its own. Does
+     * nothing, and says so, when the caret is not in a list item.
+     *
+     * @param {HTMLElement} surface
+     * @param {string} tag `h2`, `h3` or `p`
+     * @returns {Range|null} where the caret now is, to put back once the
+     *          surface has focus again; null when there was no item
+     */
+    function listItemToBlock(surface, tag) {
+        var item = listItemAtCaret(surface);
+        if (!item) {
+            return null;
+        }
+
+        // The caret is restored on the same nodes afterwards: they are moved,
+        // never copied, so the text it sat in is still the text it sits in.
+        var selection = window.getSelection();
+        var range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+        var caret = range
+            ? { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset }
+            : null;
+
+        var block = document.createElement(tag);
+        var first = item.firstChild;
+        item.insertBefore(block, first);
+        while (block.nextSibling && block.nextSibling.nodeName !== 'UL' && block.nextSibling.nodeName !== 'OL') {
+            var next = /** @type {ChildNode} */ (block.nextSibling);
+            if (ITEM_WRAPPERS.has(next.nodeName)) {
+                // The item's text in a block of its own (a pasted `<p>`):
+                // its content comes across, never the block itself, which
+                // would put a block inside the new one.
+                while (next.firstChild) {
+                    block.appendChild(next.firstChild);
+                }
+                next.remove();
+            } else {
+                block.appendChild(next);
+            }
+        }
+        if (!block.hasChildNodes()) {
+            // An empty item: a <br> keeps the new block one line high and
+            // gives the caret somewhere to stand.
+            block.appendChild(document.createElement('br'));
+        }
+
+        liftOutOfLists(block, surface);
+
+        var restored = document.createRange();
+        if (caret && block.contains(caret.start) && block.contains(caret.end)) {
+            restored.setStart(caret.start, caret.startOffset);
+            restored.setEnd(caret.end, caret.endOffset);
+        } else {
+            restored.selectNodeContents(block);
+            restored.collapse(false);
+        }
+
+        return restored;
+    }
+
     // ————— The toolbar —————
 
     /**
@@ -1333,18 +1486,32 @@
                     return;
                 }
 
+                var caret = null;
                 if (command === 'formatBlock') {
-                    // The argument editable.js never passed at all — it
-                    // sent null, and a formatBlock with no block to format
-                    // is a button that does nothing. The angle brackets are
-                    // the form the other two toolbars already used and the
-                    // one every engine accepts; a bare `h2` is not.
-                    document.execCommand(command, false, '<' + (button.dataset.value || 'p') + '>');
+                    var tag = (button.dataset.value || 'p').toLowerCase();
+                    // In a list item, never the engine's formatBlock: it
+                    // wraps the whole list (#885, above).
+                    caret = listItemToBlock(surface, tag);
+                    if (!caret) {
+                        // The argument editable.js never passed at all — it
+                        // sent null, and a formatBlock with no block to
+                        // format is a button that does nothing. The angle
+                        // brackets are the form the other two toolbars
+                        // already used and the one every engine accepts; a
+                        // bare `h2` is not.
+                        document.execCommand(command, false, '<' + tag + '>');
+                    }
                 } else {
                     document.execCommand(command || '', false, null);
                 }
 
                 surface.focus();
+                if (caret) {
+                    // After the focus, which may itself move the caret.
+                    var selection = window.getSelection();
+                    selection?.removeAllRanges();
+                    selection?.addRange(caret);
+                }
                 if (afterCommand) afterCommand();
             });
         });
