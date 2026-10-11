@@ -148,7 +148,9 @@ final class PhoneNumber
 
         $grouped = match ($code) {
             // France: « 6 12 34 56 78 ».
-            '33' => strlen($rest) === 9 ? $rest[0] . ' ' . implode(' ', str_split(substr($rest, 1), 2)) : self::pairs($rest),
+            '33' => strlen($rest) === 9
+                ? $rest[0] . ' ' . implode(' ', str_split(substr($rest, 1), 2))
+                : self::pairs($rest),
             // Luxembourg: « 691 123 456 ».
             '352' => implode(' ', str_split($rest, 3)),
             default => self::pairs($rest),
