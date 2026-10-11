@@ -183,7 +183,15 @@ final class PublishingServiceTest extends TestCase
 
         $unconfirmed = $this->publish($this->album(), [SocialPlatform::Instagram])[0];
         $this->assertFalse($unconfirmed->published, 'Not confirmed.');
-        $this->assertStringContainsString('Je confirme : réessayer', $unconfirmed->message, 'Says what to do, not « déjà publié ».');
+        // Names the control on the page the chief is about to land on —
+        // `publishNow()` redirects to the history whatever happened — and
+        // not the composer's checkbox, which the album's prefilled
+        // composer never shows (`Claude review` on PR #868).
+        $this->assertStringContainsString(
+            'relancez-la avec « Réessayer »',
+            $unconfirmed->message,
+            'Says what to do, where it can be done, not « déjà publié ».'
+        );
         $this->assertTrue($this->publish($this->album(), [SocialPlatform::Instagram], [SocialPlatform::Instagram])[0]->published);
     }
 

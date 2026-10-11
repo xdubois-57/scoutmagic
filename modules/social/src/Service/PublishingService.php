@@ -205,6 +205,23 @@ class PublishingService
      * claim() refuses for three reasons, and each gets its own sentence:
      * already published, a failure whose retry was not confirmed, or a
      * publication in progress.
+     *
+     * **The failure's sentence names « Réessayer » and not the
+     * composer's checkbox**, because the chief is never reading it on
+     * the composer: `publishNow()` redirects to the history whatever
+     * happened, and that is where the control lives.
+     *
+     * It mattered little while the only way here was ticking a
+     * destination the composer had just shown as failed — the chief had
+     * seen the box. Since IT-05 the twin key makes « Partager » on the
+     * album resolve back to the existing communication (issue #793), and
+     * that composer is prefilled from the SOURCE with no history read at
+     * all ({@see DestinationStates::forSource()}, `$hasOwnHistory`), so
+     * it shows the destination as available and pre-ticked. The chief
+     * who publishes from there was then told to tick a box no page they
+     * had seen ever displayed. `Claude review` found it on PR #868; the
+     * composer's own silence about that row is #881, being a decision
+     * about what a prefilled page may read.
      */
     private function whyNotClaimed(ShareSource $source, SocialPlatform $platform, \DateTimeImmutable $now): string
     {
@@ -214,7 +231,8 @@ class PublishingService
             $publication?->isPublished() === true => 'Déjà publié sur cette destination : un contenu n\'y part '
                 . 'qu\'une fois.',
             $publication?->isRetryable($now->modify('-' . self::STALE_MINUTES . ' minutes')) === true
-                => 'La publication précédente a échoué : cochez « Je confirme : réessayer » pour la relancer.',
+                => 'La publication précédente a échoué : relancez-la avec « Réessayer », sur sa ligne'
+                    . ' dans « Ce qui est parti ».',
             default => 'Une publication y est déjà en cours.',
         };
     }

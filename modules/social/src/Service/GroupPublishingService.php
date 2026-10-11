@@ -272,7 +272,8 @@ final class GroupPublishingService
             $publication?->isPublished() === true
                 => 'Déjà publié dans ce groupe : un contenu n\'y part qu\'une fois.',
             $publication?->isRetryable($now->modify('-' . PublishingService::STALE_MINUTES . ' minutes')) === true
-                => 'La publication précédente a échoué : cochez « Je confirme : réessayer » pour la relancer.',
+                => 'La publication précédente a échoué : relancez-la avec « Réessayer », sur sa ligne'
+                    . ' dans « Ce qui est parti ».',
             default => 'Une publication y est déjà en cours.',
         };
     }
