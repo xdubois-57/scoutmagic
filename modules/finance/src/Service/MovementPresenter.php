@@ -144,6 +144,9 @@ final class MovementPresenter
     public static function compose(array $fragments): string
     {
         $kept = [];
+        // Every fragment met, said or not: one dropped because an earlier
+        // fragment already holds it still comes out of a later one.
+        $seen = [];
         foreach ($fragments as $fragment) {
             $fragment = trim((string) preg_replace('/\s+/u', ' ', (string) $fragment));
             if ($fragment === '') {
@@ -153,33 +156,38 @@ final class MovementPresenter
             // « Campsite », nor « Camp » vanish inside « CAMPING ».
             foreach ($kept as $already) {
                 if (preg_match(self::wholeWords($fragment), $already) === 1) {
+                    $seen[] = $fragment;
                     continue 2;
                 }
-                // The other way round — « VIREMENT … JEAN DUPONT … » after
-                // « Jean Dupont » — the name comes out of the later text
-                // rather than being said twice.
-                $fragment = trim((string) preg_replace(
+            }
+            // The other way round — « VIREMENT … JEAN DUPONT … » after
+            // « Jean Dupont » — the name comes out of the later text
+            // rather than being said twice.
+            $said = $fragment;
+            foreach ($seen as $already) {
+                $said = trim((string) preg_replace(
                     '/\s+/u',
                     ' ',
-                    (string) preg_replace(self::wholeWords($already), ' ', $fragment)
+                    (string) preg_replace(self::wholeWords($already), ' ', $said)
                 ));
             }
-            if (preg_match('/\p{L}/u', $fragment) !== 1) {
+            $seen[] = $fragment;
+            if (preg_match('/\p{L}/u', $said) !== 1) {
                 continue;
             }
-            $kept[] = $fragment;
+            $kept[] = $said;
         }
 
         return self::bounded(implode(self::SEPARATOR, $kept));
     }
 
     /**
-     * A case-insensitive pattern matching $text only where no letter
-     * touches it on either side.
+     * A case-insensitive pattern matching $text only where no letter or
+     * digit touches it on either side: « CAMP2026 » is one word.
      */
     private static function wholeWords(string $text): string
     {
-        return '/(?<!\p{L})' . preg_quote($text, '/') . '(?!\p{L})/iu';
+        return '/(?<![\p{L}\p{N}])' . preg_quote($text, '/') . '(?![\p{L}\p{N}])/iu';
     }
 
     /**

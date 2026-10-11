@@ -218,6 +218,13 @@ class MovementPresenterTest extends TestCase
         // Whole words only: a short fragment never eats into a longer word.
         $this->assertSame('Camps — Campsite des Ardennes', MovementPresenter::compose(['Camps', 'Campsite des Ardennes']));
         $this->assertSame('ACHAT CAMPING CARREFOUR — Camp', MovementPresenter::compose(['ACHAT CAMPING CARREFOUR', 'Camp']));
+        $this->assertSame('Camp — CAMP2026 ARDENNES', MovementPresenter::compose(['Camp', 'CAMP2026 ARDENNES']));
+        // A fragment dropped because an earlier one holds it still comes
+        // out of a later one.
+        $this->assertSame(
+            'Location LOC-1 — Jean Dupont — VIREMENT DE',
+            MovementPresenter::compose(['Location LOC-1 — Jean Dupont', 'Jean Dupont', 'VIREMENT DE JEAN DUPONT'])
+        );
         // Nothing left but the repeated name: the later fragment goes.
         $this->assertSame('Jean Dupont', MovementPresenter::compose(['Jean Dupont', 'JEAN DUPONT 12345']));
     }
