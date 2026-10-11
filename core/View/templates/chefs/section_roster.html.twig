@@ -148,8 +148,8 @@
                                                 {% endfor %}
                                             {% endif %}
                                             {% if member.phones|length > 0 %}
-                                                {% for phone in member.phones %}
-                                                    <div><i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i> <span class="visually-hidden">{{ phone.label }} :</span> <a href="tel:{{ phone.value }}">{{ phone.value }}</a></div>
+                                                {% for number in member.phones %}
+                                                    <div><i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i> <span class="visually-hidden">{{ number.label }} :</span> {{ phone(number.value) }}</div>
                                                 {% endfor %}
                                             {% endif %}
                                             {% if member.emails|length == 0 and member.phones|length == 0 %}

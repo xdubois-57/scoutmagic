@@ -563,7 +563,7 @@
                                         <br><a href="mailto:{{ contact.email }}">{{ contact.email }}</a>
                                     {% endif %}
                                     {% if contact.phone %}
-                                        <br><a href="tel:{{ contact.phone|replace({' ': ''}) }}">{{ contact.phone }}</a>
+                                        <br>{{ phone(contact.phone) }}
                                     {% endif %}
                                 </li>
                             {% endfor %}
@@ -571,7 +571,7 @@
                     {% endif %}
                     {% if emergency_phone %}
                         <p class="mb-0">
-                            <strong>Numéro d'urgence pendant votre séjour</strong> : {{ emergency_phone }}
+                            <strong>Numéro d'urgence pendant votre séjour</strong> : {{ phone(emergency_phone) }}
                         </p>
                     {% endif %}
                 </div>

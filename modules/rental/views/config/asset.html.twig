@@ -88,7 +88,7 @@
                         {% endif %}
                     </dd>
                     <dt class="col-sm-4">Numéro d'urgence</dt>
-                    <dd class="col-sm-8">{{ asset.emergencyPhone ?? '—' }}</dd>
+                    <dd class="col-sm-8">{{ phone(asset.emergencyPhone) ?: '—' }}</dd>
                     <dt class="col-sm-4">Visibilité</dt>
                     <dd class="col-sm-8 mb-0">
                         {{ asset.isPublic

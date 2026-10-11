@@ -156,15 +156,15 @@
                                 </span>
                             {% endif %}
                             {% if member.mobile %}
-                                <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
+                                <span>
                                     <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
-                                    {{ member.mobile|normalize_phone }}
-                                </a>
+                                    {{ phone(member.mobile, 'text-decoration-none') }}
+                                </span>
                             {% elseif member.phone %}
-                                <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
+                                <span>
                                     <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
-                                    {{ member.phone|normalize_phone }}
-                                </a>
+                                    {{ phone(member.phone, 'text-decoration-none') }}
+                                </span>
                             {% endif %}
                             {% if member.email %}
                                 <a href="mailto:{{ member.email }}" class="text-decoration-none text-truncate"

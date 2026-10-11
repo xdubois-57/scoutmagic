@@ -291,7 +291,7 @@ final class CovoiturageRbacTest extends TestCase
         // Pending, and the driver already has the family's phone, so they
         // can call before answering (#703). The whole number, not a
         // prefix: four hex digits of the page's CSRF token once read 0495.
-        $this->assertStringContainsString('0495 88 77 66', $page);
+        $this->assertStringContainsString('+32 495 88 77 66', $page);
         // The address says what it is on this trip, and opens a route.
         $this->assertStringContainsString('Destination :', $page);
         $this->assertStringContainsString('title="Itinéraire depuis votre position"', $page);
@@ -336,7 +336,7 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('Vous conduisez.', $page);
         $this->assertStringContainsString('Rendez-vous : Parking des locaux', $page);
         $this->assertStringContainsString('Tom Leroy', $page);
-        $this->assertStringContainsString('0495 88 77 66', $page);
+        $this->assertStringContainsString('+32 495 88 77 66', $page);
         // The banner reuses the page's own route link: one per address, none new.
         $this->assertStringContainsString('Itinéraire vers Gîte de Han-sur-Lesse', $page);
     }
@@ -354,13 +354,13 @@ final class CovoiturageRbacTest extends TestCase
         $pending = $show();
         $this->assertStringContainsString('alert alert-warning', $pending);
         $this->assertStringContainsString('toujours à confirmer', $pending);
-        $this->assertStringNotContainsString('0478 12 34 56', $pending);
+        $this->assertStringNotContainsString('478 12 34 56', $pending);
 
         (new SeatRequestRepository($this->pdo, H::encryption()))->transition($request, SeatRequest::PENDING, SeatRequest::ACCEPTED);
         $accepted = $show();
         $this->assertStringContainsString('Votre place est confirmée</strong> pour Léa', $accepted);
         $this->assertStringContainsString('Conducteur : Sophie Martin', $accepted);
-        $this->assertStringContainsString('0478 12 34 56', $accepted);
+        $this->assertStringContainsString('+32 478 12 34 56', $accepted);
     }
 
     /** #790: taking a granted seat back asks for the same optional word as a refusal. */

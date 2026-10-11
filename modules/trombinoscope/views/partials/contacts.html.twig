@@ -20,7 +20,7 @@
         {% if contact_phone %}
             <div class="text-truncate">
                 <i class="bi bi-telephone" aria-hidden="true"></i>
-                <a href="tel:{{ contact_phone|replace({' ': '', '.': '', '/': '', '-': ''}) }}" class="link-body-emphasis">{{ contact_phone }}</a>
+                {{ phone(contact_phone, 'link-body-emphasis') }}
             </div>
         {% endif %}
         {% if member.email %}

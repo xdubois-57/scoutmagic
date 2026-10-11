@@ -48,7 +48,7 @@
                     <dd class="col-sm-8"><a href="mailto:{{ booking.renterEmail }}">{{ booking.renterEmail }}</a></dd>
                     {% if booking.renterPhone %}
                         <dt class="col-sm-4">Téléphone</dt>
-                        <dd class="col-sm-8"><a href="tel:{{ booking.renterPhone|replace({' ': ''}) }}">{{ booking.renterPhone }}</a></dd>
+                        <dd class="col-sm-8">{{ phone(booking.renterPhone) }}</dd>
                     {% endif %}
                     {% if booking.renterOrganisation %}
                         <dt class="col-sm-4">Organisation</dt>

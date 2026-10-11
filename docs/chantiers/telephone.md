@@ -101,3 +101,68 @@ iOS ni Android. Le comportement de `wa.me` et `signal.me` depuis la PWA
 installée, sur iOS Safari et Android Chrome, n'a été vérifié que par la
 lecture du code et les tests jsdom. Il reste à essayer sur téléphone, en
 onglet et en application installée.
+
+---
+
+## IT-03 — Déploiement sur tous les écrans
+
+**Livré.** Tous les liens `tel:` écrits à la main passent par
+`phone()`, et les numéros qui n'avaient aucun lien en reçoivent un :
+
+- **fiches et listes de membres** : fiche d'un membre (vue admin et vue
+  normale), liste des staffs, liste d'une section ;
+- **camps** : contacts d'un camp, et contact sur l'écran d'effacement ;
+- **locations** : locataire d'une réservation, contacts et numéro d'urgence
+  sur la page de suivi, numéro d'urgence dans la configuration d'un bien ;
+- **trombinoscope** ;
+- **listes de l'Encadrement** ;
+- **covoiturage** : le conducteur et un demandeur sur la carte d'une
+  voiture, le conducteur et les passagers dans la bannière du jour du
+  trajet.
+
+**Écarts avec le relevé du document.**
+
+- Le document comptait 11 liens dans 8 gabarits ; il y en avait 12 dans
+  9. Le neuvième, `modules/leadership/views/partials/_person_list.html.twig`,
+  est arrivé après le commit sur lequel le document a été écrit.
+- Deux numéros n'étaient pas relevés : le numéro d'urgence dans la
+  configuration d'un bien (`modules/rental/views/config/asset.html.twig`)
+  et les deux numéros de la bannière du covoiturage (`show.html.twig`,
+  ajoutés par #835, signalés sur l'issue).
+- Aucun numéro n'est rendu par JavaScript : rien à faire de ce côté.
+- Les e-mails ne changent pas (D13).
+
+**Aucune règle de visibilité ne change.** Chaque gabarit appelle `phone()`
+à l'endroit exact où il affichait le numéro, sous les mêmes conditions ; un
+numéro que la page masque n'est jamais passé à la fonction. Les tests du
+covoiturage qui vérifient qu'une demande en attente ne voit pas le numéro
+du conducteur passent sans changement de logique ; seul le texte cherché
+suit le nouveau format (`+32 478 12 34 56`), et l'absence est vérifiée sur
+les chiffres seuls, ce qui couvre les deux écritures.
+
+**Un champ libre qui n'est pas un numéro s'affiche tel quel.** Le
+numéro d'un locataire, d'un contact de camp ou de la page de suivi est
+saisi librement : « 0475 12 34 56 ou 02 123 45 67 » y est possible. Lu
+chiffre par chiffre, il deviendrait un seul numéro inventé, proposé à
+l'appel. `phone()` n'en fait donc un lien que si le texte n'est écrit
+qu'avec des chiffres, des espaces, `( ) . / -` et un seul `+` en tête, et
+s'il a la longueur d'un seul numéro : 8 ou 9 chiffres après le `+32` pour
+un numéro belge — « 02 123 45 67 / 112 » n'en est donc pas un —, de 8 à 15
+chiffres en tout pour un numéro étranger, dont la longueur n'est pas
+connue ; sinon le texte saisi s'affiche, sans lien — même
+sans aucun chiffre, pour qu'un gabarit qui teste la valeur brute n'affiche
+jamais une ligne vide. Seul un champ vide ne rend rien. Relevé par la
+revue de la PR d'IT-03.
+
+**Le contrôle demandé.** `PhoneNumbersGoThroughThePhoneFunctionTest`
+échoue si un `href="tel:` écrit à la main revient dans
+`core/View/templates/` ou `modules/*/views/` (e-mails exceptés), et si l'un
+des écrans relevés cesse d'afficher son numéro par `phone()`.
+
+**Versions des modules.** Les modules camps (1.18.0), covoiturage (1.3.0),
+leadership (1.3.0), rental (1.47.0) et trombinoscope (1.3.0) montent d'une
+version mineure : leurs utilisateurs voient le changement.
+
+**Reporté à IT-04.** L'aide du covoiturage dit qui voit quel numéro, pas
+comment l'utiliser ; le geste est décrit par le sujet d'aide général
+d'IT-04, que les sujets du covoiturage citent.

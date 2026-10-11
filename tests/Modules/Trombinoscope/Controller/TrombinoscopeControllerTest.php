@@ -339,7 +339,7 @@ class TrombinoscopeControllerTest extends TestCase
             ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
             ->getBody();
 
-        $this->assertStringContainsString('0496 88 41 20', $body);
+        $this->assertStringContainsString('+32 496 88 41 20', $body);
         $this->assertStringContainsString('antonin@test.be', $body);
     }
 
@@ -356,7 +356,7 @@ class TrombinoscopeControllerTest extends TestCase
             ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
             ->getBody();
 
-        $this->assertStringNotContainsString('0496 88 41 20', $body);
+        $this->assertStringNotContainsString('496 88 41 20', $body);
         $this->assertStringNotContainsString('antonin@test.be', $body);
         $this->assertStringContainsString('eclaireurs1@test.be', $body);
     }

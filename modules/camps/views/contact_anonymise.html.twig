@@ -15,7 +15,7 @@
                 {% endif %}
                 <div class="mt-2 small">
                     {% if contact.email %}<div>{{ contact.email }}</div>{% endif %}
-                    {% if contact.phone %}<div>{{ contact.phone }}</div>{% endif %}
+                    {% if contact.phone %}<div>{{ phone(contact.phone) }}</div>{% endif %}
                 </div>
             </div>
         </div>
