@@ -346,10 +346,18 @@ attendre cette passe.
   n'y figurerait plus, et « Annuler cette restauration » serait introuvable au moment où on en a
   besoin. La restauration revient donc à la copie de sécurité par le retour arrière existant
   (`rollbackToSafetyBackup()`, celui d'une migration en échec sur la passe de reprise), qui remet
-  l'état d'avant en entier — liste, journal et réglages compris. Le journal reçoit
+  l'état d'avant — liste, journal et réglages compris.
+  **Le retour arrière réinscrit ensuite la copie de sécurité elle-même** : son dump est pris avant que
+  sa ligne `backups` existe (`createSafetyBackup()`), donc la base qu'il remet ne la connaît pas, et ses
+  fichiers resteraient sur le disque sans ligne, jamais purgés. Ses lignes `backups` et `files` sont
+  reprises du fichier mis de côté (qui la contient, voir « La mise de côté »), ou, s'il manque, recréées
+  à partir des chemins que porte déjà la charge utile de reprise (`safety_db_dump_path`,
+  `safety_zip_path`). Cela vaut pour **tout** retour arrière après le remplacement de la base, migration
+  en échec comprise — le défaut existe aujourd'hui. Le journal reçoit
   `restore_state_keep_failed` (sans chemin ni nom), et la personne qui a demandé la restauration est
   prévenue comme pour tout échec : « Échec de la restauration : le site est revenu à son état d'avant,
-  rien n'a été perdu. » Le fichier mis de côté est supprimé une fois le retour arrière terminé.
+  rien n'a été perdu. » Le fichier mis de côté n'est supprimé qu'une fois la copie de sécurité
+  réinscrite.
 - **Pas concernés**, comme pour #832 : l'assistant d'installation et le retour arrière d'une mise à jour.
 
 ### Un envoi hors site en cours
@@ -461,8 +469,9 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   la restauration a écrit sur des identifiants mis de côté, compte absent → `NULL` ; tâches ramenées
   annulées et comptées dans la passe du remplacement — aucune ne s'exécute à la passe de reprise —,
   chaînes récurrentes ré-amorcées ; données gardées lisibles après installation de
-  la clé de l'archive ; échec de la remise en place → retour arrière vers la copie de sécurité, état d'avant intact, échec
-  journalisé et annoncé ; fichier
+  la clé de l'archive ; échec de la remise en place → retour arrière vers la copie de sécurité, état d'avant intact, copie
+  de sécurité réinscrite dans la liste avec son mot de passe, échec journalisé et annoncé ; même
+  réinscription après un retour arrière dû à une migration en échec ; fichier
   mis de côté supprimé dans tous les cas ; purge de rétention qui épargne la copie de sécurité ;
 - **envoi hors site** : envoi en cours interrompu, archive locale supprimée, envoi partiel abandonné ;
   nouvel envoi programmé après une restauration réussie, pas après un échec ;
