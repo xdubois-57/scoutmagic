@@ -208,6 +208,8 @@ class MovementPresenterTest extends TestCase
             'Jean Dupont — VIREMENT AU COMPTE BE00 REFERENCE BANQUE : 123',
             MovementPresenter::compose(['Jean Dupont', 'VIREMENT AU COMPTE BE00 JEAN DUPONT REFERENCE BANQUE : 123'])
         );
+        // Whole words only: a short fragment never eats into a longer word.
+        $this->assertSame('Camps — Campsite des Ardennes', MovementPresenter::compose(['Camps', 'Campsite des Ardennes']));
         // Nothing left but the repeated name: the later fragment goes.
         $this->assertSame('Jean Dupont', MovementPresenter::compose(['Jean Dupont', 'JEAN DUPONT 12345']));
     }

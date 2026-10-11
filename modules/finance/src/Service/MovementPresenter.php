@@ -159,7 +159,8 @@ final class MovementPresenter
                 $fragment = trim((string) preg_replace(
                     '/\s+/u',
                     ' ',
-                    (string) preg_replace('/' . preg_quote($already, '/') . '/iu', ' ', $fragment)
+                    // Whole words only: « Camps » never eats into « Campsite ».
+                    (string) preg_replace('/(?<!\p{L})' . preg_quote($already, '/') . '(?!\p{L})/iu', ' ', $fragment)
                 ));
             }
             if (preg_match('/\p{L}/u', $fragment) !== 1) {

@@ -92,7 +92,10 @@ final class MovementDescriptionService
                 'description' => MovementPresenter::description($movement, $firstReceipt, [
                     'receivable_label' => $paid[$movement->id]['label'] ?? null,
                     'other_receivables' => $paid[$movement->id]['others'] ?? 0,
-                    'counterparty' => $movement->counterpartyName ?? $inferred,
+                    // Blank counts as missing here too, as in counterparty().
+                    'counterparty' => trim((string) $movement->counterpartyName) !== ''
+                        ? $movement->counterpartyName
+                        : $inferred,
                     'category' => $category,
                 ]),
             ];

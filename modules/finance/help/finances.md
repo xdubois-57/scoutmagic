@@ -54,8 +54,8 @@ faut ajuster la visibilité du compte, ou vous attribuer le badge.
 ## Catégoriser les mouvements
 
 La page Mouvements liste les opérations bancaires, chacune décrite en
-clair : la créance qu'elle règle, le reçu, la contrepartie, la
-catégorie. Une ligne surlignée
+clair à partir de ce qui est connu : la créance qu'elle règle, le
+reçu, la contrepartie, la communication, votre commentaire, la catégorie. Une ligne surlignée
 est « À catégoriser » : touchez-la, choisissez la catégorie, ajoutez
 au besoin un commentaire, puis « Enregistrer ». Le badge « Auto »
 signale une catégorie attribuée automatiquement par une règle — la

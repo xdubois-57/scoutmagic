@@ -95,6 +95,14 @@ class MovementDescriptionServiceTest extends TestCase
         $this->assertStringContainsString('Boulangerie Martin', $presented['description']);
     }
 
+    public function testABlankBankNameStillTakesTheInferredOneInTheDescription(): void
+    {
+        $this->movement('Payconiq', -3.50, '2026-01-10', 'Boulangerie Martin', 'BE12345678901234');
+        $blank = $this->movement('Payconiq', -5.00, '2026-03-01', '   ', 'BE12345678901234');
+
+        $this->assertStringContainsString('Boulangerie Martin', $this->present([$blank])[$blank]['description']);
+    }
+
     /**
      * Two names as frequent as each other: a guess between two people is
      * worse than no name.
@@ -158,7 +166,9 @@ class MovementDescriptionServiceTest extends TestCase
 
         $this->assertEquals($before, $this->transactions->findById($nameless));
         // Portable across SQLite and MariaDB: the stored row's own columns.
-        $row = $this->pdo->query('SELECT * FROM finance_transactions WHERE id = ' . $nameless)?->fetch(\PDO::FETCH_ASSOC);
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_transactions WHERE id = ?');
+        $stmt->execute([$nameless]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
         $this->assertArrayNotHasKey('human_description', $row);
     }
