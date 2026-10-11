@@ -378,6 +378,95 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Caution LOC-D4E5F6 — Jean Dupont', $this->categoryId);
     }
 
+    // ── « Créances liées » in a movement's details (issue #838) ─────────
+
+    public function testAMovementListsWhatItPaysNamedByTheSourceWithItsShareAndLink(): void
+    {
+        $deposit = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', null, $this->categoryId, 42);
+        $rent = $this->receivableService->createReceivable('rental', 45, $this->accountId, 30000, '+++400/0000/00039+++', 'Loyer', $this->categoryId);
+        $movement = $this->movement(200.00);
+        $this->allocate($movement, $deposit, 15000);
+        $this->allocate($movement, $rent, 5000);
+
+        $linked = $this->linkedService(
+            new FakeReceivableSourceDescriberWithDestination(
+                'rental',
+                static fn(int $id): string => 'Location LOC-D4E5F6 — Chalet des Pins',
+                static fn(int $id): ReceivableDestination => new ReceivableDestination('Ouvrir la réservation', '/mes-locations/chalet/reservations/' . $id)
+            ),
+            static fn(array $ids): array => [42 => 'Jean Dupont']
+        )->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame([
+            [
+                'id' => $deposit,
+                'label' => 'Location LOC-D4E5F6 — Chalet des Pins — Jean Dupont',
+                'amount_cents' => 15000,
+                'destination' => ['label' => 'Ouvrir la réservation', 'url' => '/mes-locations/chalet/reservations/45'],
+            ],
+            [
+                'id' => $rent,
+                'label' => 'Location LOC-D4E5F6 — Chalet des Pins — Loyer',
+                'amount_cents' => 5000,
+                'destination' => ['label' => 'Ouvrir la réservation', 'url' => '/mes-locations/chalet/reservations/45'],
+            ],
+        ], $linked);
+    }
+
+    /**
+     * A describer often names the debtor already: the label says it once.
+     */
+    public function testTheDebtorIsNotRepeatedWhenTheSourceAlreadyNamesThem(): void
+    {
+        $id = $this->receivableService->createReceivable('rental', 45, $this->accountId, 15000, '+++500/0000/00073+++', 'Jean Dupont', $this->categoryId);
+        $movement = $this->movement(150.00);
+        $this->allocate($movement, $id, 15000);
+
+        $linked = $this->linkedService(
+            new FakeReceivableSourceDescriberWithDestination('rental', static fn(int $id): string => 'Location LOC-D4E5F6 — Jean Dupont', static fn(): ?ReceivableDestination => null)
+        )->linkedToMovement($movement, new ReceivableViewer('a@example.org', Role::INTENDANT));
+
+        $this->assertSame('Location LOC-D4E5F6 — Jean Dupont', $linked[0]['label']);
+        $this->assertNull($linked[0]['destination']);
+    }
+
+    public function testAMovementThatPaysNothingListsNothing(): void
+    {
+        $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));
+        $this->assertSame([], $this->service->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));
+    }
+
+    private function movement(float $amount): int
+    {
+        $transactions = new TransactionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2025-2026', '2025-09-01', '2026-08-31');
+
+        return $transactions->create($this->accountId, $fiscalYearId, 'ref-' . uniqid(), '2026-02-18', 'Virement', $amount, null, null, 'import', null);
+    }
+
+    private function allocate(int $movement, int $receivable, int $cents): void
+    {
+        (new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo))->create($movement, $receivable, $cents, 'manual', 7);
+    }
+
+    /**
+     * @param \Closure(int[]): array<int, string>|null $memberNames
+     */
+    private function linkedService(
+        ?\Modules\Finance\Api\ReceivableSourceDescriberInterface $describer = null,
+        ?\Closure $memberNames = null
+    ): ReceivablesOverviewService {
+        return new ReceivablesOverviewService(
+            $this->repository,
+            $this->receivableService,
+            $this->accountRepository,
+            $this->visibility,
+            $describer !== null ? [$describer] : [],
+            $memberNames,
+            new \Modules\Finance\Repository\ReceivableAllocationRepository($this->pdo)
+        );
+    }
+
     /**
      * @param \Modules\Finance\Api\ReceivableSourceDescriberInterface[] $describers
      */
@@ -677,5 +766,47 @@ final class FakeReceivableSourceDestination implements
     public function destinationFor(int $sourceReferenceId, ReceivableViewer $viewer): ?ReceivableDestination
     {
         return ($this->onDestination)($sourceReferenceId, $viewer);
+    }
+}
+
+/**
+ * Names an instance AND says where it is managed — the shape the rental
+ * module's describer has (issue #838).
+ *
+ * @internal
+ */
+final class FakeReceivableSourceDescriberWithDestination implements
+    \Modules\Finance\Api\ReceivableSourceDescriberInterface,
+    \Modules\Finance\Api\ReceivableSourceDestinationInterface
+{
+    /**
+     * @param \Closure(int): ?string $onDescribe
+     * @param \Closure(int): ?ReceivableDestination $onDestination
+     */
+    public function __construct(
+        private string $sourceModule,
+        private \Closure $onDescribe,
+        private \Closure $onDestination
+    ) {
+    }
+
+    public function sourceModule(): string
+    {
+        return $this->sourceModule;
+    }
+
+    public function sourceLabel(): string
+    {
+        return 'Locations';
+    }
+
+    public function describeInstance(int $sourceReferenceId): ?string
+    {
+        return ($this->onDescribe)($sourceReferenceId);
+    }
+
+    public function destinationFor(int $sourceReferenceId, ReceivableViewer $viewer): ?ReceivableDestination
+    {
+        return ($this->onDestination)($sourceReferenceId);
     }
 }

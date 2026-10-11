@@ -8656,21 +8656,6 @@ if ($isEnabled('finance')) {
         )
     );
     $frontController->registerController(
-        \Modules\Finance\Controller\MovementController::class,
-        new \Modules\Finance\Controller\MovementController(
-            $twig,
-            $financeService,
-            $financeTransactionRepo,
-            $financeCategoryRepo,
-            $financeFiscalYearRepo,
-            $financeAttachmentRepo,
-            $financeTransactionAttachmentRepo,
-            $financeReceiptService,
-            $financeFirstReceiptResolver,
-            $journalService
-        )
-    );
-    $frontController->registerController(
         \Modules\Finance\Controller\ImportController::class,
         new \Modules\Finance\Controller\ImportController(
             $twig,
@@ -8818,7 +8803,27 @@ if ($isEnabled('finance')) {
         // Core\Member\MemberService's whole surface. `member_id` has always
         // said who owes a receivable; the column headed « Nom/Contact »
         // printed « — » for one that carried a debtor and no free text.
-        static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds)
+        static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds),
+        $financeAllocationRepo
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\MovementController::class,
+        new \Modules\Finance\Controller\MovementController(
+            $twig,
+            $financeService,
+            $financeTransactionRepo,
+            $financeCategoryRepo,
+            $financeFiscalYearRepo,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeReceiptService,
+            $financeFirstReceiptResolver,
+            $journalService,
+            // « Créances liées » in the details dialog (issue #838): named
+            // by each source module's describer, as on « Contrôle des
+            // créances », so it is registered once that service exists.
+            $financeReceivablesOverviewService
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,

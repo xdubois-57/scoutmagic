@@ -15,6 +15,7 @@ use Modules\Finance\Api\ReceivableSourceDestinationInterface;
 use Modules\Finance\Api\ReceivableViewer;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Repository\ReceivableAllocationRepository;
 
 /**
  * Builds the view model for the « Contrôle des créances » page
@@ -54,7 +55,13 @@ class ReceivablesOverviewService
          *
          * @var (\Closure(int[]): array<int, string>)|null
          */
-        private ?\Closure $memberNames = null
+        private ?\Closure $memberNames = null,
+        /**
+         * What each movement pays — only for {@see linkedToMovement()}.
+         * Null answers that no movement pays anything, which is what a
+         * caller that never shows a movement needs.
+         */
+        private ?ReceivableAllocationRepository $allocations = null
     ) {
         foreach ($describers as $describer) {
             // Keyed on what the describer says it speaks for, never on
@@ -333,6 +340,109 @@ class ReceivablesOverviewService
         unset($row['member_id']);
 
         return $row;
+    }
+
+    /**
+     * The receivables ONE movement pays, for « Créances liées » in its
+     * details dialog (issue #838): what each is, in its source module's
+     * own words, how much of this movement went to it, and where it is
+     * managed when this viewer may open that screen.
+     *
+     * Finance still learns nothing about a source: the instance is named
+     * by its module's describer, exactly as on « Contrôle des créances »,
+     * and the debtor by the receivable's own label or the member it names.
+     * The caller has already checked that the viewer may see the
+     * movement's account — every receivable it pays sits on that account.
+     *
+     * @return list<array{
+     *     id: int,
+     *     label: string,
+     *     amount_cents: int,
+     *     destination: array{label: string, url: string}|null
+     * }>
+     */
+    public function linkedToMovement(int $transactionId, ReceivableViewer $viewer): array
+    {
+        if ($this->allocations === null) {
+            return [];
+        }
+
+        $amounts = [];
+        foreach ($this->allocations->findByTransactionId($transactionId) as $allocation) {
+            $amounts[$allocation->receivableId] = ($amounts[$allocation->receivableId] ?? 0) + $allocation->amountCents;
+        }
+        if ($amounts === []) {
+            return [];
+        }
+
+        $receivables = $this->repository->findByIds(array_keys($amounts));
+        $names = $this->debtorNames($receivables);
+
+        $linked = [];
+        foreach ($receivables as $receivable) {
+            $debtor = $receivable->label
+                ?? ($receivable->memberId !== null ? ($names[$receivable->memberId] ?? null) : null);
+            $linked[] = [
+                'id' => $receivable->id,
+                'label' => self::joinFragments([
+                    $this->instanceLabel($receivable->sourceModule, $receivable->sourceReferenceId),
+                    $debtor,
+                ]),
+                'amount_cents' => $amounts[$receivable->id] ?? 0,
+                'destination' => $this->destination($receivable->sourceModule, $receivable->sourceReferenceId, $viewer),
+            ];
+        }
+
+        return $linked;
+    }
+
+    /**
+     * @param iterable<\Modules\Finance\Repository\ExpectedReceivable> $receivables
+     * @return array<int, string>
+     */
+    private function debtorNames(iterable $receivables): array
+    {
+        $memberIds = [];
+        foreach ($receivables as $receivable) {
+            if ($receivable->label === null && $receivable->memberId !== null) {
+                $memberIds[$receivable->memberId] = true;
+            }
+        }
+        if ($this->memberNames === null || $memberIds === []) {
+            return [];
+        }
+
+        try {
+            return ($this->memberNames)(array_keys($memberIds));
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * « Location LOC-D4E5F6 — Jean Dupont » and « Jean Dupont » make one
+     * label, not « Location LOC-D4E5F6 — Jean Dupont — Jean Dupont »: a
+     * describer often names the debtor already.
+     *
+     * @param array<int, string|null> $fragments
+     */
+    private static function joinFragments(array $fragments): string
+    {
+        $kept = [];
+        foreach ($fragments as $fragment) {
+            $fragment = trim((string) $fragment);
+            if ($fragment === '') {
+                continue;
+            }
+            foreach ($kept as $already) {
+                if (str_contains($already, $fragment)) {
+                    continue 2;
+                }
+            }
+            $kept[] = $fragment;
+        }
+
+        return implode(' — ', $kept);
     }
 
     /**

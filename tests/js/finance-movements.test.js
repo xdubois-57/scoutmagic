@@ -102,6 +102,7 @@ function buildDom() {
                 <option value="3">Intendance</option>
             </select>
             <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement</div>
+            <div class="d-none" id="md-receivables"><ul id="md-receivables-list"></ul></div>
             <input type="text" id="md-comment">
             <select id="md-fiscal-year">
                 <option value="1">2025-2026</option>
@@ -309,6 +310,77 @@ describe('finance-movements.js: attaching a credit to a receivable (issue #837)'
     });
 });
 
+describe('finance-movements.js: linked receivables (issue #838)', () => {
+    async function openWith(payload) {
+        await boot();
+        fetch.mockReturnValueOnce(jsonResponse(payload));
+        desktopRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await settle();
+    }
+
+    it('asks for the receivables of the movement being opened', async () => {
+        await openWith({ success: true, receivables: [] });
+
+        expect(fetch.mock.calls[0][0]).toBe('/finance/movements/43/receivables');
+    });
+
+    it('lists each receivable with its amount and a link to where it is managed', async () => {
+        await openWith({ success: true, receivables: [
+            { id: 7, label: 'Location LOC-123 — Dupont ASBL', amount_cents: 15000,
+                destination: { label: 'Ouvrir la réservation', url: '/mes-locations/chalet/reservations/9' } },
+            { id: 8, label: 'Campagne Cotisations — Jean <b>Dupont</b>', amount_cents: 4500, destination: null },
+        ] });
+
+        const section = detail('md-receivables');
+        const items = section.querySelectorAll('li');
+        expect(section.classList.contains('d-none')).toBe(false);
+        expect(items).toHaveLength(2);
+        expect(items[0].textContent).toContain('Location LOC-123 — Dupont ASBL');
+        expect(items[0].textContent).toContain('150,00 €');
+        expect(items[0].querySelector('a').getAttribute('href')).toBe('/mes-locations/chalet/reservations/9');
+        expect(items[1].querySelector('a')).toBeNull();
+        // A label is text, never markup.
+        expect(items[1].querySelector('b')).toBeNull();
+        expect(items[1].textContent).toContain('Jean <b>Dupont</b>');
+    });
+
+    it('never links outside the site', async () => {
+        await openWith({ success: true, receivables: [
+            { id: 7, label: 'X', amount_cents: 100, destination: { label: 'Ouvrir', url: '//evil.example/x' } },
+            { id: 8, label: 'Y', amount_cents: 100, destination: { label: 'Ouvrir', url: 'javascript:alert(1)' } },
+        ] });
+
+        expect(detail('md-receivables').querySelector('a')).toBeNull();
+    });
+
+    it('stays hidden when the movement pays nothing, or the call fails', async () => {
+        await openWith({ success: true, receivables: [] });
+        expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
+
+        await openWith({ success: false, receivables: [
+            { id: 7, label: 'Location LOC-123', amount_cents: 100, destination: null },
+        ] });
+        expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
+    });
+
+    it('stays hidden when loading the receivables is rejected', async () => {
+        await boot();
+        fetch.mockRejectedValueOnce(new Error('network failure'));
+        desktopRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await settle();
+
+        expect(detail('md-receivables').classList.contains('d-none')).toBe(true);
+    });
+
+    it('never writes the description into the comment', async () => {
+        await openWith({ success: true, receivables: [
+            { id: 7, label: 'Location LOC-123', amount_cents: 100, destination: null },
+        ] });
+
+        expect(detail('md-comment').value).toBe('Vieux commentaire');
+    });
+});
+
 describe('finance-movements.js: saving the details dialog', () => {
     it('PATCHes the movement with the category, comment, exercice and CSRF token', async () => {
         await boot();
@@ -321,9 +393,10 @@ describe('finance-movements.js: saving the details dialog', () => {
         document.getElementById('md-save-btn').click();
         await settle();
 
-        expect(fetch.mock.calls[0][0]).toBe('/finance/movements/43');
-        expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'PATCH' });
-        expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+        // Opening the dialog also asked for its « Créances liées ».
+        const patch = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH');
+        expect(patch[0]).toBe('/finance/movements/43');
+        expect(JSON.parse(patch[1].body)).toEqual({
             category_id: null,
             comment: 'Payé par la trésorière',
             fiscal_year_id: 1,
@@ -341,8 +414,9 @@ describe('finance-movements.js: saving the details dialog', () => {
         document.getElementById('md-save-btn').click();
         await settle();
 
-        expect(fetch.mock.calls[0][0]).toBe('/finance/movements/42');
-        expect(JSON.parse(fetch.mock.calls[0][1].body).category_id).toBe(3);
+        const patch = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH');
+        expect(patch[0]).toBe('/finance/movements/42');
+        expect(JSON.parse(patch[1].body).category_id).toBe(3);
     });
 
     it('shows an error toast and does NOT reload when the server refuses', async () => {

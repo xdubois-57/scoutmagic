@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
-  "version": "1.28.0",
+  "version": "1.29.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -559,6 +559,15 @@
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\MovementController",
       "action": "attachments",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/movements/{id}/receivables",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "receivables",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

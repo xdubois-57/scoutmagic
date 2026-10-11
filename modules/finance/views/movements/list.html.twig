@@ -284,6 +284,14 @@
                 } only %}
                 <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
             </div>
+            {# What this movement pays (issue #838), named by each source
+               module, right above the comment it gives context to. Filled
+               by finance-movements.js; never copied into the comment, which
+               stays the treasurer's own note. #}
+            <div class="mb-2 d-none" id="md-receivables">
+                <div class="form-label small mb-1">Créances liées</div>
+                <ul class="list-unstyled small mb-0" id="md-receivables-list"></ul>
+            </div>
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'md-comment', label: 'Commentaire', size: 'sm', wrapper_class: 'mb-2',
             } only %}

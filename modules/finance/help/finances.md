@@ -57,9 +57,10 @@ La page Mouvements liste les opérations bancaires. Une ligne surlignée
 est « À catégoriser » : touchez-la, choisissez la catégorie, ajoutez
 au besoin un commentaire, puis « Enregistrer ». Le badge « Auto »
 signale une catégorie attribuée automatiquement par une règle — la
-changer à la main la rend définitive. Le trombone associe un
-justificatif au mouvement, et « Exporter en XLSX » télécharge la liste
-filtrée.
+changer à la main la rend définitive. Les détails d'un paiement
+listent les créances qu'il règle, avec un lien vers chacune. Le
+trombone associe un justificatif, et « Exporter en XLSX » télécharge
+la liste filtrée.
 
 Le gros du travail peut se faire tout seul : des règles de
 catégorisation (mots-clés, contrepartie, montant) s'appliquent à
