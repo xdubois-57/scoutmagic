@@ -117,6 +117,20 @@ describe('a page with nothing to share', () => {
     });
 
     /**
+     * **Without `api.js` there is nothing to share with.** The button
+     * needs two POSTs, both through `ScoutMagicApi`; a page where that
+     * script did not load must leave the button hidden rather than
+     * offer a control that can only throw.
+     */
+    it('stays hidden when the API helper did not load', async () => {
+        delete window.ScoutMagicApi;
+
+        await load();
+
+        expect(button().hidden).toBe(true);
+    });
+
+    /**
      * And the live region is the history's, not this script's: a page
      * that renders the button without it still shares, silently.
      */
@@ -221,6 +235,34 @@ describe('when recording it fails', () => {
                 url.endsWith('/lien')
                     ? { ok: true, status: 200, data: { url: 'https://unite.example/partage/abc' } }
                     : { ok: false, status: 403, data: { error: 'Session expirée.' } }
+            );
+        };
+
+        await load();
+        button().click();
+        await settle();
+
+        expect(
+            [feedback().textContent, window.location.reload.mock.calls.length]
+        ).toEqual(['Le lien est parti, mais le partage n’a pas pu être enregistré.', 0]);
+    });
+});
+
+describe('when the helper answers nothing at all', () => {
+    /**
+     * `postJson()` resolves with an envelope even on a network failure,
+     * so this is the shape that should not happen — and the guard reads
+     * it as a refusal rather than reloading the page over a share it
+     * cannot prove was recorded.
+     */
+    it('is read as a refusal, not as a success', async () => {
+        window.ScoutMagicApi.postJson = (url, body) => {
+            posted.push({ url, body });
+
+            return Promise.resolve(
+                url.endsWith('/lien')
+                    ? { ok: true, status: 200, data: { url: 'https://unite.example/partage/abc' } }
+                    : undefined
             );
         };
 

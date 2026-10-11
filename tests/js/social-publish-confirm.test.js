@@ -109,6 +109,24 @@ describe('the confirmation', () => {
         expect(asked.content[2].text).toBe('Déjà parti le 14 septembre 2026, avec un autre message.');
     });
 
+    /**
+     * **A destination that cannot receive anything is not announced.**
+     * The composer renders an already-published or unavailable
+     * destination as a ticked but DISABLED box — the browser sends none
+     * of those — so a dialog reading « checked » alone would promise a
+     * chief that this album is about to leave for Instagram when the
+     * server will not send it there.
+     */
+    it('leaves out a destination whose box is disabled', async () => {
+        document.querySelector('input[value="instagram"]').disabled = true;
+
+        await load();
+        button().click();
+        await settle();
+
+        expect(asked.content.map((b) => b.title)).toEqual(['Facebook']);
+    });
+
     it('leaves the groups out when the box is not ticked', async () => {
         await load();
         button().click();
