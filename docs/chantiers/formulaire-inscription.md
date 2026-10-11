@@ -1,8 +1,8 @@
 # Chantier — Formulaire d'inscription
 
 Journal d'implémentation du document de chantier
-`docs/chantiers/CHANTIER-formulaire-inscription.md` (issue #843, itérations
-IT-00 à IT-11). Une section par itération : ce qui a été fait, les décisions
+`docs/chantiers/CHANTIER-formulaire-inscription.md` (issue #843 : le dépôt
+IT-00, puis les itérations IT-01 à IT-11). Une section par itération : ce qui a été fait, les décisions
 prises en autonomie, les divergences constatées entre le document de
 chantier et le dépôt réel, et ce qui a été reporté. Même format que
 `docs/chantiers/aide-contextuelle.md`.

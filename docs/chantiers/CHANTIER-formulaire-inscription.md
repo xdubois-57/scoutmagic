@@ -2,7 +2,8 @@
 
 Issue #843. Module `modules/registration`.
 
-Roadmap d'exécution complète, en **11 itérations**. Traite-les dans l'ordre du tableau ci-dessous,
+Roadmap d'exécution complète, en **11 itérations** (IT-01 à IT-11), précédées du dépôt des pièces
+(IT-00). Traite-les dans l'ordre du tableau ci-dessous,
 **une par une**, sans poser de question sauf en cas de **changement de design** ou de **manque de
 clarté fonctionnelle** réel. **Les itérations marquées « ∥ » sont indépendantes : lance-les en
 parallèle** (voir « Exécuter en parallèle ») pour gagner du temps.
