@@ -1,19 +1,19 @@
 ---
 id: l-image-publiee
 title: L'image publiée et son flou
-summary: Ce qui part vers Facebook, Instagram et les groupes de discussion, et le curseur qui décide du flou d'une photo de la galerie.
+summary: Le curseur qui décide du flou d'une photo de la galerie avant qu'elle ne quitte le site.
 category: Espace animateurs
 role_min: chief
 question: Pourquoi la photo publiée est-elle floue ?
 question: Puis-je publier une photo de la galerie sans la flouter ?
-question: Que reçoit un groupe de discussion quand je publie ?
 paths: /medias-sociaux/nouvelle, /medias-sociaux/nouvelle/*/*, /medias-sociaux/*
-related: medias-sociaux, ce-qui-est-parti, gerer-la-galerie, publier-une-actualite
+related: ce-que-recoit-chaque-destination, medias-sociaux, ce-qui-est-parti, gerer-la-galerie
 ---
 
-Ce que vous voyez dans le composeur **est** ce qui part : l'image, le
-titre écrit dessus et l'adresse du site au pied. Elle est dessinée dans
-votre navigateur, et c'est cette image-là qui est envoyée.
+L'image du composeur est dessinée dans votre navigateur : la photo, le
+titre écrit dessus, l'adresse du site au pied. C'est cette image-là qui
+est envoyée — avec une exception sur la Page Facebook, décrite dans
+[Ce que reçoit chaque destination](ce-que-recoit-chaque-destination).
 
 ## Le flou, et qui le décide
 
@@ -33,56 +33,11 @@ loin ne demande pas le même soin qu'un portrait d'enfant.
 > site : pour retirer une publication, il faut passer par Facebook ou
 > Instagram eux-mêmes. Le flou se choisit **avant**, pas après.
 
-Une image que vous avez **téléversée** part telle quelle, sans curseur :
-choisissez-en une qui peut être montrée à tout le monde.
+## Les images sans curseur
 
-## Le même flou pour toutes les destinations
+Deux cas n'en ont pas, et pour la même raison : il n'y a rien à cacher.
 
-Partout où une image part, c'est **la même**, au flou que le curseur
-indiquait. Un groupe recevait autrefois la photo telle quelle, puisqu'il
-est privé et que ses membres voient déjà la galerie ; ce n'est plus le
-cas, pour que ce que vous voyez dans le composeur soit vraiment ce qui
-part. Un groupe reçoit en plus un **vrai lien** vers l'album ou
-l'actualité.
-
-Une exception, et elle compte : **une actualité ne part pas en image sur
-la Page Facebook**, mais en lien. Le paragraphe suivant la décrit.
-
-## Ce qui part, selon le contenu
-
-Sur la Page Facebook, une actualité part **en lien**, et c'est Facebook
-qui fabrique l'aperçu : il le construit depuis la page de l'actualité —
-son image de couverture, son titre, son résumé — et non depuis l'image
-que le composeur vous montre. Les deux ne se ressemblent pas forcément :
-l'image du composeur porte le titre écrit dessus et l'adresse du site,
-l'aperçu de Facebook met le titre en texte à côté de la couverture nue.
-Le composeur vous le dit sous l'image.
-
-Sur Instagram et dans les groupes, qui n'affichent pas d'aperçu de lien,
-c'est bien l'image du composeur qui part — la couverture de l'actualité
-avec son titre dessus. Sans flou : la couverture d'une actualité est
-publique de toute façon, donc il n'y a rien à cacher et le composeur
-n'offre pas de curseur pour elle.
-
-Une actualité réservée aux animateurs ne peut pas quitter le site.
-
-Chaque destination porte son état : disponible, déjà publiée avec sa date,
-en échec avec la raison donnée par Meta, ou indisponible avec la raison.
-
-## Ce qui ne change plus
-
-Dès qu'une publication est partie vers une destination, **l'image publiée
-ne change plus**, ni le texte, ni le flou : celle publiée plus tard reçoit
-exactement la même image, avec le même titre dessus. C'est l'image que
-votre navigateur a dessinée qui est conservée et renvoyée.
-
-Une tentative **refusée d'avance** ne compte pas : si le site vous dit
-qu'une autorisation a expiré, qu'un texte est trop long pour Instagram ou
-qu'une image manque, rien n'est parti et rien n'est figé. Vous pouvez
-encore changer la photo, le titre, le texte et le curseur de flou — et
-c'est bien la nouvelle image qui partira.
-
-Un album renommé après coup, ou dont on change la couverture, ne modifie
-donc pas ce qui part ensuite. Seul un partage fait avant cette version du
-site, ou depuis un navigateur qui n'a pas pu envoyer l'image, relit encore
-le titre et l'image à la source.
+- Une image **téléversée** part telle quelle. Choisissez-en une qui peut
+  être montrée à tout le monde.
+- La couverture d'une **actualité** est publique de toute façon, puisque
+  la page de l'actualité la montre.

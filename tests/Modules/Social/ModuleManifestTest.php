@@ -162,7 +162,13 @@ final class ModuleManifestTest extends TestCase
         sort($ids);
 
         self::assertSame(
-            ['ce-qui-est-parti', 'l-image-publiee', 'medias-sociaux', 'reseaux-sociaux'],
+            [
+                'ce-que-recoit-chaque-destination',
+                'ce-qui-est-parti',
+                'l-image-publiee',
+                'medias-sociaux',
+                'reseaux-sociaux',
+            ],
             $ids,
             'A social help topic stopped parsing, or one arrived without this test being told.'
         );

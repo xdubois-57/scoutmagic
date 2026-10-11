@@ -61,11 +61,15 @@
                     data-card-blur="{{ blur_ratio }}"
                     data-card-title="{{ source.title|default('') }}"
                     aria-label="Carte qui sera publiée : {{ source.title }}"></canvas>
-            {# « Exactement », mais pas partout (issue #706, IT-03) : sur
-               Facebook, une source qui porte un lien part en publication
-               de lien, et Facebook construit son aperçu depuis la page
-               visée — pas depuis cette carte.
-               {@see CommunicationController} pour le choix du signal. #}
+            {# « Exactly », but not everywhere (issue #706, IT-03): a
+               source carrying a link goes to the Page as a LINK
+               publication, and Facebook then builds its preview from the
+               target page's Open Graph tags — not from this card. The
+               sentence promised « exactement ce qui sera publié » to
+               every destination, which was true of Instagram and the
+               groups and false of Facebook.
+               {@see CommunicationController} for why the flag keys on
+               `link` rather than on the source's kind. #}
             <p class="small text-body-secondary mt-2 mb-0">
                 {% if link_preview_on_facebook %}
                     Voici ce qui part sur Instagram et dans les groupes de discussion.
