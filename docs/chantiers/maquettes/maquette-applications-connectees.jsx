@@ -418,8 +418,11 @@ export default function MaquetteApplicationsConnectees() {
   function ConsentScreen() {
     const app = trackedApp();
     if (!app) return NoAppScreen();
-    // In the "scopes étendus" variant, the role-and-sections scope is the one newly asked for.
-    const already = consentExtended ? app.scopes.filter((s) => s !== "scoutmagic") : [];
+    // "Scopes étendus" variant: the last scope this app asks for (never the always-sent
+    // identifier) plays the newly requested one, whatever the app's scope list is.
+    const optional = app.scopes.filter((s) => s !== "openid");
+    const newlyAsked = optional[optional.length - 1] ?? null;
+    const already = consentExtended ? app.scopes.filter((s) => s !== newlyAsked) : [];
     return (
       <AuthShell>
         <h1 className="text-xl font-semibold mb-1">{app.name}</h1>
