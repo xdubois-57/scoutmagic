@@ -132,7 +132,9 @@ class RegistrationConfigController extends AbstractController
         return $this->render('@registration/config/dashboard.html.twig', [
             'registration_form_open' => $this->isFormOpen(),
             'pending_count' => $this->requestRepository->countPendingForYears($liveYearIds),
-            'decision_emails_to_send_count' => $this->requestRepository->countDecisionEmailsToSendForYears($liveYearIds),
+            'decision_emails_to_send_count' => $this->requestRepository->countDecisionEmailsToSendForYears(
+                $liveYearIds
+            ),
             'accepted_not_in_desk_count' => $this->requestRepository->countAcceptedNotEncodedForYears($liveYearIds),
 
             // The capacity verification, exactly as it was rendered before
@@ -668,8 +670,14 @@ class RegistrationConfigController extends AbstractController
             'year_code' => $this->yearCodeRepository->findForYear((int) $publicYear['id']),
 
             'registration_form_open' => $this->isFormOpen(),
-            'scheduled_open' => $this->scheduleField('registration_scheduled_open_at', 'registration_scheduled_open_applied_on'),
-            'scheduled_close' => $this->scheduleField('registration_scheduled_close_at', 'registration_scheduled_close_applied_on'),
+            'scheduled_open' => $this->scheduleField(
+                'registration_scheduled_open_at',
+                'registration_scheduled_open_applied_on'
+            ),
+            'scheduled_close' => $this->scheduleField(
+                'registration_scheduled_close_at',
+                'registration_scheduled_close_applied_on'
+            ),
 
             // Waitlist management, surfaced inside the capacity box rather
             // than hidden away in Configuration > Réglages. When it is off,

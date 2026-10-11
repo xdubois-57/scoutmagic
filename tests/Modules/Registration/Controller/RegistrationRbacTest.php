@@ -199,8 +199,16 @@ class RegistrationRbacTest extends TestCase
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
 
-        $requests = (string) $this->dispatch('/config/inscriptions/demandes', 'RegistrationConfigController', 'requests')->getBody();
-        $fiche = (string) $this->dispatch('/config/inscriptions/demandes/{id}', 'RegistrationRequestController', 'show')->getBody();
+        $requests = (string) $this->dispatch(
+            '/config/inscriptions/demandes',
+            'RegistrationConfigController',
+            'requests'
+        )->getBody();
+        $fiche = (string) $this->dispatch(
+            '/config/inscriptions/demandes/{id}',
+            'RegistrationRequestController',
+            'show'
+        )->getBody();
 
         foreach ([$requests, $fiche] as $body) {
             $this->assertStringContainsString("Espace chefs d&#039;U", $body);

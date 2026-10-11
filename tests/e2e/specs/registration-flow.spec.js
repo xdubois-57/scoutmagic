@@ -357,7 +357,14 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
 
         await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
-        await submitOnSettings(page, page.getByRole('button', { name: 'Générer un nouveau code' }), 'Nouveau code généré.');
+        // Generating a code asks first (design.md §7.5) — a new one would
+        // invalidate any code already handed out. waitForConfirmReady()
+        // before the click, as its docblock requires: a click that beats
+        // confirm.js's listener submits natively and no question is asked.
+        await waitForConfirmReady(page);
+        await page.getByRole('button', { name: 'Générer un nouveau code' }).click();
+        expect(await answerConfirmation(page)).toContain('Générer un code ?');
+        await expect(page.getByRole('alert').filter({ hasText: 'Nouveau code généré.' })).toBeVisible();
         const yearCode = (await page.locator('p', { hasText: 'Code actif :' }).locator('strong').innerText()).trim();
         expect(yearCode).not.toBe('');
 
@@ -376,7 +383,9 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // closed, and the code dies with its deactivation.
         await page.goto(SETTINGS_PATH, { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('button', { name: 'Ouvrir maintenant' })).toBeVisible();
+        await waitForConfirmReady(page);
         await page.getByRole('button', { name: 'Désactiver' }).click();
+        expect(await answerConfirmation(page)).toContain('ne pourront plus accéder au formulaire');
         await expect(page.getByText('Dernier code (désactivé)')).toBeVisible();
 
         expect(familyErrors, 'uncaught JavaScript error in the family\'s browser').toEqual([]);

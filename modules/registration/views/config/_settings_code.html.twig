@@ -15,12 +15,18 @@
             } only %}
         {% endif %}
         <div class="d-flex gap-2">
-            <form method="post" action="/config/inscriptions/code/regenerate">
+            {# Both forms ask first (design.md §7.5): a new code silently
+               invalidates the one already handed to families, and
+               deactivating it shuts them out. The attribute is always
+               there; only the sentence depends on whether a code is live. #}
+            <form method="post" action="/config/inscriptions/code/regenerate"
+                  data-confirm="{{ year_code and year_code.isActive ? 'Générer un nouveau code ? L\'ancien ne fonctionnera plus pour les familles qui l\'ont reçu.' : 'Générer un code ? Les familles qui le reçoivent pourront accéder au formulaire même lorsque les inscriptions sont fermées.' }}">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-outline-primary btn-sm">Générer un nouveau code</button>
             </form>
             {% if year_code and year_code.isActive %}
-                <form method="post" action="/config/inscriptions/code/deactivate">
+                <form method="post" action="/config/inscriptions/code/deactivate"
+                      data-confirm="Désactiver ce code ? Les familles qui l'ont reçu ne pourront plus accéder au formulaire.">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-danger btn-sm">Désactiver</button>
                 </form>

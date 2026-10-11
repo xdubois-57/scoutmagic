@@ -572,7 +572,11 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertStringContainsString("Cette date vient de passer : l&#039;ouverture aura lieu", $body);
 
         // Once the task has applied it, the next one is next year's.
-        $this->settingService->set('registration_scheduled_open_applied_on', $justPassed->format('Y-m-d'), 'registration');
+        $this->settingService->set(
+            'registration_scheduled_open_applied_on',
+            $justPassed->format('Y-m-d'),
+            'registration'
+        );
         $this->assertStringContainsString(
             'Prochaine ouverture : ' . $justPassed->modify('+1 year')->format('d/m/Y') . '.',
             $this->renderPage('settings')
@@ -596,6 +600,48 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_open_at"[^>]*value="\d{4}-02-29"/', $body);
         $this->assertMatchesRegularExpression('/<input[^>]*id="scheduled_close_at"[^>]*value="\d{4}-08-31"/', $body);
         $this->assertStringNotContainsString('Aucune fermeture programmée', $body);
+    }
+
+    /**
+     * Both code actions reach families who already hold the code — a new
+     * one invalidates it, deactivating shuts them out — so both forms ask
+     * first (design.md §7.5), and the question says what is at stake.
+     */
+    public function testBothCodeActionsAskForConfirmation(): void
+    {
+        $withoutCode = $this->renderPage('settings');
+        $this->assertStringContainsString(
+            'data-confirm="Générer un code ?',
+            $this->formHtml($withoutCode, '/config/inscriptions/code/regenerate')
+        );
+        $this->assertStringNotContainsString('/config/inscriptions/code/deactivate', $withoutCode);
+
+        $this->controller->regenerateCode(new Request('POST', '/config/inscriptions/code/regenerate', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ], [], []), []);
+        $withCode = $this->renderPage('settings');
+
+        $this->assertStringContainsString(
+            "data-confirm=\"Générer un nouveau code ? L'ancien ne fonctionnera plus pour les familles "
+            . "qui l'ont reçu.\"",
+            $this->formHtml($withCode, '/config/inscriptions/code/regenerate')
+        );
+        $this->assertStringContainsString(
+            "data-confirm=\"Désactiver ce code ? Les familles qui l'ont reçu ne pourront plus accéder "
+            . "au formulaire.\"",
+            $this->formHtml($withCode, '/config/inscriptions/code/deactivate')
+        );
+    }
+
+    /**
+     * The export link carries the screen's filters as query parameters, each
+     * URL-encoded — a status value never breaks out of its parameter.
+     */
+    public function testTheExportLinkEncodesTheStatusFilter(): void
+    {
+        $body = $this->renderPage('requests', ['status' => 'pending&year=1']);
+
+        $this->assertStringContainsString('&amp;status=pending%26year%3D1&amp;q=', $body);
     }
 
     /**
@@ -1100,21 +1146,48 @@ class RegistrationConfigControllerTest extends TestCase
     // the visitor back to the sub-page their form lives on
     // ------------------------------------------------------------------
 
+    private const SETTINGS = '/config/inscriptions/reglages';
+
     /**
      * @return array<string, array{string, string, array<string, string>, string}>
      */
     public static function postRedirectProvider(): array
     {
         return [
-            'capacity box' => ['save', '/config/inscriptions', ['waitlist_enabled' => '1'], '/config/inscriptions/reglages'],
-            'open or close now' => ['toggleOpen', '/config/inscriptions/toggle-open', [], '/config/inscriptions/reglages'],
-            'schedule' => ['saveSchedule', '/config/inscriptions/schedule', ['scheduled_open_at' => '2027-09-30', 'scheduled_close_at' => ''], '/config/inscriptions/reglages'],
-            'schedule refused' => ['saveSchedule', '/config/inscriptions/schedule', ['scheduled_open_at' => '02-29', 'scheduled_close_at' => ''], '/config/inscriptions/reglages'],
-            'new code' => ['regenerateCode', '/config/inscriptions/code/regenerate', [], '/config/inscriptions/reglages'],
-            'code off' => ['deactivateCode', '/config/inscriptions/code/deactivate', [], '/config/inscriptions/reglages'],
-            'refuse all' => ['bulkRefuse', '/config/inscriptions/bulk/refuse', ['scout_year_id' => 'TARGET'], '/config/inscriptions/demandes?year=TARGET'],
-            'withdraw all' => ['bulkWithdraw', '/config/inscriptions/bulk/withdraw', ['scout_year_id' => 'TARGET'], '/config/inscriptions/demandes?year=TARGET'],
-            'refuse all, past year' => ['bulkRefuse', '/config/inscriptions/bulk/refuse', ['scout_year_id' => 'PAST'], '/config/inscriptions/demandes?year=PAST'],
+            'capacity box' => ['save', '/config/inscriptions', ['waitlist_enabled' => '1'], self::SETTINGS],
+            'open or close now' => ['toggleOpen', '/config/inscriptions/toggle-open', [], self::SETTINGS],
+            'schedule' => [
+                'saveSchedule',
+                '/config/inscriptions/schedule',
+                ['scheduled_open_at' => '2027-09-30', 'scheduled_close_at' => ''],
+                self::SETTINGS,
+            ],
+            'schedule refused' => [
+                'saveSchedule',
+                '/config/inscriptions/schedule',
+                ['scheduled_open_at' => '02-29', 'scheduled_close_at' => ''],
+                self::SETTINGS,
+            ],
+            'new code' => ['regenerateCode', '/config/inscriptions/code/regenerate', [], self::SETTINGS],
+            'code off' => ['deactivateCode', '/config/inscriptions/code/deactivate', [], self::SETTINGS],
+            'refuse all' => [
+                'bulkRefuse',
+                '/config/inscriptions/bulk/refuse',
+                ['scout_year_id' => 'TARGET'],
+                '/config/inscriptions/demandes?year=TARGET',
+            ],
+            'withdraw all' => [
+                'bulkWithdraw',
+                '/config/inscriptions/bulk/withdraw',
+                ['scout_year_id' => 'TARGET'],
+                '/config/inscriptions/demandes?year=TARGET',
+            ],
+            'refuse all, past year' => [
+                'bulkRefuse',
+                '/config/inscriptions/bulk/refuse',
+                ['scout_year_id' => 'PAST'],
+                '/config/inscriptions/demandes?year=PAST',
+            ],
         ];
     }
 
@@ -1122,7 +1195,12 @@ class RegistrationConfigControllerTest extends TestCase
      * @param array<string, string> $body
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('postRedirectProvider')]
-    public function testEachPostRedirectsToTheSubPageItsFormLivesOn(string $action, string $path, array $body, string $expected): void
+    public function testEachPostRedirectsToTheSubPageItsFormLivesOn(
+        string $action,
+        string $path,
+        array $body,
+        string $expected
+    ): void
     {
         $this->createRequest($this->targetYearId);
         $years = ['TARGET' => (string) $this->targetYearId, 'PAST' => (string) $this->pastYearId];

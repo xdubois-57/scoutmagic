@@ -53,7 +53,7 @@
            looking at the 12 pending ones would be a surprise; the reverse
            would be worse. #}
         <div class="mb-3">
-            <a href="/config/inscriptions/export?year={{ selected_year.id }}&amp;status={{ status_filter|default('') }}&amp;q={{ search|default('')|url_encode }}"
+            <a href="/config/inscriptions/export?year={{ selected_year.id }}&amp;status={{ status_filter|default('')|url_encode }}&amp;q={{ search|default('')|url_encode }}"
                class="btn btn-outline-secondary btn-sm w-100 w-sm-auto">
                 <i class="bi bi-download" aria-hidden="true"></i>
                 Exporter ({{ request_rows|length }})

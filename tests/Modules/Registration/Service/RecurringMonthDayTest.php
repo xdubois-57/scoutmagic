@@ -68,7 +68,11 @@ class RecurringMonthDayTest extends TestCase
     }
 
     #[DataProvider('occurrences')]
-    public function testNextOccurrenceIsTheNextRealDateOnThatDay(string $monthDay, string $today, ?string $expected): void
+    public function testNextOccurrenceIsTheNextRealDateOnThatDay(
+        string $monthDay,
+        string $today,
+        ?string $expected
+    ): void
     {
         $next = RecurringMonthDay::nextOccurrence($monthDay, new \DateTimeImmutable($today));
 
@@ -98,9 +102,9 @@ class RecurringMonthDayTest extends TestCase
             'a date long passed: next year' => ['09-30', '2026-10-11 10:00', '', 7, '2027-09-30'],
             // Picked in the calendar a few days back: the task will act on
             // it at its next run, so it is shown as still to come.
-            'just passed, inside the catch-up window, not applied' => ['10-08', '2026-10-11 10:00', '', 7, '2026-10-08'],
+            'just passed, inside the window, not applied' => ['10-08', '2026-10-11 10:00', '', 7, '2026-10-08'],
             'just passed, already applied: next year' => ['10-08', '2026-10-11 10:00', '2026-10-08', 7, '2027-10-08'],
-            'just passed, an older marker does not count' => ['10-08', '2026-10-11 10:00', '2025-10-08', 7, '2026-10-08'],
+            'just passed, an older marker' => ['10-08', '2026-10-11 10:00', '2025-10-08', 7, '2026-10-08'],
             'just passed, no catch-up window: next year' => ['10-08', '2026-10-11 10:00', '', 0, '2027-10-08'],
             'today, not applied yet' => ['10-11', '2026-10-11 10:00', '', 7, '2026-10-11'],
             'today, already applied: next year' => ['10-11', '2026-10-11 10:00', '2026-10-11', 7, '2027-10-11'],
