@@ -1548,6 +1548,50 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * The same rule on the OTHER branch, which I had not looked at.
+     *
+     * `ShareSourceResolver::communication()` builds two shapes. I fixed
+     * the source-backed one when the review of #850 found the hole, and
+     * left the one for a communication with its OWN gallery photo —
+     * where `communicationImage()` answers null the moment
+     * `PhotoPickerService::photoContents()` refuses, a delegated album's
+     * access having been revoked after publication. The same review
+     * found it again there, so `cardOf()` now keys on the image rather
+     * than on either producer: « the caller cannot see the source's
+     * image » is exactly when the card must not be served, whichever
+     * branch made the source.
+     */
+    public function testAKeptCardIsNotServedOnceTheGalleryPhotoIsOutOfReach(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $kept = $this->postedCard('Week-end');
+        $this->controller()->update(
+            $this->post([
+                'title' => 'Week-end',
+                'body' => 'Texte',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            ['id' => (string) $id]
+        );
+        FlashMessage::get();
+
+        $served = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+        $this->assertSame($kept, $served->getBody(), 'the card was never served, so this test proves nothing');
+
+        // The album holding that photo is delegated to a camp, or this
+        // chief's section changes hands: the picker stops answering.
+        unset($this->picker->photos[self::PHOTO]);
+
+        $this->assertSame(
+            404,
+            $this->controller()->preview($this->get(), ['id' => (string) $id])->getStatusCode(),
+            'the kept card was still served for a photo this chief may no longer see'
+        );
+    }
+
+    /**
      * The other side: a communication that owns its image really does
      * freeze both, so it keeps the stronger sentence.
      */

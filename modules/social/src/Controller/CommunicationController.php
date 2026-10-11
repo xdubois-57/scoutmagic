@@ -476,16 +476,32 @@ final class CommunicationController extends AbstractController
         // already reads this first; the preview did not. Found in the
         // review of #850.
         //
-        // **This leans on the resolver**, which attaches no card to a
-        // blocked source — an album deleted, delegated, migrating, or
-        // no longer this caller's. It has to: the card is served here
-        // BEFORE the image-null check that used to answer 404 for all
-        // of those, and `editableCommunication()` asks the gallery
-        // nothing, the row being this chief's. A second check on
-        // `blockedReason` here would never be the one deciding
-        // (`previewSource()` is handed a null source already), so the
-        // rule lives in the one place that fills the field.
-        // {@see ShareSourceResolver::sourceBackedCommunication()}
+        // **The kept card is served only where the source's own image
+        // is, and that condition is the whole access rule.** This route
+        // serves the card BEFORE the image-null check that used to
+        // answer 404, and `editableCommunication()` asks the gallery
+        // nothing — the row is this chief's whatever became of the
+        // album. So without this, a chief who lost access went on
+        // fetching the card: a gallery photo under a veil, and at
+        // « Net » no veil at all.
+        //
+        // **Both producers of a `ShareSource`, not one.** The review of
+        // #850 found this twice: first on a source-backed share, where
+        // `describeSource()` answers null for an album deleted,
+        // delegated, migrating or out of reach; then on a communication
+        // with its OWN gallery photo, where `photoContents()` answers
+        // null once `mayView()` fails. I fixed the first producer and
+        // did not look at the second. Keying on `image` covers both, and
+        // every future one, because « the caller cannot see the source's
+        // image » is exactly when the card must not be served.
+        //
+        // A frozen share whose photo is merely GONE loses its preview
+        // too, and that is the right side to err on: the two causes are
+        // indistinguishable here, SECURITY.md § 6 promises one 404 for
+        // all of them, and the publication still goes out on the kept
+        // card ({@see ShareSource::hasImageToPublish()}) — what this
+        // refuses is handing the bytes to an HTTP caller, not sending
+        // them where the chief already asked.
         //
         // **Only once it is frozen**, for the reason `backgroundOf()`
         // spells out: before that the share is still the chief's to
@@ -494,7 +510,8 @@ final class CommunicationController extends AbstractController
         // read the stored card whether or not the share is frozen, and
         // must: the FIRST publication is the one that posts a card and
         // has no publication row yet.
-        if ($frozen && $source->card !== null && $source->card !== '') {
+        if ($frozen && $source->card !== null && $source->card !== ''
+            && $source->image !== null && $source->image !== '') {
             return (new Response($source->card))
                 ->setHeader('Content-Type', ReceivedCard::MIME)
                 ->setHeader('Cache-Control', 'private, no-store')
