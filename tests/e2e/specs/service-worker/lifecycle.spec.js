@@ -108,6 +108,13 @@ test('a navigation with the network down is answered from the cache', async ({ p
             page.getByRole('heading', { name: 'Pas de connexion' }),
             'the refusal a visitor sees offline is the application\'s page, never the browser\'s',
         ).toBeVisible();
+        // #883: and it says why — functional cookies, a page opened within
+        // the setting's number of days (30 on a fresh installation).
+        await expect(page.locator('#offline-conditions')).toContainText('cookies fonctionnels sont activés');
+        await expect(page.locator('#offline-conditions')).toContainText('il y a moins de 30 jours');
+        // No home page saved on this device: no « Accueil » leading back here.
+        await expect(page.locator('#offline-home-link')).toBeHidden();
+        await expect(page.getByText('La page d\'accueil n\'est pas enregistrée sur cet appareil.')).toBeVisible();
     } finally {
         await context.setOffline(false);
     }

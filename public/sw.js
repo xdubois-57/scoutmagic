@@ -636,15 +636,36 @@ function retryOnce(request) {
  *
  * @returns {Response}
  */
-function generatedOfflinePage() {
+function generatedOfflinePage(stalenessDays) {
     return new Response(
         '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">'
             + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
             + '<title>Hors ligne</title></head><body><h1>Pas de connexion</h1>'
             + '<p>Cette page n\'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.</p>'
+            + '<p>' + offlineConditions(stalenessDays) + '</p>'
             + '</body></html>',
         { status: 503, headers: { 'Content-Type': 'text/html; charset=UTF-8' } }
     );
+}
+
+/**
+ * Why a page is or is not available offline (#883) — the sentence of
+ * pwa/offline.html.twig, for the page built here when that one is gone.
+ * The number of days is the setting the page sent with its configuration;
+ * without one, « récemment » rather than a figure that may be wrong.
+ *
+ * @param {unknown} stalenessDays
+ * @returns {string}
+ */
+function offlineConditions(stalenessDays) {
+    const days = Number(stalenessDays);
+    let when = 'récemment';
+    if (Number.isInteger(days) && days > 0) {
+        when = 'il y a moins de ' + days + (days === 1 ? ' jour' : ' jours');
+    }
+
+    return 'Une page n\'est disponible hors ligne que si les cookies fonctionnels sont activés '
+        + '(depuis le pied de page, en ligne) et si vous l\'avez ouverte dans l\'application ' + when + '.';
 }
 
 /**
@@ -669,7 +690,22 @@ function offlinePage() {
     // exists to replace — so a broken cache is read as an empty one.
     return caches.match('/offline')
         .catch(function () { return null; })
-        .then(function (cached) { return cached || generatedOfflinePage(); });
+        .then(function (cached) { return cached || configuredOfflinePage(); });
+}
+
+/**
+ * generatedOfflinePage() with the number of days the page sent in its
+ * configuration (#883). That configuration lives in Cache Storage too, so
+ * a cache that could not give back the page may not give this back
+ * either: then the sentence says « récemment ».
+ *
+ * @returns {Promise<Response>}
+ */
+function configuredOfflinePage() {
+    return Promise.resolve()
+        .then(getOfflineConfig)
+        .catch(function () { return null; })
+        .then(function (config) { return generatedOfflinePage(config?.staleness_days); });
 }
 
 function handleNavigate(request, url, preloadResponse, event) {
@@ -1061,6 +1097,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     cachedCopy: cachedCopy,
     keepAlive: keepAlive,
     offlinePage: offlinePage,
+    offlineConditions: offlineConditions,
     retryOnce: retryOnce,
     NETWORK_TIMEOUT_MS: NETWORK_TIMEOUT_MS,
     injectOfflineBanner: injectOfflineBanner,

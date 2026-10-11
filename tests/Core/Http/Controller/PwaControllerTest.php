@@ -272,6 +272,62 @@ class PwaControllerTest extends TestCase
     }
 
     /**
+     * #883: the screen says why a page is missing — functional cookies, a
+     * page opened recently — with the setting's number of days, and offers
+     * « Accueil » only once offline-page.js has found a saved home page.
+     */
+    public function testTheOfflinePageSaysWhenAPageIsAvailableAndHidesAccueilUntilOneIsSaved(): void
+    {
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 14);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+
+        $body = $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('cookies fonctionnels sont activés', $body);
+        $this->assertStringContainsString('il y a moins de 14 jours', $body);
+        $this->assertMatchesRegularExpression('~id="offline-home-link" class="[^"]*\\bd-none\\b~', $body);
+        $this->assertStringContainsString('La page d\'accueil n\'est pas enregistrée sur cet appareil.', $body);
+    }
+
+    public function testTheOfflinePageFallsBackToThirtyDaysAndSaysOneDayInTheSingular(): void
+    {
+        $this->assertStringContainsString(
+            'il y a moins de 30 jours',
+            $this->controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody()
+        );
+
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 1);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+        $body = $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('il y a moins de 1 jour.', preg_replace('~\s+~', ' ', $body));
+    }
+
+    // The setting is a plain number an admin can set to 0: the page says
+    // « récemment » then, as the service worker's own copy of the sentence.
+    public function testTheOfflinePageSaysRecentlyForASettingThatIsNotAPositiveNumberOfDays(): void
+    {
+        $twig = TestTwig::create();
+        $twig->addGlobal('site_name', 'Unité des Bois Joyeux');
+        $twig->addGlobal('offline_cache_staleness_days', 0);
+        $controller = new PwaController($twig, $this->settingService, new UnitLogoService(
+            new UnitLogoProcessor(), $this->settingService, $this->storagePath, $this->defaultIconPath
+        ));
+        $body = preg_replace('~\s+~', ' ', $controller->offline(new Request('GET', '/offline', [], [], [], []), [])->getBody());
+
+        $this->assertStringContainsString("ouverte dans l'application récemment.", $body);
+        $this->assertStringNotContainsString('moins de 0', $body);
+    }
+
+    /**
      * Mirrors public/index.php's actual route registrations: role_min
      * "public" for all four PWA/favicon routes, so an unauthenticated
      * request must reach the controller (200/404 territory) rather than

@@ -447,12 +447,16 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate offlinePage() in public/sw.js');
 
         $this->assertStringContainsString("caches.match('/offline')", $m[1]);
-        $this->assertStringContainsString('cached || generatedOfflinePage()', $m[1]);
+        $this->assertStringContainsString('cached || configuredOfflinePage()', $m[1]);
+        preg_match('/function configuredOfflinePage\(\) \{(.*?)\n\}/s', $this->swJs, $configured);
+        $this->assertNotEmpty($configured, 'Could not locate configuredOfflinePage() in public/sw.js');
+        $this->assertStringContainsString('.catch(function () { return null; })', $configured[1]);
+        $this->assertStringContainsString('generatedOfflinePage(config?.staleness_days)', $configured[1]);
 
         // The Response it falls back to lives in its own function (Sonar
         // will not have one nested here), so assert on that one too — the
         // point being pinned is that SOMETHING real is always returned.
-        preg_match('/function generatedOfflinePage\(\) \{(.*?)\n\}/s', $this->swJs, $generated);
+        preg_match('/function generatedOfflinePage\(stalenessDays\) \{(.*?)\n\}/s', $this->swJs, $generated);
         $this->assertNotEmpty($generated, 'Could not locate generatedOfflinePage() in public/sw.js');
         $this->assertStringContainsString('new Response(', $generated[1]);
         $this->assertStringContainsString('Pas de connexion', $generated[1]);
