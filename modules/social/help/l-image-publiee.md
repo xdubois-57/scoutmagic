@@ -38,19 +38,33 @@ choisissez-en une qui peut être montrée à tout le monde.
 
 ## Le même flou pour toutes les destinations
 
-Facebook, Instagram et les groupes de discussion reçoivent **la même
-image**, au flou que le curseur indiquait. Un groupe recevait autrefois la
-photo telle quelle, puisqu'il est privé et que ses membres voient déjà la
-galerie ; ce n'est plus le cas, pour que ce que vous voyez dans le
-composeur soit vraiment ce qui part partout. Un groupe reçoit en plus un
-**vrai lien** vers l'album ou l'actualité.
+Partout où une image part, c'est **la même**, au flou que le curseur
+indiquait. Un groupe recevait autrefois la photo telle quelle, puisqu'il
+est privé et que ses membres voient déjà la galerie ; ce n'est plus le
+cas, pour que ce que vous voyez dans le composeur soit vraiment ce qui
+part. Un groupe reçoit en plus un **vrai lien** vers l'album ou
+l'actualité.
+
+Une exception, et elle compte : **une actualité ne part pas en image sur
+la Page Facebook**, mais en lien. Le paragraphe suivant la décrit.
 
 ## Ce qui part, selon le contenu
 
-Sur la Page Facebook, une actualité part **en lien** : Facebook affiche
-l'aperçu de sa page. Sur Instagram, qui n'accepte que des images, c'est
-l'image de l'actualité qui part. Une actualité réservée aux animateurs ne
-peut pas quitter le site.
+Sur la Page Facebook, une actualité part **en lien**, et c'est Facebook
+qui fabrique l'aperçu : il le construit depuis la page de l'actualité —
+son image de couverture, son titre, son résumé — et non depuis l'image
+que le composeur vous montre. Les deux ne se ressemblent pas forcément :
+l'image du composeur porte le titre écrit dessus et l'adresse du site,
+l'aperçu de Facebook met le titre en texte à côté de la couverture nue.
+Le composeur vous le dit sous l'image.
+
+Sur Instagram et dans les groupes, qui n'affichent pas d'aperçu de lien,
+c'est bien l'image du composeur qui part — la couverture de l'actualité
+avec son titre dessus. Sans flou : la couverture d'une actualité est
+publique de toute façon, donc il n'y a rien à cacher et le composeur
+n'offre pas de curseur pour elle.
+
+Une actualité réservée aux animateurs ne peut pas quitter le site.
 
 Chaque destination porte son état : disponible, déjà publiée avec sa date,
 en échec avec la raison donnée par Meta, ou indisponible avec la raison.

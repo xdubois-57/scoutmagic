@@ -106,6 +106,36 @@ final class PublishingServiceTest extends TestCase
         $this->assertNotNull($this->request('/media'));
     }
 
+    /**
+     * **What Instagram actually receives of an article** (issue #706,
+     * IT-03): the card, composed from the article's cover with its title
+     * drawn on it and the site's address, and NOT blurred — an article's
+     * cover is public by design, which is why `article()` answers
+     * `imageFromGallery` false and the composer offers no slider for it.
+     *
+     * The test above only proved that `/media` was called at all. What
+     * leaves is the thing worth pinning, and this is also the image that
+     * differs from Facebook's: Facebook gets the link and shows the
+     * article page's Open Graph preview — the bare cover, title and
+     * summary as text beside it — which is why the composer says so.
+     */
+    public function testInstagramGetsTheArticlesCardUnblurredWithItsTitleOnIt(): void
+    {
+        $this->publish($this->article(), [SocialPlatform::Instagram]);
+
+        $url = (string) ($this->request('/media')['fields']['image_url'] ?? '');
+        $served = $this->cardsService()->open(substr($url, -64), $this->now);
+        $this->assertNotNull($served, 'the address handed to Instagram serves nothing');
+        $sent = (string) file_get_contents($served);
+
+        $this->assertSame(
+            (new \Modules\Social\Card\CardRenderer())
+                ->render(H::groupPhoto(), 'Inscriptions', 'unite.example/s/abc', false, 0.0),
+            $sent,
+            'Instagram was handed something other than the article\'s unblurred card'
+        );
+    }
+
     public function testASecondPublicationToTheSameDestinationIsRefusedServerSide(): void
     {
         $this->publish($this->album(), [SocialPlatform::Facebook]);
@@ -246,6 +276,22 @@ final class PublishingServiceTest extends TestCase
     private function publish(ShareSource $source, array $destinations, array $retries = []): array
     {
         return $this->service()->publish($source, $destinations, 'Les photos sont en ligne', $retries, 7, $this->now);
+    }
+
+    /**
+     * A second `CardService` over the same repository and directory, to
+     * open what the first one issued — the only way to see the bytes
+     * Meta was actually pointed at.
+     */
+    private function cardsService(): CardService
+    {
+        return new CardService(
+            new CardRepository($this->pdo),
+            new CardRenderer(),
+            $this->settings,
+            new JournalService($this->journal),
+            $this->directory
+        );
     }
 
     private function service(): PublishingService

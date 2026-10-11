@@ -57,6 +57,9 @@ final class CommunicationControllerTest extends TestCase
     public const ALBUM_ID = 42;
     public const ALBUM_TITLE = 'Week-end de rentrée';
 
+    /** The article « Partager » opens the composer from, in this class. */
+    public const ARTICLE_ID = 77;
+
     /**
      * Whether the one album `albumSource()` describes has a cover photo.
      * Reset in setUp, so a test that clears it cannot reach another.
@@ -98,6 +101,7 @@ final class CommunicationControllerTest extends TestCase
         self::$albumHasCover = true;
         self::$albumTitle = self::ALBUM_TITLE;
         self::$albumReachable = true;
+        self::$articleCover = null;
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
             ini_set('session.cache_limiter', '');
@@ -1465,6 +1469,43 @@ final class CommunicationControllerTest extends TestCase
     }
 
     /**
+     * **The composer stops promising « exactement ce qui sera publié »
+     * where Facebook will show something else** (issue #706, IT-03).
+     *
+     * A source that carries a link — an article today, a communication's
+     * own public page from IT-04 — makes the Page post a LINK
+     * publication, and Facebook then builds its preview from that page's
+     * Open Graph tags: the article's cover, title and summary, not this
+     * card. Instagram and the groups do get the card. The sentence said
+     * « exactement » to everyone, which was true of two destinations out
+     * of three.
+     */
+    public function testTheComposerSaysFacebookWillShowItsOwnPreviewOfAnArticle(): void
+    {
+        $id = $this->articleBackedCommunication();
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->edit($this->get(), ['id' => (string) $id])->getBody());
+
+        $this->assertStringContainsString('Sur Facebook, c\'est un lien qui est publié', $flat);
+        $this->assertStringContainsString('fabrique lui-même son aperçu', $flat);
+        $this->assertStringContainsString('l\'actualité', $flat);
+        $this->assertStringNotContainsString('Voici exactement ce qui sera publié', $flat);
+    }
+
+    /** And an album, which goes as a photo, still gets the plain promise. */
+    public function testTheComposerStillPromisesTheCardItselfForAnAlbum(): void
+    {
+        $id = $this->sourceBackedCommunication();
+        $this->loginAuthor();
+
+        $flat = self::flattened($this->controller()->edit($this->get(), ['id' => (string) $id])->getBody());
+
+        $this->assertStringContainsString('Voici exactement ce qui sera publié', $flat);
+        $this->assertStringNotContainsString('c\'est un lien qui est publié', $flat);
+    }
+
+    /**
      * And with a card kept, the same notice may promise the image too —
      * the other half of the rule, which had no test of its own, which is
      * how the unconditional promise went unnoticed.
@@ -2492,6 +2533,72 @@ final class CommunicationControllerTest extends TestCase
         };
     }
 
+    /**
+     * The news module as this class needs it: one article, shareable,
+     * with its own public address — which is what makes `ShareSource`
+     * carry a `link`, and so what makes Facebook publish a link rather
+     * than the card (issue #706, IT-03).
+     */
+    private static function articleSource(): \Modules\News\Api\ArticleShareSourceInterface
+    {
+        return new class (self::$articleCover) implements \Modules\News\Api\ArticleShareSourceInterface {
+            public function __construct(private readonly ?int $cover)
+            {
+            }
+
+            public function describe(int $articleId, string $role, int $accountId): ?\Modules\News\Api\SharedArticle
+            {
+                return $articleId === CommunicationControllerTest::ARTICLE_ID
+                    ? new \Modules\News\Api\SharedArticle(
+                        CommunicationControllerTest::ARTICLE_ID,
+                        'Inscriptions ouvertes',
+                        'https://unite.example/s/abc',
+                        $this->cover,
+                        true
+                    )
+                    : null;
+            }
+        };
+    }
+
+    /**
+     * The file id the article double names as its cover, stored once per
+     * test so the resolver can actually read it — an article answers an
+     * `imageFileId`, not bytes, unlike the album double.
+     */
+    private static ?int $articleCover = null;
+
+    private function storeArticleCover(): int
+    {
+        $files = new FileRepository($this->pdo);
+        $storage = new EncryptedFileStorageService($files, H::encryption(), $this->storage);
+
+        return $storage->store(
+            H::groupPhoto(),
+            'image/jpeg',
+            'couverture.jpg',
+            'news',
+            'chief',
+            'news',
+            $this->author
+        );
+    }
+
+    /** A communication that shares that article. */
+    private function articleBackedCommunication(): int
+    {
+        self::$articleCover = $this->storeArticleCover();
+
+        return $this->communications->create(
+            '',
+            'Les inscriptions sont ouvertes',
+            $this->author,
+            new \DateTimeImmutable(),
+            'article',
+            self::ARTICLE_ID
+        );
+    }
+
     private function controller(): CommunicationController
     {
         $settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
@@ -2516,7 +2623,7 @@ final class CommunicationControllerTest extends TestCase
                 $settings,
                 $reader,
                 self::albumSource(),
-                null,
+                self::articleSource(),
                 $this->communications,
                 $this->picker,
                 []

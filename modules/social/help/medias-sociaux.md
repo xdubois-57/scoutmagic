@@ -33,7 +33,10 @@ aucune, le bouton est absent et la page le dit en une ligne.
 La page se lit de haut en bas, dans l'ordre où la publication se compose :
 
 - **l'image, telle qu'elle sera publiée**, titre et adresse du site
-  écrits dessus ;
+  écrits dessus — sauf sur la Page Facebook quand vous partagez une
+  actualité, qui part en lien et dont Facebook fabrique son propre
+  aperçu ; la page vous le dit sous l'image, et
+  [L'image publiée et son flou](l-image-publiee) l'explique ;
 - **« Galerie »** ou **« Téléverser »**, pour une communication écrite de
   zéro. Quand l'image vient d'un album ou d'une actualité, elle et son
   titre ne se changent pas ici : ils se changent là-bas ;

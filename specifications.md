@@ -3459,7 +3459,13 @@ par le module propriétaire, avant d'écrire quoi que ce soit.
 **Ce qui part.** Un album part en publication d'image sur la Page et sur
 Instagram. Une actualité part **en lien** sur la Page — Facebook en
 affiche l'aperçu à partir de la page de l'actualité — et en image sur
-Instagram, qui n'accepte jamais de lien. Seule une actualité publique,
+Instagram, qui n'accepte jamais de lien. **Et le composeur le dit** : la
+phrase sous l'image promet « exactement ce qui sera publié » seulement là
+où c'est vrai ; dès que la source porte un lien, elle annonce que
+Facebook fabriquera son propre aperçu depuis la page — image de
+couverture, titre et résumé — et n'affichera donc pas cette image. Les
+deux ne se ressemblent pas : celle du composeur porte le titre écrit
+dessus et l'adresse du site. Seule une actualité publique,
 en lien direct ou réservée aux membres identifiés peut quitter le site :
 ce sont les visibilités dont l'image est déjà un fichier public.
 
