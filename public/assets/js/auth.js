@@ -25,6 +25,23 @@
         });
     });
 
+    /**
+     * Where a successful login goes: the path the server read back from the
+     * session (Core\Security\LoginReturn, issue #833), or `/`. The server
+     * only ever sends an internal path; this refuses anything else anyway,
+     * so a broken or tampered answer cannot send the visitor off the site.
+     *
+     * @param {unknown} target
+     * @returns {string}
+     */
+    function afterLogin(target) {
+        if (typeof target !== 'string' || target.charAt(0) !== '/'
+            || target.indexOf('//') !== -1 || target.indexOf('\\') !== -1) {
+            return '/';
+        }
+        return target;
+    }
+
     function getCsrf() {
         return /** @type {HTMLInputElement} */ (document.getElementById('csrf-token')).value;
     }
@@ -179,7 +196,7 @@
                         stopPolling();
                         showState(stateConfirmed);
                         setTimeout(function() {
-                            window.location.href = '/';
+                            window.location.href = afterLogin(data.redirect);
                         }, 2000);
                     }
                 })
@@ -286,7 +303,7 @@
                 var data = await res.json();
 
                 if (data.success) {
-                    window.location.href = '/';
+                    window.location.href = afterLogin(data.redirect);
                 } else if (data.locked_seconds) {
                     lockoutEl.textContent =
                         'Trop de tentatives. Réessayez dans ' + Math.ceil(data.locked_seconds / 60) + ' minute(s).';
@@ -416,7 +433,7 @@
                 var result = await verifyRes.json();
 
                 if (result.success) {
-                    window.location.href = '/';
+                    window.location.href = afterLogin(result.redirect);
                 } else {
                     errorEl.textContent = result.error || 'L\'authentification a échoué.';
                     errorEl.classList.remove('d-none');
@@ -451,5 +468,6 @@
     globalThis.ScoutMagicAuthInternals = {
         base64ToBuffer: base64ToBuffer,
         bufferToBase64: bufferToBase64,
+        afterLogin: afterLogin,
     };
 })();

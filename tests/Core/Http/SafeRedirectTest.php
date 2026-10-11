@@ -89,4 +89,37 @@ class SafeRedirectTest extends TestCase
     {
         $this->assertSame('/', SafeRedirect::internalPathFromUrl('https://evil.example'));
     }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function loginReturnRefusals(): array
+    {
+        return [
+            'everything internalPath refuses' => ['https://evil.example/x'],
+            'scheme-relative' => ['//evil.example'],
+            'double slash further in' => ['/r//evil.example'],
+            'backslash further in' => ['/r/\\evil.example'],
+            'colon before the query' => ['/javascript:alert(1)'],
+            'control character' => ["/r/abc\n"],
+        ];
+    }
+
+    /**
+     * Issue #833: the address a login returns to arrives in a link anyone
+     * can send, so it is held to a stricter rule than internalPath().
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('loginReturnRefusals')]
+    public function testLoginReturnPathRefusesMoreThanInternalPath(string $target): void
+    {
+        $this->assertSame('/', SafeRedirect::loginReturnPath($target));
+    }
+
+    public function testLoginReturnPathKeepsAnOrdinaryPathAndItsQuery(): void
+    {
+        $this->assertSame('/r/abc123', SafeRedirect::loginReturnPath('/r/abc123'));
+        $this->assertSame('/retro?tab=open', SafeRedirect::loginReturnPath('/retro?tab=open'));
+        // A colon is only refused before the query: a query value may hold one.
+        $this->assertSame('/agenda?at=10:30', SafeRedirect::loginReturnPath('/agenda?at=10:30'));
+    }
 }
