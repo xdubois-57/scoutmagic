@@ -620,6 +620,34 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
     });
 
+    // An item cut in two lines by a nested list: the line holding the
+    // caret is the one made a heading, not the item's first.
+    it('makes a heading of the line after a nested list when the caret is there', async () => {
+        const { rt, surface, press } = await editing('<ul><li>avant<ul><li>sous</li></ul>texte</li><li>fin</li></ul>', 'texte');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>avant<ul><li>sous</li></ul></li></ul><h2>texte</h2><ul><li>fin</li></ul>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('makes a heading of the text after a nested list that opens the item, and no empty heading', async () => {
+        const { surface, press } = await editing('<ul><li><ul><li>sous</li></ul>texte</li></ul>', 'texte');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li><ul><li>sous</li></ul></li></ul><h2>texte</h2>');
+    });
+
+    it('takes each line a selection crosses out of the list, in the order they are read', async () => {
+        const { surface, press } = await editing('<ul><li>avant<ul><li>sous</li></ul>texte</li></ul>', 'avant');
+        select(surface, 'avant', 'texte');
+
+        press('h3');
+
+        expect(surface.innerHTML).toBe('<h3>avant</h3><h3>sous</h3><h3>texte</h3>');
+    });
+
     it('makes a paragraph of any block it was not built to offer, never an element named by the attribute', async () => {
         const { surface } = await editing('<ul><li>un</li></ul>', 'un');
         const odd = document.querySelector('[data-value="h2"]');

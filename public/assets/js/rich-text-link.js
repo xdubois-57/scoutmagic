@@ -1319,37 +1319,128 @@
     var ITEM_WRAPPERS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 
     /**
-     * The list items the selection reaches in $surface, in document order:
-     * the one holding the caret, or every item whose own content — nested
-     * lists aside — the selection touches. A selection that starts in a
+     * The lines of $item: its children cut at each nested list. An item
+     * holds one line, or several when a nested list sits between two runs
+     * of its own text — `<li>avant<ul>…</ul>texte</li>`, which the
+     * canonical form keeps as it is.
+     *
+     * @param {HTMLLIElement} item
+     * @returns {ChildNode[][]} every line, empty ones included, in order
+     */
+    function linesOf(item) {
+        /** @type {ChildNode[][]} */
+        var lines = [[]];
+        Array.from(item.childNodes).forEach(function (child) {
+            if (child.nodeName === 'UL' || child.nodeName === 'OL') {
+                lines.push([]);
+            } else {
+                lines[lines.length - 1].push(child);
+            }
+        });
+
+        return lines;
+    }
+
+    /**
+     * The line of a list item the selection reaches: its nodes, and the
+     * item and the node it stands before, for a line with no node yet.
+     *
+     * @typedef {{item: HTMLLIElement, nodes: ChildNode[], before: ChildNode|null}} ItemLine
+     */
+
+    /**
+     * The lines of list items the selection reaches in $surface, in
+     * document order: the one holding the caret, or every line the
+     * selection touches. A line, not a whole item: in
+     * `<li>avant<ul>…</ul>texte</li>` the caret in « texte » makes
+     * « texte » the heading, not « avant ». A selection that starts in a
      * paragraph above a list and ends inside it reaches its first items
      * too: leaving those to the engine is the very bug of #885.
      *
      * @param {HTMLElement} surface
-     * @returns {{items: HTMLLIElement[], range: Range|null}}
+     * @returns {{lines: ItemLine[], range: Range|null}}
      */
-    function listItemsInSelection(surface) {
+    function listLinesInSelection(surface) {
         var selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) {
-            return { items: [], range: null };
+            return { lines: [], range: null };
         }
         var range = selection.getRangeAt(0);
         if (range.collapsed) {
             var node = range.startContainer;
             var element = node.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (node) : node.parentElement;
-            var item = element?.closest('li') ?? null;
-            var inside = item && surface.contains(item) && item !== surface;
+            var item = /** @type {HTMLLIElement|null} */ (element?.closest('li') ?? null);
+            if (!item || !surface.contains(item) || item === surface) {
+                return { lines: [], range: range };
+            }
 
-            return { items: inside ? [/** @type {HTMLLIElement} */ (item)] : [], range: range };
+            return { lines: [lineAtCaret(item, node, range.startOffset)], range: range };
         }
 
-        var items = Array.from(surface.querySelectorAll('li')).filter(function (li) {
-            return Array.from(li.childNodes).some(function (child) {
-                return child.nodeName !== 'UL' && child.nodeName !== 'OL' && range.intersectsNode(child);
+        /** @type {ItemLine[]} */
+        var lines = [];
+        Array.from(surface.querySelectorAll('li')).forEach(function (li) {
+            var item = /** @type {HTMLLIElement} */ (li);
+            linesOf(item).forEach(function (nodes) {
+                var touched = nodes.some(function (child) {
+                    return range.intersectsNode(child);
+                });
+                // A line of bare whitespace — the indentation between two
+                // nested lists — is not something the author selected.
+                var blank = nodes.every(function (child) {
+                    return (child.textContent || '').trim() === '' && !(child.nodeType === Node.ELEMENT_NODE && (child.nodeName === 'IMG' || /** @type {Element} */ (child).querySelector('img')));
+                });
+                if (touched && !blank) {
+                    lines.push({ item: item, nodes: nodes, before: null });
+                }
             });
         });
 
-        return { items: /** @type {HTMLLIElement[]} */ (items), range: range };
+        // querySelectorAll() gives an outer item before the items nested in
+        // it, so its second line — after the nested list — would come
+        // before them. The lines are moved in the order they are read.
+        lines.sort(function (a, b) {
+            return a.nodes[0].compareDocumentPosition(b.nodes[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+        });
+
+        return { lines: lines, range: range };
+    }
+
+    /**
+     * The line of $item that holds the caret, standing at $offset in $node.
+     *
+     * @param {HTMLLIElement} item
+     * @param {Node} node
+     * @param {number} offset
+     * @returns {ItemLine}
+     */
+    function lineAtCaret(item, node, offset) {
+        // The child of $item the caret is in, or — the caret standing
+        // between two children of the item itself — the one after it.
+        /** @type {Node|null} */
+        var child = node;
+        if (node === item) {
+            child = item.childNodes[offset] ?? null;
+        } else {
+            while (child && child.parentNode !== item) {
+                child = child.parentNode;
+            }
+        }
+
+        var lines = linesOf(item);
+        var children = Array.from(item.childNodes);
+        var index = 0;
+        var position = child ? children.indexOf(/** @type {ChildNode} */ (child)) : children.length;
+        // Which line: one more for every nested list before the caret.
+        children.slice(0, position < 0 ? 0 : position).forEach(function (previous) {
+            if (previous.nodeName === 'UL' || previous.nodeName === 'OL') {
+                index++;
+            }
+        });
+        var nodes = lines[index] ?? [];
+        var before = nodes.length === 0 && child ? /** @type {ChildNode} */ (child) : null;
+
+        return { item: item, nodes: nodes, before: before };
     }
 
     /**
@@ -1440,18 +1531,23 @@
     }
 
     /**
-     * Makes $item a $tag block of its own, out of every list.
+     * Makes $line a $tag block of its own, out of every list. What the item
+     * held before the line stays in the item; what came after it follows
+     * the block, as liftOutOfLists() does for any block.
      *
-     * @param {HTMLLIElement} item
+     * @param {ItemLine} line
      * @param {HTMLElement} surface
      * @param {'h2'|'h3'|'p'} tag
      * @returns {HTMLElement} the new block
      */
-    function itemToBlock(item, surface, tag) {
+    function lineToBlock(line, surface, tag) {
         var block = document.createElement(tag);
-        item.insertBefore(block, item.firstChild);
-        while (block.nextSibling && block.nextSibling.nodeName !== 'UL' && block.nextSibling.nodeName !== 'OL') {
-            var next = /** @type {ChildNode} */ (block.nextSibling);
+        // Read now, not when the selection was: lifting an earlier line of
+        // the same item has moved this one into the item that follows.
+        var anchor = line.nodes[0] ?? line.before;
+        var item = /** @type {HTMLElement} */ (anchor?.parentElement ?? line.item);
+        item.insertBefore(block, anchor ?? null);
+        line.nodes.forEach(function (next) {
             if (ITEM_WRAPPERS.has(next.nodeName)) {
                 // The item's text in a block of its own (a pasted `<p>`):
                 // its content comes across, never the block itself, which
@@ -1463,7 +1559,7 @@
             } else {
                 block.appendChild(next);
             }
-        }
+        });
         if (!block.hasChildNodes()) {
             // An empty item: a <br> keeps the new block one line high and
             // gives the caret somewhere to stand.
@@ -1476,8 +1572,8 @@
     }
 
     /**
-     * Makes every list item the selection reaches a $tag block of its own.
-     * Does nothing when it reaches none.
+     * Makes every line of a list item the selection reaches a $tag block
+     * of its own. Does nothing when it reaches none.
      *
      * The nodes are moved, never copied, so the selection is put back on
      * the same text once the items have moved. When it also reached
@@ -1491,16 +1587,16 @@
      *          back once the surface has focus again; null when no item
      */
     function listItemsToBlocks(surface, tag) {
-        var found = listItemsInSelection(surface);
-        if (found.items.length === 0 || !found.range) {
+        var found = listLinesInSelection(surface);
+        if (found.lines.length === 0 || !found.range) {
             return null;
         }
         var range = found.range;
         var bounds = { start: range.startContainer, startOffset: range.startOffset, end: range.endContainer, endOffset: range.endOffset };
         var engine = !range.collapsed && (!isInListItem(bounds.start, surface) || !isInListItem(bounds.end, surface));
 
-        var blocks = found.items.map(function (item) {
-            return itemToBlock(item, surface, tag);
+        var blocks = found.lines.map(function (line) {
+            return lineToBlock(line, surface, tag);
         });
 
         var restored = document.createRange();
