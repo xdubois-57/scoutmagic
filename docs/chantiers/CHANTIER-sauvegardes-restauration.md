@@ -271,7 +271,8 @@ puis remis tels quels** une fois le schéma restauré à jour — sur le modèle
 ### La remise en place
 
 Elle tourne **sur la passe de reprise, après la migration et après la réconciliation de #832, et avant
-la purge de rétention** de `finishRestore()`.
+la purge de rétention** de `finishRestore()` — sauf l'annulation des tâches (point 5), qui ne peut pas
+attendre cette passe.
 
 1. **La liste des sauvegardes est celle d'aujourd'hui.** Les lignes `backups` restaurées sont
    remplacées par celles mises de côté, **avec les mêmes identifiants** — c'est ce qui garde les mots de
@@ -300,8 +301,14 @@ la purge de rétention** de `finishRestore()`.
    suit une adresse e-mail et reste la même personne ; ce risque résiduel est accepté et noté dans le
    docblock.
 5. **Les tâches repartent d'un état propre.** Toute ligne `scheduled_actions` en attente ou en cours
-   ramenée par la sauvegarde — sauf la chaîne de la restauration elle-même — est passée à `canceled`,
-   et le journal reçoit un événement qui les compte par tâche (sans charge utile). Les chaînes
+   ramenée par la sauvegarde est passée à `canceled`, et le journal reçoit un événement qui les compte
+   par tâche (sans charge utile). **Cette annulation se fait dans la passe même du remplacement,
+   aussitôt la base remplacée et avant `scheduleMigrationResume()`**, pas sur la passe de reprise : à la
+   passe suivante, `SchedulerRunner::processOverdue()` prend toutes les lignes dues
+   (`SchedulerRepository::claimOverdue()`), sans priorité pour la reprise — une tâche ramenée (un envoi
+   hors site, une sauvegarde) s'exécuterait donc contre un schéma ni migré ni réconcilié avant d'être
+   annulée. La ligne de reprise, créée juste après, n'est pas concernée ; un retour arrière vers la copie de
+   sécurité, qui remet les tâches d'aujourd'hui, n'annule rien. Les chaînes
    récurrentes sont ré-amorcées par les `ensureScheduled()` existants (`SchedulerService::seed()`),
    d'après les réglages restaurés ; vérifie qu'elles le sont dès la passe suivante et pas seulement à la
    prochaine requête web, sinon amorce-les explicitement.
@@ -419,7 +426,8 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   de l'unité → nouvel identifiant, fichier de l'unité intact ; mots de passe gardés et jamais attachés à
   une autre sauvegarde ; réglages hors site gardés, et la règle portable avec et sans destination ;
   journal d'aujourd'hui suivi des lignes de la restauration, compte absent → `NULL` ; tâches ramenées
-  annulées et comptées, chaînes récurrentes ré-amorcées ; données gardées lisibles après installation de
+  annulées et comptées dans la passe du remplacement — aucune ne s'exécute à la passe de reprise —,
+  chaînes récurrentes ré-amorcées ; données gardées lisibles après installation de
   la clé de l'archive ; échec de la remise en place journalisé sans faire échouer la restauration ; fichier
   mis de côté supprimé dans tous les cas ; purge de rétention qui épargne la copie de sécurité ;
 - **envoi hors site** : envoi en cours interrompu, archive locale supprimée, envoi partiel abandonné ;
