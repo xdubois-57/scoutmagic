@@ -93,13 +93,15 @@ class RetroBoardControllerTest extends TestCase
     private function createBoard(array $overrides = []): array
     {
         $defaults = [
-            'voteMode' => 'unlimited', 'antiDuplicateMode' => 'cookie', 'votesVisible' => true, 'voteBudget' => 5,
+            // Public by default: most tests here are about what a board
+            // does, not about who may open it — the access tests say so.
+            'voteMode' => 'unlimited', 'accessMode' => 'public', 'votesVisible' => true, 'voteBudget' => 5,
         ];
         $p = array_merge($defaults, $overrides);
         $token = bin2hex(random_bytes(8));
         $id = $this->boardRepository->create(
-            'Camp', '2026-07-01', null, $token, null, true, $p['voteMode'], $p['voteBudget'],
-            $p['votesVisible'], $p['antiDuplicateMode'], 140, 'none', null, null
+            'Camp', '2026-07-01', null, $token, null, $p['accessMode'], $p['voteMode'], $p['voteBudget'],
+            $p['votesVisible'], 140, 'none', null, null
         );
 
         return [$id, $token];
@@ -341,9 +343,9 @@ class RetroBoardControllerTest extends TestCase
         $this->assertSame(0, $count);
     }
 
-    public function testToggleLikeRequiresLoginWhenAntiDuplicateModeIsAuth(): void
+    public function testToggleLikeRequiresLoginOnABoardForIdentifiedMembers(): void
     {
-        [, $token] = $this->createBoard(['antiDuplicateMode' => 'auth']);
+        [, $token] = $this->createBoard(['accessMode' => 'identified']);
         $commentId = $this->commentRepository->create($this->boardRepository->findByToken($token)->id, 'good', 'Text');
         $csrf = $this->csrfToken();
 
@@ -352,7 +354,7 @@ class RetroBoardControllerTest extends TestCase
             ['token' => $token, 'comment_id' => (string) $commentId]
         );
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(401, $response->getStatusCode());
     }
 
     public function testToggleLikeSucceedsInCookieMode(): void
@@ -682,5 +684,169 @@ class RetroBoardControllerTest extends TestCase
         }
 
         $this->assertSame([200, 200, 200, 200, 200, 422, 422, 422], $statuses);
+    }
+
+    /**
+     * Issue #833: the ten /r/{token} routes, each called the way the board
+     * page calls it.
+     *
+     * @return array<string, array{0: string, 1: bool}> method => answers in JSON
+     */
+    public static function boardRoutes(): array
+    {
+        return [
+            'show' => ['show', false],
+            'qr' => ['qr', false],
+            'poll' => ['poll', true],
+            'addComment' => ['addComment', true],
+            'shorten' => ['shorten', true],
+            'toggleLike' => ['toggleLike', true],
+            'addPoint' => ['addPoint', true],
+            'removePoint' => ['removePoint', true],
+            'hideComment' => ['hideComment', true],
+            'unhideComment' => ['unhideComment', true],
+        ];
+    }
+
+    private function callRoute(string $method, string $token, int $commentId): \Core\Http\Response
+    {
+        $params = ['token' => $token, 'comment_id' => (string) $commentId];
+        $request = in_array($method, ['show', 'qr', 'poll'], true)
+            ? new Request('GET', '/r/' . $token, [], [], [], [])
+            : $this->jsonRequest('/r/' . $token, ['_csrf_token' => $this->csrfToken(), 'column' => 'good', 'body' => 'x']);
+
+        return $this->controller->{$method}($request, $params);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardRoutes')]
+    public function testAnAnimatorsBoardSendsAnAnonymousVisitorToLogIn(string $method, bool $json): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'animators']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+
+        $response = $this->callRoute($method, $token, $commentId);
+
+        if ($json) {
+            $this->assertSame(401, $response->getStatusCode());
+            $this->assertStringContainsString('Connectez-vous', $this->readable($response));
+        } else {
+            $this->assertSame(302, $response->getStatusCode());
+            $this->assertSame('/login', $response->getHeaders()['Location']);
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardRoutes')]
+    public function testAnAnimatorsBoardRefusesAParent(string $method, bool $json): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'animators']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+        AuthSession::login(9, 'parent@test.be', 'identified');
+
+        $response = $this->callRoute($method, $token, $commentId);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString('réservée aux animateurs', $this->readable($response));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardRoutes')]
+    public function testABoardForIdentifiedMembersSendsAnAnonymousVisitorToLogIn(string $method, bool $json): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'identified']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+
+        $response = $this->callRoute($method, $token, $commentId);
+
+        $this->assertSame($json ? 401 : 302, $response->getStatusCode());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardRoutes')]
+    public function testABoardForIdentifiedMembersLetsAParentIn(string $method, bool $json): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'identified']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+        AuthSession::login(9, 'parent@test.be', 'identified');
+
+        $response = $this->callRoute($method, $token, $commentId);
+
+        $this->assertNotSame(401, $response->getStatusCode());
+        $this->assertNotSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString('réservée aux animateurs', $this->readable($response));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardRoutes')]
+    public function testAPublicBoardNeedsNoLogin(string $method, bool $json): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'public']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+
+        $response = $this->callRoute($method, $token, $commentId);
+
+        $this->assertNotSame(401, $response->getStatusCode());
+        $this->assertNotSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString('réservée aux animateurs', $this->readable($response));
+    }
+
+    public function testAnAnimatorsBoardOpensForAnIntendant(): void
+    {
+        [, $token] = $this->createBoard(['accessMode' => 'animators']);
+        AuthSession::login(4, 'intendant@test.be', 'intendant');
+
+        $response = $this->controller->show(new Request('GET', '/r/' . $token, [], [], [], []), ['token' => $token]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #833 — the anonymity guarantee of schema.sql's header holds in
+     * the modes that need a login: the account only ever feeds the one-way
+     * HMAC, and nothing written relates a vote or a comment to it.
+     */
+    public function testAVoteOnABoardThatNeedsALoginIsNeverTiedToTheAccount(): void
+    {
+        [$id, $token] = $this->createBoard(['accessMode' => 'identified']);
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+        AuthSession::login(987654, 'parent987654@test.be', 'identified');
+
+        $response = $this->controller->toggleLike(
+            $this->jsonRequest('/r/' . $token . '/comments/' . $commentId . '/vote', ['_csrf_token' => $this->csrfToken()]),
+            ['token' => $token, 'comment_id' => (string) $commentId]
+        );
+        $this->assertSame(200, $response->getStatusCode());
+
+        foreach (['retro_votes', 'retro_comments', 'retro_rate_limits'] as $table) {
+            if ($table === 'retro_rate_limits' && !$this->tableExists($table)) {
+                continue;
+            }
+            $rows = $this->pdo->query('SELECT * FROM ' . $table)->fetchAll(\PDO::FETCH_ASSOC);
+            $dump = json_encode($rows);
+            $this->assertStringNotContainsString('987654', (string) $dump, "$table carries the account id.");
+            $this->assertStringNotContainsString('parent987654', (string) $dump, "$table carries the account e-mail.");
+            foreach (array_keys($rows[0] ?? []) as $column) {
+                $this->assertDoesNotMatchRegularExpression(
+                    '/user|account|member|email|session|ip/i',
+                    $column,
+                    "$table has a column that could name a person."
+                );
+            }
+        }
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM retro_votes')->fetchColumn());
+    }
+
+    /** The body as a reader sees it: a JSON answer's error, decoded. */
+    private function readable(\Core\Http\Response $response): string
+    {
+        $data = json_decode($response->getBody(), true);
+
+        return is_array($data) ? (string) ($data['error'] ?? '') : $response->getBody();
+    }
+
+    private function tableExists(string $table): bool
+    {
+        try {
+            $this->pdo->query('SELECT 1 FROM ' . $table . ' LIMIT 1');
+            return true;
+        } catch (\PDOException) {
+            return false;
+        }
     }
 }

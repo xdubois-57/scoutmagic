@@ -33,34 +33,32 @@ class BoardRepository
         ?int $calendarEventId,
         string $token,
         ?string $shortCode,
-        bool $listed,
+        string $accessMode,
         string $voteMode,
         int $voteBudget,
         bool $votesVisible,
-        string $antiDuplicateMode,
         int $maxCommentLength,
         string $autoCloseDelay,
         ?string $autoCloseAt,
         ?int $createdBy,
         bool $closeNotifyEnabled = true,
-        ?string $closeNotifyEmail = null,
-        string $linkVisibility = 'chief'
+        ?string $closeNotifyEmail = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO retro_boards (
-                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, '
+                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, access_mode, '
                 . 'vote_mode, vote_budget,
-                votes_visible, anti_duplicate_mode, max_comment_length, auto_close_delay, auto_close_at, created_by,
-                close_notify_enabled, close_notify_email, link_visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                votes_visible, max_comment_length, auto_close_delay, auto_close_at, created_by,
+                close_notify_enabled, close_notify_email
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $title, $boardDate, $calendarEventId,
             $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
             $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),
-            $shortCode, $listed ? 1 : 0, $voteMode, $voteBudget,
-            $votesVisible ? 1 : 0, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $autoCloseAt, $createdBy,
-            $closeNotifyEnabled ? 1 : 0, $closeNotifyEmail, $linkVisibility,
+            $shortCode, $accessMode, $voteMode, $voteBudget,
+            $votesVisible ? 1 : 0, $maxCommentLength, $autoCloseDelay, $autoCloseAt, $createdBy,
+            $closeNotifyEnabled ? 1 : 0, $closeNotifyEmail,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -173,31 +171,42 @@ class BoardRepository
         string $title,
         string $boardDate,
         ?int $calendarEventId,
-        bool $listed,
+        string $accessMode,
         string $voteMode,
         int $voteBudget,
         bool $votesVisible,
-        string $antiDuplicateMode,
         int $maxCommentLength,
         string $autoCloseDelay,
         ?string $autoCloseAt,
         bool $closeNotifyEnabled = true,
-        ?string $closeNotifyEmail = null,
-        string $linkVisibility = 'chief'
+        ?string $closeNotifyEmail = null
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE retro_boards SET
-                title = ?, board_date = ?, calendar_event_id = ?, listed = ?, vote_mode = ?, vote_budget = ?,
-                votes_visible = ?, anti_duplicate_mode = ?, max_comment_length = ?, auto_close_delay = ?, '
+                title = ?, board_date = ?, calendar_event_id = ?, access_mode = ?, vote_mode = ?, vote_budget = ?,
+                votes_visible = ?, max_comment_length = ?, auto_close_delay = ?, '
                 . 'auto_close_at = ?,
-                close_notify_enabled = ?, close_notify_email = ?, link_visibility = ?
+                close_notify_enabled = ?, close_notify_email = ?
              WHERE id = ?'
         );
         $stmt->execute([
-            $title, $boardDate, $calendarEventId, $listed ? 1 : 0, $voteMode, $voteBudget,
-            $votesVisible ? 1 : 0, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $autoCloseAt,
-            $closeNotifyEnabled ? 1 : 0, $closeNotifyEmail, $linkVisibility, $id,
+            $title, $boardDate, $calendarEventId, $accessMode, $voteMode, $voteBudget,
+            $votesVisible ? 1 : 0, $maxCommentLength, $autoCloseDelay, $autoCloseAt,
+            $closeNotifyEnabled ? 1 : 0, $closeNotifyEmail, $id,
         ]);
+    }
+
+    /**
+     * Whether anybody has voted on this board yet — what freezes its
+     * access mode (issue #833): a vote keyed by account and one keyed by
+     * the anonymous cookie can never be recognised as the same person's.
+     */
+    public function hasVotes(int $boardId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM retro_votes WHERE board_id = ? LIMIT 1');
+        $stmt->execute([$boardId]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     public function close(int $id): void
@@ -262,11 +271,10 @@ class BoardRepository
             token: $this->encryption->decrypt((string) $row['token_encrypted'], self::TOKEN_ENCRYPTION_CONTEXT),
             shortCode: $row['short_code'] !== null ? (string) $row['short_code'] : null,
             status: (string) $row['status'],
-            listed: (bool) $row['listed'],
+            accessMode: (string) $row['access_mode'],
             voteMode: (string) $row['vote_mode'],
             voteBudget: (int) $row['vote_budget'],
             votesVisible: (bool) $row['votes_visible'],
-            antiDuplicateMode: (string) $row['anti_duplicate_mode'],
             maxCommentLength: (int) $row['max_comment_length'],
             autoCloseDelay: (string) $row['auto_close_delay'],
             autoCloseAt: $row['auto_close_at'] !== null ? (string) $row['auto_close_at'] : null,
@@ -274,7 +282,6 @@ class BoardRepository
             createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null,
             closeNotifyEnabled: (bool) $row['close_notify_enabled'],
             closeNotifyEmail: $row['close_notify_email'] !== null ? (string) $row['close_notify_email'] : null,
-            linkVisibility: (string) $row['link_visibility'],
             createdAt: (string) $row['created_at'],
             closedAt: $row['closed_at'] !== null ? (string) $row['closed_at'] : null
         );

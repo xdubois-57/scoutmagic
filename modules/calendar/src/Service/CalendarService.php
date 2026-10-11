@@ -745,12 +745,16 @@ class CalendarService implements
      * data-calendar-label, ...) — harmless and unused on pages that don't
      * wire up any click behavior.
      *
-     * $viewerRole/$viewerEmail/$scoutYearId are only needed to resolve a
-     * linked retro board's link (Api\RetroEventLinkLookupInterface) for
-     * the chiefs' edit modal — left null (the default) on pages with no
-     * such viewer context, which simply omits the retro-* data keys
-     * (CalendarPublicController's calls never pass them, since that page
-     * has no event-detail modal to show a link in).
+     * $viewerRole/$viewerEmail/$scoutYearId resolve a linked retro board's
+     * link (Api\RetroEventLinkLookupInterface) for that reader — the retro
+     * module decides who may see it (issue #833). Left null (the default)
+     * on pages with no such reader, which simply omits the retro-* keys.
+     *
+     * $forEditor adds what only the chiefs' edit modal reads: whether the
+     * event has a board at all, and its auto-create flag. Neither is gated
+     * by the board's access mode, so a reader page must never ask for them —
+     * a parent on « Notre unité » would learn that an animators-only
+     * retrospective exists.
      *
      * @param CalendarEvent[] $events
      * @return GridEvent[]
@@ -759,7 +763,8 @@ class CalendarService implements
         array $events,
         ?Role $viewerRole = null,
         ?string $viewerEmail = null,
-        ?int $scoutYearId = null
+        ?int $scoutYearId = null,
+        bool $forEditor = false
     ): array
     {
         $colors = $this->colorsByCalendarId();
@@ -770,7 +775,8 @@ class CalendarService implements
             $labels,
             $viewerRole,
             $viewerEmail,
-            $scoutYearId
+            $scoutYearId,
+            $forEditor
         ): GridEvent {
             $calendarLabel = $labels[$event->calendarId] ?? 'Calendrier';
 
@@ -797,8 +803,10 @@ class CalendarService implements
             ];
 
             if ($viewerRole !== null && $this->retroEventLinkLookup !== null) {
-                $data['auto-create-retro'] = $event->autoCreateRetro ? '1' : '0';
-                $data['has-linked-retro'] = $this->retroEventLinkLookup->hasLinkedBoard($event->id) ? '1' : '0';
+                if ($forEditor) {
+                    $data['auto-create-retro'] = $event->autoCreateRetro ? '1' : '0';
+                    $data['has-linked-retro'] = $this->retroEventLinkLookup->hasLinkedBoard($event->id) ? '1' : '0';
+                }
                 $link = $this->retroEventLinkLookup->findLinkedBoardLink(
                     $event->id,
                     $viewerRole,

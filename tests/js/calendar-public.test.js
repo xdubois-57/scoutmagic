@@ -19,7 +19,8 @@ const FULL_EVENT = `
             data-title="Camp d'été" data-color="#c00" data-calendar-label="Louveteaux"
             data-start-date="2026-07-04" data-end-date="2026-07-14"
             data-start-time="09:00" data-end-time="17:30"
-            data-location="Vielsalm" data-description="Rendez-vous à la gare."></button>`;
+            data-location="Vielsalm" data-description="Rendez-vous à la gare."
+            data-retro-link="https://scoutmagic.be/s/retro1" data-retro-link-title="Rétro du camp"></button>`;
 
 const BARE_EVENT = `
     <button type="button" class="calendar-upcoming-event-trigger"
@@ -35,6 +36,7 @@ const DIALOG = `
         <div class="d-none" id="event-details-time-row"><span id="event-details-time"></span></div>
         <div class="d-none" id="event-details-location-row"><span id="event-details-location"></span></div>
         <p id="event-details-description"></p>
+        <div class="d-none" id="event-details-retro-row"><a href="#" id="event-details-retro-link"></a></div>
     </div>`;
 
 const ICS_BLOCK = `
@@ -113,6 +115,35 @@ describe('calendar-public.js', () => {
             expect(document.getElementById('event-details-calendar-dot').style.backgroundColor)
                 .toBe('rgb(204, 0, 0)');
             expect(modalInstance.show).toHaveBeenCalled();
+        });
+
+        it('offers the linked retrospective the server gave this reader (#833)', async () => {
+            await boot();
+            document.querySelector('.calendar-event-bar--clickable').click();
+
+            const link = /** @type {HTMLAnchorElement} */ (document.getElementById('event-details-retro-link'));
+            expect(hidden('event-details-retro-row')).toBe(false);
+            expect(link.href).toBe('https://scoutmagic.be/s/retro1');
+            expect(link.textContent).toBe('Rétro du camp');
+        });
+
+        it('hides the retrospective row for an event that carries none, even after one that did', async () => {
+            await boot();
+            document.querySelector('.calendar-event-bar--clickable').click();
+            document.querySelector('.calendar-upcoming-event-trigger').click();
+
+            expect(hidden('event-details-retro-row')).toBe(true);
+        });
+
+        it('never turns anything but a web address into the retrospective link', async () => {
+            await boot();
+            const bar = /** @type {HTMLElement} */ (document.querySelector('.calendar-event-bar--clickable'));
+            bar.dataset.retroLink = 'javascript:alert(1)';
+            bar.click();
+
+            expect(hidden('event-details-retro-row')).toBe(true);
+            expect(/** @type {HTMLAnchorElement} */ (document.getElementById('event-details-retro-link')).getAttribute('href'))
+                .toBe('#');
         });
 
         it('reads « Prochains évènements » rows through the exact same path', async () => {

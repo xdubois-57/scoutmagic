@@ -78,7 +78,7 @@ class BoardServiceTest extends TestCase
     public function testCreateWithoutAnEventUsesTheManualDate(): void
     {
         $board = $this->service()->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3
         );
 
         $this->assertSame('2026-07-15', $board->boardDate);
@@ -88,7 +88,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateLogsToJournal(): void
     {
-        $this->service()->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $this->service()->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $count = (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE category = 'retro' AND event_type = 'board_created'")->fetchColumn();
         $this->assertSame(1, $count);
@@ -97,18 +97,18 @@ class BoardServiceTest extends TestCase
     public function testCreateRejectsBlankTitle(): void
     {
         $this->expectException(RetroException::class);
-        $this->service()->create('   ', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $this->service()->create('   ', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
     }
 
     public function testCreateRejectsMaxCommentLengthOutOfRange(): void
     {
         $this->expectException(RetroException::class);
-        $this->service()->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 500, 'none', Role::CHIEF, 3);
+        $this->service()->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 500, 'none', Role::CHIEF, 3);
     }
 
     public function testCreateSchedulesAutoCloseWhenDelayIsSet(): void
     {
-        $board = $this->service()->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, '24h', Role::CHIEF, 3);
+        $board = $this->service()->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, '24h', Role::CHIEF, 3);
 
         $scheduled = $this->schedulerService->find('retro', 'auto_close_board', 'board_' . $board->id);
         $this->assertNotNull($scheduled);
@@ -116,7 +116,7 @@ class BoardServiceTest extends TestCase
 
     public function testCreateSkipsSchedulingWhenAutoCloseDelayIsNone(): void
     {
-        $board = $this->service()->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $this->service()->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $scheduled = $this->schedulerService->find('retro', 'auto_close_board', 'board_' . $board->id);
         $this->assertNull($scheduled);
@@ -125,7 +125,7 @@ class BoardServiceTest extends TestCase
     public function testCreateWithAnEventRequiresTheCalendarModule(): void
     {
         $this->expectException(RetroException::class);
-        $this->service()->create('Camp', 42, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $this->service()->create('Camp', 42, null, 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
     }
 
     public function testCreateWithAnEventResolvesTheDateServerSideIgnoringTheClient(): void
@@ -134,7 +134,7 @@ class BoardServiceTest extends TestCase
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
-            'Camp', 42, '2099-01-01', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+            'Camp', 42, '2099-01-01', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3
         );
 
         // Server-resolved end date wins over the client-submitted manual date.
@@ -154,7 +154,7 @@ class BoardServiceTest extends TestCase
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
 
         $board = $this->service(null, $calendarLookup)->create(
-            '', 42, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+            '', 42, null, 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3
         );
 
         $this->assertSame("Rétrospective Camp d'été - Animateurs - 2026-08-05", $board->title);
@@ -166,10 +166,10 @@ class BoardServiceTest extends TestCase
         $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
         $service = $this->service(null, $calendarLookup);
 
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $updated = $service->update(
-            $board->id, '', 42, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+            $board->id, '', 42, null, 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3
         );
 
         $this->assertSame("Rétrospective Camp d'été - Animateurs - 2026-08-05", $updated->title);
@@ -181,12 +181,12 @@ class BoardServiceTest extends TestCase
         $calendarLookup->method('findEventById')->willReturn(null);
 
         $this->expectException(RetroException::class);
-        $this->service(null, $calendarLookup)->create('Camp', 999, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $this->service(null, $calendarLookup)->create('Camp', 999, null, 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
     }
 
     public function testCreateDegradesGracefullyWithoutShortUrlService(): void
     {
-        $board = $this->service(null)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $this->service(null)->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->assertNull($board->shortCode);
         $this->assertSame('/r/' . $board->token, $this->service()->publicUrl($board));
@@ -197,7 +197,7 @@ class BoardServiceTest extends TestCase
         $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willReturn('abc123');
 
-        $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->assertSame('abc123', $board->shortCode);
         $this->assertSame('/s/abc123', $this->service($shortUrlService)->publicUrl($board));
@@ -208,7 +208,7 @@ class BoardServiceTest extends TestCase
         $shortUrlService = $this->createStub(ShortUrlService::class);
         $shortUrlService->method('createShortUrl')->willThrowException(new \RuntimeException('boom'));
 
-        $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $this->service($shortUrlService)->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->assertNull($board->shortCode);
     }
@@ -234,10 +234,10 @@ class BoardServiceTest extends TestCase
 
     public function testUpdateChangesFieldsAndReturnsUpdatedBoard(): void
     {
-        $board = $this->service()->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $this->service()->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $updated = $this->service()->update(
-            $board->id, 'New title', null, '2026-07-20', false, 'budget', 3, false, 'auth', 160, 'none', Role::CHIEF, 3
+            $board->id, 'New title', null, '2026-07-20', 'identified', 'budget', 3, false, 160, 'none', Role::CHIEF, 3
         );
 
         $this->assertSame('New title', $updated->title);
@@ -247,16 +247,16 @@ class BoardServiceTest extends TestCase
     public function testUpdateThrowsForUnknownBoard(): void
     {
         $this->expectException(RetroException::class);
-        $this->service()->update(999999, 'Title', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $this->service()->update(999999, 'Title', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
     }
 
     public function testUpdateReschedulesAutoCloseWhenStillOpen(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, '24h', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, '24h', Role::CHIEF, 3);
         $originalSchedule = $this->schedulerService->find('retro', 'auto_close_board', 'board_' . $board->id);
 
-        $service->update($board->id, 'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, '7d', Role::CHIEF, 3);
+        $service->update($board->id, 'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, '7d', Role::CHIEF, 3);
 
         $newSchedule = $this->schedulerService->find('retro', 'auto_close_board', 'board_' . $board->id);
         $this->assertNotSame($originalSchedule['run_at'], $newSchedule['run_at']);
@@ -265,7 +265,7 @@ class BoardServiceTest extends TestCase
     public function testCloseIsIdempotent(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $service->close($board->id, 3);
         $secondClose = $service->close($board->id, 3);
@@ -278,7 +278,7 @@ class BoardServiceTest extends TestCase
     public function testCloseCancelsThePendingAutoClose(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, '24h', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, '24h', Role::CHIEF, 3);
 
         $service->close($board->id, 3);
 
@@ -291,7 +291,7 @@ class BoardServiceTest extends TestCase
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willReturn('- Thème principal');
         $service = $this->service(null, null, $summaryService);
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $closed = $service->close($board->id, 3);
 
@@ -304,7 +304,7 @@ class BoardServiceTest extends TestCase
         $summaryService->method('isAvailable')->willReturn(true);
         $summaryService->method('generate')->willThrowException(new RetroException('AI down'));
         $service = $this->service(null, null, $summaryService);
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $closed = $service->close($board->id, 3);
 
@@ -324,7 +324,7 @@ class BoardServiceTest extends TestCase
         );
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'chief@example.com'
         );
         $commentRepository->create($board->id, 'good', 'Super ambiance');
@@ -352,7 +352,7 @@ class BoardServiceTest extends TestCase
         );
         $service = $this->service(null, null, $summaryService, $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'chief@example.com'
         );
 
@@ -370,7 +370,7 @@ class BoardServiceTest extends TestCase
         );
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'chief@example.com'
         );
 
@@ -383,7 +383,7 @@ class BoardServiceTest extends TestCase
         $mailService->expects($this->never())->method('send');
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             false, 'chief@example.com'
         );
 
@@ -396,7 +396,7 @@ class BoardServiceTest extends TestCase
         $mailService->expects($this->never())->method('send');
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, null
         );
 
@@ -409,7 +409,7 @@ class BoardServiceTest extends TestCase
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'chief@example.com'
         );
 
@@ -424,7 +424,7 @@ class BoardServiceTest extends TestCase
         $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
         $service = $this->service(mailService: $mailService);
         $board = $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'chief@example.com'
         );
 
@@ -448,7 +448,7 @@ class BoardServiceTest extends TestCase
 
         $this->expectException(RetroException::class);
         $service->create(
-            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'not-an-email'
         );
     }
@@ -456,11 +456,11 @@ class BoardServiceTest extends TestCase
     public function testUpdateRejectsAnInvalidNotificationEmail(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->expectException(RetroException::class);
         $service->update(
-            $board->id, 'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            $board->id, 'Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3,
             true, 'not-an-email'
         );
     }
@@ -468,7 +468,7 @@ class BoardServiceTest extends TestCase
     public function testCloseDegradesGracefullyWithoutSummaryService(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $closed = $service->close($board->id, 3);
 
@@ -479,7 +479,7 @@ class BoardServiceTest extends TestCase
     public function testReopenRestoresOpenStatusAndClearsClosedAt(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
 
         $reopened = $service->reopen($board->id, 3);
@@ -491,7 +491,7 @@ class BoardServiceTest extends TestCase
     public function testReopenReschedulesAutoCloseWhenDelayIsSet(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, '24h', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, '24h', Role::CHIEF, 3);
         $service->close($board->id, 3);
 
         $service->reopen($board->id, 3);
@@ -502,7 +502,7 @@ class BoardServiceTest extends TestCase
     public function testReopenLogsToJournal(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
 
         $service->reopen($board->id, 3);
@@ -514,7 +514,7 @@ class BoardServiceTest extends TestCase
     public function testReopenRejectsAnAlreadyOpenBoard(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->expectException(RetroException::class);
         $service->reopen($board->id, 3);
@@ -523,7 +523,7 @@ class BoardServiceTest extends TestCase
     public function testReopenRejectsAnArchivedBoard(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
         $service->archive($board->id, 3);
 
@@ -534,7 +534,7 @@ class BoardServiceTest extends TestCase
     public function testArchiveRequiresAClosedBoard(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $this->expectException(RetroException::class);
         $service->archive($board->id, 3);
@@ -543,7 +543,7 @@ class BoardServiceTest extends TestCase
     public function testArchiveSetsStatusAndLogsToJournal(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
 
         $archived = $service->archive($board->id, 3);
@@ -556,7 +556,7 @@ class BoardServiceTest extends TestCase
     public function testUnarchiveRequiresAnArchivedBoard(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
 
         $this->expectException(RetroException::class);
@@ -566,7 +566,7 @@ class BoardServiceTest extends TestCase
     public function testUnarchiveRestoresClosedStatusAndLogsToJournal(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $service->close($board->id, 3);
         $service->archive($board->id, 3);
 
@@ -580,7 +580,7 @@ class BoardServiceTest extends TestCase
     public function testRegenerateLinkChangesTokenAndLogsToJournal(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
 
         $regenerated = $service->regenerateLink($board->id, 3);
 
@@ -617,7 +617,7 @@ class BoardServiceTest extends TestCase
     public function testHasLinkedBoardIsTrueOnceABoardIsLinked(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $this->linkBoardToEvent($board->id, 42);
 
         $this->assertTrue($service->hasLinkedBoard(42));
@@ -633,7 +633,7 @@ class BoardServiceTest extends TestCase
     public function testFindLinkedBoardLinkIsAbsoluteAndCarriesTheTitle(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'identified');
+        $board = $service->create('Camp', null, '2026-07-15', 'identified', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $this->linkBoardToEvent($board->id, 42);
 
         $link = $service->findLinkedBoardLink(42, Role::IDENTIFIED, 'someone@example.com', 1);
@@ -644,79 +644,105 @@ class BoardServiceTest extends TestCase
     }
 
     /**
+     * Issue #833: the link follows the board's access mode — the readers
+     * who could open the board, and nobody for a public one.
+     *
      * @return array<string, array{0: string, 1: Role, 2: bool}>
      */
-    public static function linkVisibilityCases(): array
+    public static function linkAudienceCases(): array
     {
         return [
-            'identified: public viewer does not qualify' => ['identified', Role::PUBLIC, false],
-            'identified: identified viewer qualifies' => ['identified', Role::IDENTIFIED, true],
-            'chief: identified viewer does not qualify' => ['chief', Role::IDENTIFIED, false],
-            'chief: chief viewer qualifies' => ['chief', Role::CHIEF, true],
-            'superadmin: admin viewer does not qualify' => ['superadmin', Role::ADMIN, false],
-            'superadmin: superadmin viewer qualifies' => ['superadmin', Role::SUPERADMIN, true],
+            'animators: an anonymous reader does not see it' => ['animators', Role::PUBLIC, false],
+            'animators: a parent does not see it' => ['animators', Role::IDENTIFIED, false],
+            'animators: an intendant sees it' => ['animators', Role::INTENDANT, true],
+            'animators: a chief sees it' => ['animators', Role::CHIEF, true],
+            'identified: an anonymous reader does not see it' => ['identified', Role::PUBLIC, false],
+            'identified: a parent sees it' => ['identified', Role::IDENTIFIED, true],
+            'identified: a superadmin sees it' => ['identified', Role::SUPERADMIN, true],
+            'public: nobody sees it, not even a superadmin' => ['public', Role::SUPERADMIN, false],
+            'public: nor an anonymous reader' => ['public', Role::PUBLIC, false],
         ];
     }
 
-    /**
-     * @dataProvider linkVisibilityCases
-     */
-    #[\PHPUnit\Framework\Attributes\DataProvider('linkVisibilityCases')]
-    public function testFindLinkedBoardLinkRespectsEachSimpleAudienceLevel(string $linkVisibility, Role $viewerRole, bool $shouldQualify): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('linkAudienceCases')]
+    public function testFindLinkedBoardLinkFollowsTheAccessMode(string $accessMode, Role $viewerRole, bool $shown): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: $linkVisibility);
+        $board = $service->create('Camp', null, '2026-07-15', $accessMode, 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $this->linkBoardToEvent($board->id, 42);
 
         $link = $service->findLinkedBoardLink(42, $viewerRole, 'viewer@example.com', 1);
 
-        $this->assertSame($shouldQualify, $link !== null);
+        $this->assertSame($shown, $link !== null);
     }
 
-    public function testFindLinkedBoardLinkForUnitChiefAudienceRejectsAPlainChief(): void
+    /** Issue #833: a closed or archived retrospective is exposed nowhere. */
+    public function testFindLinkedBoardLinkIsNullOnceTheBoardIsClosedOrArchived(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
+        $board = $service->create('Camp', null, '2026-07-15', 'animators', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
         $this->linkBoardToEvent($board->id, 42);
-        $this->memberService->method('isUnitChief')->willReturn(false);
+        $this->assertNotNull($service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', 1));
 
-        $link = $service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', 1);
+        $service->close($board->id, 3);
+        $this->assertNull($service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', 1));
 
-        $this->assertNull($link);
+        $service->archive($board->id, 3);
+        $this->assertNull($service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', 1));
+        // Still linked, though: the calendar's « create one » offer stays off.
+        $this->assertTrue($service->hasLinkedBoard(42));
     }
 
-    public function testFindLinkedBoardLinkForUnitChiefAudienceAcceptsAStaffDuMember(): void
+    /** A board created by hand defaults to the animators (issue #833). */
+    public function testTheDefaultAccessModeIsAnimators(): void
     {
-        $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
-        $this->linkBoardToEvent($board->id, 42);
-        $this->memberService->method('isUnitChief')->willReturn(true);
-
-        $link = $service->findLinkedBoardLink(42, Role::CHIEF, 'unit-chief@example.com', 1);
-
-        $this->assertNotNull($link);
+        $this->assertSame('animators', \Modules\Retro\Repository\Board::DEFAULT_ACCESS_MODE);
     }
 
-    /** Issue #743: the audience is cumulative — a superadmin meets it, Desk member or not. */
-    public function testFindLinkedBoardLinkForUnitChiefAudienceAcceptsASuperadminWithoutAnyDeskMember(): void
+    public function testAnUnknownAccessModeIsRefused(): void
     {
-        $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
-        $this->linkBoardToEvent($board->id, 42);
-        $this->memberService->method('isUnitChief')->willReturn(false);
+        $this->expectException(RetroException::class);
+        $this->expectExceptionMessage("Mode d'accès invalide.");
 
-        $this->assertNotNull($service->findLinkedBoardLink(42, Role::SUPERADMIN, 'superadmin@example.com', 1));
-        $this->assertNull($service->findLinkedBoardLink(42, Role::ADMIN, 'admin@example.com', 1), 'an admin still has to be Staff d\'U');
+        $this->service()->create('Camp', null, '2026-07-15', 'everyone', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
     }
 
-    public function testFindLinkedBoardLinkForUnitChiefAudienceRejectsWithoutAnEmailOrScoutYear(): void
+    /**
+     * Issue #833: frozen from the first vote — server-side, whatever the
+     * form sends, since votes keyed by account and by cookie can never be
+     * matched to each other.
+     */
+    public function testTheAccessModeCannotChangeOnceAVoteExists(): void
     {
         $service = $this->service();
-        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
-        $this->linkBoardToEvent($board->id, 42);
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
+        $this->assertFalse($service->isAccessModeLocked($board));
 
-        $this->assertNull($service->findLinkedBoardLink(42, Role::CHIEF, null, 1));
-        $this->assertNull($service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', null));
+        $commentId = (new \Modules\Retro\Repository\CommentRepository($this->pdo))->create($board->id, 'good', 'Top');
+        (new \Modules\Retro\Repository\VoteRepository($this->pdo))->create($commentId, $board->id, 'h1', 'b1', 1);
+        $this->assertTrue($service->isAccessModeLocked($board));
+
+        try {
+            $service->update($board->id, 'Camp', null, '2026-07-15', 'animators', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
+            $this->fail('The access mode changed after a vote.');
+        } catch (RetroException $e) {
+            $this->assertSame(BoardService::ACCESS_MODE_LOCKED_MESSAGE, $e->getMessage());
+        }
+        $this->assertSame('public', $this->boardRepository->findById($board->id)->accessMode);
+
+        // Everything else still saves, the mode kept as it is.
+        $updated = $service->update($board->id, 'Camp revu', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
+        $this->assertSame('Camp revu', $updated->title);
+    }
+
+    public function testTheAccessModeChangesFreelyBeforeTheFirstVote(): void
+    {
+        $service = $this->service();
+        $board = $service->create('Camp', null, '2026-07-15', 'public', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
+
+        $updated = $service->update($board->id, 'Camp', null, '2026-07-15', 'identified', 'unlimited', 5, true, 140, 'none', Role::CHIEF, 3);
+
+        $this->assertSame('identified', $updated->accessMode);
     }
 
     private function linkBoardToEvent(int $boardId, int $eventId): void

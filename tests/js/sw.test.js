@@ -803,6 +803,36 @@ describe('sw.js: offlinePage()', () => {
         expect(res).toBeTruthy();
         expect(res.body).toContain('Pas de connexion');
     });
+
+    // #883: the screen says WHY a page is not there — the maintainer hunted
+    // for a long time before finding functional cookies switched off.
+    it('says why a page is missing, with the number of days the page sent', async () => {
+        global.caches = createCachesFake({
+            'offline-config': {
+                'https://offline-config.internal/v1': { json: () => Promise.resolve({ staleness_days: 30 }) },
+            },
+        });
+
+        const res = await sw.offlinePage();
+
+        expect(res.body).toContain('cookies fonctionnels sont activés');
+        expect(res.body).toContain('il y a moins de 30 jours');
+    });
+
+    it('says « récemment » rather than a figure it does not know', async () => {
+        global.caches = createCachesFake();
+
+        const res = await sw.offlinePage();
+
+        expect(res.body).toContain('ouverte dans l\'application récemment');
+        expect(res.body).not.toContain('moins de');
+    });
+
+    it('counts one day in the singular, and refuses a nonsense figure', () => {
+        expect(sw.offlineConditions(1)).toContain('il y a moins de 1 jour.');
+        expect(sw.offlineConditions(0)).toContain('récemment');
+        expect(sw.offlineConditions('abc')).toContain('récemment');
+    });
 });
 
 // ---------------------------------------------------------------------------

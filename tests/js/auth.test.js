@@ -358,6 +358,16 @@ describe('auth.js: magic-link polling', () => {
         expect(window.location.href).toBe('/');
     });
 
+    it('goes back to the page that asked for the login once the link is confirmed (#833)', async () => {
+        await startPolling();
+        global.fetch.mockResolvedValue({ json: () => Promise.resolve({ confirmed: true, redirect: '/r/abc' }) });
+        Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
+
+        await vi.advanceTimersByTimeAsync(3000);
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(window.location.href).toBe('/r/abc');
+    });
+
     it('a transient poll network error is swallowed and polling continues', async () => {
         await startPolling();
         global.fetch
@@ -383,6 +393,25 @@ describe('auth.js: magic-link polling', () => {
         document.dispatchEvent(new Event('visibilitychange'));
 
         await vi.waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(countBefore));
+    });
+
+    // Issue #833: the first confirmed answer spends the return path, so a
+    // second poll in flight would come back with `/` — and could win.
+    it('never sends a second poll while one is still in flight', async () => {
+        await startPolling();
+        let resolvePoll = () => {};
+        global.fetch.mockImplementation(() => new Promise((resolve) => { resolvePoll = resolve; }));
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+
+        await vi.advanceTimersByTimeAsync(3000); // the tick's poll is in flight
+        const countInFlight = fetch.mock.calls.length;
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(3000); // and the next tick too
+        expect(fetch.mock.calls.length).toBe(countInFlight);
+
+        resolvePoll({ json: () => Promise.resolve({ confirmed: false }) });
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch.mock.calls.length).toBe(countInFlight + 1);
     });
 
     it('does NOT check when the visibilitychange fires with the tab going hidden', async () => {
@@ -624,6 +653,14 @@ describe('auth.js: password login', () => {
         Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
         document.getElementById('password-login-btn').dispatchEvent(new Event('click'));
         await vi.waitFor(() => expect(window.location.href).toBe('/'));
+    });
+
+    it('goes back to the page that asked for the login on success (#833)', async () => {
+        await ready();
+        global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true, redirect: '/r/abc' }) }));
+        Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
+        document.getElementById('password-login-btn').dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(window.location.href).toBe('/r/abc'));
     });
 
     it('shows the lockout message, rounding seconds up to whole minutes', async () => {
@@ -961,5 +998,66 @@ describe('auth.js: passkey login', () => {
         await boot();
         document.getElementById('passkey-login-btn').dispatchEvent(new Event('click'));
         await vi.waitFor(() => expect(document.getElementById('passkey-error').textContent).toBe("L'authentification a été annulée ou a échoué."));
+    });
+});
+
+describe('auth.js: where a login goes (#833)', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '';
+        buildCoreDom();
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
+        vi.restoreAllMocks();
+    });
+
+    it('follows an internal path the server sent back', async () => {
+        await boot();
+        const { afterLogin } = globalThis.ScoutMagicAuthInternals;
+        expect(afterLogin('/r/abc')).toBe('/r/abc');
+        expect(afterLogin('/retro?x=1')).toBe('/retro?x=1');
+    });
+
+    it('goes home for anything else, whatever the server answered', async () => {
+        await boot();
+        const { afterLogin } = globalThis.ScoutMagicAuthInternals;
+        for (const target of [undefined, null, 42, '', 'r/abc', '//evil.example', '/\\evil.example',
+            'https://evil.example', 'javascript:alert(1)', '/a//b',
+            // A browser strips tab, LF and CR before parsing: the first three
+            // would become //evil.example. The other control characters go too.
+            '/\t/evil.example', '/\n/evil.example', '/\r/evil.example', '/\u0000x', '/\u007fx']) {
+            expect(afterLogin(target)).toBe('/');
+        }
+    });
+
+    it('a passkey login goes back to the page that asked for it', async () => {
+        appendAll(
+            el('<button id="passkey-login-btn"></button>'),
+            el('<div id="passkey-error" class="d-none"></div>'),
+            el('<input type="checkbox" id="rgpd-consent-checkbox-passkey" checked>'),
+            el('<div id="rgpd-consent-error-passkey" class="d-none"></div>'),
+        );
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ challenge: 'AQID' }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, redirect: '/r/abc' }) });
+        const fakeCredential = {
+            id: 'cred-id', type: 'public-key',
+            rawId: new Uint8Array([9, 9]).buffer,
+            response: {
+                authenticatorData: new Uint8Array([1]).buffer,
+                clientDataJSON: new Uint8Array([2]).buffer,
+                signature: new Uint8Array([3]).buffer,
+                userHandle: null,
+            },
+        };
+        Object.defineProperty(navigator, 'credentials', {
+            configurable: true, value: { get: vi.fn(() => Promise.resolve(fakeCredential)) },
+        });
+        Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } });
+        await boot();
+
+        document.getElementById('passkey-login-btn').dispatchEvent(new Event('click'));
+        await vi.waitFor(() => expect(window.location.href).toBe('/r/abc'));
     });
 });

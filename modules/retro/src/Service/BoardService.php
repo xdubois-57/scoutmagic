@@ -47,6 +47,10 @@ class BoardService implements RetroEventLinkLookupInterface
     private const MIN_MAX_COMMENT_LENGTH = 120;
     private const MAX_MAX_COMMENT_LENGTH = 200;
 
+    /** Shown under the greyed-out field, and when the server refuses the change. */
+    public const ACCESS_MODE_LOCKED_MESSAGE =
+        "Le mode d'accès ne peut plus changer : des votes ont déjà été enregistrés.";
+
     public function __construct(
         private BoardRepository $boardRepository,
         private CommentRepository $commentRepository,
@@ -60,7 +64,8 @@ class BoardService implements RetroEventLinkLookupInterface
         private string $baseUrl,
         private ?ShortUrlService $shortUrlService = null,
         private ?CalendarEventLookupInterface $calendarEventLookup = null,
-        private ?SummaryService $summaryService = null
+        private ?SummaryService $summaryService = null,
+        private BoardAccess $access = new BoardAccess()
     ) {
     }
 
@@ -155,29 +160,26 @@ class BoardService implements RetroEventLinkLookupInterface
         string $title,
         ?int $calendarEventId,
         ?string $manualDate,
-        bool $listed,
+        string $accessMode,
         string $voteMode,
         int $voteBudget,
         bool $votesVisible,
-        string $antiDuplicateMode,
         int $maxCommentLength,
         string $autoCloseDelay,
         Role $viewerRole,
         ?int $createdBy,
         bool $closeNotifyEnabled = true,
-        ?string $closeNotifyEmail = null,
-        string $linkVisibility = 'chief'
+        ?string $closeNotifyEmail = null
     ): Board {
         $title = $this->resolveTitle($calendarEventId, $title, $viewerRole);
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
             $title,
             $voteMode,
-            $antiDuplicateMode,
+            $accessMode,
             $maxCommentLength,
             $autoCloseDelay,
             $voteBudget
         );
-        $linkVisibility = $this->validateLinkVisibility($linkVisibility);
 
         // Server-side pairing enforcement (module spec): the client's date
         // is never trusted when an event is linked — it's always
@@ -194,18 +196,16 @@ class BoardService implements RetroEventLinkLookupInterface
             $calendarEventId,
             $token,
             $shortCode,
-            $listed,
+            $accessMode,
             $voteMode,
             $voteBudget,
             $votesVisible,
-            $antiDuplicateMode,
             $maxCommentLength,
             $autoCloseDelay,
             $autoCloseAt,
             $createdBy,
             $closeNotifyEnabled,
-            $this->normalizeEmail($closeNotifyEmail),
-            $linkVisibility
+            $this->normalizeEmail($closeNotifyEmail)
         );
 
         if ($autoCloseAt !== null) {
@@ -235,18 +235,16 @@ class BoardService implements RetroEventLinkLookupInterface
         string $title,
         ?int $calendarEventId,
         ?string $manualDate,
-        bool $listed,
+        string $accessMode,
         string $voteMode,
         int $voteBudget,
         bool $votesVisible,
-        string $antiDuplicateMode,
         int $maxCommentLength,
         string $autoCloseDelay,
         Role $viewerRole,
         ?int $updatedBy,
         bool $closeNotifyEnabled = true,
-        ?string $closeNotifyEmail = null,
-        string $linkVisibility = 'chief'
+        ?string $closeNotifyEmail = null
     ): Board {
         $existing = $this->boardRepository->findById($id);
         if ($existing === null) {
@@ -257,12 +255,18 @@ class BoardService implements RetroEventLinkLookupInterface
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
             $title,
             $voteMode,
-            $antiDuplicateMode,
+            $accessMode,
             $maxCommentLength,
             $autoCloseDelay,
             $voteBudget
         );
-        $linkVisibility = $this->validateLinkVisibility($linkVisibility);
+        // Refused here, not only greyed out in the form: a vote keyed by
+        // account and one keyed by the anonymous cookie can never be
+        // recognised as the same person's, so changing the mode once
+        // anybody has voted would let everyone vote a second time.
+        if ($accessMode !== $existing->accessMode && $this->isAccessModeLocked($existing)) {
+            throw new RetroException(self::ACCESS_MODE_LOCKED_MESSAGE);
+        }
         $boardDate = $this->resolveBoardDate($calendarEventId, $manualDate, $viewerRole);
 
         // Changing the delay resets the countdown from now — editing while
@@ -276,17 +280,15 @@ class BoardService implements RetroEventLinkLookupInterface
             $title,
             $boardDate,
             $calendarEventId,
-            $listed,
+            $accessMode,
             $voteMode,
             $voteBudget,
             $votesVisible,
-            $antiDuplicateMode,
             $maxCommentLength,
             $autoCloseDelay,
             $autoCloseAt,
             $closeNotifyEnabled,
-            $this->normalizeEmail($closeNotifyEmail),
-            $linkVisibility
+            $this->normalizeEmail($closeNotifyEmail)
         );
 
         if ($existing->isOpen()) {
@@ -487,6 +489,15 @@ class BoardService implements RetroEventLinkLookupInterface
     }
 
     /**
+     * Whether $board's access mode is frozen — from its first vote on
+     * (issue #833). See update().
+     */
+    public function isAccessModeLocked(Board $board): bool
+    {
+        return $this->boardRepository->hasVotes($board->id);
+    }
+
+    /**
      * The public-facing URL for a board — /s/{code} when a short link
      * could be registered, /r/{token} otherwise (module spec: "never a
      * broken link").
@@ -507,7 +518,10 @@ class BoardService implements RetroEventLinkLookupInterface
     ): ?RetroLinkSummary
     {
         $board = $this->boardRepository->findByCalendarEventId($eventId);
-        if ($board === null || !$this->viewerMeetsLinkAudience($board, $viewerRole, $viewerEmail, $scoutYearId)) {
+        // Open boards only, never a public one, and only for a reader who
+        // could open it (Service\BoardAccess, issue #833). The e-mail and
+        // the year are no longer needed: no mode depends on a section.
+        if ($board === null || !$this->access->mayShowLinkTo($board, $viewerRole)) {
             return null;
         }
 
@@ -526,25 +540,6 @@ class BoardService implements RetroEventLinkLookupInterface
         return $this->boardRepository->findByCalendarEventId($eventId) !== null;
     }
 
-    private function viewerMeetsLinkAudience(
-        Board $board,
-        Role $viewerRole,
-        ?string $viewerEmail,
-        ?int $scoutYearId
-    ): bool
-    {
-        return match ($board->linkVisibility) {
-            'identified' => $viewerRole->hasAccess(Role::IDENTIFIED),
-            'chief' => $viewerRole->hasAccess(Role::CHIEF),
-            // Cumulative (#743): a superadmin meets the chef d'unité's audience.
-            'unit_chief' => $viewerRole->hasAccess(Role::CHIEF)
-                && $scoutYearId !== null
-                && $this->hasUnitChiefAuthority($viewerRole, $viewerEmail, $scoutYearId),
-            'superadmin' => $viewerRole->hasAccess(Role::SUPERADMIN),
-            default => false,
-        };
-    }
-
     /**
      * @return array{0: string, 1: int, 2: int} validated title, voteBudget, maxCommentLength
      * @throws RetroException
@@ -552,7 +547,7 @@ class BoardService implements RetroEventLinkLookupInterface
     private function validateCommon(
         string $title,
         string $voteMode,
-        string $antiDuplicateMode,
+        string $accessMode,
         int $maxCommentLength,
         string $autoCloseDelay,
         int $voteBudget
@@ -564,8 +559,8 @@ class BoardService implements RetroEventLinkLookupInterface
         if (!in_array($voteMode, Board::VOTE_MODES, true)) {
             throw new RetroException('Mode de vote invalide.');
         }
-        if (!in_array($antiDuplicateMode, Board::ANTI_DUPLICATE_MODES, true)) {
-            throw new RetroException('Mode anti-doublon invalide.');
+        if (!in_array($accessMode, Board::ACCESS_MODES, true)) {
+            throw new RetroException("Mode d'accès invalide.");
         }
         if (!in_array($autoCloseDelay, Board::AUTO_CLOSE_DELAYS, true)) {
             throw new RetroException('Délai de clôture automatique invalide.');
@@ -592,18 +587,6 @@ class BoardService implements RetroEventLinkLookupInterface
         }
 
         return [$title, $voteBudget, $maxCommentLength];
-    }
-
-    /**
-     * @throws RetroException
-     */
-    private function validateLinkVisibility(string $linkVisibility): string
-    {
-        if (!in_array($linkVisibility, Board::LINK_VISIBILITIES, true)) {
-            throw new RetroException('Audience du lien invalide.');
-        }
-
-        return $linkVisibility;
     }
 
     /**

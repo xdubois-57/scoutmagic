@@ -28,11 +28,20 @@ CREATE TABLE retro_boards (
     token_blind_index CHAR(64) NOT NULL,
     short_code VARCHAR(20) NULL,
     status ENUM('open', 'closed', 'archived') NOT NULL DEFAULT 'open',
-    listed BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Who may open the board and every one of its /r/{token} routes, who
+    -- sees its link in the calendar and the personal ICS feed, and how a
+    -- vote is deduplicated — one setting for the three, since each follows
+    -- from the others (issue #833, Service\BoardAccess):
+    --   animators   a session at intendant or above; votes keyed by account
+    --   identified  any logged-in account, parents included; same keying
+    --   public      anyone holding the link; votes keyed by the anonymous
+    --               cookie, and the link is never published anywhere
+    -- Frozen once a vote exists: a vote recorded under one keying must
+    -- never be counted again under the other.
+    access_mode ENUM('animators', 'identified', 'public') NOT NULL DEFAULT 'animators',
     vote_mode ENUM('unlimited', 'budget') NOT NULL DEFAULT 'unlimited',
     vote_budget INT UNSIGNED NOT NULL DEFAULT 5,
     votes_visible BOOLEAN NOT NULL DEFAULT TRUE,
-    anti_duplicate_mode ENUM('cookie', 'auth') NOT NULL DEFAULT 'cookie',
     max_comment_length INT UNSIGNED NOT NULL DEFAULT 140,
     auto_close_delay ENUM('none', '2h', '24h', '3d', '7d') NOT NULL DEFAULT '7d',
     -- Precomputed at creation/whenever auto_close_delay changes — the
@@ -57,13 +66,6 @@ CREATE TABLE retro_boards (
     -- address never sends regardless of close_notify_enabled.
     close_notify_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     close_notify_email VARCHAR(255) NULL,
-    -- Minimum audience allowed to see this board's link in the calendar
-    -- module's event GUI and personal ICS feed (Api\
-    -- RetroEventLinkLookupInterface::findLinkedBoardLink()) — 'unit_chief'
-    -- is Service\BoardService::isUnitChief() (Staff d'U section membership),
-    -- not a Core\Security\Role case, so it can't be a plain role_min string.
-    -- Meaningless unless calendar_event_id is set.
-    link_visibility ENUM('identified', 'chief', 'unit_chief', 'superadmin') NOT NULL DEFAULT 'chief',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at DATETIME NULL,
     UNIQUE INDEX idx_retro_boards_token (token_blind_index),

@@ -111,4 +111,30 @@ class AuthControllerPasskeyTest extends TestCase
 
         $this->assertFalse($data['success']);
     }
+
+    /**
+     * Issue #833: a passkey login goes back to the page that asked for it.
+     * WebAuthn itself is stubbed — its verification has its own tests; this
+     * is about what the controller answers once it has succeeded.
+     */
+    public function testASuccessfulPasskeyLoginGoesBackToThePageThatAskedForIt(): void
+    {
+        $account = (new UserAccountRepository($this->pdo, new EncryptionService(random_bytes(32), random_bytes(32))))
+            ->create('passkey-return@example.com');
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyAuthentication')->willReturn($account);
+        $twig = $this->createStub(Environment::class);
+        $controller = new AuthController($twig, $this->createStub(AuthService::class));
+        $controller->setWebAuthnService($webAuthn);
+        \Core\Security\LoginReturn::remember('/r/abc123');
+
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], json_encode([
+            'id' => 'x',
+            'rgpd_consent' => true,
+        ]));
+        $data = json_decode($controller->passkeyVerify($request, [])->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertSame('/r/abc123', $data['redirect']);
+    }
 }

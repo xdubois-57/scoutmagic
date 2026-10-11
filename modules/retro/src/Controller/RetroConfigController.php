@@ -131,7 +131,15 @@ class RetroConfigController extends AbstractController
         // re-enforces this at read time), but persisting a value the UI
         // itself hid the option for would be a confusing, silently-inert
         // setting for an admin to stumble on later.
-        if ($moderationMode !== 'disabled' && !$this->aiAvailable()) {
+        //
+        // The value already in force is the one exception: without AI the
+        // page mirrors it in a hidden field, and since « warning » became
+        // the default (issue #833) that mirror is no longer « disabled ».
+        // Sending back what is stored changes nothing, so it is not a
+        // choice to refuse — refusing it would make the whole page
+        // unsavable on a site without AI.
+        $currentMode = (string) ($this->settingService->get('retro_moderation_mode', 'retro') ?: 'warning');
+        if ($moderationMode !== 'disabled' && $moderationMode !== $currentMode && !$this->aiAvailable()) {
             return $this->saveError('La modération automatique nécessite un connecteur IA actif.');
         }
 
@@ -193,10 +201,11 @@ class RetroConfigController extends AbstractController
                 'retro_polling_interval_seconds',
                 'retro'
             ) ?: 8),
+            // « Avertissement » unless the unit chose otherwise (issue #833).
             'retro_moderation_mode' => (string) ($this->settingService->get(
                 'retro_moderation_mode',
                 'retro'
-            ) ?: 'disabled'),
+            ) ?: 'warning'),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

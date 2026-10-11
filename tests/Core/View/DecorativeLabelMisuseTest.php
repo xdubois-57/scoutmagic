@@ -207,13 +207,16 @@ class DecorativeLabelMisuseTest extends TestCase
             'default_vote_budget' => 10,
             'default_max_comment_length' => 160,
             'default_notify_email' => 'chef@example.org',
-            'link_visibilities' => [['value' => 'chief', 'label' => 'Chef']],
+            'access_modes' => [['value' => 'animators', 'label' => 'Animateurs', 'help' => '']],
+            'default_access_mode' => 'animators',
+            'access_mode_locked' => false,
+            'access_mode_locked_message' => '',
         ]);
 
-        $this->assertTextIsNotInsideALabel($html, 'Découverte du lien');
+        // A <legend> since issue #833, the radio group's own accessible name.
+        $this->assertTextIsNotInsideALabel($html, 'Accès à la rétrospective');
         $this->assertTextIsNotInsideALabel($html, 'Mode de vote');
         $this->assertTextIsNotInsideALabel($html, 'Visibilité des votes');
-        $this->assertTextIsNotInsideALabel($html, 'Anti-doublon des votes');
     }
 
     public function testRegistrationPublicSiblingGroupHeadingIsNotALabelElement(): void

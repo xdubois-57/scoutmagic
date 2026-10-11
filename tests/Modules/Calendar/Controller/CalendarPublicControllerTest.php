@@ -124,6 +124,115 @@ class CalendarPublicControllerTest extends TestCase
             $scoutYearResolver,
             $journalService
         );
+        $this->rebuildWithRetro = function (\Modules\Retro\Api\RetroEventLinkLookupInterface $lookup) use (
+            $twig,
+            $sectionService,
+            $scoutYearResolver,
+            $journalService
+        ): CalendarPublicController {
+            $calendarService = new CalendarService(
+                $this->calendarRepository,
+                $this->eventRepository,
+                $sectionService,
+                new CalendarUnitFeedTokenRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+                $lookup
+            );
+
+            return new CalendarPublicController(
+                $twig,
+                $calendarService,
+                new CalendarPickerService($calendarService, $this->personalFeedService),
+                new MonthGridBuilder(),
+                $this->personalFeedService,
+                new IcsBuilder(),
+                $scoutYearResolver,
+                $journalService
+            );
+        };
+    }
+
+    /** @var \Closure(\Modules\Retro\Api\RetroEventLinkLookupInterface): CalendarPublicController */
+    private \Closure $rebuildWithRetro;
+
+    /**
+     * Issue #833: « Notre unité » now hands the reader to the retro lookup,
+     * as the chiefs' page always did — the link reached nobody here before,
+     * not even a chief. An anonymous visitor is still handed to nobody.
+     */
+    public function testTheLinkedRetrospectiveReachesTheReaderItsAccessModeLetsIn(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Unité', 'public');
+        $this->eventRepository->create($calendar->id, 'Grand jeu', '2099-01-01', null, null, null, null, null, null);
+        $lookup = new class implements \Modules\Retro\Api\RetroEventLinkLookupInterface {
+            public function findLinkedBoardLink(int $eventId, \Core\Security\Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?\Modules\Retro\Api\RetroLinkSummary
+            {
+                return $viewerRole->hasAccess(\Core\Security\Role::INTENDANT)
+                    ? new \Modules\Retro\Api\RetroLinkSummary('https://example.test/s/retro1', 'Rétro du grand jeu')
+                    : null;
+            }
+
+            public function hasLinkedBoard(int $eventId): bool
+            {
+                return true;
+            }
+        };
+        $controller = ($this->rebuildWithRetro)($lookup);
+        $request = new Request('GET', '/calendar', ['month' => '2099-01'], [], [], []);
+
+        $anonymous = $controller->index($request, [])->getBody();
+        $this->assertStringNotContainsString('https://example.test/s/retro1', $anonymous);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        try {
+            $chief = $controller->index($request, [])->getBody();
+        } finally {
+            AuthSession::logout();
+        }
+        $this->assertStringContainsString('data-retro-link="https://example.test/s/retro1"', $chief);
+        $this->assertStringContainsString('id="event-details-retro-link"', $chief);
+    }
+
+    /**
+     * Whether an event HAS a board is the chiefs' edit modal's business,
+     * and it is not gated by the board's access mode: on this reader page
+     * a parent must not learn that an animators-only retrospective exists,
+     * even with its link withheld.
+     */
+    public function testAReaderPageNeverSaysAnEventHasARetrospective(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Unité', 'public');
+        $this->eventRepository->create($calendar->id, 'Grand jeu', '2099-01-01', null, null, null, null, null, null);
+        $lookup = new class implements \Modules\Retro\Api\RetroEventLinkLookupInterface {
+            public function findLinkedBoardLink(int $eventId, \Core\Security\Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?\Modules\Retro\Api\RetroLinkSummary
+            {
+                return null;
+            }
+
+            public function hasLinkedBoard(int $eventId): bool
+            {
+                return true;
+            }
+        };
+        $controller = ($this->rebuildWithRetro)($lookup);
+        $request = new Request('GET', '/calendar', ['month' => '2099-01'], [], [], []);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        AuthSession::login(9, 'parent@test.be', 'identified');
+        try {
+            $parent = $controller->index($request, [])->getBody();
+        } finally {
+            AuthSession::logout();
+        }
+
+        $this->assertStringContainsString('Grand jeu', $parent);
+        $this->assertStringNotContainsString('data-has-linked-retro', $parent);
+        $this->assertStringNotContainsString('data-auto-create-retro', $parent);
+        $this->assertStringContainsString('data-retro-link=""', $parent);
     }
 
     public function testIndexRendersPageWithMonthGrid(): void

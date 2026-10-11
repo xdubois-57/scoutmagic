@@ -1,5 +1,6 @@
 // End-to-end: a rétrospective board — anonymous words, live polling,
-// votes, a chief's moderation, and the token that IS the access control.
+// votes, a chief's moderation, and the token that is a public board's
+// only key.
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------
@@ -26,9 +27,12 @@
 //     replaces body AND votes with placeholders — a data-minimisation
 //     rule enforced in serializeComment(), observable only across two
 //     differently-privileged browsers.
-//   - The unguessable token is the whole access control: regenerating the
-//     link must kill the old URL immediately (404) while the new one
-//     carries every word and vote across.
+//   - On a « Lien public » board (issue #833) the unguessable token is the
+//     whole access control: regenerating the link must kill the old URL
+//     immediately (404) while the new one carries every word and vote
+//     across. The two other access modes need a login and are
+//     Tests\Modules\Retro\Controller\RetroBoardControllerTest's, route by
+//     route.
 //
 // WHAT IT DELIBERATELY LEAVES ALONE
 // ----------------------------------------------------------------------------
@@ -51,8 +55,8 @@
 //   - the points budget → VoteServiceTest (a budget respected, refunded on
 //     an unvote, unaffected by another voter's spend) and
 //     RetroBoardControllerTest::testAddPointAndRemovePointForBudgetMode;
-//   - anti-duplicate by login rather than by cookie → RetroBoardController
-//     Test::testToggleLikeRequiresLoginWhenAntiDuplicateModeIsAuth. Its
+//   - votes keyed by login rather than by cookie → RetroBoardController
+//     Test::testToggleLikeRequiresLoginOnABoardForIdentifiedMembers. Its
 //     twin — the SESSION standing in for the cookie when consent is
 //     refused — is the one half that needs a real cookie jar, and the
 //     scenario above already drives it.
@@ -122,9 +126,10 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
     });
 
     // ---------------------------------------------------------------
-    // A chief creates the board through the real form. The defaults are
-    // the interesting configuration: like-mode votes, cookie-based
-    // anti-duplicate — the anonymous path.
+    // A chief creates the board through the real form: like-mode votes
+    // (the default) on a « Lien public » board — the anonymous path, votes
+    // deduplicated by the cookie. The default access is « Animateurs »
+    // (issue #833), which no anonymous visitor could open.
     // ---------------------------------------------------------------
     await loginAsAdmin(page);
     await page.goto('/retro', { waitUntil: 'domcontentloaded' });
@@ -132,6 +137,8 @@ test('two anonymous visitors write and vote on a live board, a chief moderates, 
     await page.waitForURL('**/retro/create', { waitUntil: 'domcontentloaded' });
 
     await page.getByLabel('Titre').fill(BOARD_TITLE);
+    await expect(page.getByLabel('Animateurs', { exact: true })).toBeChecked();
+    await page.getByLabel('Lien public', { exact: true }).check();
     await page.getByRole('button', { name: 'Créer la rétrospective' }).click();
     await page.waitForURL('**/retro', { waitUntil: 'domcontentloaded' });
 
