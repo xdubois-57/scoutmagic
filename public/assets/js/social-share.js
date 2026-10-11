@@ -65,49 +65,95 @@
     }
 
     /**
+     * The public page's address — or null, once the chief has been told
+     * why there is none to hand over.
+     *
+     * @param {{ok: boolean, status: number, data: any}} answer
+     * @returns {?string}
+     */
+    function minted(answer) {
+        const url = answer.ok ? answer.data?.url : null;
+        if (!url) {
+            announce(answer.data?.error || 'Le lien n’a pas pu être préparé.', false);
+
+            return null;
+        }
+
+        return url;
+    }
+
+    /**
+     * Hands the link to the device, and answers which gesture happened —
+     * or null when none did.
+     *
+     * @param {?string} url
+     * @returns {?string|Promise<?string>}
+     */
+    function handed(url) {
+        if (url === null) {
+            return null;
+        }
+
+        const given = canShareSheet
+            ? navigator.share({ url: url }).then(function () { return 'native'; })
+            : clipboard.writeText(url).then(function () { return 'copy'; });
+
+        return given.catch(refused);
+    }
+
+    /**
+     * **A dismissed sheet is not a failure and not a share.**
+     * `AbortError` is what every browser raises when the chief closes the
+     * sheet, and the only right answer is to say nothing at all: no
+     * history line, no freeze, no error message for something they chose.
+     *
+     * @param {?{name?: string}} error
+     * @returns {null}
+     */
+    function refused(error) {
+        if (error?.name !== 'AbortError') {
+            announce('Le partage n’a pas abouti.', false);
+        }
+
+        return null;
+    }
+
+    /**
+     * Records the share that happened. The reload is what puts the new
+     * line in « Ce qui est parti » — and the freeze it brings is what the
+     * composer must show, so a stale page would offer buttons the server
+     * has started refusing.
+     *
+     * @param {string} recordUrl
+     * @param {string} kind
+     * @returns {Promise<void>}
+     */
+    function record(recordUrl, kind) {
+        return api.postJson(recordUrl, { kind: kind }).then(function () {
+            if (kind === 'copy') {
+                announce('Lien copié', true);
+            }
+            window.location.reload();
+        });
+    }
+
+    /**
+     * One flat chain rather than promises nested in one another: mint the
+     * page, hand the link over, record what happened.
+     *
      * @param {HTMLElement} button
      * @returns {Promise<void>}
      */
     function run(button) {
-        const linkUrl = button.getAttribute('data-share-link-url') || '';
-        const recordUrl = button.getAttribute('data-share-record-url') || '';
+        const linkUrl = button.dataset.shareLinkUrl || '';
+        const recordUrl = button.dataset.shareRecordUrl || '';
 
-        return api.postJson(linkUrl, {}).then(function (answer) {
-            const url = answer.ok ? answer.data?.url : null;
-            if (!url) {
-                announce(answer.data?.error || 'Le lien n’a pas pu être préparé.', false);
-                return undefined;
-            }
-
-            const handed = canShareSheet
-                ? navigator.share({ url: url }).then(function () { return 'native'; })
-                : clipboard.writeText(url).then(function () { return 'copy'; });
-
-            return handed.then(function (kind) {
-                // Recorded only now. The reload is what puts the new line
-                // in « Ce qui est parti » — and the freeze it brings is
-                // what the composer must show, so a stale page would
-                // offer buttons the server has started refusing.
-                return api.postJson(recordUrl, { kind: kind }).then(function () {
-                    if (kind === 'copy') {
-                        announce('Lien copié', true);
-                    }
-                    window.location.reload();
-                });
-            }, function (error) {
-                // **A dismissed sheet is not a failure and not a share.**
-                // `AbortError` is what every browser raises when the
-                // chief closes the sheet, and the only right answer is to
-                // say nothing at all: no history line, no freeze, no
-                // error message for something they chose.
-                if (error && error.name === 'AbortError') {
-                    return undefined;
-                }
-
-                announce('Le partage n’a pas abouti.', false);
-                return undefined;
+        return api.postJson(linkUrl, {})
+            .then(minted)
+            .then(handed)
+            .then(function (kind) {
+                return kind === null ? undefined : record(recordUrl, kind);
             });
-        });
     }
 
     buttons.forEach(function (button) {
@@ -116,7 +162,11 @@
         }
         button.hidden = false;
         button.addEventListener('click', function () {
-            api.withDisabled(/** @type {HTMLButtonElement} */ (button), function () {
+            // `void`: the chain reports to the chief itself — through the
+            // live region — so there is nothing for a caller to await,
+            // and an unhandled promise is a defect the quality gate reads
+            // as one.
+            void api.withDisabled(/** @type {HTMLButtonElement} */ (button), function () {
                 return run(button);
             });
         });

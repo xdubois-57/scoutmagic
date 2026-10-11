@@ -64,24 +64,24 @@
                 form.querySelectorAll('[data-group]').forEach(function (groupRow) {
                     const groupBox = groupRow.querySelector('input[name="groups[]"]');
                     if (groupBox instanceof HTMLInputElement && groupBox.checked && !groupBox.disabled) {
-                        out.push(blockFor(groupRow));
+                        out.push(blockFor(/** @type {HTMLElement} */ (groupRow)));
                     }
                 });
                 return;
             }
 
-            out.push(blockFor(row));
+            out.push(blockFor(/** @type {HTMLElement} */ (row)));
         });
 
         return out;
     }
 
     /**
-     * @param {Element} row
+     * @param {HTMLElement} row
      * @returns {{kind: 'box', tone: 'muted'|'warning', title: string, text: string}}
      */
     function blockFor(row) {
-        const line = row.getAttribute('data-shared-line') || '';
+        const line = row.dataset.sharedLine || '';
 
         return {
             kind: 'box',
@@ -89,7 +89,7 @@
             // did: the colour is the first thing read, and the only line
             // worth stopping on is the one that says « already ».
             tone: line === '' ? 'muted' : 'warning',
-            title: row.getAttribute('data-destination-label') || '',
+            title: row.dataset.destinationLabel || '',
             text: line === '' ? NEVER : line,
         };
     }
