@@ -906,4 +906,50 @@ class PublicRegistrationControllerTest extends TestCase
         $responseEnabled = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
         $this->assertStringContainsString('Disponibilités 2027-2028</h2>', $responseEnabled->getBody());
     }
+
+    /**
+     * Issue #843: the recommendation is the staff's alone. The public form
+     * shows a level per birth year — « Disponible », « Limitée »,
+     * « Complet » — and nothing about any request: not its recommendation,
+     * not its explanation, not why an earlier one was refused.
+     */
+    public function testThePublicFormNeverShowsARequestsRecommendation(): void
+    {
+        $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
+        (new SlotCapacityRepository($this->pdo))->upsert($this->baladinsId, 1, 10);
+        $scoutYears = new ScoutYearService($this->pdo);
+        $pastYearId = $scoutYears->ensureYear('2025-2026');
+        $targetYearId = $scoutYears->ensureYear('2027-2028');
+        $requests = new RegistrationRequestRepository($this->pdo, $this->encryption);
+        $fields = [
+            'parent_name' => 'P', 'child_last_name' => 'Mertens', 'child_first_name' => 'Lucas',
+            'gender' => 'H', 'birth_date' => '2021-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'mertens@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ];
+        $old = $requests->create($pastYearId, $fields, null, [])['id'];
+        $requests->updateStatus($old, 'refused', new \DateTimeImmutable(), 'no_room');
+        $pending = $requests->create($targetYearId, $fields, null, [])['id'];
+
+        $service = new \Modules\Registration\Service\RecommendationService(
+            $requests,
+            RegistrationTestHelper::slotService($this->pdo, $this->encryption, $this->settingService),
+            new AgeBracketRepository($this->pdo),
+            $scoutYears,
+            new ScoutYearResolver($scoutYears, $this->settingService, new MemberYearRepository($this->pdo)),
+            new \Modules\Registration\Service\PriorityOrderService($this->settingService)
+        );
+        $explanation = $service->forYear($targetYearId)[$pending]->explanation ?? '';
+        $this->assertStringContainsString('ancienne demande restée sans place (2025-2026)', $explanation);
+
+        $body = (string) $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('>Disponible<', $body, 'the level per birth year is there');
+        $this->assertStringNotContainsString($explanation, $body);
+        $staffOnly = ['Toujours Oui', 'Classement favorisé', 'restée sans place', 'Pas de place', 'no_room'];
+        foreach ($staffOnly as $text) {
+            $this->assertStringNotContainsString($text, $body);
+        }
+        $this->assertStringNotContainsString('recommandation', mb_strtolower($body));
+    }
 }

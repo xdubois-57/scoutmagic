@@ -11353,7 +11353,8 @@ if ($isEnabled('registration')) {
             $registrationStatusService,
             $journalService,
             $settingService,
-            new \Modules\Registration\Service\RequestExportService()
+            new \Modules\Registration\Service\RequestExportService(),
+            new \Modules\Registration\Service\PriorityOrderService($settingService)
         )
     );
     $frontController->registerController(

@@ -443,3 +443,174 @@ compte pas.
 **Reporté.**
 
 - La glissière, les champs synchronisés et l'exemple chiffré : IT-03.
+
+---
+
+## IT-03 — Moteur de recommandation et réglages « Capacités et priorités »
+
+**Livré.**
+
+- **Service de recommandation** `Service\RecommendationService` (et son
+  objet résultat `Service\Recommendation`), testable sans contrôleur :
+  la file D5 par année de parcours — « Toujours Oui » d'abord par date de
+  dépôt (seules à pouvoir dépasser la capacité), puis le classement
+  lexicographique par les critères actifs dans l'ordre choisi, puis la
+  date de dépôt, puis l'identifiant (résultat déterministe) ; chaque
+  demande jugée par `SlotMath::levelForOccupancy()` sur l'occupation qui
+  la précède (l'occupation de `SlotService::capacityBreakdownForYear()`
+  plus les demandes devant elle). Sortent de la file, avec explication et
+  sans niveau : le doublon possible (même `name_dob_blind_index`, même
+  année) sauf la plus ancienne demande vivante de l'enfant, et la demande
+  hors des tranches d'âge. Capacité vide : « Oui — aucune limite… » ;
+  capacité 0 : « fermée aux inscriptions ». Rien n'est calculé quand
+  « Gérer les listes d'attente » est décochée, ni pour une année passée.
+  Les cinq explications des critères d'acceptation sont vérifiées mot pour
+  mot sur un jeu de données qui reproduit celui de la maquette
+  (Louveteaux · 1re et 2e année, numéros #416, #417, #409, #414, #398,
+  #401 compris). La recommandation n'est affichée nulle part : IT-04 en
+  sera le premier lecteur, et le service n'est donc pas encore construit
+  dans `public/index.php`.
+- **Motif de refus** : colonne `registration_requests.refusal_reason`
+  (`ENUM('no_room', 'other') NULL`, sans migration), écrite par
+  `updateStatus()` dans la même requête que le statut, effacée par toute
+  autre transition ; `RequestStatusService::refuse()` prend un motif
+  facultatif (les appels actuels — fiche, refus groupé — restent sans
+  motif jusqu'à IT-04), refuse un motif inconnu avant toute écriture et
+  journalise le code. `RegistrationRequest::$refusalReason` et ses
+  libellés « Pas de place » / « Autre ».
+- **Ordre des critères** : `Service\PriorityOrder` (structure immuable,
+  validation unique : chaque critère une fois, aucun inconnu, « Ordre
+  d'arrivée » jamais en « Toujours Oui ») et `Service\PriorityOrderService`
+  (réglage `registration_priority_order`, JSON, `editable: false`) ;
+  défauts *Fratrie* en « Toujours Oui », *Ancienne demande restée sans
+  place* puis *Ordre d'arrivée* en « Classement ».
+- **Réglages › Capacités par branche** : la case « Gérer les listes
+  d'attente » enregistrée au changement (`POST
+  /config/inscriptions/listes-attente`, JSON) ; la sous-boîte des seuils
+  (`POST /config/inscriptions/seuils`) avec la glissière à deux poignées
+  1–120 % (zones Oui / Peut-être / Non, repère 100 %), les deux champs
+  synchronisés validés à la sortie du champ ou sur Entrée (saisie vide ou
+  invalide ignorée), l'exemple chiffré (accords, bande « Peut-être »
+  vide), la phrase au-delà de 100 % ; tout grisé et désactivé
+  (`<fieldset disabled>`) quand la case est décochée, valeurs conservées ;
+  la sous-boîte « Capacités » (`POST /config/inscriptions`, la grille
+  seule, une ligne par année de parcours). Un « Enregistrer » par
+  sous-boîte.
+- **Réglages › Priorités** (`POST /config/inscriptions/priorites`) : trois
+  zones connectées par `partials/list_editor.html.twig` (`sortable_group`,
+  `group_key`) sans point d'enregistrement par déplacement, ligne
+  verrouillée « Limite : … » après « Classement », libellés et aides de la
+  maquette, mention « (sans effet tant que les listes d'attente ne sont
+  pas gérées) ».
+- JS : `public/assets/js/registration-capacity-settings.js` (glissière,
+  synchronisation, exemple, case enregistrée au changement, intégration
+  propre au module des listes connectées) et son test Vitest qui importe
+  le vrai fichier ; `list-editor.js` expose `window.ScoutMagicListEditor
+  .refresh()` pour la ligne déplacée par le menu sur petit écran.
+- Tests : `RecommendationServiceTest` (22 cas : explications, file par
+  année de parcours, chaque critère, ordre des zones, doublon, hors
+  tranche, capacité NULL / 0 / dépassée, seuil au-delà de 100 %, accords,
+  déterminisme, case décochée, année passée), `PriorityOrderTest`,
+  `RegistrationRequestRepositoryTest` et
+  `RegistrationRequestRepositoryOnMysqlTest` (motif, file, refus « Pas de
+  place » antérieurs, sur MariaDB), `RequestStatusServiceTest`,
+  `RegistrationConfigControllerTest` (enregistrement et validation des
+  seuils, de la grille et des priorités, grisage, un « Enregistrer » par
+  sous-boîte), `RegistrationRbacTest` (les trois POST neufs : admin
+  autorisé, chief refusé), régression « aucune recommandation dans une vue
+  publique » dans `TrackingControllerTest` et
+  `PublicRegistrationControllerTest`, scénarios de bout en bout
+  `registration-flow` / `registration-grids` adaptés (case enregistrée au
+  changement, seuils et priorités enregistrés par leur bouton).
+- Documentation : sujet d'aide `capacites-et-listes-d-attente` réécrit
+  (seuils, priorités, recommandation), `gerer-les-demandes`,
+  `specifications.md` §17.6, `ARCHITECTURE.md` §8.36. Version du module
+  6.13.0 → 6.14.0.
+
+**Décisions autonomes.**
+
+- **La case « Gérer les listes d'attente » s'enregistre au changement**
+  (design.md §7.13 : un contrôle indépendant, pas de bouton) ; la maquette
+  ne lui donne aucun bouton, et chaque sous-boîte a le sien. La réponse du
+  serveur grise ou dégrise les seuils sans recharger ; un refus remet la
+  case dans l'état du serveur.
+- **Les seuils ne s'enregistrent pas case décochée** : le bouton est
+  désactivé, et le serveur refuse aussi une soumission qui arriverait
+  quand même — des valeurs qu'on ne voit pas agir ne changent pas derrière
+  le gris.
+- **La grille refuse désormais une case ni vide ni entière** (« douze »,
+  « -1 », « 2,5 ») : elle était lue « pas de limite », ce qui ouvrait une
+  année sans le vouloir. Rien n'est enregistré dans ce cas.
+- **Doublon** : la demande qui reste se cherche parmi les demandes
+  vivantes de l'année — en attente, acceptées, encodées — et c'est la plus
+  ancienne, **sauf** si l'enfant a déjà une place (une demande acceptée ou
+  encodée, même plus récente) : c'est alors celle-là qui reste, et toute
+  demande en attente du même enfant sort de la file en la citant — jamais
+  une seconde place recommandée pour le même enfant. Une demande refusée
+  ou retirée est close : l'enfant qui redépose après elle n'est pas un
+  doublon à régler.
+- **« Ancienne demande restée sans place »** : le libellé d'année cité est
+  celui de la plus récente année antérieure ; un refus sans motif connu
+  (tous ceux d'avant IT-04) ne compte jamais comme « Pas de place ».
+- **Explications** : celles de `recommend()`, avec deux accords en plus
+  — « 1 place sur 15 serait occupée », « aucune place sur 15 ne serait
+  occupée » — et un pourcentage qui ne contredit jamais le seuil qu'il dit
+  dépasser : 19 places sur 27 font 70,37 %, au-delà du « Oui » à 70 %,
+  et « (70 %), au-delà de la limite du « Oui » (70 %) » se lirait comme
+  une contradiction (la maquette l'aurait écrit) ; il est alors donné au
+  dixième supérieur, « (70,4 %) ». Les critères cités (« règle « Toujours Oui » : … »,
+  « Classement favorisé par : … ») le sont dans l'ordre de leur zone, ce
+  qui donne le texte de la maquette avec les réglages par défaut.
+- **Années concernées** : l'année en cours (inscriptions en cours d'année
+  avec le code) et l'année cible ; une année passée n'a aucune
+  recommandation (R8).
+- **Priorités enregistrées par le bouton de la boîte**, pas à chaque
+  déplacement : `list_editor` sans `reorder_url`, le script renomme les
+  champs cachés `priority[<zone>][]` selon la liste où chaque ligne se
+  trouve à l'envoi, remet « Ordre d'arrivée » à sa place s'il est lâché en
+  « Toujours Oui » (avec la phrase de la maquette, que le serveur répète
+  s'il reçoit quand même cet ordre), et propose sur petit écran le menu
+  « Déplacer — … » de la maquette. Sur petit écran, la zone « Désactivés »
+  vide renvoie au menu plutôt qu'au glisser.
+- **Le réglage des priorités est `editable: false`** : un JSON n'a rien à
+  faire sur Configuration > Réglages ; il est écrit par
+  `setInternal()` une fois validé. Une valeur illisible se lit comme les
+  défauts, en bloc, et la boîte le dit.
+- **L'exemple chiffré est écrit par le script seulement** (une seule
+  définition de son calcul, testée par Vitest) ; sans JavaScript, la
+  sous-boîte garde les champs et la glissière, sans exemple.
+- Messages de confirmation de la maquette : « Capacités enregistrées. »,
+  « Seuils enregistrés. », « Priorités enregistrées. ».
+- Les trois enregistrements (case, seuils, priorités) sont journalisés,
+  sans donnée personnelle.
+
+**Divergences avec le document.**
+
+- Vérification des faits cités sur `e203dfd` contre `main` (`5b6e0a8d`) :
+  la version du module était 6.13.0 (IT-01 et IT-02 l'avaient montée) ;
+  `RequestStatusService::refuse()` ne prenait aucun motif ;
+  `name_dob_blind_index` n'était lu que par le rapprochement Desk.
+- *Fratrie déjà dans l'unité* est lue sur les frères et sœurs déclarés à
+  la demande (`registration_request_siblings`, liens vers des membres
+  réels au moment du dépôt) : un frère parti depuis compte encore. Le
+  document ne précise pas davantage ; aucun autre signal n'existe.
+- Le document parle d'« explications identiques » : elles le sont, aux
+  deux accords et au dixième près ci-dessus, qui ne touchent aucun des
+  cinq cas des critères d'acceptation.
+
+**Reporté.**
+
+- Le dialogue de décision, la colonne « Action rapide » et la saisie du
+  motif de refus : IT-04. La sous-boîte « Décisions automatiques » :
+  IT-09 / IT-10.
+- #890 (double comptage d'une demande acceptée non rattachée dont l'enfant
+  est déjà projeté) : hors périmètre, ni corrigé ni aggravé — le service
+  lit l'occupation de `SlotService` telle quelle.
+
+**Faits tranchés.** R4 : aucun signal « doublon » n'existait (le seul
+lecteur de `name_dob_blind_index` était le rapprochement Desk) ; IT-03 le
+crée dans `RecommendationService` — même `name_dob_blind_index`, même
+année, parmi les demandes vivantes, la plus ancienne (ou celle qui tient
+déjà une place) restant dans la file (`Recommendation::$duplicateOfRequestId`)
+— sans encore l'afficher. R8 :
+aucune recommandation pour une année passée.

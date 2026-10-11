@@ -64,6 +64,11 @@
         });
     }
 
+    // The same refresh for a caller that moves a row itself, without a drag
+    // or the arrows — the registration module's « Priorités » menu, which
+    // moves a criterion between connected lists on a small screen.
+    window.ScoutMagicListEditor = { refresh: refreshList };
+
     // Requests go through the shared window.ScoutMagicApi.postJson envelope
     // ({ok, status, data} — never a rejection); each call site below reads
     // `res.data || {}` and branches on data.success as before.

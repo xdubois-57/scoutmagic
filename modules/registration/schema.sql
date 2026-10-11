@@ -97,6 +97,15 @@ CREATE TABLE registration_requests (
     -- the refusal in between. NULL = not sent yet (or not applicable).
     accepted_email_sent_at DATETIME NULL,
     refused_email_sent_at DATETIME NULL,
+    -- Why a refused request was refused (issue #843, D6): 'no_room'
+    -- (« Pas de place ») or 'other' (« Autre »). It feeds the
+    -- recommendation's « Ancienne demande restée sans place » criterion,
+    -- read on the same child's (name_dob_blind_index) requests of an
+    -- EARLIER scout year — Service\RecommendationService. Set only while
+    -- status is 'refused', cleared by any other transition. NULL also for
+    -- a refusal recorded without a reason: none is known, so it never
+    -- counts as « Pas de place ».
+    refusal_reason ENUM('no_room', 'other') NULL,
     -- The moment status entered a FINAL state (encoded/refused/withdrawn)
     -- — both retention settings (Espace membres disappearance, permanent
     -- deletion) count from here, never from received_at, and this is the

@@ -36,6 +36,22 @@ final class RegistrationRequest
     public const PREVIOUS_UNIT_YES = 'yes';
 
     /**
+     * Why a refused request was refused (issue #843, D6) — « Pas de
+     * place » or « Autre ». `null` is a refusal without a known reason,
+     * and any request that is not refused.
+     */
+    public const REFUSAL_NO_ROOM = 'no_room';
+    public const REFUSAL_OTHER = 'other';
+
+    /**
+     * @var array<string, string>
+     */
+    public const REFUSAL_REASON_LABELS = [
+        self::REFUSAL_NO_ROOM => 'Pas de place',
+        self::REFUSAL_OTHER => 'Autre',
+    ];
+
+    /**
      * @var array<string, string>
      */
     public const STATUS_LABELS = [
@@ -76,7 +92,10 @@ final class RegistrationRequest
         // the family answered « non » — and `previousUnitName` is only
         // ever set alongside PREVIOUS_UNIT_YES.
         public readonly ?string $previousUnitAnswer = null,
-        public readonly ?string $previousUnitName = null
+        public readonly ?string $previousUnitName = null,
+        // Issue #843, D6: one of the REFUSAL_* constants while the request
+        // is refused with a known reason, null otherwise.
+        public readonly ?string $refusalReason = null
     ) {
     }
 

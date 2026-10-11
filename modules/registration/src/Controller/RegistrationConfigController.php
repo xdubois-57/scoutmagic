@@ -26,6 +26,9 @@ use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Modules\Registration\Service\PriorityOrder;
+use Modules\Registration\Service\PriorityOrderService;
+use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\RecurringMonthDay;
 use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestExportService;
@@ -33,6 +36,7 @@ use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
 use Modules\Registration\Task\OpenRegistrationHandler;
+use Core\Config\SettingException;
 use Twig\Environment;
 
 /**
@@ -48,7 +52,9 @@ use Twig\Environment;
  *   non-final requests;
  * - **Gabarits** (`/config/inscriptions/gabarits`, templates());
  * - **Réglages** (`/config/inscriptions/reglages`, settings()): opening
- *   and the recurring schedule, the in-year code, the capacities.
+ *   and the recurring schedule, the in-year code, the capacity box (the
+ *   waitlist switch, the thresholds, the capacity grid) and the
+ *   « Priorités » of the recommendation (issue #843, IT-03).
  *
  * Every POST of this controller keeps the address it always had and sends
  * the visitor back to the sub-page its form lives on. Age brackets are
@@ -60,13 +66,6 @@ use Twig\Environment;
  */
 class RegistrationConfigController extends AbstractController
 {
-    /**
-     * No federation branch spans more than this many years — bounds the
-     * capacity grid so the template can render a fixed number of columns
-     * without JS row add/remove (module spec: "minimal" admin screen).
-     */
-    private const MAX_YEARS_IN_BRANCH = 4;
-
     /**
      * Content key for the page's own editable explanatory block (module
      * spec Deliverable 1's "bloc de texte modifiable") — deliberately
@@ -87,7 +86,15 @@ class RegistrationConfigController extends AbstractController
      * capacity box they belong to, rather than owned here, exactly as the
      * form's open/close state and the recurring schedule already are.
      */
-    private const SETTING_WAITLIST_ENABLED = 'registration_waitlist_enabled';
+    private const SETTING_WAITLIST_ENABLED = SlotService::SETTING_WAITLIST_ENABLED;
+
+    /**
+     * The mock-up's sentence when « Ordre d'arrivée » is dropped into
+     * « Toujours Oui » — the browser says it, and so does the server when a
+     * submission carries it anyway.
+     */
+    private const MESSAGE_RANK_ONLY_IN_ALWAYS =
+        "« Ordre d'arrivée de la demande » ne peut pas être « Toujours Oui » : elle ne sert qu'à classer.";
 
     public function __construct(
         protected Environment $twig,
@@ -103,7 +110,8 @@ class RegistrationConfigController extends AbstractController
         private RequestStatusService $statusService,
         private JournalService $journalService,
         private SettingService $settingService,
-        private RequestExportService $requestExportService
+        private RequestExportService $requestExportService,
+        private PriorityOrderService $priorityOrderService
     ) {
     }
 
@@ -293,21 +301,18 @@ class RegistrationConfigController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions — saves the capacity box: the grid itself,
-     * the waitlist switch that governs it, and the two occupancy thresholds
-     * (« Oui jusqu'à … % », « Peut-être jusqu'à … % ») that only mean
-     * anything while that switch is on. Age brackets (entry
-     * age/duration per branch) are no longer configured here —
-     * Repository\AgeBracketRepository resolves them directly from
-     * Core\Member\MemberYearService::BRANCHES, the same central federation
-     * age ranges member_stats already uses, so there is nothing to save
-     * for them.
+     * POST /config/inscriptions — saves the capacity grid, the « Capacités »
+     * sub-box of the capacity box. Age brackets (entry age/duration per
+     * branch) are not configured here — Repository\AgeBracketRepository
+     * resolves them directly from Core\Member\MemberYearService::BRANCHES,
+     * the same central federation age ranges member_stats already uses, so
+     * there is nothing to save for them.
      *
-     * One box, one « Enregistrer » (design.md §7.13): the switch and the
-     * numbers under it only mean something together — a capacity grid
-     * saved without the level thresholds that read it is a half-applied
-     * form — so this is the "group of fields" shape, not the
-     * one-independent-control-saves-on-change one.
+     * One sub-box, one « Enregistrer » (issue #843, D11): the waitlist
+     * switch saves on its own (saveWaitlist()), the thresholds with their
+     * own button (saveThresholds()). A grid saved only in part is a
+     * half-applied form, so one box that is neither empty nor a whole
+     * number refuses the whole grid.
      *
      * @param array<string, string> $params
      */
@@ -328,58 +333,205 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect(self::PATH_SETTINGS);
         }
 
-        $waitlistEnabled = (string) $request->getBody('waitlist_enabled', '0') === '1';
-
-        // The two thresholds stay on the page while the switch is off, but
-        // DISABLED — a disabled field is not submitted. So a submission made
-        // with the switch off, and equally the one that turns it back on,
-        // carries neither of them. An ABSENT field is not an emptied one: the
-        // stored values are left exactly as they are, and come back
-        // unchanged. Only fields actually submitted are validated, and an
-        // invalid pair refuses the whole save rather than applying half of it.
-        /** @var array<string, string> $thresholdWrites setting key => value, empty when nothing was submitted */
-        $thresholdWrites = [];
-        $rawYes = $request->getBody('threshold_yes_percent', null);
-        $rawMaybe = $request->getBody('threshold_maybe_percent', null);
-        if ($waitlistEnabled && ($rawYes !== null || $rawMaybe !== null)) {
-            $yes = SlotMath::parseThresholdPercent($rawYes);
-            $maybe = SlotMath::parseThresholdPercent($rawMaybe);
-            if ($yes === null || $maybe === null || !SlotMath::isValidThresholdPair($yes, $maybe)) {
-                FlashMessage::set(
-                    'error',
-                    'Seuils invalides : indiquez deux nombres entiers de ' . SlotMath::THRESHOLD_MIN_PERCENT
-                    . ' à ' . SlotMath::THRESHOLD_MAX_PERCENT . ' %, le seuil « Oui » devant être inférieur au '
-                    . 'seuil « Peut-être ». Rien n\'a été enregistré.'
-                );
-                return $this->redirect(self::PATH_SETTINGS);
-            }
-            $thresholdWrites = [
-                SlotService::SETTING_THRESHOLD_YES => (string) $yes,
-                SlotService::SETTING_THRESHOLD_MAYBE => (string) $maybe,
-            ];
-        }
-
+        /** @var array<int, array{int, int, ?int}> $writes [branch id, year in branch, capacity] */
+        $writes = [];
         foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
             $branchCapacities = $capacities[$bracket->ageBranchId] ?? null;
             if (!is_array($branchCapacities)) {
                 continue;
             }
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                $this->slotCapacityRepository->upsert(
-                    $bracket->ageBranchId,
-                    $yearInBranch,
-                    self::parseCapacity($branchCapacities[$yearInBranch] ?? null)
-                );
+                $raw = $branchCapacities[$yearInBranch] ?? '';
+                if (!self::isCapacityInput($raw)) {
+                    FlashMessage::set(
+                        'error',
+                        'Capacités invalides : indiquez un nombre entier, ou laissez la case vide. '
+                        . 'Rien n\'a été enregistré.'
+                    );
+                    return $this->redirect(self::PATH_SETTINGS);
+                }
+                $writes[] = [$bracket->ageBranchId, $yearInBranch, self::parseCapacity($raw)];
             }
         }
 
-        $this->settingService->set(self::SETTING_WAITLIST_ENABLED, $waitlistEnabled ? '1' : '0', 'registration');
-        foreach ($thresholdWrites as $settingKey => $settingValue) {
-            $this->settingService->set($settingKey, $settingValue, 'registration');
+        foreach ($writes as [$ageBranchId, $yearInBranch, $capacity]) {
+            $this->slotCapacityRepository->upsert($ageBranchId, $yearInBranch, $capacity);
         }
 
-        FlashMessage::set('success', 'Configuration enregistrée.');
+        FlashMessage::set('success', 'Capacités enregistrées.');
         return $this->redirect(self::PATH_SETTINGS);
+    }
+
+    /**
+     * POST /config/inscriptions/listes-attente — « Gérer les listes
+     * d'attente », saved on change (design.md §7.13: one independent
+     * control, no button) by public/assets/js/registration-capacity-
+     * settings.js, which greys the thresholds out or back in on the answer.
+     *
+     * Turning it off changes nothing else: the thresholds and the
+     * priorities keep their stored values, they only stop having an effect
+     * — no level for the families, no recommendation for the staff.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveWaitlist(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+        if (!is_bool($data['enabled'] ?? null)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        $enabled = $data['enabled'];
+
+        try {
+            $this->settingService->set(self::SETTING_WAITLIST_ENABLED, $enabled ? '1' : '0', 'registration');
+        } catch (SettingException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+        $this->journalService->log(
+            'registration',
+            'registration_waitlist_toggled',
+            'info',
+            $enabled ? 'Gestion des listes d\'attente activée' : 'Gestion des listes d\'attente désactivée',
+            ['enabled' => $enabled],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        return $this->json([
+            'success' => true,
+            'enabled' => $enabled,
+            'message' => $enabled
+                ? 'Gestion des listes d\'attente activée.'
+                : 'Gestion des listes d\'attente désactivée. Les seuils et les priorités sont conservés.',
+        ]);
+    }
+
+    /**
+     * POST /config/inscriptions/seuils — « Oui jusqu'à … % » and
+     * « Peut-être jusqu'à … % de places occupées », the thresholds sub-box.
+     *
+     * Refused while waitlists are not managed: the sub-box is greyed out
+     * and its button disabled then, and this page does not change values a
+     * chief cannot see take effect. (Configuration > Réglages still edits
+     * each key on its own, as it always has; a pair it leaves unusable is
+     * read as the defaults and announced here — SlotService::
+     * levelThresholds().) Both values or neither — an invalid pair saves
+     * nothing (SettingService::setMany()).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveThresholds(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
+            return $guard;
+        }
+
+        if (!$this->isWaitlistEnabled()) {
+            FlashMessage::set(
+                'error',
+                'Les seuils ne se modifient pas tant que la gestion des listes d\'attente est coupée. '
+                . 'Rien n\'a été enregistré.'
+            );
+            return $this->redirect(self::PATH_SETTINGS);
+        }
+
+        $yes = SlotMath::parseThresholdPercent($request->getBody('threshold_yes_percent', null));
+        $maybe = SlotMath::parseThresholdPercent($request->getBody('threshold_maybe_percent', null));
+        if ($yes === null || $maybe === null || !SlotMath::isValidThresholdPair($yes, $maybe)) {
+            FlashMessage::set(
+                'error',
+                'Seuils invalides : indiquez deux nombres entiers de ' . SlotMath::THRESHOLD_MIN_PERCENT
+                . ' à ' . SlotMath::THRESHOLD_MAX_PERCENT . ' %, le seuil « Oui » devant être inférieur au '
+                . 'seuil « Peut-être ». Rien n\'a été enregistré.'
+            );
+            return $this->redirect(self::PATH_SETTINGS);
+        }
+
+        try {
+            $this->settingService->setMany([
+                SlotService::SETTING_THRESHOLD_YES => (string) $yes,
+                SlotService::SETTING_THRESHOLD_MAYBE => (string) $maybe,
+            ], 'registration');
+        } catch (SettingException $e) {
+            FlashMessage::set('error', $e->getMessage());
+            return $this->redirect(self::PATH_SETTINGS);
+        }
+
+        $this->journalService->log(
+            'registration',
+            'registration_thresholds_saved',
+            'info',
+            'Seuils de la recommandation et du niveau public enregistrés',
+            ['yes_percent' => $yes, 'maybe_percent' => $maybe],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set('success', 'Seuils enregistrés.');
+        return $this->redirect(self::PATH_SETTINGS);
+    }
+
+    /**
+     * POST /config/inscriptions/priorites — the « Priorités » box: which
+     * criterion sits in « Toujours Oui », « Classement » or « Désactivés »,
+     * and in which order (Service\PriorityOrder).
+     *
+     * The three connected lists post `priority[always][]`,
+     * `priority[rank][]` and `priority[off][]` in the order they show; an
+     * empty zone posts nothing, which is an empty zone. Whatever arrives is
+     * validated in full — every criterion exactly once, « Ordre d'arrivée »
+     * never in « Toujours Oui » — and a refused order saves nothing.
+     *
+     * Saved whether or not waitlists are managed: the box stays editable,
+     * and says it has no effect until they are (D3).
+     *
+     * @param array<string, string> $params
+     */
+    public function savePriorities(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PATH_SETTINGS)) !== null) {
+            return $guard;
+        }
+
+        $zones = $request->getBody('priority', []);
+        $verdict = PriorityOrder::validate($zones);
+        $order = PriorityOrder::fromZones($zones);
+        if ($order === null) {
+            FlashMessage::set(
+                'error',
+                $verdict === PriorityOrder::INVALID_RANK_ONLY_IN_ALWAYS
+                    ? self::MESSAGE_RANK_ONLY_IN_ALWAYS . ' Rien n\'a été enregistré.'
+                    : 'Priorités invalides : chaque critère doit figurer une seule fois, dans « Toujours Oui », '
+                        . '« Classement » ou « Désactivés ». Rien n\'a été enregistré.'
+            );
+            return $this->redirect(self::PATH_SETTINGS);
+        }
+
+        $this->priorityOrderService->save($order);
+        $this->journalService->log(
+            'registration',
+            'registration_priorities_saved',
+            'info',
+            'Priorités de la recommandation enregistrées',
+            $order->toZones(),
+            (int) AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set('success', 'Priorités enregistrées.');
+        return $this->redirect(self::PATH_SETTINGS);
+    }
+
+    /**
+     * Whether a capacity box holds something the grid can store: empty
+     * (« pas de limite ») or a whole number of places, 0 included.
+     */
+    private static function isCapacityInput(mixed $value): bool
+    {
+        return is_scalar($value) && preg_match('/^\d{0,4}$/', trim((string) $value)) === 1;
     }
 
     /**
@@ -631,9 +783,6 @@ class RegistrationConfigController extends AbstractController
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
 
         return [
-            'brackets' => $this->ageBracketRepository->findAllOrdered(),
-            'capacities' => $this->slotCapacityRepository->findAllAsMap(),
-            'max_years_in_branch' => self::MAX_YEARS_IN_BRANCH,
             'csrf_token' => CsrfGuard::generateToken(),
             'public_year_label' => $publicYear['label'],
             'year_code' => $this->yearCodeRepository->findForYear((int) $publicYear['id']),
@@ -663,7 +812,87 @@ class RegistrationConfigController extends AbstractController
             'threshold_min_percent' => SlotMath::THRESHOLD_MIN_PERCENT,
             'threshold_max_percent' => SlotMath::THRESHOLD_MAX_PERCENT,
             'default_capacity' => SlotService::DEFAULT_CAPACITY,
+            'capacity_rows' => $this->capacityRows(),
+
+            // « Priorités »: the three connected lists, in the order the
+            // engine reads them (Service\RecommendationService).
+            'priority_zones' => $this->priorityZones($this->priorityOrderService->current()),
+            'priority_order_unusable' => $this->priorityOrderService->storedOrderIsUnusable(),
+            'priority_rank_only_message' => self::MESSAGE_RANK_ONLY_IN_ALWAYS,
         ];
+    }
+
+    /**
+     * The capacity grid, one row per slot — « Louveteaux · 1re année », the
+     * name the recommendation gives it too — with what is stored for it
+     * (null: « pas de limite »).
+     *
+     * @return array<int, array{age_branch_id: int, year_in_branch: int, label: string, capacity: ?int}>
+     */
+    private function capacityRows(): array
+    {
+        $capacities = $this->slotCapacityRepository->findAllAsMap();
+        $rows = [];
+        foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                $rows[] = [
+                    'age_branch_id' => $bracket->ageBranchId,
+                    'year_in_branch' => $yearInBranch,
+                    'label' => RecommendationService::slotLabel($bracket, $yearInBranch),
+                    'capacity' => $capacities[$bracket->ageBranchId][$yearInBranch] ?? null,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The three zones of the « Priorités » box, with the mock-up's titles,
+     * help lines and empty sentences, each holding its criteria in order.
+     *
+     * @return array<int, array{
+     *   key: string, title: string, help: string, empty_label: string,
+     *   items: array<int, array{id: string, label: string, help: string, can_always: bool}>
+     * }>
+     */
+    private function priorityZones(PriorityOrder $order): array
+    {
+        $zones = [
+            PriorityOrder::ZONE_ALWAYS => [
+                'title' => 'Toujours Oui',
+                'help' => 'Ces demandes passent en premier, sont toujours recommandées « Oui » et peuvent dépasser '
+                    . 'la capacité.',
+                'empty_label' => 'Aucune règle : toutes les demandes sont classées.',
+            ],
+            PriorityOrder::ZONE_RANK => [
+                'title' => 'Classement',
+                'help' => 'Les autres demandes sont classées par ces critères, de haut en bas, puis acceptées dans '
+                    . 'cet ordre jusqu\'au nombre de places.',
+                'empty_label' => 'Aucun critère : les demandes sont acceptées dans l\'ordre de dépôt.',
+            ],
+            PriorityOrder::ZONE_OFF => [
+                'title' => 'Désactivés',
+                'help' => '',
+                'empty_label' => 'Glissez un critère ici pour le désactiver.',
+            ],
+        ];
+
+        $result = [];
+        foreach ($order->toZones() as $zone => $criteria) {
+            $items = [];
+            foreach ($criteria as $criterion) {
+                $items[] = [
+                    'id' => $criterion,
+                    'label' => PriorityOrder::CRITERIA[$criterion]['label'],
+                    'help' => PriorityOrder::CRITERIA[$criterion]['help'],
+                    'can_always' => PriorityOrder::CRITERIA[$criterion]['can_always'],
+                ];
+            }
+            $result[] = $zones[$zone] + ['key' => $zone, 'items' => $items];
+        }
+
+        return $result;
     }
 
     /**
@@ -703,7 +932,7 @@ class RegistrationConfigController extends AbstractController
 
     private function isWaitlistEnabled(): bool
     {
-        return $this->settingService->get(self::SETTING_WAITLIST_ENABLED, 'registration', '1') === '1';
+        return $this->slotService->waitlistEnabled();
     }
 
     /**

@@ -70,6 +70,7 @@ class RegistrationTestHelper
             linked_member_id INTEGER UNIQUE,
             accepted_email_sent_at TEXT,
             refused_email_sent_at TEXT,
+            refusal_reason TEXT,
             final_at TEXT,
             address_normalized_blind_index TEXT,
             previous_unit_answer TEXT,
