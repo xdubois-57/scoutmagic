@@ -36,6 +36,33 @@ class StorageBindingRepository
     }
 
     /**
+     * Runs $work in one transaction: committed whole, or rolled back whole
+     * when it throws. Joins one already open rather than nesting.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+
+            throw $e;
+        }
+    }
+
+    /**
      * Whether this ciphertext opens with the keys the site now holds — a
      * portable restore installs the archive's. The plaintext is discarded:
      * the binding moves as ciphertext, never read.

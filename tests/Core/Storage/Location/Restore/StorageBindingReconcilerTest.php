@@ -245,6 +245,59 @@ final class StorageBindingReconcilerTest extends TestCase
         $this->assertLessThanOrEqual(255, mb_strlen($label));
     }
 
+    /**
+     * Two restored labels the database tells apart can fold alike: one of
+     * them freed by a rename must not free the other for a location put
+     * back beside it.
+     */
+    public function testLabelsThatFoldAlikeAreCountedApart(): void
+    {
+        $this->insert(1, 'local', 'Autre nom', '{"path":"un"}', null);
+        $this->insert(3, 'local', 'Drive A', '{"path":"trois"}', null);
+        $before = $this->snapshot();
+
+        $this->replaceWithBackup([
+            [1, 'local', 'Drive-A', '{"path":"un"}', null, true],
+            [2, 'local', 'Drive A', '{"path":"deux"}', null, false],
+        ]);
+
+        $this->reconciler()->reconcile($before, true);
+
+        $this->assertSame('Autre nom', $this->row(1)['label']);
+        $this->assertSame('Drive A', $this->row(2)['label']);
+        $this->assertSame('Drive A (avant restauration)', $this->row(3)['label']);
+    }
+
+    /**
+     * All or nothing: a failure halfway leaves the table exactly as the
+     * restore left it, which is what the journal then says.
+     */
+    public function testAReconciliationThatFailsHalfwayChangesNothing(): void
+    {
+        $this->insert(2, 'google_drive', 'Drive', $this->drive('dossier-ici'), 'grant-ici');
+        $before = $this->snapshot();
+        $this->replaceWithBackup([
+            [2, 'google_drive', 'Drive', $this->drive('dossier-la-bas'), 'grant-la-bas', true],
+            [5, 'local', 'Ancien', '{"path":"vieux"}', null, false],
+        ]);
+        $failing = new class ($this->pdo, $this->keys) extends StorageBindingRepository {
+            public function flag(int $id, string $note): void
+            {
+                throw new \RuntimeException('base indisponible');
+            }
+        };
+
+        try {
+            (new StorageBindingReconciler($failing))->reconcile($before, true);
+            $this->fail('The failure must reach the caller.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('base indisponible', $e->getMessage());
+        }
+
+        $this->assertStringContainsString('dossier-la-bas', (string) $this->row(2)['config']);
+        $this->assertNull($this->row(2)['reconciliation_note']);
+    }
+
     /** The same id holding another kind of storage is another location. */
     public function testTheSameIdOfAnotherKindIsNotTheSameLocation(): void
     {

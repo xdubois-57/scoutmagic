@@ -76,13 +76,27 @@ final class StorageBindingReconciler
      */
     public function reconcile(StorageBindingSnapshot $before, bool $sameInstallation): array
     {
+        // **All or nothing.** A failure halfway would otherwise leave the
+        // table neither today's nor the backup's — and the journal entry
+        // for a failed reconciliation says the backup's bindings stand.
+        return $this->repository->transactional(fn (): array => $this->reconcileRows($before, $sameInstallation));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function reconcileRows(StorageBindingSnapshot $before, bool $sameInstallation): array
+    {
         $restored = [];
         foreach ($this->repository->rows() as $row) {
             $restored[$row['id']] = $row;
         }
+        // A count per folded key, not a set: two restored labels distinct
+        // to the database (« Drive-A », « Drive A ») can fold alike, and
+        // freeing one must not free the other.
         $labels = [];
         foreach ($restored as $row) {
-            $labels[self::labelKey($row['label'])] = true;
+            self::takeLabel($labels, $row['label']);
         }
 
         $report = [];
@@ -135,7 +149,7 @@ final class StorageBindingReconciler
     /**
      * @param array{id: int, type: string, label: string, config: string, secret: ?string} $restored
      * @param array{id: int, type: string, label: string, config: string, secret: ?string} $current
-     * @param array<string, true> $labels
+     * @param array<string, int> $labels
      */
     private function rebind(array $restored, array $current, array &$labels): ?string
     {
@@ -146,9 +160,11 @@ final class StorageBindingReconciler
         // it is taken.
         $ownKey = self::labelKey($restored['label']);
         $currentKey = self::labelKey($current['label']);
-        if ($current['label'] !== $restored['label'] && ($currentKey === $ownKey || !isset($labels[$currentKey]))) {
-            unset($labels[$ownKey]);
-            $labels[$currentKey] = true;
+        if ($current['label'] !== $restored['label']
+            && ($currentKey === $ownKey ? ($labels[$ownKey] ?? 0) <= 1 : !isset($labels[$currentKey]))
+        ) {
+            self::releaseLabel($labels, $restored['label']);
+            self::takeLabel($labels, $current['label']);
             $label = $current['label'];
         }
 
@@ -174,7 +190,7 @@ final class StorageBindingReconciler
     /**
      * @param array{id: int, type: string, label: string, config: string, secret: ?string} $current
      * @param ?int $id the id to put it back under, or null for the table's next one
-     * @param array<string, true> $labels
+     * @param array<string, int> $labels
      */
     private function putBack(array $current, ?int $id, array &$labels): string
     {
@@ -188,7 +204,7 @@ final class StorageBindingReconciler
                 $label = mb_substr($current['label'], 0, 255 - mb_strlen($suffix)) . $suffix;
             }
         }
-        $labels[self::labelKey($label)] = true;
+        self::takeLabel($labels, $label);
 
         $readable = $this->repository->isReadable($current['secret']);
         $this->repository->insert(
@@ -201,6 +217,24 @@ final class StorageBindingReconciler
         );
 
         return "« {$label} » : absent de la sauvegarde, conservé tel qu'il était avant la restauration.";
+    }
+
+    /** @param array<string, int> $labels */
+    private static function takeLabel(array &$labels, string $label): void
+    {
+        $key = self::labelKey($label);
+        $labels[$key] = ($labels[$key] ?? 0) + 1;
+    }
+
+    /** @param array<string, int> $labels */
+    private static function releaseLabel(array &$labels, string $label): void
+    {
+        $key = self::labelKey($label);
+        if (($labels[$key] ?? 0) <= 1) {
+            unset($labels[$key]);
+        } else {
+            $labels[$key]--;
+        }
     }
 
     /**
