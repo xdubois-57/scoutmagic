@@ -1170,10 +1170,56 @@ final class CommunicationControllerTest extends TestCase
         // No copy of the album's title: the card reads it from the album,
         // so a second answer here could only ever disagree with it.
         $this->assertSame('', (string) $row['title']);
-        // `/feed` and not `/photos` since IT-04: an album reaches the Page
-        // as a LINK to the communication's public page. What this test is
-        // about is the pair that was recorded, and that something left.
-        $this->assertNotNull($this->request('/feed'));
+        // `/photos`, and that is not IT-04 failing to apply: this POST
+        // carries no drawn card, so the public page would have nothing to
+        // show and the publication goes as a photo instead, composed
+        // server-side as it always was
+        // ({@see \Modules\Social\Service\PublishingService::sendsFacebookLink()}).
+        // The link path, with a card kept, is pinned in
+        // `PublishingServiceTest::testASavedAlbumShareGoesToFacebookAsALinkToItsPublicPage()`.
+        // What this test is about is the pair that was recorded, and that
+        // something left.
+        $this->assertNotNull($this->request('/photos'));
+    }
+
+    /**
+     * **The whole chain, through the controller: an album with a drawn
+     * card reaches the Page as a link to its own public page** (issue
+     * #706, IT-04).
+     *
+     * Everything else pins one link of this: `PublishingServiceTest`
+     * publishes a hand-built `ShareSource`, and the composer tests only
+     * read the sentence. This one goes through `store()` as the chief
+     * does — the card arrives in `$_FILES` as the browser's canvas posts
+     * it, `refreshPostedCard()` keeps it, the source is re-resolved from
+     * the row, and only then is the page minted. Both defects the review
+     * of IT-04 found lived in the gap between those steps.
+     */
+    public function testAnAlbumWithADrawnCardReachesFacebookAsALinkToItsPublicPage(): void
+    {
+        $this->loginAuthor();
+        $this->postedCard(self::ALBUM_TITLE);
+
+        $this->controller()->store(
+            $this->post([
+                'source_kind' => 'album',
+                'source_id' => (string) self::ALBUM_ID,
+                'body' => 'Les photos sont en ligne',
+                'action' => 'publish',
+                'destinations' => ['facebook'],
+            ]),
+            []
+        );
+
+        $token = (string) $this->pdo->query(
+            'SELECT public_token FROM social_communications ORDER BY id DESC LIMIT 1'
+        )->fetchColumn();
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $token);
+        $this->assertSame(
+            'https://unite.example/partage/' . $token,
+            $this->request('/feed')['fields']['link'] ?? null
+        );
+        $this->assertNull($this->request('/photos'), 'not a photo post');
     }
 
     /**

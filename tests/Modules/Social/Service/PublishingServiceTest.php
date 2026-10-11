@@ -29,6 +29,9 @@ use Tests\Modules\Social\SocialTestHelper as H;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class PublishingServiceTest extends TestCase
 {
+    /** Asks communicationBackedAlbum() for a real composed card. */
+    private const DRAWN_CARD = '@drawn';
+
     private \PDO $pdo;
     private ConnectionRepository $connections;
     private PublicationRepository $publications;
@@ -413,39 +416,44 @@ final class PublishingServiceTest extends TestCase
     }
 
     /**
-     * **An album whose page would have nothing to show is refused, not
-     * reshaped.**
+     * **An album with no kept card goes as a PHOTO, and leaves no public
+     * page behind it.**
      *
      * `card_file_id` is null whenever the browser posted no drawn canvas
      * — JavaScript off, a photo still loading — which
-     * `CommunicationController::refreshPostedCard()` documents as a
-     * supported case, the publication composing a card server-side
-     * instead. That composition reaches Instagram and the groups; it
-     * cannot reach the public page, which serves the kept file and
-     * nothing else. Left alone, this published a Facebook link to a page
-     * with no image at all, where the same input used to go out as a
-     * photo post with one. Found in review on the pull request for IT-04.
+     * `CommunicationController::refreshPostedCard()` keeps supported on
+     * purpose, the publication composing a card server-side instead.
+     * That composition reaches Instagram and the groups; it cannot reach
+     * the public page, which serves the kept file and nothing else, never
+     * the source's photo. So pointing Facebook at that page would point
+     * it at no image at all, where the same input used to go out as a
+     * photo post carrying one. Found in review on the pull request for
+     * IT-04.
      *
-     * Refused in `refusal()`, so nothing is claimed and nothing is
-     * frozen: the chief can draw the card and try again. And no public
-     * page is minted for a publication that never happened.
+     * The photo is the better post, so it is what goes — and because
+     * nothing needed the page, none is minted: a page, once it exists,
+     * stays online for good.
      */
-    public function testAnAlbumWithNoKeptCardIsRefusedOnFacebookRatherThanSentAsAPhoto(): void
+    public function testAnAlbumWithNoKeptCardGoesAsAPhotoAndMintsNoPage(): void
     {
         $id = $this->savedAlbumShare();
 
         $outcomes = $this->publish($this->communicationBackedAlbum($id, null), [SocialPlatform::Facebook]);
 
-        $this->assertFalse($outcomes[0]->published);
-        $this->assertStringContainsString('n\'a pas d\'image enregistrée', (string) $outcomes[0]->message);
-        $this->assertNull($this->request('/feed'), 'nothing left');
-        $this->assertNull($this->request('/photos'), 'and nothing was quietly reshaped into a photo');
+        $this->assertTrue($outcomes[0]->published);
+        $this->assertNull($this->request('/feed'), 'not a link to a page with nothing to show');
+        // And the photo carries a real address: the ephemeral card has to
+        // be issued for it, which is the half `needsCardUrl()` got wrong
+        // at first — a photo post with an empty image URL.
+        $this->assertStringStartsWith(
+            'https://unite.example/partage/carte/',
+            $this->request('/photos')['fields']['url'] ?? ''
+        );
         $this->assertNull((new CommunicationRepository($this->pdo))->find($id)?->publicToken);
-        $this->assertSame([], $this->publications->forSource(ShareSource::KIND_COMMUNICATION, $id));
     }
 
     /**
-     * Instagram is untouched by that refusal: it receives a card composed
+     * Instagram is untouched by any of this: it receives a card composed
      * server-side, as it always has, because what it needs is bytes at an
      * address and not a page.
      */
@@ -479,8 +487,15 @@ final class PublishingServiceTest extends TestCase
      * An album share as the composer saves it: recorded against the
      * communication, speaking as an album.
      */
-    private function communicationBackedAlbum(int $id, ?string $card = 'CARD-BYTES'): ShareSource
+    private function communicationBackedAlbum(int $id, ?string $card = self::DRAWN_CARD): ShareSource
     {
+        // A real composed card, not a marker string: Instagram's
+        // destination issues these bytes through `CardService::issue()`,
+        // which runs `ReceivedCard::assertUsable()` on them — exact
+        // dimensions included.
+        $card = $card === self::DRAWN_CARD
+            ? $this->cardsService()->compose(H::groupPhoto(), 'Camp', 'unite.example', true, null)
+            : $card;
         return new ShareSource(
             ShareSource::KIND_COMMUNICATION,
             $id,

@@ -3429,12 +3429,7 @@ du composeur, à l'enregistrement, à chaque aperçu et à chaque publication.
   en cours ; indisponible, avec la raison — un album sans photo de
   couverture ou une actualité sans image pour Instagram, une actualité
   réservée aux animateurs ou aux administrateurs, un compte dont Meta
-  n'accepte plus l'autorisation, un site sans adresse, et **une
-  communication sans image enregistrée dont la source est un album** :
-  sur la Page elle part en lien vers une page de ce site (§ 47.9) qui
-  doit montrer cette image, et rien n'y part sans elle. Les autres
-  destinations, qui reçoivent des octets et non une page, l'acceptent
-  toujours — le serveur compose alors la carte ;
+  n'accepte plus l'autorisation, un site sans adresse ;
 - l'avertissement : « Une fois publié, c'est public et hors du site : ni
   vous ni ScoutMagic ne pourrez le reprendre », et la raison pour laquelle
   l'adresse est écrite sur l'image — elle n'est pas cliquable sur
@@ -3463,7 +3458,13 @@ par le module propriétaire, avant d'écrire quoi que ce soit.
 
 **Ce qui part.** Sur la Page, un album comme une actualité partent **en
 lien**, et c'est Facebook qui fabrique l'aperçu ; sur Instagram, qui
-n'accepte jamais de lien, c'est l'image. Le lien d'une actualité mène à
+n'accepte jamais de lien, c'est l'image. Un album part en lien **à une
+condition** : que l'image dessinée par le navigateur ait été enregistrée,
+puisque c'est elle et elle seule que la page publique montre (§ 47.9).
+Quand le navigateur n'a pas pu dessiner — un cas que le site garde
+supporté —, l'album part en photo, le serveur composant la carte comme
+avant : une photo avec son image vaut mieux qu'un lien vers une page qui
+n'en a pas. Le lien d'une actualité mène à
 la page de l'actualité, dont Facebook lit la couverture, le titre et le
 résumé. Celui d'un album mène à **la page publique de la communication**
 (§ 47.9), qui montre l'image du composeur, son titre et son texte —
@@ -3616,9 +3617,10 @@ page est ce que Facebook, WhatsApp ou Messenger peuvent lire.
 que la première destination a reçus, et un bouton **« Voir sur le
 site »** qui mène à la source. Cette image est **celle que le navigateur
 a dessinée**, et rien d'autre : la page ne compose rien et ne relit
-jamais la source. C'est pour cela qu'un album dont le navigateur n'a pas
-envoyé l'image est refusé sur la Page (§ 47.6) — une page sans image y
-ferait un aperçu vide. Rien d'autre — ni les autres photos de
+jamais la source — c'est ce qui garde le reste de l'album hors d'une
+adresse publique. C'est aussi pour cela qu'un album dont l'image n'a pas
+été enregistrée ne part pas en lien (§ 47.6) : cette page-là n'aurait
+rien à montrer. Rien d'autre — ni les autres photos de
 l'album, ni le corps d'une actualité. Si la source a été supprimée
 depuis, le bouton disparaît et la page continue d'afficher ce qui a été
 publié.

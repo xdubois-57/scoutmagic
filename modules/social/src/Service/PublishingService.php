@@ -280,7 +280,53 @@ class PublishingService
      */
     private function needsCardUrl(ShareSource $source, SocialPlatform $platform): bool
     {
-        return $platform === SocialPlatform::Instagram || !$source->facebookReceivesLink();
+        return $platform === SocialPlatform::Instagram || !$this->sendsFacebookLink($source);
+    }
+
+    /**
+     * Whether this send will **actually** carry a link, decided without
+     * minting anything — the question {@see needsCardUrl()} and
+     * {@see send()} have to answer the same way, or one of them is wrong:
+     * a photo post whose card was never issued goes out with an empty
+     * image URL, which is how a review of IT-04 found the legacy album
+     * retry publishing nothing at all.
+     *
+     * It is {@see ShareSource::facebookReceivesLink()} — the decision the
+     * composer showed the chief — plus the two things only the publisher
+     * can know:
+     *
+     * - **a communication to own the page.** A retry reached through
+     *   `…/reessayer/album/{albumId}/…` carries the album's own id and no
+     *   row behind it; minting against that id would point Facebook at a
+     *   page built from an unrelated row that happens to share the
+     *   number.
+     * - **a kept card for the page to show.** The public page serves
+     *   `card_file_id` and nothing else — never the source's photo, which
+     *   is what keeps the rest of the album out of a public address. With
+     *   no card the page would carry no image at all, and that is a worse
+     *   post than the photo this module published before IT-04. Found in
+     *   review on the pull request for IT-04.
+     *
+     * **So the composer's sentence can be optimistic, exactly once**: for
+     * a share not yet saved it promises a link, because the browser
+     * normally posts its card with « Publier » and the publisher then
+     * agrees. A browser that cannot draw one — JavaScript off, a photo
+     * still loading, which
+     * `Controller\CommunicationController::refreshPostedCard()` keeps
+     * supported on purpose — gets a photo post instead, carrying the card
+     * the server composes. That is a better post than the page would have
+     * been, and the one place these two readings differ.
+     */
+    private function sendsFacebookLink(ShareSource $source): bool
+    {
+        if ($source->link !== null) {
+            return true;
+        }
+
+        return $source->facebookReceivesLink()
+            && $source->kind === ShareSource::KIND_COMMUNICATION
+            && $source->card !== null
+            && $source->card !== '';
     }
 
     /**
@@ -314,37 +360,6 @@ class PublishingService
             };
         }
 
-        // **What the public page needs, checked before anything is
-        // recorded** (issue #706, IT-04). An album's Page post is a LINK
-        // to the communication's public page, and that page shows the
-        // kept card and nothing else — so the card has to be there, and a
-        // communication has to be there to own the page.
-        //
-        // Refused here rather than reshaped into a photo post in
-        // `send()`: a refusal at this point claims nothing, freezes
-        // nothing and leaves the chief free to try again, while a silent
-        // fallback would publish something other than what the composer
-        // promised — the sin this module already refuses to commit over
-        // the card itself. Found in review on the pull request for IT-04,
-        // which had the card's absence reaching Facebook as a link to a
-        // page with no image at all.
-        if (
-            $platform === SocialPlatform::Facebook
-            && $source->link === null
-            && $source->kind === ShareSource::KIND_COMMUNICATION
-            && $source->facebookReceivesLink()
-            && ($source->card === null || $source->card === '')
-        ) {
-            // Worded for BOTH places this appears: beside the
-            // destination in the composer, where `DestinationStates`
-            // reads it to mark Facebook « indisponible », and on a
-            // refused publication. « Réessayez » would be a lie in the
-            // first — a browser that cannot draw will not draw on the
-            // second attempt either — so it names the cause and stops.
-            return 'Cette communication n\'a pas d\'image enregistrée : sur la Page, un album part en lien'
-                . ' vers une page de ce site qui doit la montrer.';
-        }
-
         return null;
     }
 
@@ -370,40 +385,18 @@ class PublishingService
         // it creates one. An Instagram publication must not leave a public
         // page behind it (issue #706, IT-04).
         //
-        // {@see ShareSource::facebookReceivesLink()} holds the decision —
-        // the same one the composer read before « Publier » — and
-        // `refusal()` has already turned down the album whose page would
-        // have nothing to show.
-        $link = $source->facebookReceivesLink() ? $this->facebookLink($source, $now) : null;
+        // The page is asked for HERE and not before the branch above:
+        // asking is what brings it into being, and an Instagram
+        // publication must leave none behind it. {@see
+        // sendsFacebookLink()} holds every condition, so the card for a
+        // photo post has already been issued when this answers false.
+        $link = $this->sendsFacebookLink($source)
+            ? ($source->link ?? $this->publicPages->ensureUrlFor($source->id, $now))
+            : null;
 
         return $link === null
             ? $this->meta->publishFacebookPhoto($accountId, $token, $imageUrl, $caption)
             : $this->meta->publishFacebookLink($accountId, $token, $link, $caption);
-    }
-
-    /**
-     * The address Facebook is pointed at: an article's own page, or the
-     * communication's public page, minted at this instant if this is the
-     * first share that needs it.
-     *
-     * **Null for a share with no communication row**, and that is not the
-     * mismatch `facebookReceivesLink()` exists to prevent: the public
-     * page belongs to the COMMUNICATION, and a retry reached through
-     * `…/reessayer/album/{albumId}/…` carries the album's own id with no
-     * row behind it. It keeps going as the photo post it has always been,
-     * and nothing ever promised it otherwise — the composer is not on
-     * that path at all. Minting against that id would point Facebook at a
-     * page built from an unrelated row that happens to share the number.
-     */
-    private function facebookLink(ShareSource $source, \DateTimeImmutable $now): ?string
-    {
-        if ($source->link !== null) {
-            return $source->link;
-        }
-
-        return $source->kind === ShareSource::KIND_COMMUNICATION
-            ? $this->publicPages->ensureUrlFor($source->id, $now)
-            : null;
     }
 
     private function log(

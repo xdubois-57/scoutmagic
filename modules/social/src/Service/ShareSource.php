@@ -163,15 +163,15 @@ final class ShareSource
      * broken on the first share of every album. Found in review on the
      * pull request for IT-04.
      *
-     * An album whose page would have nothing to show — no kept card — is
-     * turned down by
-     * {@see \Modules\Social\Service\PublishingService::refusal()}
-     * before anything is recorded, never quietly reshaped into a photo
-     * post: that is how a chief ends up with something other than what
-     * the composer promised. The one shape that does fall back is a
-     * retry keyed on an album's own id, which has no communication row to
-     * own a page and was never promised a link by anything
-     * ({@see \Modules\Social\Service\PublishingService::facebookLink()}).
+     * **This is what the composer shows; the publisher adds what only it
+     * can know** — a communication row to own the page, and a kept card
+     * for the page to show
+     * ({@see \Modules\Social\Service\PublishingService::sendsFacebookLink()}).
+     * So the sentence is optimistic exactly once: a share not yet saved
+     * promises a link because the browser normally posts its card with
+     * « Publier ». A browser that cannot draw one gets a photo post
+     * carrying the card the server composes, which beats a link to a page
+     * with no image on it.
      */
     public function facebookReceivesLink(): bool
     {
