@@ -166,3 +166,47 @@ version mineure : leurs utilisateurs voient le changement.
 **Reporté à IT-04.** L'aide du covoiturage dit qui voit quel numéro, pas
 comment l'utiliser ; le geste est décrit par le sujet d'aide général
 d'IT-04, que les sujets du covoiturage citent.
+
+---
+
+## IT-04 — RGPD, documentation et aide
+
+**Livré.**
+
+- **La page RGPD, section 2.15** (`core/View/rgpd_default.html`). L'appel
+  et le SMS ne passent par aucun serveur. Toucher « WhatsApp » ou
+  « Signal » transmet le numéro à `wa.me` ou à `signal.me` depuis
+  l'appareil de la personne qui suit le lien, jamais depuis le site, et
+  sans dire de quelle page. Ces deux services ne sont donc pas des
+  sous-traitants. La **règle 36** du prompt de génération demande de
+  garder cette section et interdit de les placer en section 4 ou 5.2.
+- **`Core\Phone\MessagingApps`** nomme une seule fois les deux hôtes,
+  comme `Core\Geo\MapTiles`. `MessagingAppsTest` vérifie que le script, le
+  texte par défaut et le prompt disent la même chose, et qu'aucun des deux
+  services n'apparaît parmi les sous-traitants.
+- **`ARCHITECTURE.md` §8.124** : le service du numéro, la fonction Twig, le
+  script, et pourquoi les formats de D4 ne vivent qu'à un seul endroit.
+- **`specifications.md` §3.8** : le comportement du numéro.
+- **Le sujet d'aide « Appeler ou écrire à un contact depuis son numéro »**
+  (`docs/help/appeler-ou-ecrire.md`, public, catégorie « Premiers pas »).
+  Le sujet du covoiturage sur la participation le cite.
+
+**Écart avec le document.** Le document demande `discovery: 2`. C'est la
+valeur par défaut, et `Core\Help\DiscoveryPriority` dit qu'elle ne s'écrit
+jamais : le sujet n'a donc pas de ligne `discovery:`. Il est proposé comme
+tout sujet de rang 2.
+
+---
+
+## Récapitulatif final
+
+| # | Livré |
+|---|---|
+| IT-01 | `Core\Phone\PhoneNumber` et la table E.164 de l'UIT ; préfixe `00`, indicatifs à trois chiffres, zones belges à un chiffre et `(0)` corrigés |
+| IT-02 | `phone()`, la feuille d'actions, `phone-link.js`, le copier hors écran tactile ; aucun `Referer` vers WhatsApp ni Signal, même depuis l'application installée |
+| IT-03 | Tous les numéros affichés passent par `phone()`, 12 liens `tel:` et 7 numéros sans lien ; un test empêche le retour du copier-coller |
+| IT-04 | Page RGPD, règle du prompt, `ARCHITECTURE.md`, `specifications.md`, sujet d'aide |
+
+**Reste à faire hors de ce dépôt : l'essai sur de vrais appareils**
+(voir IT-02). iOS Safari et Android Chrome, en onglet et en application
+installée, pour `wa.me` et `signal.me`.

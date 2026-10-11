@@ -8,7 +8,7 @@ question: Comment savoir si ma place est confirmée ?
 question: Que montre la bannière le jour du covoiturage ?
 question: Mon agenda indique-t-il mon covoiturage ?
 paths: /covoiturage, /covoiturage/*
-related: covoiturage
+related: covoiturage, appeler-ou-ecrire
 ---
 
 ## Le badge dans la liste

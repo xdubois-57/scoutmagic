@@ -1212,6 +1212,13 @@ dernier message vers ce domaine (publipostage ou copie vers une boîte témoin).
 de cette section
 est une durée que plus personne ne peut vérifier.
 
+36. **Appeler ou écrire depuis un numéro de téléphone (fonctionnalité du cœur du site, PAS un module)** : Comme les
+notifications push (règle 23), la section 2.15 concerne une fonctionnalité présente sur toute installation
+ScoutMagic, indépendamment de {$modulesText}. Conserve-la TOUJOURS intégralement. Conserve en particulier que l'appel
+et le SMS ne passent par aucun serveur ; que suivre « WhatsApp » ou « Signal » transmet le numéro à wa.me ou à
+signal.me **par l'appareil de la personne qui choisit de suivre le lien**, jamais par le site, et seulement à ce
+moment-là ; et que le lien n'indique pas de quelle page il a été suivi. WhatsApp et Signal ne sont **PAS des
+sous-traitants** : ne les place jamais en section 4 ni en section 5.2.
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
 
