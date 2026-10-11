@@ -7,7 +7,7 @@ role_min: admin
 question: Comment est calculé le nombre de places occupées ?
 question: Que règlent les seuils Oui et Peut-être ?
 question: Pourquoi une année de naissance est-elle annoncée complète ?
-paths: /config/inscriptions
+paths: /config/inscriptions, /config/inscriptions/reglages
 related: gerer-les-demandes, inscrire-un-enfant, previsions, reinscription
 ---
 

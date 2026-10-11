@@ -1,0 +1,24 @@
+{# The staff's own notes about this year's registrations — an editable
+   rich-text block (partials/rich_text_field.html.twig), never shown to a
+   family. Requires `notice_content` and `notice_content_key`. #}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <h2 class="h6 mb-0">Notes internes</h2>
+            {% include 'partials/rich_text_edit_button.html.twig' with {
+                content_key: notice_content_key,
+                save_url: '/api/rich-text-content'
+            } %}
+        </div>
+        {% include 'partials/rich_text_field.html.twig' with {
+            content_key: notice_content_key,
+            content_value: notice_content
+        } %}
+        {% if notice_content is empty %}
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucune note — cliquez sur le crayon pour en ajouter une (visible uniquement du staff).',
+                compact: true,
+            } only %}
+        {% endif %}
+    </div>
+</div>

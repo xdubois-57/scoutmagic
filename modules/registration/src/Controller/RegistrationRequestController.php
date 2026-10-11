@@ -214,8 +214,8 @@ class RegistrationRequestController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions/demandes/{id}/link — manual rapprochement
-     * by Desk "numéro de tiers" (members.desk_id). Refuses an unknown
+     * POST /config/inscriptions/demandes/{id}/link — « Lier à un membre
+     * Desk »: manual linking by Desk "numéro de tiers" (members.desk_id). Refuses an unknown
      * number and one already linked to another request; on success this
      * goes through the exact same Service\MigrationService::migrate() an
      * automatic reconciliation match would (module spec: "un seul chemin
@@ -245,7 +245,7 @@ class RegistrationRequestController extends AbstractController
 
         try {
             $this->migrationService->migrate($registrationRequest->id, $member['id']);
-            FlashMessage::set('success', 'Demande rapprochée du membre et encodée.');
+            FlashMessage::set('success', 'Demande liée au membre Desk et encodée.');
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
@@ -387,10 +387,10 @@ class RegistrationRequestController extends AbstractController
 
         return [
             'r' => $registrationRequest,
-            // The child's name is already decrypted on the entity — no
-            // extra decryption for the breadcrumb title.
-            'breadcrumb_current' =>
-                trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
+            // « Demande #… » under « Formulaire d'inscription › Demandes »
+            // (module.json's two ancestors, issue #843 D1): the request's
+            // number, never the child's name, which the page itself shows.
+            'breadcrumb_current' => 'Demande #' . $registrationRequest->id,
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),
             'desired_section_label' => $registrationRequest->desiredSectionId !== null

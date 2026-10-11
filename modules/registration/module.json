@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Inscriptions, réinscriptions, passages de branche et départs.",
-  "version": "6.12.0",
+  "version": "6.13.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -251,6 +251,69 @@
       "label": ""
     },
     {
+      "path": "/config/inscriptions/demandes",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "requests",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Demandes",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Formulaire d'inscription",
+            "path": "/config/inscriptions"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/inscriptions/gabarits",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "templates",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Gabarits",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Formulaire d'inscription",
+            "path": "/config/inscriptions"
+          }
+        ]
+      }
+    },
+    {
+      "path": "/config/inscriptions/reglages",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "settings",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réglages",
+        "parents": [
+          "Espace chefs d'U"
+        ],
+        "ancestors": [
+          {
+            "label": "Formulaire d'inscription",
+            "path": "/config/inscriptions"
+          }
+        ]
+      }
+    },
+    {
       "path": "/config/inscriptions/export",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
@@ -330,6 +393,10 @@
           {
             "label": "Formulaire d'inscription",
             "path": "/config/inscriptions"
+          },
+          {
+            "label": "Demandes",
+            "path": "/config/inscriptions/demandes"
           }
         ]
       }

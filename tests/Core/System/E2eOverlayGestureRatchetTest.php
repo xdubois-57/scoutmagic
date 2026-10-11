@@ -67,7 +67,7 @@ class E2eOverlayGestureRatchetTest extends TestCase
      * count and still fails — the click is a gesture, wherever it is.
      *
      * And each read is declared as what it reads — the overlay and the
-     * matcher (`registration-states-box toBeHidden`), or `via const` for a
+     * matcher (`help-discovery-modal toHaveCount`), or `via const` for a
      * constant used only in `expect(…)`. A read of the same count on
      * ANOTHER overlay, or with another matcher, is not the one declared:
      * `toggle.click()` then `expect(#other-panel).toBeVisible()` is the very
@@ -87,12 +87,6 @@ class E2eOverlayGestureRatchetTest extends TestCase
         // once the delay is running, on the help itself: a count of zero,
         // not a dialog that opens or closes.
         'tests/e2e/specs/help-discovery.spec.js' => ['help-discovery-modal toHaveCount' => 3],
-        // The three configuration boxes arrive folded. Two of them are
-        // checked again, panel and all, by openCollapse() on the way in;
-        // « États d'une demande » is never opened, so its panel is read
-        // here — the toggle's aria-expanded alone is in the markup before
-        // Bootstrap has run.
-        'tests/e2e/specs/registration-flow.spec.js' => ['registration-states-box toBeHidden' => 1],
     ];
 
     /**
@@ -104,7 +98,7 @@ class E2eOverlayGestureRatchetTest extends TestCase
     private const KNOWN_OVERLAYS = [
         'associate-modal',              // partials/modal.html.twig
         'richTextEditorModal',          // a hand-written .modal
-        'registration-capacities-box',  // a .collapse
+        'member-settled-payments',      // a .collapse
     ];
 
     public function testNoScenarioReachesAnOverlayWithoutItsBarrier(): void

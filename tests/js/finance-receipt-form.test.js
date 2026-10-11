@@ -57,11 +57,29 @@ function pdfFile(name = 'facture.pdf') {
 }
 
 async function settle() {
-    // FileReader → Image → canvas.toBlob chains several async hops; a few
-    // macrotask turns drain them all. Requires real timers.
+    // A few macrotask turns: enough for a path that has nothing to wait for
+    // (a native submit, a refused one) to have shown it. Requires real
+    // timers. Never use it to wait for a compression to finish — see until().
     for (let i = 0; i < 6; i++) {
         await new Promise((resolve) => setTimeout(resolve, 0));
     }
+}
+
+/**
+ * Wait until the compression has done what the test expects of it.
+ *
+ * FileReader → Image → canvas.toBlob is a chain of async hops whose count
+ * is not ours to fix: a loaded CI runner needed more turns than settle()
+ * gives, and the test then read « ticket.jpeg » before it became
+ * « ticket.jpg ». Polling the outcome itself cannot be too early.
+ */
+async function until(assertion) {
+    await vi.waitFor(assertion, { timeout: 5000, interval: 5 });
+}
+
+/** Wait until the form has been handed to the browser `times` times. */
+async function untilSubmitted(times = 1) {
+    await until(() => expect(form().submit).toHaveBeenCalledTimes(times));
 }
 
 // --- The compression pipeline, stubbed at the three points jsdom lacks ---
@@ -310,7 +328,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         const event = submitForm();
         expect(event.defaultPrevented).toBe(true);
         expect(status()).toBe('Compression des images…');
-        await settle();
+        await untilSubmitted();
 
         // 3200×1600 → 1600×800: the ratio is kept, the width capped.
         expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1600, 800);
@@ -330,7 +348,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('petit.jpeg')]);
 
         submitForm();
-        await settle();
+        await until(() => expect(drawImage).toHaveBeenCalled());
 
         expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 800, 400);
     });
@@ -341,7 +359,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('ticket.jpeg')]);
 
         submitForm();
-        await settle();
+        await untilSubmitted();
 
         expect(submittedNames(filesInput())).toEqual(['ticket.jpeg']);
         // The compression is what failed, not the upload: it goes up anyway,
@@ -386,13 +404,13 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('ticket.jpeg')]);
 
         submitForm();
-        await settle();
+        await until(() => expect(heldToBlob).toHaveLength(1));
 
         expect(submitBtn().disabled).toBe(true);
         expect(form().submit).not.toHaveBeenCalled();
 
         heldToBlob.forEach((release) => release());
-        await settle();
+        await untilSubmitted();
 
         expect(form().submit).toHaveBeenCalledTimes(1);
         expect(submitBtn().disabled).toBe(true);
@@ -414,8 +432,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('ticket.jpeg')]);
 
         submitForm();
-        await settle();
-        expect(form().submit).toHaveBeenCalledTimes(1);
+        await untilSubmitted();
 
         const second = submitForm();
         await settle();
@@ -444,7 +461,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('ticket.jpeg')]);
 
         submitForm();
-        await settle();
+        await untilSubmitted();
         expect(submitBtn().disabled).toBe(true);
 
         restoreFromBackForwardCache();
@@ -457,10 +474,8 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         // And the guard is gone with it: the form submits again.
         pick(filesInput(), [imageFile('second.jpeg')]);
         const again = submitForm();
-        await settle();
-
         expect(again.defaultPrevented).toBe(true);
-        expect(form().submit).toHaveBeenCalledTimes(2);
+        await untilSubmitted(2);
     });
 
     /**
@@ -474,7 +489,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         pick(filesInput(), [imageFile('ticket.jpeg')]);
 
         submitForm();
-        await settle();
+        await untilSubmitted();
 
         window.dispatchEvent(new Event('pageshow'));
 
@@ -492,7 +507,7 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
         const event = submitForm();
         expect(event.defaultPrevented).toBe(true);
         expect(status()).toBe('Compression de l\'image…');
-        await settle();
+        await untilSubmitted();
 
         expect(submittedNames(singleInput())).toEqual(['photo.jpg']);
         // 2048 bytes → 2 Ko, rounded the way the form has always rounded it.
@@ -550,7 +565,7 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
         singleInput().files = fileList([imageFile('photo.jpeg')]);
 
         submitForm();
-        await settle();
+        await untilSubmitted();
 
         expect(submittedNames(singleInput())).toEqual(['photo.jpeg']);
         expect(status()).toBe('Envoi en cours…');
@@ -580,7 +595,7 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
         singleInput().files = fileList([imageFile('photo.jpeg')]);
 
         submitForm();
-        await settle();
+        await untilSubmitted();
 
         expect(window.alert).not.toHaveBeenCalled();
         expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();

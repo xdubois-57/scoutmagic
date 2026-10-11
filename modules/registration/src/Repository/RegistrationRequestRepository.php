@@ -238,22 +238,112 @@ class RegistrationRequestRepository
     }
 
     /**
-     * "Accepted" requests still missing a linked member ("demandes non
-     * rapprochées" encart) — never automatically decided further, only a
-     * chief acting (manual link) or a future import clears this.
+     * « Demandes en attente » on the management dashboard: requests still
+     * waiting for a decision, in the given scout years.
      *
-     * @return array<RegistrationRequest>
+     * @param array<int> $scoutYearIds
      */
-    public function findUnreconciledAcceptedForYear(int $scoutYearId): array
+    public function countPendingForYears(array $scoutYearIds): int
     {
-        $stmt = $this->pdo->prepare(
-            "SELECT * FROM registration_requests
-             WHERE scout_year_id = ? AND status = 'accepted' AND linked_member_id IS NULL
-             ORDER BY received_at ASC, id ASC"
-        );
-        $stmt->execute([$scoutYearId]);
+        $scoutYearIds = self::distinctIds($scoutYearIds);
+        if ($scoutYearIds === []) {
+            return 0;
+        }
+        $placeholders = self::placeholdersFor($scoutYearIds);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders}) AND status = 'pending'",
+            $scoutYearIds
+        );
+    }
+
+    /**
+     * « E-mails de décision à envoyer » on the management dashboard: every
+     * decision whose e-mail has not left yet, in the given scout years.
+     *
+     * The definition is the one the family's own page applies
+     * (Service\RequestStatusService::visibleStatus()): an acceptance —
+     * still `accepted`, or already `encoded` in Desk — stays invisible to
+     * the family until `accepted_email_sent_at` is set, a refusal until
+     * `refused_email_sent_at` is. So this counts exactly the decisions a
+     * family cannot see yet. Withdrawn requests send nothing and are never
+     * counted. The decision e-mail model of issue #843 (IT-05) takes this
+     * definition over and rebinds it to its own table.
+     *
+     * @param array<int> $scoutYearIds
+     */
+    public function countDecisionEmailsToSendForYears(array $scoutYearIds): int
+    {
+        $scoutYearIds = self::distinctIds($scoutYearIds);
+        if ($scoutYearIds === []) {
+            return 0;
+        }
+        $placeholders = self::placeholdersFor($scoutYearIds);
+
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders})
+               AND ((status IN ('accepted', 'encoded') AND accepted_email_sent_at IS NULL)
+                    OR (status = 'refused' AND refused_email_sent_at IS NULL))",
+            $scoutYearIds
+        );
+    }
+
+    /**
+     * « Acceptées, pas encore dans Desk » on the management dashboard:
+     * accepted requests that no Desk import (nor a manual link) has turned
+     * into a member yet — `encoded` is the state that means "in Desk".
+     *
+     * @param array<int> $scoutYearIds
+     */
+    public function countAcceptedNotEncodedForYears(array $scoutYearIds): int
+    {
+        $scoutYearIds = self::distinctIds($scoutYearIds);
+        if ($scoutYearIds === []) {
+            return 0;
+        }
+        $placeholders = self::placeholdersFor($scoutYearIds);
+
+        return $this->countRows(
+            "SELECT COUNT(*) FROM registration_requests
+             WHERE scout_year_id IN ({$placeholders}) AND status = 'accepted'",
+            $scoutYearIds
+        );
+    }
+
+    /**
+     * The year ids once each, as integers — a repeated year must not need
+     * a second placeholder.
+     *
+     * @param array<int> $ids
+     * @return array<int, int>
+     */
+    private static function distinctIds(array $ids): array
+    {
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * One `?` per id, for an `IN (…)` whose values all travel as bound
+     * parameters.
+     *
+     * @param array<int, int> $ids
+     */
+    private static function placeholdersFor(array $ids): string
+    {
+        return implode(', ', array_fill(0, count($ids), '?'));
+    }
+
+    /**
+     * @param array<int, int> $params
+     */
+    private function countRows(string $sql, array $params): int
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**

@@ -1,0 +1,95 @@
+{#
+  « Vérification des capacités », moved as it was from the single page this
+  module used to have onto the dashboard (issue #843, IT-01): same data
+  (Service\SlotService::capacityBreakdownForYear()), same rendering — the
+  module's one projection since IT-02, with « dont N sans réponse ».
+  Requires `selected_year`, `is_past_year`, `waitlist_enabled` and
+  `capacity_breakdown` in scope.
+#}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Vérification des capacités — année {{ selected_year.label }}</h2>
+        {# The projected headcount (and therefore the remaining places and
+           the public level derived from it) is computed on TODAY's
+           members: those three columns only mean something for a year to
+           come. On a past year they would show today's projection
+           presented as a figure of that time. #}
+        {% if is_past_year %}
+            <p class="small text-body-secondary">
+                Année passée (consultation) : l'effectif projeté, le restant et le niveau public ne sont pas
+                affichés — ce sont des projections, elles n'ont de sens que pour une année à venir. La capacité
+                et les demandes acceptées, elles, sont bien historiques.
+            </p>
+        {% endif %}
+        {# « Restant » and « Niveau public » describe the availability the
+           public is told about: without waitlist management there is
+           nothing to tell, so both columns are absent rather than filled
+           with figures nobody uses. The stored values do not move:
+           switching the waitlist back on brings them back unchanged. #}
+        {% set show_waitlist_columns = not is_past_year and waitlist_enabled %}
+        {% if not waitlist_enabled %}
+            <p class="small text-body-secondary">
+                La gestion des listes d'attente est désactivée : le restant et le niveau vu par le public
+                ne sont pas calculés. Vous pouvez la réactiver dans Réglages, encart « Capacités par branche ».
+            </p>
+        {% endif %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Branche</th>
+                        <th>Année</th>
+                        <th>Capacité</th>
+                        {% if not is_past_year %}<th>Effectif projeté</th>{% endif %}
+                        <th>Demandes acceptées</th>
+                        {% if show_waitlist_columns %}
+                            <th>Restant</th>
+                            <th>Niveau public</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in capacity_breakdown %}
+                        <tr>
+                            <td>{{ row.branch_label }}</td>
+                            <td>{{ row.year_in_branch }}<sup>e</sup></td>
+                            {# A null capacity is "no limit", never "0": printing the raw
+                               number would make an unconfigured branch read as a closed
+                               one, exactly the mistake the nullable column exists to
+                               prevent. A 0 itself does print as 0. #}
+                            <td>{% if row.capacity is null %}<span class="text-body-secondary">Sans limite</span>{% else %}{{ row.capacity }}{% endif %}</td>
+                            {% if not is_past_year %}
+                                <td>
+                                    {{ row.projected }}
+                                    {% if row.silent > 0 %}<span class="small text-body-secondary">(dont {{ row.silent }} sans réponse)</span>{% endif %}
+                                </td>
+                            {% endif %}
+                            <td>{{ row.accepted }}</td>
+                            {% if show_waitlist_columns %}
+                                <td>{% if row.remaining is null %}<span class="text-body-secondary">—</span>{% else %}{{ row.remaining }}{% endif %}</td>
+                                <td>
+                                    {% if row.level == 'yes' %}
+                                        <span class="badge text-bg-success">Disponible</span>
+                                    {% elseif row.level == 'maybe' %}
+                                        <span class="badge text-bg-warning">Limitée</span>
+                                    {% else %}
+                                        <span class="badge text-bg-danger">Complet</span>
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if not is_past_year %}
+            <p class="small text-body-secondary mb-0">
+                L'effectif projeté place chaque animé selon son année de parcours réelle, y compris ceux qui
+                avancent ou restent d'une année en plus. Un animé dont la famille n'a rien répondu à la
+                réinscription est compté comme restant : seuls les départs annoncés (par la famille ou par un
+                chef) le retirent. Les demandes acceptées comptent tant qu'elles occupent une place, qu'elles
+                soient déjà encodées dans Desk ou non.
+            </p>
+        {% endif %}
+    </div>
+</div>

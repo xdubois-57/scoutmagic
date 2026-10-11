@@ -1,0 +1,19 @@
+{% extends 'base.html.twig' %}
+{% block title %}Demandes — Formulaire d'inscription — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="page-wide">
+        {% include 'partials/page_header.html.twig' with { title: "Formulaire d'inscription" } only %}
+        {% include '@registration/config/_nav.html.twig' %}
+
+        {% include '@registration/config/_notes.html.twig' %}
+        {% include '@registration/config/_states.html.twig' %}
+        {% include '@registration/config/_request_list.html.twig' %}
+        {% include '@registration/config/_non_final.html.twig' %}
+    </div>
+
+    {% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/rich-text-field.js') }}" defer></script>
+{% endblock %}
