@@ -30,7 +30,7 @@
      * « Accueil » only when the home page would actually open (#883).
      * Without a copy, the link reloaded `/`, the service worker answered
      * with this same screen, and the button looked as if it did nothing.
-     * So: a copy of `/` in one of the content caches, recent enough for the
+     * So: a copy of `/` in the content cache it reads, recent enough for the
      * service worker to serve it — the same age rule as its cachedCopy(),
      * read from the setting the server baked into this page. Without one,
      * the screen says that nothing is saved on this device yet.
@@ -53,23 +53,32 @@
     }
 
     /**
-     * Whether a content cache holds a copy of `/` younger than $days.
+     * Whether the content cache the service worker reads holds a copy of
+     * `/` younger than $days.
+     *
+     * The one cache, never any `content-*`: public/sw.js serves a page only
+     * from `content-{account_scope}-{version}` of its current config, and
+     * a cache left by an earlier release or another account outlives a
+     * deploy. A copy there would reveal « Accueil » for a page the worker
+     * then cannot find — the very dead button this replaces. The config is
+     * the entry sw.js's getOfflineConfig() reads, under the same names.
      *
      * @param {number} days
      * @returns {Promise<boolean>}
      */
     async function homeIsSaved(days) {
-        const names = (await caches.keys()).filter(function (name) {
-            return name.startsWith('content-');
-        });
-        for (const name of names) {
-            const copy = await (await caches.open(name)).match('/');
-            const at = copy ? Date.parse(copy.headers.get('Date') || '') : Number.NaN;
-            if (!Number.isNaN(at) && Date.now() - at <= days * 86400000) {
-                return true;
-            }
+        const stored = await (await caches.open('offline-config')).match('https://offline-config.internal/v1');
+        const config = stored ? await stored.json() : null;
+        if (!config?.consent) {
+            return false;
         }
+        const name = 'content-' + config.account_scope + '-' + config.version;
+        if (!(await caches.has(name))) {
+            return false;
+        }
+        const copy = await (await caches.open(name)).match('/');
+        const at = copy ? Date.parse(copy.headers.get('Date') || '') : Number.NaN;
 
-        return false;
+        return !Number.isNaN(at) && Date.now() - at <= days * 86400000;
     }
 })();

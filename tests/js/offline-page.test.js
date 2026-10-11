@@ -82,14 +82,32 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
         <a href="/" id="offline-home-link" class="d-none">Accueil</a>
     `;
 
-    /** Cache Storage holding $copies: {cacheName: {url: dateHeader}}. */
-    function storage(copies) {
+    /** The config public/sw.js keeps: account scope 7, release 1.0. */
+    const CONFIG = { consent: true, account_scope: '7', version: '1.0' };
+
+    /**
+     * Cache Storage holding $copies ({cacheName: {url: dateHeader}}) and,
+     * unless $config is null, the service worker's config.
+     */
+    function storage(copies, config = CONFIG) {
+        const all = { ...copies };
+        if (config !== null) {
+            all['offline-config'] = { 'https://offline-config.internal/v1': config };
+        }
         return {
-            keys: vi.fn(async () => Object.keys(copies)),
+            keys: vi.fn(async () => Object.keys(all)),
+            has: vi.fn(async (name) => name in all),
             open: vi.fn(async (name) => ({
-                match: vi.fn(async (url) => (copies[name]?.[url] !== undefined
-                    ? { headers: { get: (h) => (h === 'Date' ? copies[name][url] : null) } }
-                    : undefined)),
+                match: vi.fn(async (url) => {
+                    const entry = all[name]?.[url];
+                    if (entry === undefined) {
+                        return undefined;
+                    }
+                    return {
+                        headers: { get: (h) => (h === 'Date' ? entry : null) },
+                        json: async () => entry,
+                    };
+                }),
             })),
         };
     }
@@ -132,8 +150,34 @@ describe('offline-page.js: « Accueil » only when the home page is saved', () =
         expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
     });
 
+    // A deploy changes the version, and the previous release's content
+    // cache stays: the worker no longer reads it, so it must not count.
+    it('does not count a copy in a cache the service worker no longer reads', async () => {
+        globalThis.caches = storage({ 'content-7-0.9': { '/': new Date().toUTCString() } });
+
+        await loadOfflinePage(DOM);
+        await settle();
+
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('offline-nothing-saved').classList.contains('d-none')).toBe(false);
+    });
+
+    it('does not count a copy once consent is withdrawn, nor without a config at all', async () => {
+        const copies = { 'content-7-1.0': { '/': new Date().toUTCString() } };
+
+        globalThis.caches = storage(copies, { ...CONFIG, consent: false });
+        await loadOfflinePage(DOM);
+        await settle();
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+
+        globalThis.caches = storage(copies, null);
+        await loadOfflinePage(DOM);
+        await settle();
+        expect(document.getElementById('offline-home-link').classList.contains('d-none')).toBe(true);
+    });
+
     it('leaves both hidden when Cache Storage cannot be read', async () => {
-        globalThis.caches = { keys: vi.fn(() => Promise.reject(new Error('SecurityError'))) };
+        globalThis.caches = { open: vi.fn(() => Promise.reject(new Error('SecurityError'))) };
 
         await loadOfflinePage(DOM);
         await settle();
