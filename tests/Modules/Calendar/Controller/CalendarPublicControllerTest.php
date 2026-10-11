@@ -195,6 +195,46 @@ class CalendarPublicControllerTest extends TestCase
         $this->assertStringContainsString('id="event-details-retro-link"', $chief);
     }
 
+    /**
+     * Whether an event HAS a board is the chiefs' edit modal's business,
+     * and it is not gated by the board's access mode: on this reader page
+     * a parent must not learn that an animators-only retrospective exists,
+     * even with its link withheld.
+     */
+    public function testAReaderPageNeverSaysAnEventHasARetrospective(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Unité', 'public');
+        $this->eventRepository->create($calendar->id, 'Grand jeu', '2099-01-01', null, null, null, null, null, null);
+        $lookup = new class implements \Modules\Retro\Api\RetroEventLinkLookupInterface {
+            public function findLinkedBoardLink(int $eventId, \Core\Security\Role $viewerRole, ?string $viewerEmail, ?int $scoutYearId): ?\Modules\Retro\Api\RetroLinkSummary
+            {
+                return null;
+            }
+
+            public function hasLinkedBoard(int $eventId): bool
+            {
+                return true;
+            }
+        };
+        $controller = ($this->rebuildWithRetro)($lookup);
+        $request = new Request('GET', '/calendar', ['month' => '2099-01'], [], [], []);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        AuthSession::login(9, 'parent@test.be', 'identified');
+        try {
+            $parent = $controller->index($request, [])->getBody();
+        } finally {
+            AuthSession::logout();
+        }
+
+        $this->assertStringContainsString('Grand jeu', $parent);
+        $this->assertStringNotContainsString('data-has-linked-retro', $parent);
+        $this->assertStringNotContainsString('data-auto-create-retro', $parent);
+        $this->assertStringContainsString('data-retro-link=""', $parent);
+    }
+
     public function testIndexRendersPageWithMonthGrid(): void
     {
         $request = new Request('GET', '/calendar', [], [], [], []);

@@ -117,7 +117,13 @@ class CalendarChiefController extends AbstractController
         $weeks = $this->monthGridBuilder->build(
             $year,
             $month,
-            $this->calendarService->toGridEvents($events, $role, $email !== '' ? $email : null, $effectiveYear->id)
+            $this->calendarService->toGridEvents(
+                $events,
+                $role,
+                $email !== '' ? $email : null,
+                $effectiveYear->id,
+                forEditor: true
+            )
         );
 
         // The add-event modal's default calendar: whatever is currently
