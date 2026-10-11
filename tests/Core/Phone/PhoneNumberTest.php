@@ -75,6 +75,14 @@ final class PhoneNumberTest extends TestCase
         $this->assertFalse(PhoneNumber::parse('0800 12 345')?->canReceiveMessages);
     }
 
+    public function testTheKindSaysWhatTheReadingCanTell(): void
+    {
+        $this->assertSame('mobile', PhoneNumber::parse('0472546771')?->kind());
+        $this->assertSame('landline', PhoneNumber::parse('02/123.45.67')?->kind());
+        $this->assertSame('foreign', PhoneNumber::parse('+33 6 12 34 56 78')?->kind());
+        $this->assertSame('foreign', PhoneNumber::parse('+352 691 123 456')?->kind());
+    }
+
     public function testATextWithoutADigitIsNoNumber(): void
     {
         $this->assertNull(PhoneNumber::parse(''));

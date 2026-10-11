@@ -150,6 +150,9 @@ const APP_SHELL_BASE_URLS = [
     // since a cached page still carries its links.
     '/assets/js/display-mode.js',
     '/assets/js/installed-app-links.js',
+    // A cached page still shows its phone numbers, and calling one is
+    // exactly what a chef without network may need.
+    '/assets/js/phone-link.js',
     '/assets/js/select-bar.js',
     '/assets/js/nav-rail.js',
     '/assets/js/audit-timeline.js',

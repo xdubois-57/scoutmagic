@@ -408,6 +408,9 @@ class TwigFactory
 
         // Register text normalization filters (normalize_name/totem/phone/address)
         $environment->addExtension(new TextNormalizerExtension());
+        // phone() (Core\View\PhoneExtension) — a phone number that can be
+        // called, texted or copied (docs/chantiers/CHANTIER-telephone.md).
+        $environment->addExtension(new PhoneExtension());
 
         // compact_html (Core\View\CompactHtmlExtension) — the navigation
         // partial's indentation stripper.

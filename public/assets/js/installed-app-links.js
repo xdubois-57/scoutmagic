@@ -55,6 +55,12 @@
         }
 
         event.preventDefault();
-        win.open(url.href, '_blank', 'noopener');
+        // A link that withholds its referrer keeps withholding it here:
+        // window.open() sends one unless told not to, and the phone sheet's
+        // WhatsApp and Signal links (partials/phone_sheet.html.twig) must
+        // not tell either service which page of the unit's site they were
+        // tapped on.
+        var features = link.relList.contains('noreferrer') ? 'noopener,noreferrer' : 'noopener';
+        win.open(url.href, '_blank', features);
     });
 })();
