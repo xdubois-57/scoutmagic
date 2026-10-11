@@ -35,6 +35,7 @@ use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
+use Modules\News\Service\BodyImageVariants;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
 use Modules\News\Service\ResponseService;
@@ -273,7 +274,55 @@ class NewsController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
-        return $this->json(['success' => true, 'url' => '/files/' . $fileId]);
+        // The derivatives, as for the cover (#883): the text then carries
+        // the 1024px `md` rendition — what the offline cache may store,
+        // where the original never goes (SECURITY.md, public/sw.js) — and
+        // not the multi-megabyte photograph. generate() never throws; an
+        // image it could not render keeps its original address, which
+        // still shows online.
+        if ($this->imageVariantService !== null) {
+            foreach (\Core\Photo\ImageVariantService::VARIANTS as $variant) {
+                $this->imageVariantService->generate($fileId, $variant);
+            }
+        }
+
+        return $this->json([
+            'success' => true,
+            'url' => '/files/' . $fileId . ($this->hasMediumRendition($fileId) ? '/md' : ''),
+        ]);
+    }
+
+    /** Whether file $fileId has its `md` rendition on disk. */
+    private function hasMediumRendition(int $fileId): bool
+    {
+        if ($this->imageVariantService === null) {
+            return false;
+        }
+        $file = $this->fileRepository->findById($fileId);
+
+        return $file !== null && $this->imageVariantService->resolvePath($file->relativePath, 'md') !== null;
+    }
+
+    /**
+     * The text blocks of an article, their images pointed at the `md`
+     * rendition where it exists — see Service\BodyImageVariants. On the
+     * page and in the editor alike, so the next save stores the address
+     * the page shows.
+     *
+     * @param FormField[] $fields
+     * @return FormField[]
+     */
+    private function withMediumBodyImages(array $fields): array
+    {
+        $hasMedium = fn (int $fileId): bool => $this->hasMediumRendition($fileId);
+
+        return array_map(
+            static fn (FormField $field): FormField => $field->fieldType === FormField::TYPE_TEXT
+                && $field->confirmationText !== null
+                ? $field->withConfirmationText(BodyImageVariants::rewrite($field->confirmationText, $hasMedium))
+                : $field,
+            $fields
+        );
     }
 
     /**
@@ -536,7 +585,9 @@ class NewsController extends AbstractController
         }
 
         $form = $this->formService->findByArticleId($article->id);
-        $fields = $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article);
+        $fields = $this->withMediumBodyImages(
+            $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article)
+        );
         $hasRealInput = $this->hasRealInputField($fields);
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
         $accountId = AuthSession::getUserAccountId();
@@ -686,7 +737,9 @@ class NewsController extends AbstractController
     private function editorContext(?Article $article): array
     {
         $form = $article !== null ? $this->formService->findByArticleId($article->id) : null;
-        $fields = $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article);
+        $fields = $this->withMediumBodyImages(
+            $this->withDefaultTextField($form !== null ? $this->formService->getFields($form->id) : [], $article)
+        );
 
         $financeAccounts = $this->financeAccount?->getConfiguredAccounts() ?? [];
 
