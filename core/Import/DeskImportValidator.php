@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Service\DateInput;
 use Core\Service\DeskDateParser;
 
 /**
@@ -232,7 +233,7 @@ final class DeskImportValidator
 
         if (!DeskDateParser::isPlausibleBirthDate($date, $today)) {
             return $this->cell('Date de naissance', $value) . ' invraisemblable : elle doit être comprise entre le '
-                . (new \DateTimeImmutable(DeskDateParser::EARLIEST_BIRTH_DATE))->format('d/m/Y')
+                . DateInput::requireFromStorage(DeskDateParser::EARLIEST_BIRTH_DATE, 'earliest birth date')->format('d/m/Y')
                 . ' et aujourd\'hui.';
         }
 

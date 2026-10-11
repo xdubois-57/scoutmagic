@@ -17,6 +17,7 @@ use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
 use Core\Service\DeskDateParser;
 
 class DeskImportService
@@ -313,7 +314,7 @@ class DeskImportService
 
         $errors = (new DeskImportValidator())->validate(
             $parsed,
-            new \DateTimeImmutable($year['end_date']),
+            DateInput::requireFromStorage($year['end_date'], 'scout_years.end_date'),
             $today
         );
         if ($errors === []) {
