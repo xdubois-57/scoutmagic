@@ -53,7 +53,8 @@ final class PhoneExtension extends AbstractExtension
         }
 
         return sprintf(
-            '<a href="tel:%1$s" class="%2$s" data-phone="%1$s" data-phone-display="%3$s" data-phone-kind="%4$s">%3$s</a>',
+            '<a href="tel:%1$s" class="%2$s" data-phone="%1$s"'
+                . ' data-phone-display="%3$s" data-phone-kind="%4$s">%3$s</a>',
             self::escape($number->international),
             self::escape(trim('phone-link ' . $class)),
             self::escape($number->display),
