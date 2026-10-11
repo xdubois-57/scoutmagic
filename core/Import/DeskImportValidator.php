@@ -291,13 +291,36 @@ final class DeskImportValidator
     }
 
     /**
+     * One function's identity across its address lines: its code, branch,
+     * section and dates, each date in one spelling (`01/09/2025` and
+     * `2025-09-01` are the same start).
+     */
+    private function functionKey(DeskCsvRow $row): string
+    {
+        $date = static fn(string $value): string => DeskDateParser::toIso($value) ?? $value;
+
+        return implode("\x1F", [
+            $row->value('FONCTION'),
+            $row->value('Branche'),
+            $row->value('Section'),
+            $date($row->value('Date début')),
+            $date($row->value('Date fin')),
+            $date($row->value('fin de mandat')),
+        ]);
+    }
+
+    /**
      * Rule 14: exactly one main function per member.
      *
      * Counted on DISTINCT functions, not on lines: Desk writes one line per
      * (function × address), so a member with two addresses carries their
      * one main function on two lines, and that is still one. The key is the
-     * function's own columns, the same tuple DeskImportService deduplicates
-     * on (the main flag aside, which is what is being counted).
+     * function's own columns with its dates normalised — the tuple
+     * DeskImportService deduplicates on, the main flag aside.
+     *
+     * The lines of one function must also agree on that flag: marked main
+     * on one address line and not on the other, the service — whose key
+     * includes the flag — would store it twice, one of each.
      *
      * Skipped for a Tiers whose « Fonction principale » rule 8 already
      * refused: the count would only repeat that error in other words.
@@ -307,21 +330,25 @@ final class DeskImportValidator
      */
     private function mainFunctionErrors(array $rows): array
     {
+        /** @var array<string, string> $flagOf the first flag seen for each distinct function */
+        $flagOf = [];
         $mainFunctions = [];
         foreach ($rows as $row) {
             $flag = strtolower($row->value('Fonction principale'));
             if ($flag !== 'true' && $flag !== 'false') {
                 return [];
             }
+            $key = $this->functionKey($row);
+            if (isset($flagOf[$key]) && $flagOf[$key] !== $flag) {
+                return [new DeskImportError(
+                    $row->lineNumber,
+                    DeskImportRule::MAIN_FUNCTION,
+                    $this->prefix($row) . 'Fonction principale : la même fonction est marquée principale '
+                        . 'sur une ligne et pas sur une autre ; toutes ses lignes doivent porter la même valeur.'
+                )];
+            }
+            $flagOf[$key] = $flag;
             if ($flag === 'true') {
-                $key = implode("\x1F", [
-                    $row->value('FONCTION'),
-                    $row->value('Branche'),
-                    $row->value('Section'),
-                    $row->value('Date début'),
-                    $row->value('Date fin'),
-                    $row->value('fin de mandat'),
-                ]);
                 $mainFunctions[$key] = true;
             }
         }

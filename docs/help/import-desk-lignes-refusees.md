@@ -33,7 +33,8 @@ ligne 1. Ce que le site exige :
   consentement courrier et de fonction principale — un tableur réglé en
   français écrit parfois VRAI ou FAUX ;
 - une **FONCTION** sur chaque ligne, et exactement une fonction
-  principale par membre ;
+  principale par membre, marquée de la même façon sur toutes les lignes
+  où elle apparaît ;
 - un **e-mail** vide ou bien formé ;
 - des **dates de fonction** vides ou lisibles, dont aucune ne commence
   après la fin de l'année scoute choisie — sinon le fichier vise

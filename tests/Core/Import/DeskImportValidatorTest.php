@@ -347,6 +347,43 @@ class DeskImportValidatorTest extends TestCase
         $this->assertSame([], $this->messagesOf($errors));
     }
 
+    /**
+     * The same function written in two of Desk's date shapes on its two
+     * address lines is still one function, not two main ones.
+     */
+    public function testRule14TheSameFunctionDatedInTwoShapesIsOne(): void
+    {
+        $errors = $this->validateRows([
+            $this->row(['Date début' => '01/09/2025']),
+            $this->row([
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Date début' => '2025-09-01',
+            ]),
+        ]);
+
+        $this->assertSame([], $this->messagesOf($errors));
+    }
+
+    /**
+     * One function marked main on one address line and not on the other:
+     * DeskImportService, whose key includes the flag, would store it twice.
+     * The line that contradicts the first one is the one named.
+     */
+    public function testRule14TheLinesOfOneFunctionMustAgreeOnTheMainFlag(): void
+    {
+        $errors = $this->validateRows([
+            $this->row([]),
+            $this->row([
+                "Type d'adresse" => 'Adresse secondaire', 'Rue' => 'Avenue du Parc', 'Fonction principale' => 'false',
+            ]),
+        ]);
+
+        $this->assertSame([
+            'Ligne 3 (T001) — Fonction principale : la même fonction est marquée principale sur une ligne '
+                . 'et pas sur une autre ; toutes ses lignes doivent porter la même valeur.',
+        ], $this->messagesOf($errors));
+        $this->assertSame(DeskImportRule::MAIN_FUNCTION, $errors[0]->rule);
+    }
+
     /** A refused « Fonction principale » is reported once, by rule 8, not again as « no main function ». */
     public function testRule14IsNotRepeatedForAFlagRule8AlreadyRefused(): void
     {
