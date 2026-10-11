@@ -141,10 +141,13 @@ suit Bootstrap 5 et `design.md`.
 | Situation (sauvegarde terminée) | Badge | Télécharger | Mot de passe | Restaurable | Supprimer |
 |---|---|---|---|---|---|
 | Archive et dump présents | inchangé | oui | si gardé | oui, sauf `database` et portable | oui |
-| Archive absente, dump présent | **« Archive absente »** | non | non | non | oui |
+| Archive absente, dump présent | **« Archive absente »** | non | si gardé | non | oui |
 | Dump absent, archive présente | **« Base de données absente »** | oui | si gardé | non | oui |
-| Les deux absents | **« Fichiers absents »** | non | non | non | oui |
+| Les deux absents | **« Fichiers absents »** | non | si gardé | non | oui |
 
+- **Le mot de passe reste affiché tant qu'il est gardé**, archive présente ou non : c'est la seule
+  clé d'une copie déjà téléchargée. `canShowPassword` dépend du mot de passe gardé, jamais de la
+  présence de l'archive.
 - Seuls comptent les composants que la sauvegarde déclare : une ligne sans `file_id` n'est jamais
   « Archive absente ».
 - Le badge est rouge (`text-bg-danger`), avec en `title` une phrase qui dit ce qui manque et ce qu'on
@@ -193,8 +196,8 @@ entre l'affichage et le clic :
     `file-viewer.js` dans l'application installée) ;
   - archive absente : **rien n'est suivi** ; sous la ligne s'affiche « L'archive de cette sauvegarde
     n'est plus sur ce serveur. Elle ne peut plus être téléchargée ni restaurée ; vous pouvez supprimer
-    la ligne. » (`role="status"`), le badge passe à « Archive absente » et les boutons devenus
-    impossibles disparaissent, sans recharger la page ;
+    la ligne. » (`role="status"`), le badge passe à « Archive absente » et « Télécharger »
+    disparaît — le mot de passe reste —, sans recharger la page ;
   - requête en échec (réseau) : le lien part comme aujourd'hui, pas de faux négatif.
 - Le comportement est **identique dans un onglet et dans l'application installée** (mode
   `standalone`, iOS compris) : la vérification précède toute navigation. Vérifie l'ordre des écouteurs
@@ -295,7 +298,13 @@ attendre cette passe.
    l'alerte existante le signale.
 4. **Le journal est celui d'aujourd'hui.** Les lignes `event_log` restaurées sont remplacées par celles
    mises de côté, suivies de celles écrites depuis le remplacement de la base (la restauration elle-même)
-   : rien ne se perd, l'ordre reste chronologique. `user_account_id` est gardé tel quel s'il existe dans
+   : rien ne se perd, l'ordre reste chronologique. **Les identifiants se télescopent** : le dump remet
+   l'`AUTO_INCREMENT` de la base restaurée, et les lignes écrites pendant la restauration prennent des
+   identifiants déjà portés par des lignes mises de côté. D'où l'ordre : retenir, dans la passe du
+   remplacement et aussitôt celui-ci fait, le plus grand identifiant de la base restaurée (il suit la
+   charge utile de reprise) ; à la remise en place, lire les lignes au-delà — celles de la restauration
+   —, vider la table, réinsérer les lignes mises de côté **avec leurs identifiants**, puis les lignes de
+   la restauration **avec de nouveaux identifiants**, à la suite. `user_account_id` est gardé tel quel s'il existe dans
    la base restaurée, sinon `NULL` (contrainte de clé étrangère). Une ligne écrite il y a peu peut ainsi
    désigner un compte dont l'identifiant a changé de sens entre les deux dates : en pratique un compte
    suit une adresse e-mail et reste la même personne ; ce risque résiduel est accepté et noté dans le
@@ -425,7 +434,8 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   copie de sécurité présente ; ligne `files` d'une sauvegarde dont l'identifiant est pris par un fichier
   de l'unité → nouvel identifiant, fichier de l'unité intact ; mots de passe gardés et jamais attachés à
   une autre sauvegarde ; réglages hors site gardés, et la règle portable avec et sans destination ;
-  journal d'aujourd'hui suivi des lignes de la restauration, compte absent → `NULL` ; tâches ramenées
+  journal d'aujourd'hui suivi des lignes de la restauration, sans collision d'identifiant même quand
+  la restauration a écrit sur des identifiants mis de côté, compte absent → `NULL` ; tâches ramenées
   annulées et comptées dans la passe du remplacement — aucune ne s'exécute à la passe de reprise —,
   chaînes récurrentes ré-amorcées ; données gardées lisibles après installation de
   la clé de l'archive ; échec de la remise en place journalisé sans faire échouer la restauration ; fichier
@@ -443,7 +453,7 @@ PHPUnit, avec des lignes `backups` et `files` réalistes et de vrais fichiers so
   suit pas et affiche le message sinon, suit le lien si la requête échoue, en mode standalone comme dans
   un onglet ; chargement de la carte hors site et ses états ;
 - **Playwright mobile** (`tests/e2e/`), à 320 px : les boutons d'une ligne sur une seule rangée, sans
-  débordement horizontal ; une ligne aux fichiers absents n'offre que « Supprimer ».
+  débordement horizontal ; une ligne aux fichiers absents n'offre que le mot de passe, s'il est gardé, et « Supprimer ».
 
 ---
 
