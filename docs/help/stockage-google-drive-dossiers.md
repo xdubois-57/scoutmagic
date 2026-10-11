@@ -8,7 +8,7 @@ question: Où sont rangées les photos dans mon Google Drive ?
 question: À quoi sert le fichier LISEZMOI dans chaque dossier d'album ?
 question: Que devient le dossier Drive quand je supprime l'emplacement ?
 paths: /config/stockage/emplacements
-related: stockage-google-drive, sauvegarde-hors-site, stockage
+related: stockage-cible, stockage-google-drive, sauvegarde-hors-site, stockage
 ---
 
 Chaque emplacement Google Drive a **son propre dossier**, et tous se
@@ -60,27 +60,9 @@ fait jamais choisir un autre dossier : il garde le sien.
 
 ## Quand le dossier a disparu
 
-Après une restauration, ou si le dossier a été mis à la corbeille, un
-emplacement peut viser un dossier qui n'existe plus alors que vos
-fichiers sont ailleurs. Le site ne crée **jamais** un nouveau dossier
-de lui-même pour le remplacer, même quand vous reconnectez le compte :
-il garde l'autorisation, vous prévient, et vous laisse choisir sur la
-fiche de l'emplacement.
-
-- **Rattacher un dossier existant** : collez l'adresse du dossier qui
-  contient vos fichiers, telle que Google Drive l'affiche dans votre
-  navigateur. Le site le désigne par cette adresse, jamais par son
-  nom. Il vérifie que c'est bien un dossier, hors de la corbeille, qu'il
-  peut voir et qu'aucun autre emplacement n'utilise. S'il contient déjà
-  des fichiers, il vous demande de confirmer. Rien n'y est copié,
-  déplacé ni renommé.
-- **Créer un nouveau dossier** : un dossier vide au nom de
-  l'emplacement, sous **ScoutMagic**. C'est refusé tant que l'ancien
-  dossier existe encore : ce qu'il contient ne serait plus lu par le
-  site.
-
-Le site ne voit que les dossiers qu'il a lui-même créés : un dossier
-fait à la main dans Drive ne peut pas être rattaché.
+Si l'emplacement vise un dossier qui n'existe plus, le site n'en crée
+jamais un autre de lui-même : voyez « Changer la cible d'un
+emplacement ».
 
 ## Quand l'emplacement est supprimé
 
