@@ -1938,7 +1938,7 @@ The page is in the Espace chefs d'U, at `admin`.
 
 ## 37. Rétrospectives (module retro)
 
-After an activity, a board where everybody drops a few words and votes, **anonymously**: three columns — ce qui a bien marché, à améliorer, autres suggestions. Participants arrive by a link or a QR code and **no account is needed**.
+After an activity, a board where everybody drops a few words and votes, **anonymously**: three columns — ce qui a bien marché, à améliorer, autres suggestions. Participants arrive by a link or a QR code; whether they must log in first is the board's **access mode** (§37.2).
 
 ### 37.1 Anonymity is the feature, not a setting
 
@@ -1950,12 +1950,16 @@ The consequence is stated to participants rather than hidden: **a word cannot be
 
 Made at creation, from site-wide defaults an administrator sets:
 
-- **How the link is meant to be found**: « Espace membres » or « Lien seul », shown on the board's own card. It records the chief's intent — the link is what gives access either way, and nothing on the participation page depends on the flag. The one place a board is genuinely surfaced today is the calendar event it is linked to, and that is governed by the audience setting below, not by this flag.
+- **Access** (issue #833) — one setting, shown as a badge on the board's own card, which answers every access question at once:
+  - **Animateurs** (the default, for a board created by hand and for one the calendar creates): only a logged-in intendant or above may open it;
+  - **Membre identifié**: any logged-in account, parents included;
+  - **Lien public**: whoever has the link, no account needed.
+
+  It applies to every route of the board alike — the page, its QR code, the live refresh, writing, shortening, liking, voting and hiding. A visitor who is not logged in is sent to the login page and brought back to the board afterwards; a logged-in account below the floor gets a refusal saying the board is for the animators. The same setting decides **anti-duplicate**: one vote per account on a board that requires a login, one per device on a public one. Per device relies on a functional cookie; when cookies are refused the site falls back on the browsing session rather than blocking participation — and the help page says out loud that changing phone mid-way can hand somebody fresh points, because the exercise is only worth the sincerity of its answers. **The setting locks at the first vote**, in the form and on the server: changing who takes part mid-way would make the count meaningless.
 - **Voting**: unlimited, or a budget of points per person; and whether the counters are visible throughout or only revealed at closing.
-- **Anti-duplicate**: per device or per login. Writing a word never requires logging in either way. Per device relies on a functional cookie; when cookies are refused the site falls back on the browsing session rather than blocking participation — and the help page says out loud that changing phone mid-way can hand somebody fresh points, because the exercise is only worth the sincerity of its answers.
 - **Length of a word**: 120 to 200 characters, 140 by default.
 - **Closing**: automatic after two hours, a day, three days or a week, or by hand.
-- Optionally, **a link to a calendar event**, with its own audience for showing the board's link in that event.
+- Optionally, **a link to a calendar event**. The event then shows the board's link — while the board is open, never for a public board (its link is meant for those it was handed to), and only to a reader the access mode lets in, on the internal calendar and the public one alike.
 
 The participation link and its QR code are created with the board. **Regenerating the link invalidates the old one immediately for everybody**, those who already scanned it included; the words and votes already collected are kept.
 
@@ -1969,7 +1973,7 @@ Creating a board and closing one are **two separate role thresholds** (intendant
 
 ### 37.4 Moderation, and its limits
 
-When the AI connector is active, a word can be checked before publication in one of three modes: **disabled**, **warning** (the author is told and offered a rewording, but stays free to publish as written) or **enforced** (the rewording is required). Without a connector, the choice is greyed out and nothing is checked. A participant whose word is too long can also ask for a shorter version — a preview only, never saved, and bounded so "shorten this novel" is not a way to run up the bill.
+When the AI connector is active, a word can be checked before publication in one of three modes: **disabled**, **warning** (the default; the author is told and offered a rewording, but stays free to publish as written) or **enforced** (the rewording is required). Without a connector, the choice is greyed out and nothing is checked. A participant whose word is too long can also ask for a shorter version — a preview only, never saved, and bounded so "shorten this novel" is not a way to run up the bill.
 
 **Hiding a word is a chef d'unité's decision and a last resort**: it is reversible, and it never reveals an author, because there is none to reveal. Together with the automatic moderation, that is the entirety of the safety net — which is why the warning mode is the sensible minimum on a board open to young participants.
 

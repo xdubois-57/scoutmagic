@@ -20,17 +20,31 @@ Rétrospectives liste vos tableaux ; « Nouvelle » en crée un.
 Donnez un titre et une date, ou liez le tableau à un évènement du
 calendrier. Les choix qui comptent :
 
-- **Découverte du lien** : visible dans l'espace membres, ou « lien
-  seul » à distribuer vous-même.
+- **Accès à la rétrospective** : qui peut ouvrir le tableau.
+  - **Animateurs** (par défaut) : les animateurs connectés, et
+    personne d'autre.
+  - **Membre identifié** : tout membre connecté au site, parents
+    compris.
+  - **Lien public** : quiconque a le lien ou le code QR, sans
+    connexion.
 - **Mode de vote** : illimité, ou un budget de points par personne.
-- **Anti-doublon** : par appareil (personne n'a besoin de se
-  connecter) ou par connexion. Écrire un mot reste toujours possible
-  sans connexion.
 - **Clôture automatique** : de deux heures à sept jours, ou manuelle.
 
 Le lien de participation et son code QR sont créés avec le tableau :
 sur le tableau, « Copier le lien » et « QR code » les partagent. Projetez
 le code QR en fin d'activité, chacun participe depuis son téléphone.
+
+Le mode d'accès décide aussi comment les doublons sont évités : un
+vote par compte quand le tableau demande une connexion, un vote par
+appareil en lien public. Il se fige dès le **premier vote** : changer
+qui participe en cours de route fausserait le décompte.
+
+Un visiteur qui n'est pas connecté arrive sur la page de connexion,
+puis revient au tableau une fois connecté. Un tableau lié à un
+évènement du calendrier s'affiche dans le détail de cet évènement,
+tant qu'il est ouvert, mais seulement pour les lecteurs qui peuvent
+y participer — jamais pour un tableau en lien public, que seuls ceux
+à qui vous l'avez donné doivent trouver.
 
 > Régénérer le lien rend l'ancien immédiatement inutilisable pour tout
 > le monde, y compris ceux qui l'ont déjà scanné. Les mots et votes

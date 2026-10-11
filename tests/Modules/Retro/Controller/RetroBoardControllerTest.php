@@ -731,7 +731,9 @@ class RetroBoardControllerTest extends TestCase
             $this->assertStringContainsString('Connectez-vous', $this->readable($response));
         } else {
             $this->assertSame(302, $response->getStatusCode());
-            $this->assertSame('/login', $response->getHeaders()['Location']);
+            // Back to the board itself once logged in (issue #833), whichever
+            // page of it was asked for.
+            $this->assertSame('/login?return=' . rawurlencode('/r/' . $token), $response->getHeaders()['Location']);
         }
     }
 
