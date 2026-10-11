@@ -140,7 +140,9 @@ class FormService
             ? ($settings['finance_category_id'] ?? null)
             : null;
         if ($settings['finance_account_id'] !== null && $financeCategoryId === null) {
-            throw new NewsException('Choisissez la catégorie Finances dans laquelle classer les paiements de ce formulaire.');
+            throw new NewsException(
+                'Choisissez la catégorie Finances dans laquelle classer les paiements de ce formulaire.'
+            );
         }
 
         $existing = $this->formRepository->findByArticleId($articleId);
