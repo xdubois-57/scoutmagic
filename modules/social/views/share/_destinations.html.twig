@@ -4,7 +4,7 @@
 <fieldset class="mb-3">
     <legend class="h6">Publier sur</legend>
     {% for d in destinations %}
-        <div class="form-check mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}">
+        <div class="form-check form-check--line-aligned mb-2" data-destination="{{ d.value }}" data-state="{{ d.state }}">
             <input class="form-check-input" type="checkbox" name="destinations[]" value="{{ d.value }}"
                    id="dest-{{ d.value }}"
                    {{ d.state in ['available', 'failed'] ? '' : 'disabled' }}
@@ -39,7 +39,7 @@
     {# A discussion group (IT-05): two lines on the page — the box, then the
        groups chosen in the dialog with the pencil that reopens it. #}
     <div class="mb-3" data-share-groups>
-        <div class="form-check mb-1" data-destination="groups">
+        <div class="form-check form-check--line-aligned mb-1" data-destination="groups">
             <input class="form-check-input" type="checkbox" name="destinations[]" value="groups" id="dest-groups"
                    data-share-groups-toggle {{ groups is empty ? 'disabled' : '' }}>
             <label class="form-check-label" for="dest-groups">
@@ -69,7 +69,7 @@
                             <fieldset>
                                 <legend class="h6">Groupes où vous pouvez publier</legend>
                                 {% for g in groups %}
-                                    <div class="form-check mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}">
+                                    <div class="form-check form-check--line-aligned mb-2" data-group="{{ g.id }}" data-state="{{ g.state }}">
                                         <input class="form-check-input" type="checkbox" name="groups[]" value="{{ g.id }}"
                                                id="group-{{ g.id }}" data-share-group-name="{{ g.name }}"
                                                {{ g.state in ['available', 'failed'] ? '' : 'disabled' }}
@@ -98,8 +98,8 @@
                             </fieldset>
                             <p class="small text-body-secondary mb-0">
                                 Seuls les groupes où vous avez le droit de publier apparaissent ici. Chaque groupe reçoit
-                                sa propre publication, avec ses propres règles de modération. La photo y part nette, avec un
-                                lien vers le site.
+                                sa propre publication, avec ses propres règles de modération. L'image y part comme vers
+                                les autres destinations, au flou que vous avez choisi, avec un lien vers le site.
                             </p>
                         </div>
                         <div class="modal-footer">

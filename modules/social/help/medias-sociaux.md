@@ -6,10 +6,9 @@ category: Espace animateurs
 role_min: chief
 question: Comment partager un album photo ou une actualité sur Facebook ou Instagram ?
 question: Comment publier une annonce sur la Page Facebook de l'unité ?
-question: Pourquoi la photo publiée est-elle floue ?
 question: Pourquoi n'y a-t-il pas de bouton « Partager » ?
 paths: /medias-sociaux/nouvelle, /medias-sociaux/nouvelle/*/*, /medias-sociaux/*, /medias-sociaux/*/photo
-related: ce-qui-est-parti, gerer-la-galerie, publier-une-actualite, reseaux-sociaux
+related: l-image-publiee, ce-qui-est-parti, gerer-la-galerie, publier-une-actualite, reseaux-sociaux
 ---
 
 « Médias sociaux », dans l'espace animateurs, est la page d'où part
@@ -38,6 +37,9 @@ La page se lit de haut en bas, dans l'ordre où la publication se compose :
 - **« Galerie »** ou **« Téléverser »**, pour une communication écrite de
   zéro. Quand l'image vient d'un album ou d'une actualité, elle et son
   titre ne se changent pas ici : ils se changent là-bas ;
+- **le curseur de flou**, quand l'image vient de la galerie : de « Net » à
+  « Très flou », l'aperçu suivant le curseur. Voir
+  [L'image publiée et son flou](l-image-publiee) ;
 - **le titre sur l'image**, puis **le texte de la publication** ;
 - **les destinations**, puis « Publier ».
 
@@ -48,27 +50,3 @@ sur « Publier ». Ensuite, la page revient à l'historique.
 
 **Aucun champ d'adresse** n'est proposé : le lien d'une publication est
 celui de l'album ou de l'actualité qu'elle partage.
-
-## Ce qui part, et comment
-
-Sur Facebook et Instagram, une image de la galerie est **toujours
-floutée** : on devine l'ambiance, pas les visages. Pour voir les photos,
-il faut venir sur le site, là où seuls les membres les voient. Une image
-téléversée part telle quelle — choisissez-en une qui peut être montrée à
-tout le monde.
-
-Sur la Page Facebook, une actualité part **en lien** : Facebook affiche
-l'aperçu de sa page. Sur Instagram, qui n'accepte que des images, c'est
-l'image de l'actualité qui part. Une actualité réservée aux animateurs ne
-peut pas quitter le site.
-
-Chaque destination porte son état : disponible, déjà publiée avec sa date,
-en échec avec la raison donnée par Meta, ou indisponible avec la raison.
-
-> Sur Facebook et Instagram, une fois publié, c'est public et hors du
-> site : pour retirer une publication, il faut passer par Facebook ou
-> Instagram eux-mêmes.
-
-Dès qu'une destination a été tentée, le texte ne change plus : celle
-publiée plus tard reçoit le même. Le titre et l'image aussi, sauf pour un
-album ou une actualité partagés : ils restent lus à la source.

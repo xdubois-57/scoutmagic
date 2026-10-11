@@ -13,11 +13,23 @@
 </div>
 
 <p>
-    {% if from_source|default(false) %}
-        Le même texte repartira vers {{ label }}. Le titre et l'image sont relus à la source : s'ils
-        ont changé depuis le premier envoi, cette tentative partira avec les nouveaux.
-    {% else %}
+    {# Since issue #706, IT-02 the image is settled for a source-backed
+       share too — but only when a card was actually kept. Dropping the
+       condition altogether, on the grounds that the two branches now say
+       the same thing, was a defect found in the review of #850: a share
+       made before IT-02, a browser with no `DataTransfer` constructor,
+       or an attempt published from a canvas that never drew leaves no
+       card, and then the album's CURRENT title and cover are what this
+       retry composes from. `image_is_settled` carries the whole rule;
+       `from_source` was passed to this page and no longer read.
+       {@see CommunicationController::imageIsSettled()} #}
+    {% if image_is_settled %}
         La même image et le même texte repartiront vers {{ label }}.
+    {% else %}
+        Le même texte repartira vers {{ label }}. L'image, elle, sera refaite
+        à partir de {{ source_label|default('la source') }}, dans son état
+        d'aujourd'hui : son titre et sa photo de couverture ont pu changer
+        depuis la première tentative.
     {% endif %}
     {% for p in published %}
         {{ p.destination == 'facebook' ? 'La Page Facebook' : (p.destination == 'instagram' ? 'Instagram' : '« ' ~ p.destinationLabel|default('Groupe') ~ ' »') }}, déjà publié le {{ p.publishedAt|french_date }}

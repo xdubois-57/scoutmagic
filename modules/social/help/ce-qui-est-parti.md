@@ -37,10 +37,22 @@ reste donc lisible même si l'album ou l'actualité a été supprimé depuis.
 ## Réessayer
 
 Réessayer demande **une confirmation**, qui dit ce qui repart : le même
-texte, vers cette destination seulement — et, pour un album ou une
-actualité partagés, le titre et l'image relus à la source, donc à jour.
-Une destination déjà publiée n'est pas touchée, et la raison de l'échec
-précédent est rappelée.
+texte, vers cette destination seulement. Une destination déjà publiée
+n'est pas touchée, et la raison de l'échec précédent est rappelée.
+
+Pour un album ou une actualité partagés, cette confirmation dit aussi ce
+qu'il advient de l'image, et elle dit **l'une ou l'autre de deux
+choses** :
+
+- Le plus souvent, le titre et l'image repartent tels qu'ils ont été
+  publiés : c'est l'image dessinée au premier « Publier » qui est
+  conservée et renvoyée.
+- Mais quand aucune image n'a pu être conservée — un partage fait avant
+  cette version du site, ou depuis un navigateur qui n'a pas réussi à
+  l'envoyer —, l'image est refaite à partir de l'album ou de l'actualité
+  tel qu'il est aujourd'hui. Un titre ou une photo de couverture changés
+  depuis repartiront donc tels qu'ils sont maintenant. La confirmation le
+  dit avant que vous ne relanciez.
 
 Seule une destination en échec peut être relancée. Une publication encore
 en cours — le site attend la réponse de Meta — n'est pas relançable tout

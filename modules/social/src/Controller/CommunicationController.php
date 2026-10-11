@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Social\Controller;
 
 use Core\File\UploadException;
+use Core\File\EncryptedFileStorageService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -20,6 +21,8 @@ use Modules\Gallery\Api\PhotoPickerInterface;
 use Modules\Social\Api\SocialPlatform;
 use Modules\Social\Card\CardException;
 use Modules\Social\Card\CardService;
+use Modules\Social\Card\ReceivedCard;
+use Modules\Social\File\PostedCardOwnershipChecker;
 use Modules\Social\Repository\Communication;
 use Modules\Social\Repository\CommunicationRepository;
 use Modules\Social\Repository\ConnectionRepository;
@@ -91,6 +94,9 @@ final class CommunicationController extends AbstractController
     public const HISTORY_SIZE = 30;
     public const TITLE_MAX_LENGTH = 120;
 
+    /** Where the cards the browser posts are kept, under the site's storage. */
+    private const CARD_DIRECTORY = 'social/published-cards';
+
     private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
     private const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -106,6 +112,19 @@ final class CommunicationController extends AbstractController
         private readonly ConnectionRepository $connections,
         private readonly CardService $cards,
         private readonly UploadHandler $uploads,
+        /**
+         * Where the card the browser posted is kept, byte for byte
+         * (issue #706, IT-02).
+         *
+         * Not through {@see UploadHandler}, deliberately: it strips EXIF
+         * by decoding and re-encoding the image, which would re-compress
+         * a card that is already a clean canvas export with no metadata
+         * at all — and « what you saw is what left » cannot survive a
+         * second pass through an encoder. {@see ReceivedCard} does the
+         * checking that `UploadHandler` would have done, and more
+         * strictly.
+         */
+        private readonly EncryptedFileStorageService $cardFiles,
         private readonly UserAccountRepository $accounts,
         private readonly ?PhotoPickerInterface $photos = null,
         private readonly array $linkedMemberIds = []
@@ -280,7 +299,7 @@ final class CommunicationController extends AbstractController
     /** @param array<string, string> $params */
     public function preview(Request $request, array $params): Response
     {
-        return $this->cardOf($this->source($params));
+        return $this->cardOf($this->source($params), $this->frozenShare($params));
     }
 
     /**
@@ -302,10 +321,139 @@ final class CommunicationController extends AbstractController
      */
     public function previewSource(Request $request, array $params): Response
     {
-        return $this->cardOf($this->describedSource(
-            (string) ($params['kind'] ?? ''),
-            (int) ($params['id'] ?? 0)
-        ));
+        // Never frozen: there is no communication here to have published
+        // anything, and so no kept card to prefer over a fresh one.
+        return $this->cardOf(
+            $this->describedSource(
+                (string) ($params['kind'] ?? ''),
+                (int) ($params['id'] ?? 0)
+            ),
+            false
+        );
+    }
+
+    /**
+     * The BACKGROUND of the card, as the source's own bytes — what the
+     * browser draws the card from (issue #706, IT-02).
+     *
+     * **Why a second pair of image routes.** `preview()` serves the card
+     * already composed, which was all the page needed while the server
+     * composed it. From IT-02 the browser composes it, so it needs the
+     * photo itself: the title moves as the chief types and the blur moves
+     * with a slider, and a round trip per frame is exactly the waiting
+     * the chantier rules out.
+     *
+     * **It is the same access, not a new one.** The source's own rule is
+     * asked again here, through the owning module's `Api`, exactly as
+     * every other read does — an album this caller may not share has no
+     * background to fetch either. A chief who may see that album can
+     * already open the photo in the gallery; what is new is that the
+     * social module serves it too, and it serves it UNBLURRED, because
+     * the blur is now the browser's to apply and the chief's to choose.
+     * That is written down in SECURITY.md rather than left to be noticed.
+     *
+     * @param array<string, string> $params
+     */
+    public function background(Request $request, array $params): Response
+    {
+        return $this->backgroundOf($this->source($params), $this->frozenShare($params));
+    }
+
+    /**
+     * The same, for a composer « Partager » has not saved yet — keyed on
+     * the source, like `previewSource()` and for the same reason.
+     *
+     * @param array<string, string> $params
+     */
+    public function backgroundSource(Request $request, array $params): Response
+    {
+        // Never frozen, as in `previewSource()` above.
+        return $this->backgroundOf(
+            $this->describedSource(
+                (string) ($params['kind'] ?? ''),
+                (int) ($params['id'] ?? 0)
+            ),
+            false
+        );
+    }
+
+    /**
+     * The source's image bytes, or 404 — for something with no image,
+     * something this caller may not see, and bytes that are not one of
+     * the three formats the card accepts alike. The type is sniffed from
+     * the bytes rather than taken from anything the request said: the only
+     * thing that decides what is served is what the owning module handed
+     * over.
+     */
+    private function backgroundOf(?ShareSource $source, bool $frozen): Response
+    {
+        if ($source === null || $source->image === null || $source->image === '') {
+            return new Response('Not Found', 404);
+        }
+
+        // A FROZEN share has nothing left to draw: the kept card IS the
+        // image, and handing the canvas the album's current cover would
+        // let it draw over the frozen one. Refused rather than served, so
+        // the composer keeps the <img> `cardOf()` serves — which is that
+        // kept card. Found in the review of #850, with `cardOf()` above.
+        //
+        // **On the freeze, not on « a card is stored ».** Keying this on
+        // `$source->card` was the next defect in the same review, and it
+        // closed the composer of a share that is still the chief's to
+        // edit: `refreshPostedCard()` stores the card BEFORE publishing, so
+        // an attempt refused without claiming a row — an expired Meta
+        // token, a caption past Instagram's limit — leaves a card stored
+        // with `isFrozen()` still false. This route then answered 404,
+        // the canvas had no photo, `canDraw()` stayed false forever, and
+        // the next « Publier » posted no card at all. That last step no
+        // longer publishes the refused card — `dropStoredCard()` forgets
+        // it, the third and last fix of this one rule in the same review
+        // — but the composer was closed all the same, and a chief who
+        // cannot see the card they are about to publish is the thing
+        // this route exists to prevent.
+        if ($frozen) {
+            return new Response('Not Found', 404);
+        }
+
+        $type = self::imageType($source->image);
+        if ($type === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response($source->image))
+            ->setHeader('Content-Type', $type)
+            // Never a shared cache, and never a disk: the same address
+            // answers a different album to a different chief, and an
+            // unblurred gallery photo is not something to leave behind
+            // in a proxy (as `cardOf()` already decided for the card).
+            ->setHeader('Cache-Control', 'private, no-store')
+            // The bytes are an image and nothing else, whatever they
+            // happen to contain: a module that handed over an HTML file
+            // must not get it rendered as one.
+            ->setHeader('X-Content-Type-Options', 'nosniff');
+    }
+
+    /**
+     * The media type of these bytes, among the three the card accepts, or
+     * null.
+     *
+     * Read from the magic bytes, not from a file name or a declared type:
+     * what reaches here came from another module's `Api`, and the card is
+     * drawn by `<canvas>`, which decodes by content too.
+     */
+    private static function imageType(string $bytes): ?string
+    {
+        if (str_starts_with($bytes, "\xFF\xD8\xFF")) {
+            return 'image/jpeg';
+        }
+        if (str_starts_with($bytes, "\x89PNG\r\n\x1A\n")) {
+            return 'image/png';
+        }
+        if (str_starts_with($bytes, 'RIFF') && substr($bytes, 8, 4) === 'WEBP') {
+            return 'image/webp';
+        }
+
+        return null;
     }
 
     /**
@@ -313,14 +461,77 @@ final class CommunicationController extends AbstractController
      * something this caller may not see, and a composition that failed
      * alike: a chief who may not look at it learns nothing from which.
      */
-    private function cardOf(?ShareSource $source): Response
+    private function cardOf(?ShareSource $source, bool $frozen): Response
     {
-        if ($source === null || $source->image === null || $source->image === '') {
+        if ($source === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // **The kept card wins, as it does at publication.** Composing
+        // again from the live source would show the album's CURRENT
+        // title and cover, so a share frozen before the album was
+        // renamed displayed a card that is not the one a retry
+        // re-sends — the page saying « l'image et le texte ne changent
+        // plus » directly above it. `PublishingService::cardBytes()`
+        // already reads this first; the preview did not. Found in the
+        // review of #850.
+        //
+        // **The kept card is served only where the source's own image
+        // is, and that condition is the whole access rule.** This route
+        // serves the card BEFORE the image-null check that used to
+        // answer 404, and `editableCommunication()` asks the gallery
+        // nothing — the row is this chief's whatever became of the
+        // album. So without this, a chief who lost access went on
+        // fetching the card: a gallery photo under a veil, and at
+        // « Net » no veil at all.
+        //
+        // **Both producers of a `ShareSource`, not one.** The review of
+        // #850 found this twice: first on a source-backed share, where
+        // `describeSource()` answers null for an album deleted,
+        // delegated, migrating or out of reach; then on a communication
+        // with its OWN gallery photo, where `photoContents()` answers
+        // null once `mayView()` fails. I fixed the first producer and
+        // did not look at the second. Keying on `image` covers both, and
+        // every future one, because « the caller cannot see the source's
+        // image » is exactly when the card must not be served.
+        //
+        // A frozen share whose photo is merely GONE loses its preview
+        // too, and that is the right side to err on: the two causes are
+        // indistinguishable here, SECURITY.md § 6 promises one 404 for
+        // all of them, and the publication still goes out on the kept
+        // card ({@see ShareSource::hasImageToPublish()}) — what this
+        // refuses is handing the bytes to an HTTP caller, not sending
+        // them where the chief already asked.
+        //
+        // **Only once it is frozen**, for the reason `backgroundOf()`
+        // spells out: before that the share is still the chief's to
+        // edit, and a card stored by a refused attempt is not what a
+        // later attempt will send. `PublishingService::cardBytes()` does
+        // read the stored card whether or not the share is frozen, and
+        // must: the FIRST publication is the one that posts a card and
+        // has no publication row yet.
+        if ($frozen && $source->card !== null && $source->card !== ''
+            && $source->image !== null && $source->image !== '') {
+            return (new Response($source->card))
+                ->setHeader('Content-Type', ReceivedCard::MIME)
+                ->setHeader('Cache-Control', 'private, no-store')
+                ->setHeader('X-Content-Type-Options', 'nosniff');
+        }
+
+        if ($source->image === null || $source->image === '') {
             return new Response('Not Found', 404);
         }
 
         try {
-            $jpeg = $this->cards->preview($source->image, $source->title, $source->address, $source->imageFromGallery);
+            $jpeg = $this->cards->compose(
+                $source->image,
+                $source->title,
+                $source->address,
+                $source->imageFromGallery,
+                // So the fallback preview and the card the browser draws
+                // agree about the slider's position (issue #706, IT-02).
+                $source->blurRatio
+            );
         } catch (CardException) {
             return new Response('Not Found', 404);
         }
@@ -435,6 +646,25 @@ final class CommunicationController extends AbstractController
         $action = (string) $request->getBody('action', '');
         $self = self::path($communication);
 
+        // **The slider's position is part of the draft**, so it survives a
+        // trip to the gallery or an upload exactly as the text does, and
+        // it is saved by « Publier » like everything else — there is no
+        // « Enregistrer » on this page (issue #706, IT-02).
+        //
+        // Only when the form actually carried the field: the retry page
+        // posts to this controller too, and it has no slider, so reading
+        // an absent field as zero would silently turn a blurred share
+        // sharp on its second attempt. And never once something has left,
+        // where the card is frozen with the rest.
+        if (!$this->isFrozen($communication) && $request->getBody('blur_ratio') !== null) {
+            $this->communications->updateBlurRatio(
+                $communication->id,
+                $this->blurRatio($request),
+                new \DateTimeImmutable()
+            );
+            $communication = $this->communications->find($communication->id) ?? $communication;
+        }
+
         if ($action === 'gallery' && $this->photos !== null && $this->mayChangeImage($communication)) {
             return $this->redirect($self . '/photo');
         }
@@ -510,6 +740,31 @@ final class CommunicationController extends AbstractController
             return $this->redirect($self);
         }
 
+        // **The card the browser drew arrives with « Publier »** (issue
+        // #706, IT-02), and the stored one is brought into line with it
+        // here — AFTER the refusal above, and nowhere earlier. What goes
+        // to Instagram, to a group, to a retry and — from IT-04 — to the
+        // public page is this one file, so « what you saw is what left »
+        // holds across destinations published minutes apart; storing it
+        // on a POST that publishes nothing would keep the card of an
+        // attempt that never happened, and the chief, still free to
+        // change the photo or the blur because nothing is frozen yet,
+        // would have the first attempt's card published instead of the
+        // one they are looking at. Found in the review of #850.
+        //
+        // A refusal stops the publication rather than falling back to
+        // composing one: the chief looked at a card and pressed
+        // « Publier », and quietly publishing a different image would be
+        // worse than asking them to try again.
+        try {
+            $communication = $this->refreshPostedCard($request, $communication);
+        } catch (CardException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect($self);
+        }
+
+        // Read after the card is kept, so the source carries it.
         $source = $this->communicationSource($communication->id);
         if ($source === null) {
             return new Response('Not Found', 404);
@@ -570,6 +825,7 @@ final class CommunicationController extends AbstractController
             'gallery_available' => $this->photos !== null && !$fromSource,
             'uploadable' => !$fromSource,
             'from_source' => $fromSource,
+            'image_is_settled' => self::imageIsSettled($source, $fromSource),
             'source_kind' => $fromSource ? $sourceKind : null,
             'source_id' => $fromSource ? ($communication->sourceId ?? $prefill?->id) : null,
             'source_label' => $fromSource ? ShareSourceResolver::sourceLabel((string) $sourceKind) : null,
@@ -597,6 +853,34 @@ final class CommunicationController extends AbstractController
                 AuthSession::getUserAccountId(),
                 $communication !== null
             ),
+            // What the BROWSER needs to draw the card itself (issue #706,
+            // IT-02): the source's own photo, beside the composed card
+            // above. Both are kept — the <img> is what a page with no
+            // JavaScript, or a browser with no 2D context, still shows,
+            // and the canvas replaces it only once it has drawn.
+            'background_path' => match (true) {
+                $communication !== null => self::path($communication) . '/image',
+                $prefill !== null => self::HISTORY_PATH . '/nouvelle/' . $prefill->kind . '/'
+                    . $prefill->id . '/image',
+                default => null,
+            },
+            // The address written at the foot of the card, and whether
+            // this photo is blurred — the two things the drawing needs
+            // that are not on the form. Taken from the SOURCE, like the
+            // card the server composes from the same pair.
+            'card_address' => $source->address ?? '',
+            // The strength the card is drawn with: the one this share
+            // kept, or this site's starting position when the slider was
+            // never moved. Zero for an image that is not the gallery's —
+            // an upload leaves as it is, so there is nothing to blur and
+            // no slider offered for it.
+            'blur_ratio' => ($source->imageFromGallery ?? false)
+                ? ($source->blurRatio ?? $this->cards->blurRatio())
+                : 0.0,
+            // The slider exists only where a blur does.
+            'blur_adjustable' => ($source->imageFromGallery ?? false)
+                && !($communication !== null && $this->isFrozen($communication)),
+            'blur_max' => CardService::MAX_BLUR_RATIO,
             'title_max' => self::TITLE_MAX_LENGTH,
             'body_max' => PublishingService::CAPTION_MAX_LENGTH,
         ]);
@@ -627,6 +911,54 @@ final class CommunicationController extends AbstractController
         }
 
         return $rows;
+    }
+
+    /**
+     * Whether the communication these route parameters name has already
+     * published something.
+     *
+     * Read from the row rather than from the `ShareSource`, which carries
+     * a stored card for an unfrozen share too — see `cardOf()`. A
+     * communication that is not this caller's answers false, and the
+     * source it is asked beside is null anyway, so both routes refuse.
+     *
+     * @param array<string, string> $params
+     */
+    private function frozenShare(array $params): bool
+    {
+        $communication = $this->communications->find((int) ($params['id'] ?? 0));
+
+        return $communication !== null && $this->isFrozen($communication);
+    }
+
+    /**
+     * Whether the image a later destination or a retry receives is
+     * settled — which is NOT the same as the share being frozen.
+     *
+     * Freezing settles the text always, and the image only where there
+     * is something to settle it with:
+     *
+     * - **A kept card** settles it, whatever the source does afterwards.
+     * - **A communication with an image of its OWN** settles it too,
+     *   even with no card: the photo and the title are this row's own
+     *   columns, so composing again gives the same card.
+     * - **A source-backed share with NO kept card** does not. The title
+     *   and the cover are read from the album or the article at every
+     *   publication, so renaming it between a Facebook post and an
+     *   Instagram retry sends two different cards. Reachable for a share
+     *   made before IT-02, for a browser with no `DataTransfer`
+     *   constructor, and — since `dropStoredCard()` — for any attempt
+     *   published from a canvas that never drew.
+     *
+     * Both the composer's frozen notice and the retry page promised « the
+     * same image » unconditionally, which is false in that third case;
+     * the retry page even had `from_source` passed to it and no longer
+     * read it. Found in the review of #850, in the round after the one
+     * that made the third case easier to reach.
+     */
+    private static function imageIsSettled(?ShareSource $source, bool $fromSource): bool
+    {
+        return !$fromSource || ($source?->card !== null && $source->card !== '');
     }
 
     /**
@@ -715,7 +1047,7 @@ final class CommunicationController extends AbstractController
      * @param array<string, string> $params
      * @return array{
      *     source: ShareSource, key: string, platform: ?SocialPlatform, label: string, failed: Publication,
-     *     published: list<Publication>
+     *     from_source: bool, image_is_settled: bool, source_label: ?string, published: list<Publication>
      * }|null
      */
     private function retryContext(array $params): ?array
@@ -746,26 +1078,31 @@ final class CommunicationController extends AbstractController
             return null;
         }
 
+        // Whether the title and image come from an album or an article.
+        // Read from the KIND, not from `$id`: on this route `$id` is a
+        // communication key only when the kind says so, which is why
+        // `$source` above branches the same way. A legacy
+        // `…/reessayer/album/{albumId}/…` carries an album key, so
+        // looking a communication up by it read an unrelated or missing
+        // row. Any kind but `communication` IS the source.
+        $fromSource = (string) ($params['kind'] ?? '') !== ShareSource::KIND_COMMUNICATION
+            || ($this->communications->find($id)?->hasSource() ?? false);
+
         return [
             'source' => $source,
             'key' => $key,
             'platform' => $platform,
             'label' => $platform?->label() ?? ($failed->destinationLabel ?? 'le groupe'),
             'failed' => $failed,
-            // Whether the title and image come from an album or an
-            // article, and are therefore read again at this retry rather
-            // than kept from the first publication. The page says so
-            // instead of promising « the same image » — see the frozen
-            // notice in edit.html.twig for the whole reason.
-            //
-            // Read from the KIND, not from `$id`: on this route `$id` is a
-            // communication key only when the kind says so, which is why
-            // `$source` above branches the same way. A legacy
-            // `…/reessayer/album/{albumId}/…` carries an album key, so
-            // looking a communication up by it read an unrelated or
-            // missing row. Any kind but `communication` IS the source.
-            'from_source' => (string) ($params['kind'] ?? '') !== ShareSource::KIND_COMMUNICATION
-                || ($this->communications->find($id)?->hasSource() ?? false),
+            'from_source' => $fromSource,
+            // Which, with the kept card, decides the sentence this page
+            // leads with. {@see self::imageIsSettled()}
+            'image_is_settled' => self::imageIsSettled($source, $fromSource),
+            // « l'album » or « l'actualité », to name what the image
+            // would be read from again. `originKind` on a
+            // communication-backed share, the kind itself on a legacy
+            // `…/reessayer/album/{id}/…` link.
+            'source_label' => ShareSourceResolver::sourceLabel($source->originKind ?? $source->kind),
             'published' => array_values(array_filter(
                 $publications,
                 static fn (Publication $p): bool => $p->isPublished()
@@ -855,6 +1192,143 @@ final class CommunicationController extends AbstractController
     private static function path(?Communication $communication): string
     {
         return $communication === null ? self::HISTORY_PATH : ShareSourceResolver::path($communication->id);
+    }
+
+    /**
+     * Brings the stored card into line with this publishing POST (issue
+     * #706, IT-02): the one it carries, or none at all.
+     *
+     * **Once the communication is FROZEN** nothing here applies — the
+     * kept card is what every later destination and every retry
+     * receives, which is the same guard the text has. While nothing has
+     * been published the chief may still change the photo, the title and
+     * the slider, so the stored card is only ever a record of what their
+     * browser last drew, and this runs on every « Publier » to keep it
+     * one.
+     *
+     * **A card arrives**: it replaces the stored one, because it was
+     * drawn from what the chief is looking at. Guarding that on
+     * `cardFileId !== null` instead was a defect found in the review of
+     * #850, and a subtle one: several refusals inside
+     * `PublishingService::publish()` — a blocked source, a caption past
+     * Instagram's limit, a Meta token that has expired — record a failed
+     * outcome and return WITHOUT claiming a publication row, so
+     * `isFrozen()` stays false. The card of that refused attempt was
+     * stored all the same, and the next attempt could not replace it.
+     * Moving this call after the « no destination » refusal fixed one
+     * path of three; the rule fixes all of them.
+     *
+     * **No card arrives** — JavaScript off, a photo still loading, a
+     * canvas that paints nothing — and the stored one is dropped rather
+     * than reused (`dropStoredCard()`). Leaving the row as it was is
+     * what the same review found next: the chief raised the blur after a
+     * refused attempt, published from a canvas that had not drawn, and
+     * the sharp card of that first attempt left while the site recorded
+     * the new blur beside it. The publication then composes a current
+     * card, so nobody is refused for a browser that could not draw.
+     *
+     * @throws CardException when a card arrived and is not usable
+     */
+    private function refreshPostedCard(Request $request, Communication $communication): Communication
+    {
+        // Frozen: the kept card is what every later destination receives,
+        // and this POST has no say in it either way.
+        if ($this->isFrozen($communication)) {
+            return $communication;
+        }
+
+        $file = $request->getFile('card');
+        $tmp = is_array($file) ? ($file['tmp_name'] ?? null) : null;
+        if (!is_string($tmp) || $tmp === '' || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return $this->dropStoredCard($communication);
+        }
+
+        $bytes = (string) @file_get_contents($tmp);
+        ReceivedCard::assertUsable($bytes);
+
+        $fileId = $this->cardFiles->store(
+            $bytes,
+            ReceivedCard::MIME,
+            'carte.jpg',
+            self::CARD_DIRECTORY,
+            'chief',
+            'social',
+            AuthSession::getUserAccountId(),
+            null,
+            // **The owner type is what keeps this row off `/files/{id}`.**
+            // Without it the row fell through to the `chief` floor alone,
+            // and any chief could read any card — a gallery photo at
+            // « Net » among them — by asking for a sequential id. The
+            // only reader is ShareSourceResolver::frozenCard(), which
+            // reads the bytes directly.
+            // {@see \Modules\Social\File\PostedCardOwnershipChecker}
+            PostedCardOwnershipChecker::OWNER_TYPE,
+            $communication->id
+        );
+        $this->communications->updateCardFile($communication->id, $fileId, new \DateTimeImmutable());
+        // The card this one replaces, dropped only once the row points at
+        // the new one: the other order would leave a row naming a file
+        // that no longer exists if the update failed in between.
+        if ($communication->cardFileId !== null) {
+            $this->cardFiles->delete($communication->cardFileId);
+        }
+
+        return $this->communications->find($communication->id) ?? $communication;
+    }
+
+    /**
+     * Forgets a stored card that no longer shows what this share would
+     * publish.
+     *
+     * **A stored card is only ever a record of what the browser last
+     * drew.** It becomes the thing published only once something has
+     * left, and until then anything the chief changes — the slider, the
+     * photo, the title — leaves it stale. `cardBytes()` and
+     * `GroupPublishingService::card()` both prefer it over composing,
+     * and they must: the FIRST publication is the one that posts a card
+     * and has no publication row yet. So the row has to stop naming it
+     * the moment it stops being true.
+     *
+     * Dropped here, at the one moment that matters, rather than at each
+     * of the four places that can make it stale (the slider, an upload,
+     * a gallery photo, a retyped title): a publishing POST that carries
+     * no fresh card is exactly the case where the stored one would be
+     * used, so this is where the rule holds for all four at once. Fixing
+     * the slider alone would have been the third partial fix of the same
+     * rule in this pull request.
+     *
+     * The publication then composes a current card, which is the
+     * documented fallback — the chief is never refused for a browser
+     * that could not draw. Found in the review of #850.
+     */
+    private function dropStoredCard(Communication $communication): Communication
+    {
+        if ($communication->cardFileId === null) {
+            return $communication;
+        }
+
+        $this->communications->updateCardFile($communication->id, null, new \DateTimeImmutable());
+        // The row first, the file second, as above.
+        $this->cardFiles->delete($communication->cardFileId);
+
+        return $this->communications->find($communication->id) ?? $communication;
+    }
+
+    /**
+     * The blur the composer's slider was left on, brought into the range
+     * the slider can express.
+     *
+     * Anything unreadable answers the site's own starting position rather
+     * than zero: a posted value nobody could parse is not a chief asking
+     * for « Net ».
+     */
+    private function blurRatio(Request $request): float
+    {
+        $posted = $request->getBody('blur_ratio');
+
+        return is_numeric($posted)
+            ? CardService::clampBlurRatio((float) $posted)
+            : $this->cards->blurRatio();
     }
 
     private static function title(Request $request): string
