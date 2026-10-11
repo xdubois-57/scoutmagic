@@ -19,13 +19,14 @@
 //
 // **Two requests, and the order is the point.** The first asks for the
 // link — which CREATES the public page, so it cannot be a GET — and
-// records nothing. The second records that the share happened, and is
-// sent only once the browser's own promise has resolved: a share sheet
-// the chief dismissed is not a share, and recording it would freeze the
-// communication and write a line in the history for something that never
-// left. `navigator.share` rejects with an `AbortError` on dismissal,
-// which is exactly the signal needed, and it is why the recording cannot
-// ride along with the first request.
+// records nothing. **It leaves on the PRESS, not on the click**: see
+// `pressed()` for why, and for what that costs. The second records that
+// the share happened, and is sent only once the browser's own promise
+// has resolved: a share sheet the chief dismissed is not a share, and
+// recording it would freeze the communication and write a line in the
+// history for something that never left. `navigator.share` rejects with
+// an `AbortError` on dismissal, which is exactly the signal needed, and
+// it is why the recording cannot ride along with the first request.
 (function () {
     const buttons = Array.prototype.slice.call(
         document.querySelectorAll('[data-share-communication]')
@@ -131,22 +132,17 @@
      * **The sheet would not open — so the link goes to the clipboard
      * instead of nowhere.**
      *
-     * `navigator.share()` needs transient user activation, and ours is
-     * spent crossing the network: the click mints the public page first,
-     * because there is no address to share before it exists, and the
-     * sheet is only asked for afterwards. WebKit is strict about that
-     * gap and answers `NotAllowedError`, which would have surfaced as
-     * « Le partage n'a pas abouti. » on the very device the sheet exists
-     * for (`Claude review` on PR #868). A slow network can lose the
-     * activation on any browser, so this is not an iOS special case.
+     * `navigator.share()` needs transient user activation, and a network
+     * round trip spends it. `pressed()` now sends that request on the
+     * press so the sheet usually opens from the click handler itself —
+     * but « usually » is the whole reason this stays: a slow network can
+     * still have the click arrive before the address, and then the gap
+     * is back and WebKit answers `NotAllowedError` on the very device
+     * the sheet exists for (`Claude review` on PR #868). Not an iOS
+     * special case either; any browser can lose it.
      *
-     * Falling back is a safety net and not the answer: the chief still
-     * gets the link and the history still records the truth — « Lien
-     * copié », because that is what happened — but the sheet is what the
-     * chantier asks for on a phone. Whether the page should instead be
-     * minted BEFORE the click, which would make the call synchronous at
-     * the cost of IT-04's « born only from a share » rule, is on the
-     * pull request for the maintainer to decide.
+     * So the chief gets the link anyway, and the history records what
+     * truly happened — « Lien copié », not a sheet that never opened.
      *
      * @param {string} url
      * @param {?{name?: string}} error
@@ -240,29 +236,122 @@
     }
 
     /**
-     * One flat chain rather than promises nested in one another: mint the
-     * page, hand the link over, record what happened.
+     * Everything one button does, so each communication keeps its own
+     * address, title and request: one history page carries a button per
+     * communication, and the sheet must never be handed another one's
+     * title.
      *
      * @param {HTMLElement} button
-     * @returns {Promise<void>}
      */
-    function run(button) {
+    function arm(button) {
         const linkUrl = button.dataset.shareLinkUrl || '';
         const recordUrl = button.dataset.shareRecordUrl || '';
-        // Carried through the chain rather than held in the file: one
-        // history page has a button per communication, and a second
-        // click before the first mint resolved would otherwise hand the
-        // sheet the other communication's title.
         const title = button.dataset.shareTitle || '';
+        /** The request this button's press sent, or null before any. */
+        let minting = null;
+        /** Its answer, once it has come back. */
+        let address = null;
 
-        return api.postJson(linkUrl, {})
-            .then(minted)
-            .then(function (url) {
-                return handed(url, title);
-            })
-            .then(function (kind) {
-                return kind === null ? undefined : record(recordUrl, kind);
-            });
+        /**
+         * Asks for the public page, once per button.
+         *
+         * @returns {Promise<?string>}
+         */
+        function mint() {
+            if (minting === null) {
+                minting = api.postJson(linkUrl, {}).then(function (answer) {
+                    address = minted(answer);
+                    // **A refusal is not cached.** One request per button
+                    // is enough because the address is permanent once it
+                    // exists — but an answer that carried none must not
+                    // freeze the button on it, so the next press asks
+                    // again. `postJson` never rejects; it answers
+                    // `{ok: false}`, which `minted()` turns into null
+                    // after telling the chief why.
+                    if (address === null) {
+                        minting = null;
+                    }
+
+                    return address;
+                });
+            }
+
+            return minting;
+        }
+
+        /**
+         * **The press is what mints the page, and the click is what
+         * shares it** (`Claude review` on PR #868, option B).
+         *
+         * `navigator.share()` needs transient user activation, and a
+         * network round trip spends it: asking for the address first —
+         * there being none before it exists — left WebKit answering
+         * `NotAllowedError` on the very device the sheet exists for. So
+         * the request leaves on `pointerdown`, and by the time the
+         * `click` arrives the address is usually here, which lets the
+         * sheet open from the handler itself with the activation the tap
+         * gave it.
+         *
+         * **What it costs, deliberately.** IT-04 said the page is born
+         * « au premier partage qui en a besoin, et à aucun autre
+         * moment »; it is now born on the press, so a chief who touches
+         * the button and changes their mind leaves a public page behind.
+         * The maintainer took that trade on the pull request: the page
+         * is reachable only by whoever holds its 32 random bytes,
+         * nothing links to it, and the alternative was a sheet that
+         * never opens on a telephone.
+         *
+         * **And the net stays.** A slow network can still have the click
+         * arrive first; then this waits, the activation may be gone, and
+         * `sheetRefused()` puts the link on the clipboard rather than
+         * nowhere.
+         *
+         * @returns {?string|Promise<?string>}
+         */
+        function pressed() {
+            return address === null
+                ? mint().then(function (url) { return handed(url, title); })
+                : handed(address, title);
+        }
+
+        button.hidden = false;
+
+        // Both ways of pressing the button, so what it does does not
+        // depend on the device: a pointer gives `pointerdown`, a
+        // keyboard gives Enter or Space before its synthetic click.
+        button.addEventListener('pointerdown', function () {
+            void mint();
+        });
+        button.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                void mint();
+            }
+        });
+
+        button.addEventListener('click', function () {
+            // **The gesture starts HERE, not inside `withDisabled()`.**
+            // That helper defers by a microtask by design
+            // (`Promise.resolve().then(run)`), and the whole point of
+            // minting on the press is to call `navigator.share()` while
+            // this handler still holds the activation. So the sheet is
+            // asked for first, and the helper is given what follows —
+            // which is also what keeps the re-enable on the failure
+            // path, the half hand-written copies forget.
+            const gesture = pressed();
+
+            // `void`: the chain reports to the chief itself, through the
+            // live region, so there is nothing for a caller to await,
+            // and an unhandled promise is a defect the quality gate
+            // reads as one.
+            void api.withDisabled(
+                /** @type {HTMLButtonElement} */ (button),
+                function () {
+                    return Promise.resolve(gesture).then(function (kind) {
+                        return kind === null ? undefined : record(recordUrl, kind);
+                    });
+                }
+            );
+        });
     }
 
     buttons.forEach(function (node) {
@@ -270,16 +359,6 @@
         // matches the history's own `<button>`, so the guard was a branch
         // no test could reach, written for the typechecker. The same
         // reasoning as the `.dataset` reads above.
-        const button = /** @type {HTMLElement} */ (node);
-        button.hidden = false;
-        button.addEventListener('click', function () {
-            // `void`: the chain reports to the chief itself — through the
-            // live region — so there is nothing for a caller to await,
-            // and an unhandled promise is a defect the quality gate reads
-            // as one.
-            void api.withDisabled(/** @type {HTMLButtonElement} */ (button), function () {
-                return run(button);
-            });
-        });
+        arm(/** @type {HTMLElement} */ (node));
     });
 })();

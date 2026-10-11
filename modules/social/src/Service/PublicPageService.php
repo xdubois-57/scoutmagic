@@ -111,11 +111,17 @@ final class PublicPageService
      *
      * `CommunicationController::link()` (issue #706, IT-05) is the
      * second caller and claims nothing: the share sheet needs the
-     * address before the gesture it would record. So it asks the
-     * source's `blockedReason` itself, before calling this — the review
-     * of PR #868 found it minting a page for an article the news module
-     * keeps for the staff, which is the one refusal that is an
-     * authorisation rather than a reminder. **A third caller owes the
+     * address before the gesture it would record — and, since the review
+     * of PR #868, before the CLICK as well, because `navigator.share()`
+     * needs an activation the network round trip spends. That route is
+     * answered on `pointerdown`, so a page can now outlive a press
+     * nobody followed through; `specifications.md` § 47.9 carries that
+     * trade and why it was taken.
+     *
+     * So it asks the source's `blockedReason` itself, before calling
+     * this — the same review found it minting a page for an article the
+     * news module keeps for the staff, which is the one refusal that is
+     * an authorisation rather than a reminder. **A third caller owes the
      * same question**: this method does not ask it, and cannot, having
      * only an id.
      *

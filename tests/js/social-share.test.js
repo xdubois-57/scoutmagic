@@ -11,6 +11,14 @@
 // communication and write a line in « Ce qui est parti » for something
 // that never left.
 //
+// **And since PR #868 it is also the moment each request leaves.** The
+// address is asked for on the PRESS so the sheet can be opened from the
+// click handler itself, holding the activation the tap gave it. Note
+// that `HTMLElement.click()` fires no `pointerdown`, so every test that
+// uses it exercises the slow path — the one where the click outran the
+// address — which is why they all kept passing when the press arrived.
+// `press()` below is what a finger actually does.
+//
 // The file runs its work at import, so each test builds the DOM first and
 // then imports it with a fresh module registry (`vi.resetModules()`),
 // following `tests/js/upload-drop-zone.test.js`.
@@ -44,9 +52,17 @@ function buildPage() {
                     : { ok: true, status: 200, data: { success: true, recorded: true } }
             );
         },
-        // The real one disables the control around the promise; here it
-        // only has to hand the promise back so a test can await it.
-        withDisabled: (control, run) => run(),
+        // **Deferred by a microtask, exactly like the real one**
+        // (`Promise.resolve().then(run)` in `api.js`). It used to call
+        // `run` straight away, which was the convenient shape and the
+        // wrong one: the deferral is the boundary a share sheet's user
+        // activation cannot be trusted to cross, so a double without it
+        // leaves « the sheet opens from the click handler itself »
+        // unprovable — the test would pass with the gesture buried
+        // inside the helper. It only has to hand the promise back so a
+        // test can await it; disabling the control is not this file's
+        // subject.
+        withDisabled: (control, run) => Promise.resolve().then(run),
     };
 }
 
@@ -406,5 +422,141 @@ describe('when the link cannot be prepared', () => {
         expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien']);
         expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
         expect(feedback().textContent).toBe('Renseignez d’abord l’adresse du site.');
+    });
+});
+describe('the page the press mints', () => {
+    /**
+     * What a finger or a mouse actually does. `HTMLElement.click()`
+     * fires no `pointerdown`, so it is not a press — it is the slow path
+     * every other test in this file uses.
+     */
+    const press = () => button().dispatchEvent(new Event('pointerdown', { bubbles: true }));
+
+    const key = (name) => button().dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true }));
+
+    it('asks for the address on the press, before any click', async () => {
+        await load();
+        press();
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien']);
+    });
+
+    it('opens the sheet from the click handler itself, with the activation the tap gave it', async () => {
+        navigator.share = vi.fn().mockResolvedValue(undefined);
+
+        await load();
+        press();
+        await settle();
+
+        // **Not awaited, and that is the whole assertion.** `click()`
+        // returns as soon as the handler does, so a sheet that has
+        // already been asked for by then was asked for synchronously —
+        // which is what `navigator.share()` needs and what minting on
+        // the press buys. Move the call inside `withDisabled()` and this
+        // goes red, because that helper defers by a microtask.
+        button().click();
+
+        expect(navigator.share).toHaveBeenCalledWith({
+            title: 'Week-end de rentrée',
+            url: 'https://unite.example/partage/abc',
+        });
+
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual([
+            '/medias-sociaux/7/lien',
+            '/medias-sociaux/7/partage',
+        ]);
+    });
+
+    it('asks once however many times the button is pressed', async () => {
+        await load();
+        press();
+        press();
+        await settle();
+        press();
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien']);
+    });
+
+    it('is minted by a keyboard press too, and by Enter or Space alone', async () => {
+        await load();
+        key('Tab');
+        key('a');
+        await settle();
+
+        expect(posted).toEqual([]);
+
+        key('Enter');
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual(['/medias-sociaux/7/lien']);
+    });
+
+    it('does not cache a refusal, so the next press asks again', async () => {
+        let asked = 0;
+        window.ScoutMagicApi.postJson = (url, body) => {
+            posted.push({ url, body });
+            asked += 1;
+
+            return Promise.resolve(
+                asked === 1
+                    ? { ok: false, status: 409, data: { success: false, error: 'Pas encore.' } }
+                    : { ok: true, status: 200, data: { success: true, url: 'https://unite.example/partage/abc' } }
+            );
+        };
+
+        await load();
+        press();
+        await settle();
+        press();
+        await settle();
+
+        // One request per button is enough because the address is
+        // permanent once it exists — but an answer that carried none
+        // must not freeze the button on it.
+        expect(posted.map((p) => p.url)).toEqual([
+            '/medias-sociaux/7/lien',
+            '/medias-sociaux/7/lien',
+        ]);
+        expect(feedback().textContent).toBe('Pas encore.');
+    });
+
+    it('does not ask twice when the click outruns the press', async () => {
+        navigator.share = vi.fn().mockResolvedValue(undefined);
+        let release = () => {};
+        window.ScoutMagicApi.postJson = (url, body) => {
+            posted.push({ url, body });
+            if (!url.endsWith('/lien')) {
+                return Promise.resolve({ ok: true, status: 200, data: { success: true, recorded: true } });
+            }
+
+            return new Promise((resolve) => {
+                release = () => resolve({
+                    ok: true,
+                    status: 200,
+                    data: { success: true, url: 'https://unite.example/partage/abc' },
+                });
+            });
+        };
+
+        await load();
+        press();
+        button().click();
+
+        // The address is not back yet, so there is nothing to share and
+        // nothing to do but wait — this is the gap `sheetRefused()` nets.
+        expect(navigator.share).not.toHaveBeenCalled();
+
+        release();
+        await settle();
+
+        expect(posted.map((p) => p.url)).toEqual([
+            '/medias-sociaux/7/lien',
+            '/medias-sociaux/7/partage',
+        ]);
+        expect(navigator.share).toHaveBeenCalledTimes(1);
     });
 });

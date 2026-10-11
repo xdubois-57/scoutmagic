@@ -3664,10 +3664,21 @@ partagées. L'image a la sienne sous le même jeton,
 éphémère d'une heure qui sert Instagram : Facebook met l'aperçu en cache
 et revient relire la page des jours plus tard.
 
-**Elle naît au premier partage qui en a besoin**, et à aucun autre
-moment : ouvrir le composeur n'en crée pas. Elle **reste en ligne**
-ensuite, sans retrait possible, même si la source est supprimée — un lien
-déjà publié n'est plus à personne.
+**Elle naît du geste qui en a besoin, et d'aucun autre** : ouvrir le
+composeur n'en crée pas, afficher l'historique n'en crée pas. Elle
+**reste en ligne** ensuite, sans retrait possible, même si la source est
+supprimée — un lien déjà publié n'est plus à personne.
+
+**Pour l'icône de partage, ce geste est la pression du bouton et non le
+clic** (§ 47.10), et c'est un écart assumé : la feuille de partage du
+téléphone exige une activation utilisateur que l'aller-retour réseau
+dépense, donc l'adresse doit être demandée avant que le clic n'arrive.
+Une pression sur laquelle le chef se ravise laisse donc une page
+publique derrière elle. C'est le prix accepté : cette page n'est
+atteignable que par qui tient ses 32 octets, rien n'y mène, et elle ne
+montre que ce que le chef avait déjà composé. L'alternative était une
+feuille qui ne s'ouvre jamais sur un téléphone — l'appareil même pour
+lequel elle existe.
 
 **Elle n'est pas indexée.** L'adresse est l'autorisation, et un résultat
 de recherche la donnerait à des gens à qui personne ne l'a partagée. Un
@@ -3696,7 +3707,15 @@ et une seule, dont le geste est décidé par l'appareil :
 
 Sans JavaScript le bouton n'apparaît pas, plutôt que d'apparaître mort :
 l'adresse qu'il lui faut n'existe pas encore, elle est créée par la
-demande que le clic envoie.
+demande que **la pression** envoie — pas le clic. La feuille de partage
+exige une activation utilisateur que l'aller-retour réseau dépense, donc
+l'adresse part en chemin dès `pointerdown` (ou dès Entrée ou Espace au
+clavier, pour que le bouton ne dépende pas de l'appareil), et le clic
+n'a plus qu'à ouvrir la feuille. Ce que cela crée de trop est décrit au
+§ 47.9. Si le réseau est plus lent que le doigt, le clic attend quand
+même et l'activation peut être perdue : le lien va alors au
+presse-papiers, et l'historique écrit « Lien copié », parce que c'est ce
+qui s'est passé.
 
 **Il n'apparaît pas non plus sur la communication d'un autre.** La liste
 montre tout ce que l'unité a publié, et chaque animateur la lit ; mais
