@@ -1725,19 +1725,21 @@
 
             button.addEventListener('click', function () {
                 var command = button.dataset.command;
+
+                // The command acts on the selection, wherever it is: with the
+                // caret left in another editor of the same form — or in its
+                // title field — this button would format, or link, that one.
+                // Focusing first brings the selection here; a selection
+                // already here is kept as is.
+                if (!selectionIsIn(surface)) {
+                    surface.focus();
+                }
+
                 if (command === 'createLink') {
                     insertLink(surface).then(function () {
                         if (afterCommand) afterCommand();
                     });
                     return;
-                }
-
-                // The command acts on the selection, wherever it is: with the
-                // caret left in another editor of the same form, this
-                // button would format that one. Focusing first brings the
-                // selection here; a selection already here is kept as is.
-                if (!selectionIsIn(surface)) {
-                    surface.focus();
                 }
 
                 var moved = null;

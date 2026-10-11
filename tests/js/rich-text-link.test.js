@@ -646,6 +646,26 @@ describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a p
         expect(focus.mock.invocationCallOrder[0]).toBeLessThan(execCommand.mock.invocationCallOrder[0]);
     });
 
+    it('brings the selection to its own editor before « Lien » too', async () => {
+        const { surface } = await editing('<p>ici</p>', 'ici');
+        const link = document.createElement('button');
+        link.dataset.command = 'createLink';
+        document.getElementById('modal').appendChild(link);
+        window.ScoutMagicRichText.wireToolbar(document.getElementById('modal'), surface, null);
+        const title = document.createElement('input');
+        title.value = 'Titre de l\'article';
+        document.body.appendChild(title);
+        const range = document.createRange();
+        range.selectNodeContents(title);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        const focus = vi.spyOn(surface, 'focus');
+
+        link.dispatchEvent(new Event('click'));
+
+        expect(focus).toHaveBeenCalled();
+    });
+
     it('keeps a selection already in its own editor, without focusing it first', async () => {
         const { surface, press } = await editing('<p>ici</p>', 'ici');
         const focus = vi.spyOn(surface, 'focus');
