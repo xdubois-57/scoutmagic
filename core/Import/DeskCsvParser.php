@@ -129,6 +129,7 @@ class DeskCsvParser
         // Parse data lines
         $grouped = [];
         $lineCount = 0;
+        $rawRows = [];
 
         for ($i = 1; $i < count($lines); $i++) {
             $line = trim($lines[$i]);
@@ -137,10 +138,32 @@ class DeskCsvParser
             }
 
             $fields = str_getcsv($line, $delimiter, '"', '');
+            // A line of separators only (`;;;;` — a row a spreadsheet emptied
+            // but kept) is as blank as an empty one: skipped here, it never
+            // reaches DeskImportValidator, which would refuse the whole file
+            // over nine « vide » errors on a line that carries nothing.
+            if (implode('', array_map(static fn($cell): string => trim((string) $cell), $fields)) === '') {
+                continue;
+            }
             $row = [];
             foreach ($headers as $idx => $header) {
                 $row[$header] = isset($fields[$idx]) ? trim($fields[$idx]) : '';
             }
+
+            // Every line is kept as read, a line without Tiers or with the
+            // wrong number of cells included: DeskImportValidator refuses
+            // the whole file on either, and has to be able to say which
+            // line. `$i + 1` is the physical line, the header being line 1.
+            // A quoted field spanning two lines is not supported by
+            // splitLines(), so such a line arrives cut in two — and is
+            // refused for its cell count rather than imported shifted.
+            $extra = array_slice($fields, count($headers));
+            $rawRows[] = new DeskCsvRow(
+                $i + 1,
+                count($fields),
+                $row,
+                implode('', array_map(static fn($cell): string => trim((string) $cell), $extra)) === ''
+            );
 
             $deskId = $row['Tiers'] ?? '';
             if ($deskId === '') {
@@ -157,7 +180,7 @@ class DeskCsvParser
             $members[] = $this->buildMember((string) $deskId, $rows);
         }
 
-        return new ParsedImport($members, $lineCount);
+        return new ParsedImport($members, $lineCount, $rawRows, count($headers));
     }
 
     /**
@@ -209,6 +232,11 @@ class DeskCsvParser
             );
         }
 
+        // Identity is read from the first line only. That is safe because
+        // DeskImportValidator refuses a file whose lines of one Tiers
+        // disagree on Nom, Prenom, Genre, Date de naissance or Email Tiers
+        // (rule 5): by the time these values are written, every line says
+        // the same thing.
         return new ParsedMember(
             deskId: $deskId,
             lastName: $first['Nom'] ?? '',
@@ -371,6 +399,12 @@ class DeskCsvParser
         return $trimmed === '' ? null : $trimmed;
     }
 
+    /**
+     * `true`, case ignored. Anything else reads as false here, which is
+     * only safe because DeskImportValidator (rule 8) has already refused
+     * a file carrying anything but `true` or `false` — a spreadsheet's
+     * `VRAI` used to withdraw every mail consent in silence.
+     */
     private function parseBool(string $value): bool
     {
         return strtolower(trim($value)) === 'true';

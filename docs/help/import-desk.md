@@ -8,7 +8,7 @@ question: Comment mettre à jour les membres depuis la fédération ?
 question: Où récupérer le fichier CSV à importer dans le site ?
 question: Que se passe-t-il si j'importe deux fois le même fichier ?
 paths: /admin/import
-related: annee-scoute, config-desk, membres-admin, import-historique
+related: import-desk-lignes-refusees, annee-scoute, config-desk, membres-admin, import-historique
 ---
 
 Le site ne s'alimente pas à la main : les membres, sections et
@@ -24,8 +24,11 @@ la fédération. Importer ce fichier met le site à jour d'un coup.
 3. Sélectionnez le fichier et touchez « Importer ».
 
 Le fichier doit être l'export complet de Desk : si des colonnes
-manquent, l'import s'arrête en les nommant, sans rien modifier. Un
-import réussi affiche le nombre de membres traités.
+manquent, l'import s'arrête en les nommant, sans rien modifier. Il
+s'arrête de même sur la moindre valeur illisible — une date de
+naissance absente, un VRAI à la place de true — et liste alors toutes
+les lignes à corriger (voir « Un fichier Desk refusé ligne par ligne »).
+Un import réussi affiche le nombre de membres traités.
 
 ## Si le site refuse le fichier
 

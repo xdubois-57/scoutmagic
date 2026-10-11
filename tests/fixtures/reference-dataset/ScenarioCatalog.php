@@ -126,9 +126,11 @@ final class ScenarioCatalog
             'expectation' => 'Domicile + Adresse secondaire. Deux lignes portant la MÊME fonction : deux adresses dédupliquées par type, et UNE seule ligne member_functions — l\'import réduit deux lignes identiques à la fonction qu\'elles décrivent.',
         ],
         20 => [
-            'name' => 'Membre sans email, sans date de naissance, sans téléphone fixe',
+            'name' => 'Membre sans email, sans téléphone fixe',
             'tiers' => ['T0027'],
-            'expectation' => 'Aucun compte utilisateur créé pour lui, aucun âge effectif, aucune branche déduite.',
+            'expectation' => 'Aucun compte utilisateur créé pour lui, aucun téléphone fixe stocké. '
+                . 'Il a une date de naissance : l\'import refuse désormais un fichier dont une ligne '
+                . 'n\'en a pas (issue #854).',
         ],
         21 => [
             'name' => 'Handicap et assurance complémentaire',

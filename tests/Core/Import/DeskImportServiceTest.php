@@ -93,7 +93,8 @@ class DeskImportServiceTest extends TestCase
                 $this->encryption,
                 $this->storagePath
             ),
-            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo))
+            new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 
@@ -605,6 +606,235 @@ class DeskImportServiceTest extends TestCase
         $this->assertCount(1, $single->functions, 'the single-member path must collapse them too');
     }
 
+    // ── issue #854: a broken file is refused whole ───────────────────
+
+    /**
+     * The issue's « Terminé quand »: a file breaking a single rule is
+     * refused in its entirety and NOTHING is written — no member, no
+     * member_years, no login, no kept file (on disk or in `files`), no
+     * import row, no roster snapshot. The one good line next to the bad
+     * one is not imported either.
+     */
+    public function testARefusedFileWritesNothingAtAll(): void
+    {
+        try {
+            $this->importRows([
+                $this->row(['Tiers' => 'T910', 'Nom' => 'Valide', 'Email Tiers' => 'valide@example.com']),
+                $this->row(['Tiers' => 'T911', 'Nom' => 'Casse', 'Date de naissance' => '28/11/20']),
+            ]);
+            self::fail('A file with an unreadable birth date must be refused.');
+        } catch (\Core\Import\DeskImportRejectedException $e) {
+            $this->assertStringContainsString(
+                'Ligne 3 (T911) — Date de naissance « 28/11/20 » illisible : format attendu JJ/MM/AAAA.',
+                $e->getMessage()
+            );
+        }
+
+        $tables = [
+            'members', 'member_years', 'member_functions', 'member_addresses',
+            'files', 'import_journal', 'fees_roster_snapshots', 'fees_roster_snapshot_members',
+        ];
+        foreach ($tables as $table) {
+            $this->assertSame(0, $this->countRows($table), "A refused import wrote into {$table}.");
+        }
+        // The importer's own account, created by setUp(), and nobody else.
+        $this->assertSame(1, $this->countRows('user_accounts'), 'A refused import created a login.');
+        $this->assertSame([], $this->filesUnder($this->storagePath), 'A refused import kept a copy of the file.');
+    }
+
+    /**
+     * A refused RE-import leaves the roster exactly as the previous import
+     * left it — the case the issue started from: a birth date column
+     * damaged by a spreadsheet overwrote every good one.
+     */
+    public function testARefusedReImportLeavesThePreviousImportUntouched(): void
+    {
+        $this->importFixture();
+        $before = $this->pdo->query(
+            'SELECT member_id, is_active, birth_date_encrypted FROM member_years ORDER BY id'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        try {
+            $this->importRows([$this->row(['Date de naissance' => ''])]);
+            self::fail('A file with an empty birth date must be refused.');
+        } catch (\Core\Import\DeskImportRejectedException) {
+            // expected
+        }
+
+        $after = $this->pdo->query(
+            'SELECT member_id, is_active, birth_date_encrypted FROM member_years ORDER BY id'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame($before, $after);
+        $this->assertSame('2012-03-15', $this->birthDateOf('T001'));
+        $this->assertSame(1, $this->countRows('import_journal'));
+        $this->assertSame(1, $this->countRows('files'));
+    }
+
+    /**
+     * The journal keeps a count per rule and nothing else: no value, no
+     * Tiers, no sentence of the refusal (SECURITY.md §13).
+     */
+    public function testARefusalIsJournaledAsCountsOnly(): void
+    {
+        try {
+            $this->importRows([
+                $this->row(['Tiers' => 'T920', 'Date de naissance' => '28/11/20', 'Courrier fédération' => 'VRAI']),
+                $this->row(['Tiers' => 'T921', 'Date de naissance' => '', 'Email Tiers' => 'secret@']),
+            ]);
+            self::fail('The file must be refused.');
+        } catch (\Core\Import\DeskImportRejectedException) {
+            // expected
+        }
+
+        $entry = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'desk_import_rejected'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($entry, 'The refusal must be journaled.');
+
+        $this->assertSame('warning', $entry['level']);
+        $this->assertSame(
+            [
+                'scout_year_id' => $this->scoutYearId,
+                'error_count' => 4,
+                'errors_by_rule' => ['birth_date' => 2, 'boolean' => 1, 'email' => 1],
+            ],
+            json_decode((string) $entry['context'], true)
+        );
+        foreach (['T920', 'T921', '28/11/20', 'VRAI', 'secret@', 'Dupont', 'Jean'] as $leak) {
+            $this->assertStringNotContainsString($leak, $entry['description'] . $entry['context']);
+        }
+    }
+
+    /** Rule 2: whatever shape Desk wrote, the birth date is stored as Y-m-d. */
+    public function testTheBirthDateIsStoredAsIsoWhateverShapeDeskUsed(): void
+    {
+        $this->importRows([
+            $this->row(['Tiers' => 'T930', 'Date de naissance' => '28/11/2020']),
+            $this->row(['Tiers' => 'T931', 'Date de naissance' => '2019-05-22']),
+            $this->row(['Tiers' => 'T932', 'Date de naissance' => '03-04-2015']),
+        ]);
+
+        $this->assertSame('2020-11-28', $this->birthDateOf('T930'));
+        $this->assertSame('2019-05-22', $this->birthDateOf('T931'));
+        $this->assertSame('2015-04-03', $this->birthDateOf('T932'));
+    }
+
+    /** Rule 11: the function dates go through the same reader. */
+    public function testTheFunctionDatesAreStoredAsIso(): void
+    {
+        $this->importRows([
+            $this->row([
+                'Tiers' => 'T940',
+                'Date début' => '01/09/2020',
+                'Date fin' => '2026-08-31',
+                'fin de mandat' => '31-08-2027',
+            ]),
+        ]);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT mf.start_date, mf.end_date, mf.mandate_end FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id WHERE m.desk_id = ?'
+        );
+        $stmt->execute(['T940']);
+
+        $this->assertSame(
+            ['start_date' => '2020-09-01', 'end_date' => '2026-08-31', 'mandate_end' => '2027-08-31'],
+            $stmt->fetch(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * The display half of the issue: a Desk birth date written
+     * `15/03/2012` used to be stored verbatim, and `date_fr` — which both
+     * member pages use — and the printed health sheet both read only
+     * Y-m-d, so they showed nothing. Stored as Y-m-d, it shows.
+     */
+    public function testAnImportedBirthDateIsDisplayedOnTheMemberPagesAndTheHealthSheet(): void
+    {
+        $this->importFixture();
+
+        $memberYearId = (int) $this->pdo->query(
+            "SELECT my.id FROM member_years my JOIN members m ON m.id = my.member_id WHERE m.desk_id = 'T001'"
+        )->fetchColumn();
+        $memberService = new \Core\Member\MemberService(
+            new MemberYearRepository($this->pdo),
+            new \Core\Member\Repository\MemberProfileRepository(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $this->encryption
+            )
+        );
+        $profile = $memberService->getMemberProfile($memberYearId);
+
+        $this->assertSame('15/03/2012', \Core\View\DateFilterExtension::dateFr($profile->birthDate));
+        $this->assertSame(
+            '15/03/2012',
+            \Modules\OfficialDocuments\Service\HealthSheetFilling::values(
+                $profile,
+                \Modules\OfficialDocuments\Value\HealthSheet::empty()
+            )['member_birth_date']
+        );
+    }
+
+    /**
+     * Rule 13 is measured against the scout year the file is imported
+     * INTO: the same line is refused for the year before and accepted for
+     * its own.
+     */
+    public function testAFunctionStartingAfterTheTargetedYearIsRefused(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)"
+        );
+        $previousYearId = (int) $this->pdo->lastInsertId();
+
+        $path = $this->writeRows([$this->row(['Date début' => '01/09/2025'])]);
+
+        try {
+            $this->service->import($path, $previousYearId, 1);
+            self::fail('A function starting after 31/08/2025 cannot belong to 2024-2025.');
+        } catch (\Core\Import\DeskImportRejectedException $e) {
+            $this->assertSame(\Core\Import\DeskImportRule::FUNCTION_AFTER_YEAR, $e->errors[0]->rule);
+        }
+
+        $this->service->import($path, $this->scoutYearId, 1);
+        $this->assertSame(1, $this->countRows('members'));
+    }
+
+    private function birthDateOf(string $deskId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.birth_date_encrypted FROM member_years my
+             JOIN members m ON my.member_id = m.id WHERE m.desk_id = ?'
+        );
+        $stmt->execute([$deskId]);
+        $encrypted = $stmt->fetchColumn();
+
+        return is_string($encrypted) ? $this->encryption->decrypt($encrypted, 'member_years.birth_date') : null;
+    }
+
+    private function countRows(string $table): int
+    {
+        return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
+    }
+
+    /** @return list<string> every regular file below $directory */
+    private function filesUnder(string $directory): array
+    {
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        return $files;
+    }
+
     // ── CSV composition helpers ───────────────────────────────────────
 
     /**
@@ -637,10 +867,18 @@ class DeskImportServiceTest extends TestCase
      */
     private function importRows(array $rows): void
     {
+        $this->service->import($this->writeRows($rows), $this->scoutYearId, 1);
+    }
+
+    /**
+     * @param array<int, array<int, string>> $rows
+     */
+    private function writeRows(array $rows): string
+    {
         $lines = file($this->fixturePath, FILE_IGNORE_NEW_LINES);
         self::assertIsArray($lines);
 
-        $path = tempnam(sys_get_temp_dir(), 'csv');
+        $path = (string) tempnam(sys_get_temp_dir(), 'csv');
         $handle = fopen($path, 'w');
         self::assertNotFalse($handle);
         fwrite($handle, $lines[0] . "\n");
@@ -649,7 +887,7 @@ class DeskImportServiceTest extends TestCase
         }
         fclose($handle);
 
-        $this->service->import($path, $this->scoutYearId, 1);
+        return $path;
     }
 
     private function functionCountFor(string $deskId): int

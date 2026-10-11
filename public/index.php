@@ -2918,6 +2918,7 @@ $importService = new DeskImportService(
     $rosterSnapshotRepository,
     $encryptedFileStorageService,
     $importDiffCalculator,
+    $scoutYearService,
     $duplicateMemberDetector,
     $deskImportListeners
 );

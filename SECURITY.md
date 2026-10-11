@@ -309,8 +309,25 @@ No other proxy header is trusted — not `X-Forwarded-For`, not `Forwarded`, not
 
 - Import page: `role_min: admin` (`/admin/import`, `Core\Http\Controller\ImportController`).
 - CSV header validation before processing.
+- **Line validation before processing** (`Core\Import\DeskImportValidator`,
+  issue #854): one value the import cannot read — an empty or two-digit
+  birth date, a boolean that is not `true`/`false`, a malformed e-mail, a
+  line with the wrong number of cells — refuses the whole file before the
+  barrier, the kept file and the transaction. Nothing is written, nothing
+  is kept, and in particular a malformed e-mail no longer creates a login.
 - New functions never auto-assigned to elevated roles.
 - Journal stores only metadata — never raw CSV content.
+- **A refusal for invalid lines quotes the offending cell to the
+  administrator who deposited the file, and to nobody else.** The import
+  page lists « Ligne N (Tiers) — Colonne « valeur » : raison. » for every
+  error: the line, the Tiers code, the column and the cell, truncated,
+  because without the cell nobody can find what to correct. It never
+  quotes `Nom` or `Prenom`, and an identity disagreement between two lines
+  quotes neither value. This is the one, deliberate, place a cell of the
+  file reaches a message; it is rendered on the response to the upload
+  and stored nowhere. The journal entry (`desk_import_rejected`,
+  `warning`) holds the scout year, the error count and a count per rule —
+  never a value, a Tiers code or a line number.
 
 ### The roster-replacement barrier
 
@@ -388,7 +405,9 @@ are set accordingly.
    (§8.3 of ARCHITECTURE.md). This file earns the same treatment, and the
    reason is written where the code is.
 5. **No line of CSV in a journal entry, an error message or a trace**,
-   including when the parse fails.
+   including when the parse fails. The line-validation refusal above
+   quotes single cells, never a line, and only on the depositing
+   administrator's own screen.
 6. **The purge is a physical deletion**: the encrypted blob and its
    `FileRecord` both go. No archive, no recycle bin.
 7. **The storage subdirectory is gitignored** — `storage/**` already

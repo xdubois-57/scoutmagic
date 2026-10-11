@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Config\ScoutYearService;
 use Core\File\EncryptedFileStorageService;
 use Core\Member\Duplicate\DuplicateMemberDetector;
 use Core\Journal\JournalService;
@@ -16,6 +17,8 @@ use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
+use Core\Service\DateInput;
+use Core\Service\DeskDateParser;
 
 class DeskImportService
 {
@@ -35,6 +38,11 @@ class DeskImportService
         private RosterSnapshotRepository $rosterSnapshotRepository,
         private EncryptedFileStorageService $encryptedFileStorage,
         private ImportDiffCalculator $diffCalculator,
+        /**
+         * Where the targeted scout year's end date comes from: no function
+         * in the file may start after it (DeskImportValidator, rule 13).
+         */
+        private ScoutYearService $scoutYears,
         /**
          * Duplicate detection runs AFTER the commit — it decrypts names
          * and birth dates in bulk, and nothing that slow belongs inside a
@@ -64,6 +72,7 @@ class DeskImportService
      * never enough on its own: the guard has verdicts it does not lift.
      *
      * @throws ImportException when the file cannot be read or its headers do not match
+     * @throws DeskImportRejectedException when a line breaks a rule of DeskImportValidator — nothing is written
      * @throws RosterReplacementRefusedException when the file would replace the roster with something it should not
      */
     public function import(
@@ -74,6 +83,13 @@ class DeskImportService
     ): ImportResult
     {
         $parsed = $this->parser->parse($filePath);
+        $asOf = new \DateTimeImmutable();
+
+        // Every line checked, every error listed, before anything else
+        // happens: no barrier assessment, no kept file, no transaction.
+        // A refused file leaves the site exactly as it found it.
+        $this->assertFileIsValid($parsed, $scoutYearId, $importedBy, $asOf);
+
         $this->mappingResolver->resetImportState();
         $this->memberRepository->resetCreatedMemberIds();
 
@@ -85,7 +101,6 @@ class DeskImportService
         $this->assertReplacementAllowed($parsed, $scoutYearId, $importedBy, $replacementConfirmed);
 
         $warnings = [];
-        $asOf = new \DateTimeImmutable();
 
         // The CSV is kept, encrypted, so a doubtful import can later be
         // investigated by replaying its report against the exact file that
@@ -274,6 +289,57 @@ class DeskImportService
     }
 
     /**
+     * Refuse the whole file when any line breaks a rule of
+     * {@see DeskImportValidator} (issue #854).
+     *
+     * The journal entry carries how many errors each rule found and the
+     * scout year — never a value, never a Tiers, never a line number that
+     * would let somebody holding the file find the person (SECURITY.md
+     * §13). The sentences naming them are for the administrator's screen
+     * only, carried by the exception.
+     *
+     * @throws ImportException when the targeted scout year does not exist
+     * @throws DeskImportRejectedException
+     */
+    private function assertFileIsValid(
+        ParsedImport $parsed,
+        int $scoutYearId,
+        int $importedBy,
+        \DateTimeImmutable $today
+    ): void {
+        $year = $this->scoutYears->findById($scoutYearId);
+        if ($year === null) {
+            throw new ImportException("L'année scoute choisie pour l'import n'existe pas.");
+        }
+
+        $errors = (new DeskImportValidator())->validate(
+            $parsed,
+            DateInput::requireFromStorage($year['end_date'], 'scout_years.end_date'),
+            $today
+        );
+        if ($errors === []) {
+            return;
+        }
+
+        $exception = new DeskImportRejectedException($errors);
+
+        $this->journal->log(
+            'core',
+            'desk_import_rejected',
+            'warning',
+            'Import Desk refusé : ' . count($errors) . ' erreur(s) dans le fichier, rien n\'a été écrit',
+            [
+                'scout_year_id' => $scoutYearId,
+                'error_count' => count($errors),
+                'errors_by_rule' => $exception->countsByRule(),
+            ],
+            $importedBy > 0 ? $importedBy : null
+        );
+
+        throw $exception;
+    }
+
+    /**
      * Run the roster-replacement barrier and journal any refusal.
      *
      * The journal entry is `security` level and carries counters only —
@@ -350,8 +416,16 @@ class DeskImportService
             'gender_encrypted' => $member->gender !== null
                 ? $this->encryption->encrypt($member->gender, 'member_years.gender')
                 : null,
+            // Stored as `Y-m-d` whatever shape Desk used (rule 2): every
+            // reader — the member pages' `date_fr`, the health sheet,
+            // MemberService::isAtLeast() — reads that shape, and a
+            // `15/03/2012` stored verbatim displayed as nothing. The
+            // validator has already refused a date this cannot read.
             'birth_date_encrypted' => $member->birthDate !== null
-                ? $this->encryption->encrypt($member->birthDate, 'member_years.birth_date')
+                ? $this->encryption->encrypt(
+                    DeskDateParser::toIso($member->birthDate) ?? $member->birthDate,
+                    'member_years.birth_date'
+                )
                 : null,
             'phone_encrypted' => $member->phone !== null
                 ? $this->encryption->encrypt($member->phone, 'member_years.phone')
@@ -462,9 +536,13 @@ class DeskImportService
                 'function_id' => $functionId,
                 'section_id' => $sectionId,
                 'age_branch_id' => $branchId,
-                'start_date' => $this->parseDate($fn->startDate),
-                'end_date' => $this->parseDate($fn->endDate),
-                'mandate_end' => $this->parseDate($fn->mandateEnd),
+                // The one Desk date reader (rule 11). The hand-rolled split
+                // on « / » it replaces turned `28/11/20` into `20-11-28` and
+                // `11/28/2020` into `2020-28-11` — an absurd date, or an
+                // SQL error halfway through the import.
+                'start_date' => DeskDateParser::toIso($fn->startDate),
+                'end_date' => DeskDateParser::toIso($fn->endDate),
+                'mandate_end' => DeskDateParser::toIso($fn->mandateEnd),
                 'is_main_function' => $fn->isMainFunction,
             ];
 
@@ -490,25 +568,5 @@ class DeskImportService
         if ($existing === null) {
             $this->userAccountRepository->create($email, false);
         }
-    }
-
-    private function parseDate(?string $value): ?string
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        // Try DD/MM/YYYY format
-        $parts = explode('/', $value);
-        if (count($parts) === 3) {
-            return sprintf('%s-%s-%s', $parts[2], $parts[1], $parts[0]);
-        }
-
-        // Already in YYYY-MM-DD?
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
-            return $value;
-        }
-
-        return null;
     }
 }
