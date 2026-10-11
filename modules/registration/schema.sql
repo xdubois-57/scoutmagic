@@ -26,8 +26,8 @@ CREATE TABLE registration_requests (
     parent_name_encrypted BLOB NOT NULL,
     child_last_name_encrypted BLOB NOT NULL,
     child_first_name_encrypted BLOB NOT NULL,
-    -- Three values, matching Desk's own "Genre" column domain (M/F/X) —
-    -- see Core\Import\DeskCsvParser.
+    -- Three values, matching Desk's own "Genre" column domain (F/H/X) —
+    -- see Core\Import\DeskImportValidator (issue #871).
     gender_encrypted BLOB NOT NULL,
     birth_date_encrypted BLOB NOT NULL,
     street_encrypted BLOB NOT NULL,

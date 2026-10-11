@@ -567,7 +567,7 @@ class ReenrollmentServiceTest extends TestCase
             $this->encryption->encrypt($lastName, 'member_years.last_name'),
             $totem !== null ? $this->encryption->encrypt($totem, 'member_years.totem') : null,
             $this->encryption->encrypt('2016-06-01', 'member_years.birth_date'),
-            $this->encryption->encrypt('M', 'member_years.gender'),
+            $this->encryption->encrypt('H', 'member_years.gender'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

@@ -331,7 +331,7 @@ class PassageControllerTest extends TestCase
         $member = $this->createLouveteauLastRank();
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'Nouveau', 'child_first_name' => 'Enfant',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'enfant@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);
@@ -410,7 +410,7 @@ class PassageControllerTest extends TestCase
     {
         $created = $this->requestRepository->create($this->targetYearId, [
             'parent_name' => 'P', 'child_last_name' => 'Nouveau', 'child_first_name' => 'Enfant',
-            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
             'postal_code' => '1000', 'city' => 'V', 'email' => 'enfant@example.com',
             'phone1' => '000', 'phone2' => null, 'remarks' => null,
         ], null, []);

@@ -74,7 +74,7 @@ class ScoutYearTransitionVetoServiceTest extends TestCase
     {
         $id = $this->repository->create($scoutYearId, [
             'parent_name' => 'Parent', 'child_last_name' => 'Nom', 'child_first_name' => 'Prenom',
-            'gender' => 'M', 'birth_date' => '2018-01-01', 'street' => 'Rue Test', 'number' => '1',
+            'gender' => 'H', 'birth_date' => '2018-01-01', 'street' => 'Rue Test', 'number' => '1',
             'postal_code' => '1000', 'city' => 'Bruxelles', 'email' => 'parent' . uniqid() . '@example.com',
             'phone1' => '0470 00 00 00', 'phone2' => null, 'remarks' => null,
         ], null, [])['id'];
