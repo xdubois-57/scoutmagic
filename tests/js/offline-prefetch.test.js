@@ -76,7 +76,6 @@ describe('offline-prefetch.js: when it asks', () => {
     it.each([
         ['outside the installed app', () => standalone(false), {}],
         ['without functional consent', () => {}, { consent: false }],
-        ['for a visitor not signed in', () => {}, { accountScope: 'guest' }],
         ['under Data Saver', () => { /** @type {any} */ (navigator).connection = { saveData: true }; }, {}],
     ])('never asks %s', async (_label, arrange, overrides) => {
         arrange();
@@ -85,6 +84,14 @@ describe('offline-prefetch.js: when it asks', () => {
         await settle();
 
         expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it('asks for a visitor not signed in too: the worker keeps the list, downloads nothing ahead', async () => {
+        config({ accountScope: 'guest' });
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith(ASK);
     });
 
     it('never asks without a service worker', async () => {

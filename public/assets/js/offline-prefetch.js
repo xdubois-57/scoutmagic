@@ -15,8 +15,9 @@
 // When:
 //
 // - only in the INSTALLED app ('display-mode: standalone'), with
-//   functional consent, signed in (config.accountScope === 'guest' bails
-//   out: the first launch after login does it), and never under Data Saver;
+//   functional consent, and never under Data Saver. A visitor not signed
+//   in asks too: the worker then keeps the list only, so that the public
+//   pages they visit are kept, and downloads nothing ahead;
 // - once per launch, remembered in sessionStorage, which an installed app
 //   keeps for as long as its window lives — and again after
 //   REFRESH_AFTER_MS for an app left open for days;
@@ -46,7 +47,7 @@
     } catch (e) {
         return;
     }
-    if (!config.consent || config.accountScope === 'guest') {
+    if (!config.consent) {
         return;
     }
     var isStandalone = window.matchMedia?.('(display-mode: standalone)').matches

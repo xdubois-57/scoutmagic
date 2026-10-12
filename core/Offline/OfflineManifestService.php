@@ -45,7 +45,9 @@ class OfflineManifestService
         $last = [];
 
         foreach ($this->offlineWhitelist->getEntriesForRole($role) as $entry) {
-            $paths = $entry['path'] !== null ? [$entry['path']] : $this->providedPages($entry, $role, $email);
+            $paths = $entry['path'] !== null
+                ? (self::isPlainPath($entry['path']) ? [$entry['path']] : [])
+                : $this->providedPages($entry, $role, $email);
             if ($entry['last']) {
                 array_push($last, ...$paths);
             } else {
@@ -85,14 +87,16 @@ class OfflineManifestService
     /**
      * A path of this site and nothing else, checked as it will be cached:
      * one leading '/', no empty, '.' or '..' segment (`/news/../finance`
-     * starts with `/news/` and is not under it), no query string and no
-     * fragment — the list holds exact addresses, and `/news?page=2` is
-     * not `/news`. Rejected rather than normalised: a provider that emits
-     * such a path is wrong, and the list does not guess what it meant.
+     * starts with `/news/` and is not under it), no percent-encoding (the
+     * browser reads `/news/%2e%2e/finance` as `/finance`), no query string
+     * and no fragment — the list holds exact addresses, and `/news?page=2`
+     * is not `/news`. Rejected rather than normalised: an entry that names
+     * such a path is wrong, and the list does not guess what it meant. A
+     * fixed `path` goes through it as a provider's pages do.
      */
     private static function isPlainPath(string $path): bool
     {
-        if (!str_starts_with($path, '/') || strpbrk($path, "?#\\") !== false) {
+        if (!str_starts_with($path, '/') || strpbrk($path, "?#%\\") !== false) {
             return false;
         }
         foreach (explode('/', substr($path, 1)) as $segment) {

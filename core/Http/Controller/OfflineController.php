@@ -37,9 +37,9 @@ class OfflineController extends AbstractController
      * Core\Member\MemberService::getLinkedMembers() needs an email it
      * never has), so there is no reason to float this above the floor its
      * own content already enforces — same reasoning as `/calendar` itself
-     * being `role_min: public`. The pre-download script that actually
-     * calls this only ever runs for a signed-in, standalone-mode session
-     * regardless (public/assets/js/offline-prefetch.js).
+     * being `role_min: public`. The service worker asks for it only in
+     * the installed app (public/sw.js runPassIfAllowed()): for a visitor
+     * not signed in, the list is kept and nothing is downloaded ahead.
      *
      * @param array<string, string> $params
      */

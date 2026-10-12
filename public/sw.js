@@ -631,15 +631,39 @@ function joinOrRunPass(config) {
 
 /**
  * A pass, when this configuration allows one: an installed app, with
- * consent, signed in.
+ * consent. A visitor not signed in gets the list only — the public pages
+ * are then kept as they are visited, never downloaded ahead.
  *
  * @returns {Promise<boolean>}
  */
 function runPassIfAllowed(config) {
-    if (!config?.consent || !config.standalone || !config.account_scope || config.account_scope === 'guest') {
+    if (!config?.consent || !config.standalone || !config.account_scope) {
         return Promise.resolve(false);
     }
+    if (config.account_scope === 'guest') {
+        return keepListOnly(config);
+    }
     return runPass(config);
+}
+
+/**
+ * The list stored, and nothing fetched ahead: what a visitor not signed in
+ * gets. Without it no page would ever be written for them — a page is
+ * kept only when the stored list names it.
+ *
+ * @returns {Promise<boolean>}
+ */
+function keepListOnly(config) {
+    const record = { scope: String(config.account_scope), version: String(config.version) };
+
+    return fetchManifest(record.scope).then(function (list) {
+        if (!list) {
+            return false;
+        }
+        return storeEntry(LIST_URL, { scope: record.scope, pages: list.pages, last: list.last })
+            .then(function () { return announcePassDone(record); })
+            .then(function () { return true; });
+    });
 }
 
 function runPass(config) {

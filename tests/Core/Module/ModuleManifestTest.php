@@ -820,7 +820,11 @@ class ModuleManifestTest extends TestCase
 
     public function testOfflineEntryRejectsPathNotStartingWithSlash(): void
     {
-        foreach (['my-module', '//elsewhere.example/page'] as $path) {
+        foreach ([
+            'my-module', '//elsewhere.example/page',
+            // Not an exact address of plain segments.
+            '/a/../b', '/a/%2e%2e/b', '/news?page=2', '/news#top', '/news/', '/',
+        ] as $path) {
             try {
                 ModuleManifest::fromArray($this->baseManifestData([
                     ['path' => $path, 'label' => 'Mon module', 'role_min' => 'public'],

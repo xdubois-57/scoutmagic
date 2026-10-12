@@ -262,6 +262,8 @@ class OfflineManifestServiceTest extends TestCase
             '/testing', '/finance', '//evil.example/test', 'https://evil.example/test',
             // Under the prefix as a string, not as a path once resolved.
             '/test/../finance', '/test/./7', '/test//7',
+            // The browser decodes it to '..' before it fetches or caches.
+            '/test/%2e%2e/finance', '/test/%2E%2E/finance',
             // Not an exact address: the list never holds a query or a fragment.
             '/test/7?page=2', '/test/7#top', '/test\\..\\finance',
         ];
@@ -271,6 +273,24 @@ class OfflineManifestServiceTest extends TestCase
 
         $this->assertContains('/test/1', $pages);
         $this->assertContains('/test/2', $pages);
+        foreach ($outside as $path) {
+            $this->assertNotContains($path, $pages);
+        }
+    }
+
+    /** A fixed path is checked as a provider's pages are. */
+    public function testAFixedPathThatIsNotAPlainPathIsDropped(): void
+    {
+        $outside = ['/a/../finance', '/a/%2e%2e/finance', '/news?page=2', '/news#top', '//evil.example'];
+        $entries = array_map(
+            static fn (string $path): array => ['path' => $path, 'provider' => null, 'prefix' => null, 'label' => 'X', 'role_min' => 'public', 'last' => false],
+            ['/fixe', ...$outside]
+        );
+        $this->offlineWhitelist->registerModuleEntries('test', $entries);
+
+        $pages = $this->buildService()->buildManifest(Role::PUBLIC, null)['pages'];
+
+        $this->assertContains('/fixe', $pages);
         foreach ($outside as $path) {
             $this->assertNotContains($path, $pages);
         }

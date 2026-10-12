@@ -1164,8 +1164,11 @@ class ModuleManifest
 
         if ($hasPath) {
             $path = $entry['path'];
-            if (!is_string($path) || !str_starts_with($path, '/') || str_starts_with($path, '//')) {
-                throw new ModuleException("{$where} path must be a string starting with a single '/'");
+            // Plain segments, as a provider's prefix: the list holds exact
+            // addresses, never a '..', an encoded character nor a query.
+            if (!is_string($path) || preg_match('~^(/[a-z0-9_-]+)+$~', $path) !== 1) {
+                throw new ModuleException("{$where} path must be a string starting with a single '/', "
+                    . "of plain segments such as '/calendar'");
             }
             if (array_key_exists('prefix', $entry)) {
                 throw new ModuleException("{$where} a fixed path takes no 'prefix'");

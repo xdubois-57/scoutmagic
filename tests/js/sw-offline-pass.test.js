@@ -321,13 +321,25 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
     it.each([
         ['outside the installed app', { standalone: false }],
         ['without consent', { consent: false }],
-        ['for a visitor not signed in', { account_scope: 'guest' }],
     ])('does nothing %s', async (_label, overrides) => {
         await seed({ ...CONFIG, ...overrides });
         const asked = serve({ '/api/offline/manifest': manifest(['/']) });
 
         expect(await sw.refreshOfflineCopies()).toBe(false);
         expect(asked).toEqual([]);
+    });
+
+    it('keeps only the list for a visitor not signed in, so the public pages they visit are kept', async () => {
+        await seed({ ...CONFIG, account_scope: 'guest' });
+        const asked = serve({ '/api/offline/manifest': manifest(['/', '/contact']), '/': html('Accueil') });
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        // Nothing downloaded ahead: the manifest alone was asked for.
+        expect(asked).toEqual(['/api/offline/manifest']);
+        const list = await (await (await caches.open('offline-config')).match(sw.LIST_URL)).json();
+        expect(list.scope).toBe('guest');
+        expect(list.pages).toEqual(['/', '/contact']);
     });
 });
 
