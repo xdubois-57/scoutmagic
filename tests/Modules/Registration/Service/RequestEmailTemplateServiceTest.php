@@ -284,7 +284,11 @@ class RequestEmailTemplateServiceTest extends TestCase
             $this->content,
             new JournalService(new JournalRepository($this->pdo)),
             'https://exemple.be',
-            'Unité Test'
+            'Unité Test',
+            new \Modules\Registration\Service\DecisionEmailService(
+                new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo),
+                new JournalService(new JournalRepository($this->pdo))
+            )
         );
 
         $this->assertSame($toWrite, $this->service->isToWrite(self::ACCEPTED));
