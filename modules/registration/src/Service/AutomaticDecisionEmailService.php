@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
-use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Modules\Registration\Repository\DecisionEmail;
 use Modules\Registration\Repository\RegistrationRequest;
@@ -56,6 +55,8 @@ class AutomaticDecisionEmailService
 
     public const MESSAGE_TEMPLATES_MISSING = "L'envoi automatique ne peut pas être activé : les gabarits "
         . "d'acceptation et de refus doivent d'abord être rédigés (voir Gabarits). Rien n'a été enregistré.";
+
+    public const MESSAGE_SAVE_FAILED = "Les réglages n'ont pas pu être enregistrés — rechargez la page et réessayez.";
 
     public const MESSAGE_DELAY_INVALID = 'Le délai avant envoi doit être un nombre entier d\'heures, de '
         . self::MIN_DELAY_HOURS . ' à ' . self::MAX_DELAY_HOURS . ". Rien n'a été enregistré.";
@@ -168,15 +169,16 @@ class AutomaticDecisionEmailService
     }
 
     /**
-     * Saves the sub-box as one decision — the switch and the delay
-     * together, or nothing — and answers the confirmation to show, which
-     * says whether e-mails are going to leave (D8).
+     * The checks made before the pair is written — by
+     * AutomaticAcceptancePolicy::save(), which saves it with the rest of
+     * the sub-box (the automatic acceptance, IT-10) as one decision: the
+     * delay to store — the stored one when $delay, what was typed, is null
+     * (the field was not submitted) — or a French sentence, and nothing
+     * is saved.
      *
-     * @param string|null $delay What was typed; null when the field was
-     *        not submitted, which keeps the stored delay.
-     * @throws RegistrationException with a French sentence, nothing saved
+     * @throws RegistrationException with a French sentence
      */
-    public function save(bool $enabled, ?string $delay): string
+    public function validatedDelay(bool $enabled, ?string $delay): int
     {
         $hours = $delay === null ? $this->delayHours() : self::parseDelay($delay);
         if ($hours === null) {
@@ -190,22 +192,29 @@ class AutomaticDecisionEmailService
             throw new RegistrationException(self::MESSAGE_TEMPLATES_MISSING);
         }
 
-        $delayChanged = $hours !== $this->delayHours();
+        return $hours;
+    }
 
-        try {
-            $this->settingService->setManyInternal([
-                self::SETTING_ENABLED => $enabled ? '1' : '0',
-                self::SETTING_DELAY_HOURS => (string) $hours,
-            ], 'registration');
-        } catch (SettingException $e) {
-            throw new RegistrationException(
-                "Les réglages n'ont pas pu être enregistrés — rechargez la page et réessayez.",
-                0,
-                $e
-            );
-        }
+    /**
+     * The two settings as they are written.
+     *
+     * @return array<string, string>
+     */
+    public function settingsFor(bool $enabled, int $hours): array
+    {
+        return [
+            self::SETTING_ENABLED => $enabled ? '1' : '0',
+            self::SETTING_DELAY_HOURS => (string) $hours,
+        ];
+    }
 
-        return $this->confirmation($enabled, $hours, $delayChanged, $this->decisionEmails->countScheduled());
+    /**
+     * Whether the acceptance template is written — what an automatic
+     * acceptance needs for its e-mail to be planned (IT-10).
+     */
+    public function acceptanceTemplateReady(): bool
+    {
+        return $this->emailService->isAcceptedBodyReady();
     }
 
     /**
@@ -214,8 +223,9 @@ class AutomaticDecisionEmailService
      * leave, for which decisions, and what becomes of the ones already
      * planned.
      */
-    private function confirmation(bool $enabled, int $hours, bool $delayChanged, int $planned): string
+    public function confirmation(bool $enabled, int $hours, bool $delayChanged): string
     {
+        $planned = $this->decisionEmails->countScheduled();
         $lines = ['Réglages enregistrés.'];
         $many = $planned > 1;
 

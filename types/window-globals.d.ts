@@ -240,6 +240,14 @@ interface Window {
         syncAddress: (toggle: HTMLInputElement, address: HTMLInputElement) => void;
         init: () => void;
     };
+    // public/assets/js/registration-automation-settings.js — the
+    // automatic acceptance of the sub-box « Décisions automatiques » of the
+    // same page, exposed for its tests.
+    ScoutMagicRegistrationAutomationSettings?: {
+        missingPrerequisite: (waitlist: boolean, autoSend: boolean, templateReady: boolean) => string | null;
+        sync: (form: HTMLFormElement) => void;
+        init: () => void;
+    };
     // public/assets/js/registration-decide-dialog.js — the decision
     // dialog of Formulaire d'inscription › Demandes, exposed for its tests.
     ScoutMagicDecideDialog?: {

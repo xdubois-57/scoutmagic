@@ -9,7 +9,7 @@ question: Que règlent les seuils Oui et Peut-être ?
 question: Pourquoi une année de naissance est-elle annoncée complète ?
 question: Dans quel ordre les demandes en attente reçoivent-elles une place ?
 paths: /config/inscriptions, /config/inscriptions/reglages
-related: envoi-automatique-des-e-mails-de-decision, gerer-les-demandes, inscrire-un-enfant, previsions, reinscription
+related: envoi-automatique-des-e-mails-de-decision, acceptation-automatique-des-demandes, gerer-les-demandes, inscrire-un-enfant, previsions, reinscription
 ---
 
 ## Les capacités
@@ -38,7 +38,8 @@ au-delà, c'est Non. La limite est comprise : 7 places occupées sur 10
 restent à Oui. L'exemple chiffré traduit les deux pourcentages en places.
 Les familles lisent le même niveau : « Disponible », « Limitée » ou
 « Complet ». Case décochée, les seuils restent affichés, grisés, et vos
-valeurs sont conservées.
+valeurs sont conservées ; l'acceptation automatique des demandes « Oui »,
+qui dépend de la recommandation, est désactivée.
 
 ## La recommandation et les priorités
 

@@ -67,6 +67,26 @@ class RequestStatusServiceTest extends TestCase
         $this->assertNull($updated->finalAt);
     }
 
+    /**
+     * An acceptance taken by the site itself (issue #843, IT-10) says so in
+     * its journal entry; one taken by a chief does not.
+     */
+    public function testAnAutomaticAcceptanceIsJournaledApartFromAManualOne(): void
+    {
+        $this->service->accept($this->createRequest());
+        $this->service->accept($this->createRequest(), true);
+
+        $rows = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'registration_request_status_changed'
+             ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(2, $rows);
+        $this->assertArrayNotHasKey('automatic', (array) json_decode((string) $rows[0]['context'], true));
+        $this->assertStringNotContainsString('automatique', (string) $rows[0]['description']);
+        $this->assertTrue(json_decode((string) $rows[1]['context'], true)['automatic'] ?? false);
+        $this->assertStringEndsWith('(acceptation automatique)', (string) $rows[1]['description']);
+    }
+
     public function testRefuseAndWithdrawAreFinalWithFinalAtSet(): void
     {
         $refused = $this->createRequest();

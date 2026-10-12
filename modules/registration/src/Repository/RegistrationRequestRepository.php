@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Repository;
 
+use Core\Database\AdvisoryLock;
 use Core\Member\Household\HouseholdKey;
 use Core\Member\Household\HouseholdRepository;
 use Core\Member\NameDobKey;
@@ -842,6 +843,53 @@ class RegistrationRequestRepository
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * The advisory-lock name the automatic acceptance (issue #843, IT-10)
+     * takes for one slot — branch × year in branch — of one scout year:
+     * one pass at a time per slot, which is what keeps « one request at a
+     * time, recomputed after each » true when two passes overlap. Far
+     * below GET_LOCK()'s 64 characters.
+     */
+    public static function autoAcceptLockName(int $scoutYearId, int $ageBranchId, int $yearInBranch): string
+    {
+        return 'registration_auto_accept:' . $scoutYearId . ':' . $ageBranchId . ':' . $yearInBranch;
+    }
+
+    /**
+     * Takes the automatic acceptance's lock on one slot — timeout 0, never
+     * a wait (Core\Database\AdvisoryLock): false when another pass holds
+     * it, and that pass is the one working on the slot. Always true on
+     * SQLite, which has no GET_LOCK() and never runs two passes at once.
+     */
+    public function acquireAutoAcceptLock(int $scoutYearId, int $ageBranchId, int $yearInBranch): bool
+    {
+        return AdvisoryLock::acquire($this->pdo, self::autoAcceptLockName($scoutYearId, $ageBranchId, $yearInBranch));
+    }
+
+    public function releaseAutoAcceptLock(int $scoutYearId, int $ageBranchId, int $yearInBranch): void
+    {
+        AdvisoryLock::release($this->pdo, self::autoAcceptLockName($scoutYearId, $ageBranchId, $yearInBranch));
+    }
+
+    /**
+     * The status of request $id read under a row lock (`FOR UPDATE`, held
+     * until the enclosing transaction ends; nothing on SQLite, which has
+     * no row locks and serialises writers anyway), or null when the
+     * request is gone. The automatic acceptance reads it inside the
+     * transaction of its decision: a decision a chief took meanwhile is
+     * committed — or waited for — before it looks, so the site never
+     * overrides one.
+     */
+    public function lockStatusForDecision(int $id): ?string
+    {
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+        $stmt = $this->pdo->prepare('SELECT status FROM registration_requests WHERE id = ?' . $forUpdate);
+        $stmt->execute([$id]);
+        $status = $stmt->fetchColumn();
+
+        return $status === false ? null : (string) $status;
     }
 
     /**

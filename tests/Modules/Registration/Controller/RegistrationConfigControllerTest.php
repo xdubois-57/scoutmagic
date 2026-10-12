@@ -970,6 +970,22 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
+     * The help text under « Envoyer automatiquement les e-mails de
+     * décision » in the « Décisions automatiques » sub-box $box — the
+     * automatic acceptance below it has help texts of its own.
+     */
+    private function autoSendHelp(string $box): string
+    {
+        $this->assertSame(
+            1,
+            preg_match('#<span[^>]*id="registration-auto-send-help"[^>]*>.*?</span>#s', $box, $matches),
+            'the help text of the automatic sending'
+        );
+
+        return $matches[0];
+    }
+
+    /**
      * One of the dashboard's four figures: its label, then its value.
      */
     private function assertFigure(string $body, string $label, string $value): void
@@ -2175,7 +2191,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->writeDecisionTemplates();
         $ready = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
         $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $ready);
-        $this->assertStringNotContainsString('Indisponible', $ready);
+        $this->assertStringNotContainsString('Indisponible', $this->autoSendHelp($ready));
         $this->assertStringContainsString("L'e-mail d'acceptation ou de refus part après le délai ci-dessous", $ready);
     }
 
@@ -2194,7 +2210,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_send"[^>]*\bdisabled\b/', $box);
         $this->assertMatchesRegularExpression('/<input[^>]+name="delay_hours"[^>]*value="48"/', $box);
         $this->assertStringContainsString("Les gabarits d'acceptation et de refus ne sont plus tous rédigés", $box);
-        $this->assertStringNotContainsString('Indisponible', $box);
+        $this->assertStringNotContainsString('Indisponible', $this->autoSendHelp($box));
     }
 
     /**
@@ -2264,6 +2280,146 @@ class RegistrationConfigControllerTest extends TestCase
                 . '\d{2}/\d{2}/\d{4} à \d{2}:\d{2} ;#',
             $flash['message'] ?? ''
         );
+    }
+
+    /**
+     * IT-10: « Accepter automatiquement les demandes « Oui » » sits in the
+     * same sub-box, under the delay and above its one « Enregistrer », with
+     * its date picker; off and locked by default — the automatic sending is
+     * off — with the mock-up's reason, the others hidden.
+     */
+    public function testTheAutomaticAcceptanceSitsInTheSubBoxOffAndLockedWithoutTheSending(): void
+    {
+        $box = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+
+        $this->assertStringContainsString('>Accepter automatiquement les demandes « Oui »</label>', $box);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $box);
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bdisabled\b/', $box);
+        $this->assertMatchesRegularExpression('/<input type="date"[^>]+name="auto_accept_from"/', $box);
+        $this->assertSame(['auto_send'], $this->shownAcceptanceHelp($box));
+        $this->assertStringContainsString(
+            "Indisponible : activez d'abord l'envoi automatique des e-mails de décision, sans quoi la famille",
+            $box
+        );
+        $this->assertLessThan(strpos($box, 'name="auto_accept"'), strpos($box, 'name="delay_hours"'));
+        $this->assertLessThan(strrpos($box, '>Enregistrer</button>'), strpos($box, 'name="auto_accept_from"'));
+        $this->assertSame(1, substr_count($box, '>Enregistrer</button>'));
+    }
+
+    /**
+     * Each prerequisite, in the server's order, locks the switch with its
+     * own reason — waitlists before the sending, the sending before the
+     * template — and with all of them the switch is free, checked when on,
+     * its stored date shown.
+     */
+    public function testTheAutomaticAcceptanceSwitchFollowsItsPrerequisites(): void
+    {
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $ready = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bdisabled\b/', $ready);
+        $this->assertSame(['ready'], $this->shownAcceptanceHelp($ready));
+
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settingService, '2026-10-15');
+        $on = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $on);
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept_from"[^>]+value="2026-10-15"/', $on);
+
+        $this->editableContentService->set('registration_email_accepted_body', '<p>&nbsp;</p>', 'rich_text', 1);
+        $noTemplate = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+        $this->assertSame(['template'], $this->shownAcceptanceHelp($noTemplate));
+        // Locked, it is not shown on: saving would switch it off.
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bchecked\b/', $noTemplate);
+
+        $this->settingService->set('registration_waitlist_enabled', '0', 'registration');
+        $noWaitlist = $this->formHtml($this->renderPage('settings'), '/config/inscriptions/decisions-automatiques');
+        $this->assertSame(['waitlist'], $this->shownAcceptanceHelp($noWaitlist));
+        $this->assertMatchesRegularExpression('/<input[^>]+name="auto_accept"[^>]*\bdisabled\b/', $noWaitlist);
+        $this->assertStringContainsString('data-waitlist-enabled="0"', $noWaitlist);
+        // The template is still missing behind the waitlists: the script
+        // must not free the switch once waitlists are back on.
+        $this->assertStringContainsString('data-acceptance-template-ready="0"', $noWaitlist);
+    }
+
+    /**
+     * Turning « Gérer les listes d'attente » off switches the automatic
+     * acceptance off with it, and says so; turning it back on does not
+     * switch it back on.
+     */
+    public function testSwitchingWaitlistsOffSwitchesTheAutomaticAcceptanceOff(): void
+    {
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settingService, '2026-10-15');
+
+        $off = json_decode((string) $this->postWaitlist(['enabled' => false])->getBody(), true);
+
+        $this->assertTrue($off['auto_accept_switched_off']);
+        $this->assertStringEndsWith("L'acceptation automatique des demandes « Oui » est désactivée.", $off['message']);
+        $this->assertSame('0', $this->settingService->get('registration_auto_accept', 'registration'));
+        $this->assertSame('2026-10-15', $this->settingService->get('registration_auto_accept_from', 'registration'));
+
+        $on = json_decode((string) $this->postWaitlist(['enabled' => true])->getBody(), true);
+        $this->assertFalse($on['auto_accept_switched_off']);
+        $this->assertSame('0', $this->settingService->get('registration_auto_accept', 'registration'));
+
+        // Already off: nothing to say.
+        $again = json_decode((string) $this->postWaitlist(['enabled' => false])->getBody(), true);
+        $this->assertFalse($again['auto_accept_switched_off']);
+        $this->assertStringNotContainsString('acceptation automatique', $again['message']);
+    }
+
+    /**
+     * IT-10, in the decision dialog while the automatic acceptance runs:
+     * a request it would take says so, a duplicate and a request outside
+     * every bracket say it will not — and nothing of the kind while it is
+     * off.
+     */
+    public function testTheDialogSaysWhatTheAutomaticAcceptanceWillDoWithTheRequest(): void
+    {
+        $taken = $this->createRequest($this->targetYearId, 'Noa');
+        $duplicate = $this->createRequest($this->targetYearId, 'Noa');
+        $outside = $this->createRequest($this->targetYearId, 'Inès', '2024-01-01');
+
+        $off = $this->renderPage('requests');
+        $this->assertStringNotContainsString('data-decide-auto-accept', $off);
+        $this->assertStringNotContainsString('Le traitement automatique', $off);
+
+        $this->writeDecisionTemplates();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+        RegistrationTestHelper::enableAutomaticAcceptance($this->settingService, '2026-01-01');
+        $body = $this->renderPage('requests');
+
+        $this->assertStringContainsString(
+            'Sans décision de votre part, cette demande sera acceptée automatiquement à la prochaine vérification du '
+            . "site, dans l'heure.",
+            $this->dialogOf($body, $taken)
+        );
+        $this->assertStringContainsString(
+            'même enfant, même date de naissance. Le traitement automatique ne la prendra pas.',
+            $this->dialogOf($body, $duplicate)
+        );
+        $this->assertStringNotContainsString('sera acceptée automatiquement', $this->dialogOf($body, $duplicate));
+        $this->assertStringContainsString(
+            'Le traitement automatique ne prendra pas cette demande.',
+            $this->dialogOf($body, $outside)
+        );
+    }
+
+    /**
+     * The keys of the automatic acceptance's help texts shown (not hidden)
+     * in the sub-box $box.
+     *
+     * @return array<int, string>
+     */
+    private function shownAcceptanceHelp(string $box): array
+    {
+        preg_match_all('/<span data-auto-accept-help="(\w+)"\s*(hidden)?\s*>/', $box, $matches, PREG_SET_ORDER);
+        $this->assertCount(4, $matches, 'four help texts, one per state');
+
+        return array_values(array_map(
+            static fn(array $match): string => $match[1],
+            array_filter($matches, static fn(array $match): bool => ($match[2] ?? '') === '')
+        ));
     }
 
     private function writeDecisionTemplates(): void

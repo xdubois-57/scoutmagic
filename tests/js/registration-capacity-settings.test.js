@@ -281,6 +281,26 @@ describe('registration-capacity-settings.js — « Gérer les listes d\'attente 
         expect($('[data-waitlist-off-mention]').classList.contains('d-none')).toBe(true);
     });
 
+    it('tells the « Décisions automatiques » sub-box once the server agreed, and only then', async () => {
+        document.body.innerHTML = SWITCH + thresholdsBox();
+        const heard = vi.fn();
+        document.addEventListener('registration:waitlist-changed', (event) => heard(event.detail));
+        global.fetch = vi.fn()
+            .mockImplementationOnce(() => jsonResponse({ success: false, error: 'Votre session a expiré.' }, 403))
+            .mockImplementation(() => jsonResponse({ success: true, message: 'Enregistré.' }));
+        await boot();
+
+        const toggle = $('#waitlist_enabled');
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledTimes(1));
+        expect(heard).not.toHaveBeenCalled();
+
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(heard).toHaveBeenCalledWith({ enabled: false }));
+    });
+
     it('puts the switch back and changes nothing when the save is refused', async () => {
         document.body.innerHTML = SWITCH + thresholdsBox();
         global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Votre session a expiré.' }, 403));

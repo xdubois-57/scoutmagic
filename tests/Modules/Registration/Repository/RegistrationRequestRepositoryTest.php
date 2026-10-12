@@ -83,6 +83,29 @@ class RegistrationRequestRepositoryTest extends TestCase
     }
 
     /**
+     * The automatic acceptance (issue #843, IT-10) reads the status it is
+     * about to change, and locks one slot of one year: on SQLite there is
+     * neither row lock nor GET_LOCK, so the status is read plainly and the
+     * lock always granted — the engine's own behaviour is
+     * AutomaticAcceptanceServiceOnMysqlTest's.
+     */
+    public function testTheAutomaticAcceptanceReadsTheStatusAndTakesItsSlotLock(): void
+    {
+        $id = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, [])['id'];
+
+        $this->assertSame('pending', $this->repository->transactional(
+            fn(): ?string => $this->repository->lockStatusForDecision($id)
+        ));
+        $this->repository->updateStatus($id, 'refused', new \DateTimeImmutable(), 'other');
+        $this->assertSame('refused', $this->repository->lockStatusForDecision($id));
+        $this->assertNull($this->repository->lockStatusForDecision($id + 1000));
+
+        $this->assertSame('registration_auto_accept:4:7:2', RegistrationRequestRepository::autoAcceptLockName(4, 7, 2));
+        $this->assertTrue($this->repository->acquireAutoAcceptLock(4, 7, 2));
+        $this->repository->releaseAutoAcceptLock(4, 7, 2);
+    }
+
+    /**
      * Issue #331 — the question a chief needs answered before encoding in
      * Desk. A caller that does not supply it at all (the reference
      * dataset's seeder, every request filed before the column existed)

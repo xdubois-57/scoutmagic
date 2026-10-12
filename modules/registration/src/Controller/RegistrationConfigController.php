@@ -361,9 +361,11 @@ class RegistrationConfigController extends AbstractController
      * control, no button) by public/assets/js/registration-capacity-
      * settings.js, which greys the thresholds out or back in on the answer.
      *
-     * Turning it off changes nothing else: the thresholds and the
-     * priorities keep their stored values, they only stop having an effect
-     * — no level for the families, no recommendation for the staff.
+     * Turning it off keeps the thresholds and the priorities as they are —
+     * they only stop having an effect: no level for the families, no
+     * recommendation for the staff — and switches the automatic acceptance
+     * of the « Oui » requests off (IT-10), which has nothing to accept by
+     * any more and must not come back unnoticed with the waitlists.
      *
      * @param array<string, string> $params
      */
@@ -382,6 +384,10 @@ class RegistrationConfigController extends AbstractController
         $enabled = $data['enabled'];
 
         try {
+            // The acceptance first: should the waitlist write fail after
+            // it, the acceptance is off for nothing — never left on
+            // without waitlists.
+            $autoAcceptOff = !$enabled && $this->decisionService->automaticAcceptance()->switchOff();
             $this->settingService->set(self::SETTING_WAITLIST_ENABLED, $enabled ? '1' : '0', 'registration');
         } catch (SettingException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -391,16 +397,22 @@ class RegistrationConfigController extends AbstractController
             'registration_waitlist_toggled',
             'info',
             $enabled ? 'Gestion des listes d\'attente activée' : 'Gestion des listes d\'attente désactivée',
-            ['enabled' => $enabled],
+            ['enabled' => $enabled, 'auto_accept_switched_off' => $autoAcceptOff],
             (int) AuthSession::getUserAccountId()
         );
+
+        $message = $enabled
+            ? 'Gestion des listes d\'attente activée.'
+            : 'Gestion des listes d\'attente désactivée. Les seuils et les priorités sont conservés.';
+        if ($autoAcceptOff) {
+            $message .= ' L\'acceptation automatique des demandes « Oui » est désactivée.';
+        }
 
         return $this->json([
             'success' => true,
             'enabled' => $enabled,
-            'message' => $enabled
-                ? 'Gestion des listes d\'attente activée.'
-                : 'Gestion des listes d\'attente désactivée. Les seuils et les priorités sont conservés.',
+            'auto_accept_switched_off' => $autoAcceptOff,
+            'message' => $message,
         ]);
     }
 
@@ -866,6 +878,9 @@ class RegistrationConfigController extends AbstractController
             // that holds it (the planning lives in its apply()). The
             // sub-box posts to RegistrationAutomationSettingsController.
             'automation' => $this->decisionService->automaticSending()->boxState(),
+            // Its automatic acceptance of the « Oui » requests (IT-10), saved
+            // by the same button.
+            'acceptance' => $this->decisionService->automaticAcceptance()->boxState(),
         ];
     }
 

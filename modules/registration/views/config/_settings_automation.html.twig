@@ -8,9 +8,20 @@
    Service\AutomaticDecisionEmailService). The switch cannot be turned on
    while the acceptance or the refusal template is « À rédiger » — it is
    then disabled, unless it is already on, since switching off is always
-   allowed. Requires `automation` (AutomaticDecisionEmailService::boxState()). #}
+   allowed. Then « Accepter automatiquement les demandes « Oui » » and its
+   date of effect (IT-10, rules in Service\AutomaticAcceptancePolicy),
+   saved by the same button: it can be on only with waitlists managed, the
+   automatic sending on and the acceptance template written — disabled
+   otherwise, with the reason; public/assets/js/
+   registration-automation-settings.js keeps it in step with the two
+   switches without a reload. Requires `automation`
+   (AutomaticDecisionEmailService::boxState()) and `acceptance`
+   (AutomaticAcceptancePolicy::boxState()). #}
 <form method="post" action="/config/inscriptions/decisions-automatiques"
-      class="border rounded-3 p-3 mb-3 bg-body-tertiary" id="registration-decision-automation">
+      class="border rounded-3 p-3 mb-3 bg-body-tertiary" id="registration-decision-automation"
+      data-decision-automation
+      data-waitlist-enabled="{{ acceptance.waitlist_enabled ? '1' : '0' }}"
+      data-acceptance-template-ready="{{ acceptance.template_ready ? '1' : '0' }}">
     {{ csrf_field()|raw }}
     <h3 class="h6 mb-2">Décisions automatiques</h3>
 
@@ -18,6 +29,7 @@
     <div class="form-check form-switch mb-3">
         <input class="form-check-input" type="checkbox"
                id="registration-auto-send" name="auto_send" value="1"
+               data-auto-send-switch
                aria-describedby="registration-auto-send-help"
                {{ automation.enabled ? 'checked' : '' }}
                {{ automation.can_enable ? '' : 'disabled' }}>
@@ -53,8 +65,49 @@
         help: 'En heures, de ' ~ automation.min_delay ~ ' à ' ~ automation.max_delay ~ ' : le temps entre la décision et le départ de son e-mail.',
     } only %}
 
-    {# IT-10 adds its switch here, « Accepter automatiquement les demandes
-       « Oui » », with its date of effect — saved by this same button. #}
+    {# Shown checked only when it may stay on: a switch disabled for a
+       missing prerequisite is not submitted, so saving turns it off — the
+       page must not show it on until then. #}
+    <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox"
+               id="registration-auto-accept" name="auto_accept" value="1"
+               data-auto-accept-switch
+               aria-describedby="registration-auto-accept-help"
+               {{ acceptance.enabled and acceptance.can_enable ? 'checked' : '' }}
+               {{ acceptance.can_enable ? '' : 'disabled' }}>
+        <label class="form-check-label" for="registration-auto-accept">Accepter automatiquement les demandes « Oui »</label>
+        <span class="form-text d-block" id="registration-auto-accept-help">
+            <span data-auto-accept-help="waitlist" {{ acceptance.missing == 'waitlist' ? '' : 'hidden' }}>
+                Indisponible : activez d'abord la gestion des listes d'attente, la recommandation en dépend.
+            </span>
+            <span data-auto-accept-help="auto_send" {{ acceptance.missing == 'auto_send' ? '' : 'hidden' }}>
+                Indisponible : activez d'abord l'envoi automatique des e-mails de décision, sans quoi la famille
+                resterait sans réponse.
+            </span>
+            <span data-auto-accept-help="template" {{ acceptance.missing == 'template' ? '' : 'hidden' }}>
+                Indisponible : le gabarit d'acceptation n'est pas rédigé (voir
+                <a href="/config/inscriptions/gabarits">Gabarits</a>).
+            </span>
+            <span data-auto-accept-help="ready" {{ acceptance.missing is null ? '' : 'hidden' }}>
+                Le site accepte lui-même, chaque heure, les demandes recommandées « Oui », dans l'ordre de priorité,
+                et s'arrête à la première qui ne l'est pas. « Peut-être » et « Non » restent à décider à la main,
+                comme une demande classée « Oui » qui ferait dépasser le nombre de places (seules les « Toujours
+                Oui » le peuvent). Les demandes hors des tranches d'âge et les doublons possibles sont laissés de
+                côté : pour un enfant déposé deux fois, seule sa plus ancienne demande peut être acceptée, et
+                aucune s'il a déjà une place.
+            </span>
+        </span>
+    </div>
+
+    {% include 'partials/form_field.html.twig' with {
+        field_id: 'registration-auto-accept-from',
+        field_name: 'auto_accept_from',
+        label: 'À partir du',
+        type: 'date',
+        value: acceptance.effective_from,
+        control_class_extra: 'w-auto',
+        help: "Avant cette date, rien n'est accepté automatiquement, et une demande déposée avant elle ne l'est jamais : elle reste à décider à la main.",
+    } only %}
 
     <button type="submit" class="btn btn-primary">Enregistrer</button>
 </form>

@@ -224,6 +224,16 @@ test('a family registers a child, follows the mailed tracking link, and the admi
     await expect(autoSend).not.toBeChecked();
     await expect(autoSend).toBeDisabled();
     await expect(automationBox.getByLabel('Délai avant envoi')).toHaveValue('24');
+    // Its automatic acceptance of the « Oui » requests (IT-10): off, and
+    // locked for as long as the automatic sending is — its date picker
+    // beside it.
+    const autoAccept = automationBox.getByRole('checkbox', { name: 'Accepter automatiquement les demandes « Oui »' });
+    await expect(autoAccept).not.toBeChecked();
+    await expect(autoAccept).toBeDisabled();
+    await expect(
+        automationBox.getByText("Indisponible : activez d'abord l'envoi automatique des e-mails de décision"),
+    ).toBeVisible();
+    await expect(automationBox.getByLabel('À partir du')).toBeVisible();
 
     // ---------------------------------------------------------------
     // The family fills the public form — anonymous, own cookie jar,

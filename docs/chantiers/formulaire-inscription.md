@@ -1712,3 +1712,219 @@ Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
   famille voit la décision à l'envoi effectif par la tâche (test).
 - **R8** : inchangé — la planification suit `apply()`, qui ne vérifie que
   ce que vérifie la transition.
+
+---
+
+## IT-10 — Acceptation automatique des demandes « Oui »
+
+**Livré.**
+
+- **Réglages › Capacités par branche › « Décisions automatiques »** : sous le
+  délai d'IT-09, l'interrupteur « Accepter automatiquement les demandes
+  « Oui » » (désactivé par défaut) et la date « À partir du » (sélecteur
+  natif), enregistrés par le même et unique « Enregistrer »
+  (`POST /config/inscriptions/decisions-automatiques`, contrôleur d'IT-09).
+  Il n'est activable qu'avec « Gérer les listes d'attente », l'envoi
+  automatique des e-mails de décision et un gabarit d'acceptation rédigé :
+  sinon il est grisé, la phrase de la maquette dit ce qui manque (trois
+  phrases, dans l'ordre listes d'attente → envoi automatique → gabarit), et
+  le serveur refuse aussi — rien de la sous-boîte n'est alors enregistré,
+  pas même l'envoi automatique coché avec lui. Une date est exigée pour
+  l'activer ; une valeur qui n'est pas une date est toujours refusée. Deux
+  réglages neufs, `editable: false` : `registration_auto_accept` (`0`) et
+  `registration_auto_accept_from` (vide). Les quatre réglages de la
+  sous-boîte sont validés puis écrits ensemble
+  (`Service\AutomaticAcceptancePolicy::save()`, qui reprend les règles
+  d'IT-09 par `AutomaticDecisionEmailService::validatedDelay()`) ; journal
+  `registration_auto_accept_saved` (interrupteur et date). Version du module
+  6.20.0 → 6.21.0.
+- **Les règles** dans `Service\AutomaticAcceptancePolicy` (fonctions pures
+  `nextAcceptable()`, `queuesBySlot()`, `acceptableRequestIds()`) : par année
+  de parcours, la file de la recommandation dans son ordre ; une demande
+  déposée avant la date de prise d'effet est laissée de côté (ni acceptée,
+  ni motif d'arrêt) ; la première autre demande qui n'est pas « Oui »
+  arrête l'année de parcours ; une demande classée « Oui » qui ferait
+  dépasser la capacité aussi (seuil « Oui » au-delà de 100 %) — seule une
+  « Toujours Oui » peut dépasser ; doublons et hors tranches ne sont pas
+  dans la file. `Recommendation` porte désormais la date de dépôt
+  (`receivedAt`). `isActive()` relit tout à chaque passage.
+- **Tâche planifiée `auto_accept_requests`** (`Task\AutoAcceptRequestsHandler`,
+  `module.json`, amorcée par `seed()` dans `public/scheduler-bootstrap.php`
+  à côté de `send_decision_emails`, réarmée une heure plus tard dans un
+  `finally`, aussitôt après un passage plafonné à 50 acceptations). Elle
+  construit ses services depuis le contexte de la tâche, comme
+  `public/index.php` les donne au dialogue, et lance
+  `Service\AutomaticAcceptanceService::run()` : pour l'année en cours et les
+  suivantes (jamais une année passée, R8), une lecture de la file ; pour
+  chaque année de parcours où il y a quelque chose à prendre, **un verrou
+  nommé par année de parcours** (`GET_LOCK` à délai nul,
+  `Core\Database\AdvisoryLock`, comme `CronPassLock` ;
+  `RegistrationRequestRepository::acquireAutoAcceptLock()`), puis, sous le
+  verrou, **une demande à la fois avec recalcul** de la recommandation après
+  chaque acceptance. Une année de parcours tenue par un autre passage lui
+  est laissée.
+- **Le même service de décision que la main** : chaque acceptation, dans sa
+  transaction, relit le statut **sous verrou de ligne** (`FOR UPDATE`,
+  `lockStatusForDecision()`) — une décision prise par un chef entre-temps
+  gagne toujours — puis passe par `RequestDecisionService::apply()`
+  (`automatic: true`), qui change le statut, rend obsolètes les anciens
+  e-mails et **planifie l'e-mail d'acceptation (IT-09)**. Une acceptation
+  dont l'e-mail n'a pas pu être planifié est annulée et arrête le passage
+  (`registration_request_auto_accept_unplanned`, avertissement).
+- **Journal distinct** : `registration_request_status_changed` porte
+  `automatic: true` et « (acceptation automatique) » ; chaque acceptation
+  écrit `registration_request_auto_accepted` (demande, année, branche,
+  année de parcours, règle, position, échéance de l'e-mail — des
+  identifiants seulement) ; un passage qui a accepté écrit
+  `registration_requests_auto_accept_run` (comptes). Un refus n'est jamais
+  automatique (`apply()` le refuse).
+- **Dialogue de décision** (phrases reportées par IT-04) : listes
+  d'attente gérées et acceptation automatique active, une demande que le
+  prochain passage prendrait dit « Sans décision de votre part, cette
+  demande sera acceptée automatiquement à la prochaine vérification du
+  site, dans l'heure. » (même règle que le passage, par
+  `dialogContext()`) ; un doublon ajoute « Le traitement automatique ne la
+  prendra pas. » ; une demande hors tranches dit « Le traitement
+  automatique ne prendra pas cette demande. ».
+- Désactiver « Gérer les listes d'attente » (`POST
+  /config/inscriptions/listes-attente`) désactive aussi l'acceptation
+  automatique et le dit ; les réactiver ne la réactive pas. JS :
+  `public/assets/js/registration-automation-settings.js` (l'interrupteur
+  suit l'envoi automatique et les listes d'attente sans recharger, décoché
+  quand un prérequis manque) et l'événement
+  `registration:waitlist-changed` émis par
+  `registration-capacity-settings.js` après l'enregistrement de la case.
+- Documentation : nouveau sujet d'aide `acceptation-automatique-des-demandes`
+  (trois questions, Réglages) ; `decider-une-demande`,
+  `envoi-automatique-des-e-mails-de-decision` et
+  `capacites-et-listes-d-attente` à jour ; `specifications.md` §17.6,
+  `ARCHITECTURE.md` §8.36 ; RGPD (contenu par défaut et consigne (a bis) de
+  `RgpdContentService`) : la recommandation n'accepte plus « rien d'elle-même »
+  quand l'acceptation automatique est active — elle ne refuse toujours
+  jamais rien.
+- Tests : `AutomaticAcceptancePolicyTest` (défauts, prérequis relus un à un,
+  `switchOff()`, état de la boîte, file entièrement « Oui », arrêt au
+  premier non-« Oui », « Oui » au-delà de la capacité refusé mais « Toujours
+  Oui » accepté, capacité illimitée, demande antérieure à la date laissée de
+  côté sans arrêter, hors file, une file par année de parcours),
+  `AutomaticAcceptanceServiceTest` (jeu de données de la maquette : six
+  acceptations dans l'ordre de la file, e-mail planifié à + 24 h, doublon et
+  hors tranches laissés ; rien sans un des prérequis ; arrêt et jamais de
+  Peut-être / Non ; seuil à 110 % ; « Toujours Oui » au-delà de la capacité ;
+  date de prise d'effet ; année passée ; second passage sans effet ; demande
+  refusée à la main entre le calcul et l'acceptation ; e-mail impossible à
+  planifier → annulation et arrêt ; journal sans donnée personnelle),
+  `AutomaticAcceptanceServiceOnMysqlTest` (MariaDB : prémisse du verrou
+  nommé, prémisse du verrou de ligne `FOR UPDATE NOWAIT`, année de parcours
+  tenue par une autre session laissée puis prise, **deux passages qui se
+  chevauchent → une seule acceptation et un seul e-mail par demande**, deux
+  passages rapprochés sur deux sessions, refus d'un chef sur une autre
+  session jamais écrasé, passage complet par la tâche sur le schéma de
+  production), `AutoAcceptRequestsHandlerTest` (câblage de la tâche,
+  réarmement, amorçage unique), `RegistrationAutomationSettingsControllerTest`
+  (activation avec envoi et date, refus sans chaque prérequis et sans date,
+  date invalide, désactivation, **RBAC** : chief refusé, rien d'écrit),
+  `RegistrationConfigControllerTest` (sous-boîte, raisons, case cochée,
+  date, listes d'attente coupées, phrases du dialogue),
+  `RequestDecisionServiceTest`, `RequestStatusServiceTest`,
+  `RegistrationRequestRepositoryTest`, Vitest
+  (`registration-automation-settings.test.js`, événement dans
+  `registration-capacity-settings.test.js`), scénario de bout en bout
+  `registration-flow` (interrupteur présent, décoché, grisé, raison, date).
+
+**Décisions autonomes.**
+
+- **La date de prise d'effet porte sur la date de dépôt** : une demande
+  déposée avant elle n'est jamais acceptée automatiquement (consigne
+  d'IT-10, parallèle de D7.1 « les décisions prises avant l'activation ne
+  sont pas planifiées ») ; « Avant cette date, rien n'est accepté
+  automatiquement » reste vrai, et l'aide du champ le précise.
+- **Une demande antérieure à la date est laissée de côté, pas un arrêt** :
+  les demandes derrière elle sont jugées comme si elle était acceptée, donc
+  les prendre ne lui retire pas sa place ni ne fait dépasser la capacité
+  quand un chef l'accepte ensuite. L'arrêter aurait bloqué l'automatisme
+  jusqu'à ce que toutes les demandes antérieures soient décidées.
+- **« Toujours Oui » sur une année de parcours fermée (capacité 0)** : la
+  recommandation la dit « Oui » (D5, avec l'avertissement de dépassement),
+  l'acceptation automatique la prend donc, comme la maquette
+  (`autoAcceptable()`).
+- **Une acceptation dont l'e-mail ne peut pas être planifié est annulée** :
+  « l'e-mail est planifié par IT-09 » devient une garantie, pas un
+  espoir ; le cas est rare (gabarit vidé pendant le passage), le passage
+  s'arrête et le journal le dit.
+- **Le serveur refuse l'acceptation automatique cochée avec l'envoi
+  automatique décoché**, plutôt que de la couper en silence ; le script
+  décoche l'une avec l'autre, comme la maquette, si bien que le refus ne se
+  voit que sans JavaScript.
+- **Listes d'attente coupées depuis Configuration › Paramètres** (le seul
+  autre chemin) : la case de la boîte coupe l'acceptation automatique tout
+  de suite ; ce chemin-là, au passage horaire suivant
+  (`registration_auto_accept_switched_off`). D'ici là elle est suspendue
+  (`isActive()` relit les prérequis), affichée grisée et décochée.
+- **Une demande qui échoue pour une raison inattendue** (demande illisible,
+  attente de verrou dépassée) est annulée, journalisée
+  (`registration_request_auto_accept_failed`, classe de l'erreur
+  seulement) et laisse son année de parcours à une personne ; le passage
+  continue avec les autres, sur le modèle d'IT-09 (« un e-mail n'arrête
+  jamais le lot »).
+- **La date reste affichée interrupteur coupé** (la maquette la masque) et
+  vaut aujourd'hui tant qu'aucune n'est enregistrée : même choix que le
+  délai d'IT-09.
+- **Pas de nombre « N demandes en attente concernées » dans la
+  confirmation** : avec une date de prise d'effet portant sur le dépôt, il
+  vaut presque toujours zéro à l'activation ; la confirmation dit à partir
+  de quand, selon quelles règles, et que l'e-mail part après le délai.
+- **Textes d'aide de la maquette précisés** là où ils promettaient plus que
+  le code : « s'arrête à la première qui ne l'est pas », et pour les
+  doublons « seule sa plus ancienne demande peut être acceptée, et aucune
+  s'il a déjà une place » (règle d'IT-03).
+- **Passage horaire** : une famille acceptée n'en est informée qu'à l'envoi de
+  l'e-mail, au plus tôt une heure plus tard ; plafond de 50 acceptations
+  par passage, réarmé aussitôt.
+- **Nom du verrou non préfixé par la base** (comme `CronPassLock`) : deux
+  sites sur le même serveur MariaDB ne font au pire que se céder une année
+  de parcours pour une heure.
+- **Relecture `code-review` (high)** : corrigés — l'arrêt de l'acceptation
+  automatique quand les listes d'attente sont coupées ailleurs que dans la
+  boîte ; une erreur sur une demande qui arrêtait tout le passage (et la
+  même demande en tête chaque heure) ; la phrase RGPD « jamais de
+  changement d'état automatique » ; l'indicateur « gabarit rédigé » du
+  script déduit du seul premier prérequis manquant ; l'ordre des écritures
+  de la case des listes d'attente ; une entrée de journal « acceptation
+  automatique désactivée » à chaque enregistrement du délai ; le second
+  chemin d'enregistrement (`AutomaticDecisionEmailService::save()`, sans
+  appelant) supprimé ; la règle « année encore décidable » reprise de
+  `isDecidableYear()` au lieu d'une troisième copie. Non retenus : relire
+  l'interrupteur entre deux acceptations d'un même passage (le cache des
+  réglages ne verrait pas le changement, et un passage dure quelques
+  secondes ; la désactivation vaut au passage suivant) ; réutiliser au
+  premier tour la file lue avant le verrou (elle doit être relue sous le
+  verrou, c'est ce qui garantit le recalcul) ou ne recalculer qu'une année
+  de parcours (le service de recommandation calcule une année entière).
+
+**Divergences avec le document.**
+
+- Vérifié sur `main` (`141efab5`, module 6.20.0) : la sous-boîte et sa place
+  réservée, `RequestDecisionService::apply()` et la planification d'IT-09
+  dans sa transaction, l'amorçage de `send_decision_emails` par `seed()`,
+  `Recommendation::exceedsCapacity()` déjà prévu pour IT-10 ;
+  `GET_LOCK` passait par `Core\Database\AdvisoryLock` (quatre appelants).
+- La maquette annonce « sera acceptée automatiquement à partir du
+  {date} » et compte les demandes en attente concernées : avec la date
+  portant sur le dépôt, le dialogue dit « à la prochaine vérification du
+  site, dans l'heure » (la demande est forcément déposée après la date).
+
+**Reporté.**
+
+- Signalé pour une issue : une acceptation **à la main** d'une autre demande
+  de la même année de parcours, validée dans les quelques millisecondes
+  entre le recalcul de la file sous verrou et l'acceptation automatique,
+  n'est pas vue par celle-ci, qui peut alors porter l'année de parcours
+  une place au-delà de sa capacité (les décisions à la main ne prennent pas
+  le verrou de l'année de parcours). Le verrou par année de parcours et la
+  relecture du statut sous verrou de ligne couvrent les passages entre eux
+  et la demande elle-même, pas une décision manuelle sur une voisine.
+
+**Faits tranchés.** R8 : l'acceptation automatique ne parcourt que l'année
+en cours et les suivantes ; une demande d'une année passée n'est jamais
+acceptée automatiquement (test).
