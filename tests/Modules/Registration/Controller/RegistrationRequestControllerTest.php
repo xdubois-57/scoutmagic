@@ -517,6 +517,31 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertNotNull($this->requestRepository->findById($id)->acceptedEmailSentAt);
     }
 
+    /**
+     * An e-mail still to write sends the chief to where it is written —
+     * « Gabarits » (issue #843, IT-07) — and nowhere else: the site
+     * parameters page cannot write it.
+     */
+    public function testAnUnwrittenDecisionEmailPointsToGabarits(): void
+    {
+        $id = $this->createRequest();
+        $show = fn(): string => (string) $this->controller->show(
+            new Request('GET', "/config/inscriptions/demandes/{$id}", [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $body = $show();
+        $this->assertSame(
+            2,
+            substr_count($body, "n'a pas encore été rédigé — voir <a href=\"/config/inscriptions/gabarits\">Gabarits</a>.")
+        );
+        $this->assertStringNotContainsString('href="/config/settings"', $body);
+
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue</p>', 'rich_text', 1);
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé</p>', 'rich_text', 1);
+        $this->assertStringNotContainsString("n'a pas encore été rédigé", $show());
+    }
+
     public function testLinkRejectsUnknownDeskNumber(): void
     {
         $id = $this->createRequest();

@@ -195,7 +195,6 @@ class RegistrationRbacTest extends TestCase
         return [
             'dashboard' => ['/config/inscriptions', 'RegistrationConfigController', 'index'],
             'requests' => ['/config/inscriptions/demandes', 'RegistrationConfigController', 'requests'],
-            'templates' => ['/config/inscriptions/gabarits', 'RegistrationConfigController', 'templates'],
             'settings' => ['/config/inscriptions/reglages', 'RegistrationConfigController', 'settings'],
             // The export takes the role of the page it lives on, never a
             // rung below it — the requests it writes out are the same

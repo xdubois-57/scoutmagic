@@ -38,7 +38,7 @@
      * @returns {boolean}
      */
     function canConfirmRefusal(reason) {
-        return REFUSAL_REASONS.indexOf(reason) !== -1;
+        return REFUSAL_REASONS.includes(reason);
     }
 
     /**
@@ -82,7 +82,7 @@
      */
     function reset(dialog, form) {
         form.reset();
-        form.removeAttribute('data-decide-sent');
+        delete form.dataset.decideSent;
         submitButtons(dialog).forEach(function (button) { button.disabled = false; });
         setRefusing(dialog, false);
     }
@@ -106,11 +106,11 @@
             setRefusing(dialog, true);
         });
         form.addEventListener('submit', function (event) {
-            if (form.hasAttribute('data-decide-sent')) {
+            if ('decideSent' in form.dataset) {
                 event.preventDefault();
                 return;
             }
-            form.setAttribute('data-decide-sent', '');
+            form.dataset.decideSent = '';
             // One turn later: a button disabled now would drop its own name
             // and value — the decision itself — from the request being built
             // (design.md §7.10, the same reason form-submit-lock.js waits).

@@ -11376,6 +11376,16 @@ if ($isEnabled('registration')) {
             new \Modules\Registration\Service\PriorityOrderService($settingService)
         )
     );
+    // « Gabarits » (issue #843, IT-07): the four request e-mails' bodies,
+    // stored in the same content store the senders above read them from.
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationTemplateController::class,
+        new \Modules\Registration\Controller\RegistrationTemplateController(
+            $twig,
+            new \Modules\Registration\Service\RequestEmailTemplateService($editableContentService),
+            $journalService
+        )
+    );
     $frontController->registerController(
         \Modules\Registration\Controller\RequestDecisionController::class,
         new \Modules\Registration\Controller\RequestDecisionController(

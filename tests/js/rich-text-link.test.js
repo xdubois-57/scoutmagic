@@ -434,3 +434,418 @@ describe('ScoutMagicRichText.wireToolbar()', () => {
         expect(afterCommand).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('ScoutMagicRichText.wireToolbar() — a list item made a heading or a paragraph (#885)', () => {
+    /**
+     * The shared toolbar's three block buttons over a surface holding
+     * $html, with the caret inside the text node $caretIn.
+     *
+     * @param {string} html
+     * @param {string} caretIn the exact text of the node the caret sits in
+     */
+    async function editing(html, caretIn) {
+        const rt = await loadHelper();
+        document.body.innerHTML = `
+            <div id="modal">
+                <button data-command="formatBlock" data-value="h2">H2</button>
+                <button data-command="formatBlock" data-value="h3">H3</button>
+                <button data-command="formatBlock" data-value="p">P</button>
+            </div>
+            <div id="surface" contenteditable="true"></div>
+        `;
+        const surface = document.getElementById('surface');
+        surface.innerHTML = html;
+
+        const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+        let text = walker.nextNode();
+        while (text && text.textContent !== caretIn) {
+            text = walker.nextNode();
+        }
+        const range = document.createRange();
+        range.setStart(text, 1);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        const afterCommand = vi.fn();
+        rt.wireToolbar(document.getElementById('modal'), surface, afterCommand);
+
+        return {
+            rt,
+            surface,
+            afterCommand,
+            caretText: text,
+            press: (value) => document.querySelector('[data-value="' + value + '"]').dispatchEvent(new Event('click')),
+        };
+    }
+
+    it.each(['h2', 'h3', 'p'])('takes the first item out of its list as a <%s>', async (tag) => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul>', 'un');
+
+        press(tag);
+
+        expect(surface.innerHTML).toBe(`<${tag}>un</${tag}><ul><li>deux</li></ul>`);
+        expect(execCommand).not.toHaveBeenCalled();
+    });
+
+    it('cuts the list in two around an item in the middle', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'deux');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h2>deux</h2><ul><li>trois</li></ul>');
+    });
+
+    it('takes the last item out after the list, and removes a list left empty', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>suite</p>', 'deux');
+        press('h3');
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h3>deux</h3><p>suite</p>');
+
+        const alone = await editing('<ul><li>seul</li></ul>', 'seul');
+        alone.press('p');
+        expect(alone.surface.innerHTML).toBe('<p>seul</p>');
+    });
+
+    it('keeps the inline content of the item, bold and links included', async () => {
+        const { surface, press } = await editing(
+            '<ul><li><strong>Gras</strong> et <a href="https://lesscouts.be">lien</a></li></ul>',
+            ' et '
+        );
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2><strong>Gras</strong> et <a href="https://lesscouts.be">lien</a></h2>');
+    });
+
+    it('applies the same rule to a numbered list', async () => {
+        const { rt, surface, press } = await editing('<ol><li>un</li><li>deux</li><li>trois</li></ol>', 'deux');
+
+        press('p');
+
+        // No `start` on the second half: the canonical form would not keep
+        // it, and the screen would number differently from the saved text.
+        expect(surface.innerHTML).toBe('<ol><li>un</li></ol><p>deux</p><ol><li>trois</li></ol>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('saves exactly what is on screen: the canonical form keeps the heading', async () => {
+        const { rt, surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'deux');
+
+        press('h2');
+
+        // What the engine's formatBlock produced, <h2><ul>…</ul></h2>, was
+        // invalid — and the canonical form dropped the heading on save.
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('leaves the caret in the text it was in, and reports the change', async () => {
+        const { press, caretText, afterCommand } = await editing('<ul><li>un</li><li>deux</li></ul>', 'deux');
+
+        press('h2');
+
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.startContainer).toBe(caretText);
+        expect(range.startOffset).toBe(1);
+        expect(caretText.parentElement.tagName).toBe('H2');
+        // A move made by hand fires no `input`: the hook is how an editor
+        // with a hidden field or an onChange learns of it.
+        expect(afterCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes an item of a nested list out of both lists', async () => {
+        const { surface, press } = await editing('<ul><li>haut<ul><li>bas</li></ul></li><li>après</li></ul>', 'bas');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>haut</li></ul><h2>bas</h2><ul><li>après</li></ul>');
+    });
+
+    /** The text node of $surface whose text is exactly $text. */
+    function textNode(surface, text) {
+        const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node && node.textContent !== text) {
+            node = walker.nextNode();
+        }
+        return node;
+    }
+
+    function select(surface, fromText, toText) {
+        const range = document.createRange();
+        range.setStart(textNode(surface, fromText), 1);
+        range.setEnd(textNode(surface, toText), 1);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+    }
+
+    // A selection that starts in a paragraph above the list and ends in it
+    // used to reach the engine whole — which wrapped the list in a heading.
+    it('takes the items a selection reaches out of the list, and leaves the paragraph above to the engine', async () => {
+        const { surface, press } = await editing('<p>avant</p><ul><li>un</li><li>deux</li></ul>', 'avant');
+        select(surface, 'avant', 'un');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<p>avant</p><h2>un</h2><ul><li>deux</li></ul>');
+        // The engine gets what is left, with no list item left in the selection.
+        expect(execCommand).toHaveBeenCalledTimes(1);
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.startContainer.textContent).toBe('avant');
+        expect(range.endContainer.textContent).toBe('un');
+    });
+
+    // Both ends in a list item, and a paragraph between the two lists: the
+    // ends alone would leave that paragraph out of the command.
+    it('leaves to the engine a paragraph between two lists that the selection holds', async () => {
+        const { surface, press } = await editing('<ul><li>un</li></ul><p>milieu</p><ul><li>deux</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><p>milieu</p><h2>deux</h2>');
+        expect(execCommand).toHaveBeenCalledTimes(1);
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
+    // « Select all » counts the end in children of the surface. The items
+    // become blocks of their own and the emptied list goes: the old count
+    // still fits, but would end before the last paragraph and leave it out
+    // of what the engine formats.
+    it('keeps every paragraph after the list in a selection of everything', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>a</p><p>b</p>', 'un');
+        const range = document.createRange();
+        range.setStart(surface, 0);
+        range.setEnd(surface, surface.childNodes.length);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>deux</h2><p>a</p><p>b</p>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.startContainer).toBe(surface);
+        expect(restored.startOffset).toBe(0);
+        expect(restored.endContainer).toBe(surface);
+        expect(restored.endOffset).toBe(4);
+    });
+
+    // An end in the surface just before a paragraph that follows the list
+    // stays before that paragraph, wherever the surgery has moved it.
+    it('keeps an end standing before a paragraph before that same paragraph', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li></ul><p>a</p><p>b</p>', 'un');
+        const range = document.createRange();
+        range.setStart(textNode(surface, 'un'), 0);
+        range.setEnd(surface, 2);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>deux</h2><p>a</p><p>b</p>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.endContainer).toBe(surface);
+        expect(surface.childNodes[restored.endOffset].textContent).toBe('b');
+    });
+
+    // A selection counted in children of the list itself: once the list is
+    // cut in two, it no longer has the third child the end pointed after.
+    it('survives a selection whose offsets no longer fit the list it was cut from, and still tells the form', async () => {
+        const { surface, press, afterCommand } = await editing('<ul><li>un</li><li>deux</li><li>trois</li><li>quatre</li></ul>', 'un');
+        const list = surface.querySelector('ul');
+        const range = document.createRange();
+        range.setStart(list, 1);
+        range.setEnd(list, 3);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>un</li></ul><h2>deux</h2><h2>trois</h2><ul><li>quatre</li></ul>');
+        expect(afterCommand).toHaveBeenCalledTimes(1);
+    });
+
+    // Two editors on one form: the caret left in the other one must not
+    // receive the command of this one's toolbar.
+    it('brings the selection to its own editor before running a command, when it was in another', async () => {
+        const { surface, press } = await editing('<p>ici</p>', 'ici');
+        const other = document.createElement('div');
+        other.contentEditable = 'true';
+        other.textContent = 'ailleurs';
+        document.body.appendChild(other);
+        const range = document.createRange();
+        range.setStart(/** @type {Text} */ (other.firstChild), 2);
+        range.collapse(true);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        const focus = vi.spyOn(surface, 'focus');
+
+        press('h2');
+
+        expect(focus).toHaveBeenCalled();
+        expect(focus.mock.invocationCallOrder[0]).toBeLessThan(execCommand.mock.invocationCallOrder[0]);
+    });
+
+    it('brings the selection to its own editor before « Lien » too', async () => {
+        const { surface } = await editing('<p>ici</p>', 'ici');
+        const link = document.createElement('button');
+        link.dataset.command = 'createLink';
+        document.getElementById('modal').appendChild(link);
+        window.ScoutMagicRichText.wireToolbar(document.getElementById('modal'), surface, null);
+        const title = document.createElement('input');
+        title.value = 'Titre de l\'article';
+        document.body.appendChild(title);
+        const range = document.createRange();
+        range.selectNodeContents(title);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        const focus = vi.spyOn(surface, 'focus');
+
+        link.dispatchEvent(new Event('click'));
+
+        expect(focus).toHaveBeenCalled();
+    });
+
+    it('keeps a selection already in its own editor, without focusing it first', async () => {
+        const { surface, press } = await editing('<p>ici</p>', 'ici');
+        const focus = vi.spyOn(surface, 'focus');
+
+        press('h2');
+
+        // Once, after the command — as before.
+        expect(focus).toHaveBeenCalledTimes(1);
+        expect(focus.mock.invocationCallOrder[0]).toBeGreaterThan(execCommand.mock.invocationCallOrder[0]);
+    });
+
+    // An item left empty on purpose (Enter twice) is a line like any other:
+    // skipped, it stayed a bullet among the new blocks.
+    it('takes an empty item a selection crosses out of the list with the others', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li><br></li><li>deux</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h2');
+
+        expect(surface.querySelector('li')).toBeNull();
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2><br></h2><h2>deux</h2>');
+    });
+
+    // Stored content can hold an <li> straight in the surface: there is no
+    // list to leave, and the surface itself must never be taken for one.
+    it('leaves a bare item with no list around it to the engine, and keeps the editor in place', async () => {
+        const { surface, press } = await editing('<li>seul</li>', 'seul');
+
+        press('h2');
+
+        expect(surface.isConnected).toBe(true);
+        expect(surface.innerHTML).toBe('<li>seul</li>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
+    // A selection ending on the item element itself (a triple click): the
+    // item goes with its list, but the paragraph above stays in the
+    // selection the engine is given.
+    it('keeps the paragraph above in the selection when the end stood on an item that went with its list', async () => {
+        const { surface, press } = await editing('<p>avant</p><ul><li>un</li></ul>', 'avant');
+        const range = document.createRange();
+        range.setStart(textNode(surface, 'avant'), 0);
+        range.setEnd(surface.querySelector('li'), 1);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<p>avant</p><h2>un</h2>');
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+        const restored = window.getSelection().getRangeAt(0);
+        expect(restored.startContainer.textContent).toBe('avant');
+        expect(restored.intersectsNode(surface.querySelector('h2'))).toBe(true);
+    });
+
+    // An item of nothing but whitespace between two selected ones: the
+    // canonical form drops it on save, so it must not stay a lone bullet.
+    it('leaves no lone bullet for a whitespace-only item between two selected items', async () => {
+        const { rt, surface, press } = await editing('<ul><li>un</li><li> </li><li>trois</li></ul>', 'un');
+        select(surface, 'un', 'trois');
+
+        press('h2');
+
+        expect(surface.querySelector('li, ul')).toBeNull();
+        expect(surface.innerHTML).toBe('<h2>un</h2><h2>trois</h2>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('takes every item of a selection over several out of the list, and keeps the selection', async () => {
+        const { surface, press } = await editing('<ul><li>un</li><li>deux</li><li>trois</li></ul>', 'un');
+        select(surface, 'un', 'deux');
+
+        press('h3');
+
+        expect(surface.innerHTML).toBe('<h3>un</h3><h3>deux</h3><ul><li>trois</li></ul>');
+        expect(execCommand).not.toHaveBeenCalled();
+        const range = window.getSelection().getRangeAt(0);
+        expect(range.collapsed).toBe(false);
+        expect(range.startContainer.textContent).toBe('un');
+        expect(range.endContainer.textContent).toBe('deux');
+    });
+
+    // The canonical form drops a whitespace-only item on save: the screen
+    // must not keep it as an empty bullet.
+    it('leaves no empty bullet behind when the item above held only whitespace', async () => {
+        const { rt, surface, press } = await editing('<ul><li> <ul><li>bas</li></ul></li></ul>', 'bas');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<h2>bas</h2>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    // An item cut in two lines by a nested list: the line holding the
+    // caret is the one made a heading, not the item's first.
+    it('makes a heading of the line after a nested list when the caret is there', async () => {
+        const { rt, surface, press } = await editing('<ul><li>avant<ul><li>sous</li></ul>texte</li><li>fin</li></ul>', 'texte');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li>avant<ul><li>sous</li></ul></li></ul><h2>texte</h2><ul><li>fin</li></ul>');
+        expect(rt.canonicalHtml(surface.innerHTML)).toBe(surface.innerHTML);
+    });
+
+    it('makes a heading of the text after a nested list that opens the item, and no empty heading', async () => {
+        const { surface, press } = await editing('<ul><li><ul><li>sous</li></ul>texte</li></ul>', 'texte');
+
+        press('h2');
+
+        expect(surface.innerHTML).toBe('<ul><li><ul><li>sous</li></ul></li></ul><h2>texte</h2>');
+    });
+
+    it('takes each line a selection crosses out of the list, in the order they are read', async () => {
+        const { surface, press } = await editing('<ul><li>avant<ul><li>sous</li></ul>texte</li></ul>', 'avant');
+        select(surface, 'avant', 'texte');
+
+        press('h3');
+
+        expect(surface.innerHTML).toBe('<h3>avant</h3><h3>sous</h3><h3>texte</h3>');
+    });
+
+    it('makes a paragraph of any block it was not built to offer, never an element named by the attribute', async () => {
+        const { surface } = await editing('<ul><li>un</li></ul>', 'un');
+        const odd = document.querySelector('[data-value="h2"]');
+        odd.dataset.value = 'script';
+
+        odd.dispatchEvent(new Event('click'));
+
+        // The button's own text never reaches createElement(): only the
+        // three blocks of the toolbar can come out of it (CodeQL, #893).
+        expect(surface.innerHTML).toBe('<p>un</p>');
+        expect(surface.querySelector('script')).toBeNull();
+    });
+
+    it('still hands a heading outside any list to the engine, so « Paragraphe » turns it back', async () => {
+        const { press } = await editing('<h2>Titre</h2>', 'Titre');
+
+        press('p');
+
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<p>');
+    });
+});
