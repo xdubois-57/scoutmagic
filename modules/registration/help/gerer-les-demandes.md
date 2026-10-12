@@ -7,8 +7,8 @@ role_min: admin
 question: Comment accepter ou refuser une demande d'inscription ?
 question: Comment répondre à une famille qui attend une place ?
 question: Combien de demandes reste-t-il à traiter ?
-paths: /config/inscriptions, /config/inscriptions/demandes, /config/inscriptions/demandes/*, /config/inscriptions/gabarits, /config/inscriptions/reglages
-related: capacites-et-listes-d-attente, inscrire-un-enfant, passage, annee-scoute
+paths: /config/inscriptions, /config/inscriptions/demandes, /config/inscriptions/demandes/*, /config/inscriptions/reglages
+related: capacites-et-listes-d-attente, rediger-les-e-mails-de-demande, inscrire-un-enfant, passage, annee-scoute
 ---
 
 La page « Formulaire d'inscription » a quatre onglets : « Tableau de
@@ -38,7 +38,7 @@ attente » rattrape une décision, sauf une demande déjà encodée.
 **La famille ne voit une décision que lorsque son e-mail est parti** :
 accepter sans envoyer l'e-mail la laisse « en attente » à ses yeux.
 Les e-mails s'envoient depuis la fiche, et le bouton reste gris tant
-que leur texte n'est pas rédigé.
+que leur texte n'est pas rédigé dans l'onglet « Gabarits ».
 
 ## La fiche d'une demande
 
