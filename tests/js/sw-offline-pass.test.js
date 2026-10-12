@@ -247,6 +247,25 @@ describe('sw.js: imageVariantsIn()', () => {
     });
 });
 
+describe('sw.js: announcePassDone() — every window hears that the pass finished (#883)', () => {
+    // The page that asked may have been left before a long pass ends; the
+    // launch is remembered only on this message, so every open window of
+    // the app gets it, with whose pass it was.
+    it('tells every open window, with the scope and version of the pass', async () => {
+        await seed();
+        const windows = [{ postMessage: vi.fn() }, { postMessage: vi.fn() }];
+        const matchAll = vi.fn(async () => windows);
+        self.clients = /** @type {any} */ ({ matchAll });
+
+        await sw.announcePassDone();
+
+        expect(matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+        windows.forEach((client) => {
+            expect(client.postMessage).toHaveBeenCalledWith({ type: 'offline-refresh-done', scope: 'a|1' });
+        });
+    });
+});
+
 describe('sw.js: adoptPreviousVersion() — an update no longer starts from nothing (#883)', () => {
     it('carries the previous version\'s copies over, dates intact, and drops the old cache', async () => {
         const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toUTCString();

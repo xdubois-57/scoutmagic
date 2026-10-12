@@ -464,17 +464,36 @@ self.addEventListener('message', function (event) {
         // with consent, once per launch). Run here rather than in the page
         // so that moving to another page of the app does not interrupt it.
         // The configuration that page just sent is written first.
-        const client = event.source;
         event.waitUntil(lastConfigWrite.then(function () {
             return refreshOfflineCopies();
         }).then(function (done) {
-            if (done && client && typeof client.postMessage === 'function') {
-                client.postMessage({ type: 'offline-refresh-done' });
-            }
+            return done ? announcePassDone() : undefined;
         }).catch(function () {}));
     }
 });
 
+
+/**
+ * Tells every open window of the app that the pass finished — not only the
+ * page that asked for it: that page may have been left for another long
+ * before a pass of many requests ends, and the launch is remembered only
+ * on this message (offline-prefetch.js). Missed, every later page of the
+ * launch would start a whole pass again.
+ *
+ * The scope says whose pass it was: a window of another account ignores it.
+ *
+ * @returns {Promise<void>}
+ */
+function announcePassDone() {
+    return getOfflineConfig().then(function (config) {
+        const scope = String(config?.account_scope) + '|' + String(config?.version);
+        return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
+            windows.forEach(function (client) {
+                client.postMessage({ type: 'offline-refresh-done', scope: scope });
+            });
+        });
+    });
+}
 
 // --- #883: the pass that keeps the list offline ---
 
@@ -1570,6 +1589,7 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     getOfflineList: getOfflineList,
     adoptPreviousVersion: adoptPreviousVersion,
     refreshOfflineCopies: refreshOfflineCopies,
+    announcePassDone: announcePassDone,
     imageVariantsIn: imageVariantsIn,
     variantResponse: variantResponse,
     LIST_URL: LIST_URL,

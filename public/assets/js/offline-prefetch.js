@@ -64,7 +64,10 @@
     }
 
     navigator.serviceWorker.addEventListener('message', function (event) {
-        if (event.data?.type === 'offline-refresh-done') {
+        // Announced to every window of the app, not only the page that
+        // asked (sw.js announcePassDone()): one for another account says
+        // nothing about this one.
+        if (event.data?.type === 'offline-refresh-done' && (event.data.scope ?? scope) === scope) {
             rememberDone();
         }
     });

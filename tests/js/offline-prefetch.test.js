@@ -34,10 +34,10 @@ function installWorker() {
 }
 
 /** The worker telling every listening page that its pass finished. */
-function workerSaysDone() {
+function workerSaysDone(scope = 'acct1|1.2.3') {
     workerListeners
         .filter(({ type }) => type === 'message')
-        .forEach(({ listener }) => listener({ data: { type: 'offline-refresh-done' } }));
+        .forEach(({ listener }) => listener({ data: { type: 'offline-refresh-done', scope } }));
 }
 
 async function boot() {
@@ -117,6 +117,22 @@ describe('offline-prefetch.js: a launch is done only once the pass finished (#88
         config();
         await boot();
         await settle();
+
+        installWorker();
+        await boot();
+        await settle();
+
+        expect(postMessage).toHaveBeenCalledWith(ASK);
+    });
+
+    // The worker announces a finished pass to every window of the app: a
+    // window signed in as somebody else hears it too, and must not take
+    // it for its own.
+    it('does not take a pass finished for another account as its own', async () => {
+        config();
+        await boot();
+        await settle();
+        workerSaysDone('acct2|1.2.3');
 
         installWorker();
         await boot();
