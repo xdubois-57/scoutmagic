@@ -583,10 +583,13 @@ class RegistrationRequestRepository
      * enrolment (`member_years.is_active`) in $currentScoutYearId or in the
      * scout year the request itself targets: one already re-enrolled for
      * that year counts, one with no active enrolment in either has left and
-     * does not any more. A sibling whose `members` row was merged into
-     * another identity since (Core\Member\Duplicate\MemberMergeService
-     * moves the member_years, not this module's links) is looked up under
-     * the identity it was merged into.
+     * does not any more. The enrolment is the whole test: a sibling still
+     * enrolled this year but marked as leaving (`member_years.leaving`)
+     * still counts. A sibling whose `members` row was merged into another
+     * identity since (Core\Member\Duplicate\MemberMergeService moves the
+     * member_years, not this module's links) is looked up under the
+     * identity it was merged into — one hop, like finance's
+     * MemberLookupRepository::resolveIds().
      *
      * The recommendation is its only reader. Every screen that SHOWS the
      * siblings — the Passage page, the fiche, the list and its export —

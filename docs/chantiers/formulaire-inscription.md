@@ -1299,12 +1299,16 @@ Complément d'IT-03, sur `main` en `6303f64c` (module 6.18.0).
 - La requête prend l'année en cours en paramètre et lit l'année visée sur
   chaque demande (jointure) : la règle « l'année de la demande » est dans
   la requête, pas dans l'appelant.
-- Fusion de membres suivie sur un niveau (`merged_into_member_id`) : sans
-  cela, un frère déclaré sous une identité fusionnée depuis aurait cessé
-  de compter alors qu'il est toujours inscrit — une régression que ce
-  changement aurait introduite. La fiche et la page Passage, qui
-  résolvent le nom sur l'identité déclarée, ne la suivent pas (constat
-  antérieur, non touché ici).
+- Fusion de membres suivie sur un niveau (`merged_into_member_id`, comme
+  `MemberLookupRepository::resolveIds()` de la trésorerie) : sans cela, un
+  frère déclaré sous une identité fusionnée depuis aurait cessé de compter
+  alors qu'il est toujours inscrit — une régression que ce changement
+  aurait introduite. La fiche et la page Passage, qui résolvent le nom sur
+  l'identité déclarée, ne la suivent pas (constat antérieur, non touché
+  ici).
+- Version du module inchangée : ni `module.json` ni `schema.sql` ne
+  changent, et la consigne de ce complément était de ne les toucher que si
+  nécessaire.
 
 **Divergences avec le document.**
 

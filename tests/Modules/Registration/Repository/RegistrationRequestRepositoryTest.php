@@ -187,29 +187,34 @@ class RegistrationRequestRepositoryTest extends TestCase
         $left = $this->enrolledMember([$pastYearId => true, $currentYearId => false]);
         $lastYearOnly = $this->enrolledMember([$pastYearId => true]);
         $neverEnrolled = $this->enrolledMember([]);
+        // Still enrolled this year, announced as leaving: the enrolment is
+        // the whole test.
+        $leaving = $this->enrolledMember([$currentYearId => true]);
+        $this->pdo->prepare('UPDATE member_years SET leaving = 1 WHERE member_id = ?')->execute([$leaving]);
         // Merged since into an identity enrolled this year: the merge moved
         // the member_years, not the link the family declared.
         $merged = $this->enrolledMember([]);
         $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')
             ->execute([$this->enrolledMember([$currentYearId => true]), $merged]);
 
-        $declared = [$bothYears, $thisYear, $reEnrolled, $left, $lastYearOnly, $neverEnrolled, $merged];
+        $declared = [$bothYears, $thisYear, $reEnrolled, $left, $lastYearOnly, $neverEnrolled, $leaving, $merged];
         $forTarget = $this->repository->create($targetYearId, $this->sampleFields(), null, $declared)['id'];
         // Filed for the current year: the target year is not its year, so
         // an enrolment there alone does not count for it.
         $inYear = $this->repository->create($currentYearId, $this->sampleFields(), null, [$reEnrolled, $left])['id'];
         $none = $this->repository->create($targetYearId, $this->sampleFields(), null, [])['id'];
-        $notAsked = $this->repository->create($targetYearId, $this->sampleFields(), null, [$thisYear])['id'];
+        // Not asked about, with a sibling still in the unit: absent from
+        // the answer below, which is compared whole.
+        $this->repository->create($targetYearId, $this->sampleFields(), null, [$thisYear]);
 
         $present = $this->repository->findPresentSiblingMemberIdsForRequests(
             [$forTarget, $inYear, $none, $forTarget],
             $currentYearId
         );
 
-        $expected = [$bothYears, $thisYear, $reEnrolled, $merged];
+        $expected = [$bothYears, $thisYear, $reEnrolled, $leaving, $merged];
         sort($expected);
         $this->assertSame([$forTarget => $expected], $present);
-        $this->assertArrayNotHasKey($notAsked, $present);
         $this->assertSame([], $this->repository->findPresentSiblingMemberIdsForRequests([], $currentYearId));
 
         // What the Passage page, the fiche and the export read: every
@@ -219,8 +224,8 @@ class RegistrationRequestRepositoryTest extends TestCase
         sort($declared);
         $this->assertSame($declared, $allDeclared[$forTarget]);
         $this->assertCount(2, $allDeclared[$inYear]);
-        $this->assertSame([$forTarget => 7], $this->repository->countSiblingsForRequests([$forTarget]));
-        $this->assertCount(7, $this->repository->findSiblingMemberIds($forTarget));
+        $this->assertSame([$forTarget => 8], $this->repository->countSiblingsForRequests([$forTarget]));
+        $this->assertCount(8, $this->repository->findSiblingMemberIds($forTarget));
     }
 
     /**
