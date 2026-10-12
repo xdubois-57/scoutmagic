@@ -2,63 +2,40 @@
  * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
-// Offline pre-download (Lot 4) — warms the offline-whitelisted app ONCE
-// PER LAUNCH of the INSTALLED app ('display-mode: standalone'), with
-// functional consent, and never anonymously (config.accountScope ===
-// 'guest' bails out immediately — deferred until the first launch after
-// login otherwise). Fetches GET /api/offline/manifest
-// (Core\Offline\OfflineManifestService) for the exact set of page and
-// image URLs the caller's role currently entitles them to, then:
+// Offline pre-download (Lot 4, #883) — decides WHEN the installed app's
+// offline copies are refreshed, and asks the service worker to do it.
 //
-// - Images: skip any URL already in the cache — a derivative URL is
-//   immutable for a given file id (Core\Photo\ImageVariantService: a
-//   re-upload always creates a new file id), so an unchanged photo costs
-//   zero bytes on every subsequent launch. Cached image entries no longer
-//   in the manifest (a member no longer linked, a photo removed) are
-//   deleted, so the cache doesn't grow unbounded across launches/staff
-//   changes.
-// - Pages: re-validate with `If-None-Match` built from the cached
-//   response's own ETag (Core\Http\FrontController, whitelisted paths
-//   only). A 304 means content didn't change — re-`put` the SAME cached
-//   body with a refreshed `Date` header rather than re-downloading,
-//   otherwise the staleness threshold and the "Version hors ligne du …"
-//   banner (public/sw.js) would fire on a copy that was just confirmed
-//   current a moment ago.
+// The work itself — the exact list (GET /api/offline/manifest), the pages,
+// the images they show, the help last, what left the list removed — runs
+// in public/sw.js (refreshOfflineCopies()). It used to run here, in the
+// page, and moving to another page of the app, putting it in the
+// background or closing it cut it short; and since the launch was marked
+// done when the run STARTED, nothing resumed it for 24 hours.
 //
-// ONCE PER LAUNCH, and it has to be said twice because the first version
-// of this file said it in its header and did it on EVERY PAGE: nothing
-// gated the run, so each navigation in the installed app fetched the
-// manifest and re-validated every whitelisted page — fifteen server
-// renders, all at once, behind the page the visitor was actually waiting
-// for (a conditional GET is rendered in full before the 304 is decided).
-// Measured: 34 server-rendered documents per navigation against 4 in a
-// browser tab. Now:
+// When:
 //
-// - a launch is remembered in sessionStorage, which an installed app
-//   keeps for as long as its window lives, and a run older than
-//   REFRESH_AFTER_MS is allowed again so an app left open for days still
-//   refreshes;
-// - the run starts after `load`, in idle time, never in the way of the
-//   page being read;
-// - at most CONCURRENCY requests are in flight, pages first, then images
-//   — the server has few workers and the visitor's next tap needs one;
-// - nothing runs at all when the browser reports Data Saver.
+// - only in the INSTALLED app ('display-mode: standalone'), with
+//   functional consent. Under Data Saver, and for a visitor not signed
+//   in, the worker keeps the list only (`listOnly`): the pages on it are
+//   kept as they are visited, nothing is downloaded ahead — without a list
+//   no page would be kept at all;
+// - once per launch, remembered in sessionStorage, which an installed app
+//   keeps for as long as its window lives — and again after
+//   REFRESH_AFTER_MS for an app left open for days;
+// - after `load`, in idle time, never in the way of the page being read.
 //
-// Every entry is best-effort: one failed fetch must never abort the rest
-// of the run. Writes go straight to the SAME content-{accountScope}-
-// {version} cache public/sw.js's own fetch handler reads from — this
-// script is the only writer for image derivatives (sw.js's own
-// /files/{id}/{variant} branch is read-only, see that file) and, since it
-// only ever runs in standalone mode, is automatically consistent with the
-// "installed app only" write policy that gates public/sw.js's own page
-// writes (config.standalone, offline-cache.js).
+// A launch is remembered only once the service worker says the pass
+// FINISHED ('offline-refresh-done'). Until then every page of the launch
+// asks again: a pass still running is joined, an interrupted one is
+// resumed where it stopped, doing again only what is missing. Background
+// and closing are covered by that same resumption, at the next display —
+// a web application on iOS gets no real background refresh.
 (function () {
     var LAUNCH_KEY = 'scoutmagic-offline-prefetch';
     var REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
-    var CONCURRENCY = 2;
     var IDLE_FALLBACK_MS = 1500;
 
-    if (!('caches' in window)) {
+    if (!('serviceWorker' in navigator)) {
         return;
     }
     var configEl = document.getElementById('offline-config-data');
@@ -71,7 +48,7 @@
     } catch (e) {
         return;
     }
-    if (!config.consent || config.accountScope === 'guest') {
+    if (!config.consent) {
         return;
     }
     var isStandalone = window.matchMedia?.('(display-mode: standalone)').matches
@@ -80,40 +57,57 @@
         return;
     }
     var connection = /** @type {any} */ (navigator).connection;
-    if (connection?.saveData === true) {
-        return;
-    }
-    if (!claimThisLaunch()) {
+    var request = connection?.saveData === true
+        ? { type: 'offline-refresh', listOnly: true }
+        : { type: 'offline-refresh' };
+    var scope = config.accountScope + '|' + config.version;
+    if (doneThisLaunch()) {
         return;
     }
 
-    var cacheName = 'content-' + config.accountScope + '-' + config.version;
-    var IMAGE_URL_PATTERN = /^\/files\/\d+\/(thumb|md)$/;
-
-    whenIdle(run);
+    navigator.serviceWorker.addEventListener('message', function (event) {
+        // Announced to every window of the app, not only the page that
+        // asked (sw.js announcePassDone()): one for another account says
+        // nothing about this one.
+        if (event.data?.type === 'offline-refresh-done' && (event.data.scope ?? scope) === scope) {
+            rememberDone();
+        }
+    });
+    whenIdle(askForRefresh);
 
     /**
-     * True for the first page of a launch (or the first page after
-     * REFRESH_AFTER_MS), false for every other page of the same launch.
-     * A browser that refuses sessionStorage (private mode, quota) counts
-     * as a fresh launch every time — the previous behaviour, never worse.
+     * Whether a pass finished during this launch, less than
+     * REFRESH_AFTER_MS ago. A browser that refuses sessionStorage (private
+     * mode, quota) asks every time — the service worker joins a pass that
+     * is already running, so that costs a message, not a second pass.
      * @returns {boolean}
      */
-    function claimThisLaunch() {
-        var scope = config.accountScope + '|' + config.version;
+    function doneThisLaunch() {
+        var last = lastLaunch();
+        return last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS;
+    }
+
+    /**
+     * The launch remembered in sessionStorage, or null.
+     * @returns {{scope?: string, at?: number}|null}
+     */
+    function lastLaunch() {
+        var last = null;
         try {
-            var raw = window.sessionStorage.getItem(LAUNCH_KEY);
-            if (raw) {
-                var last = JSON.parse(raw);
-                if (last?.scope === scope && (Date.now() - Number(last.at)) < REFRESH_AFTER_MS) {
-                    return false;
-                }
-            }
+            last = JSON.parse(window.sessionStorage.getItem(LAUNCH_KEY) || 'null');
+        } catch (e) {
+            // Storage refused (private mode) or a value that is not JSON:
+            // nothing says a pass already ran, so one runs.
+        }
+        return last;
+    }
+
+    function rememberDone() {
+        try {
             window.sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ scope: scope, at: Date.now() }));
         } catch (e) {
-            // No sessionStorage: run, as before.
+            // Nothing to remember it in: the next page asks again.
         }
-        return true;
     }
 
     /**
@@ -135,160 +129,13 @@
         }
     }
 
-    function run() {
-        fetch('/api/offline/manifest', { headers: { Accept: 'application/json' } })
-            .then(function (res) { return res.ok ? res.json() : null; })
-            .then(function (manifest) {
-                if (!manifest) {
-                    return null;
-                }
-                return caches.open(cacheName).then(function (cache) {
-                    // Pages first — they are what "offline" means — then
-                    // the images they show; never both at once.
-                    return prefetchPages(cache, manifest.pages || []).then(function () {
-                        return prefetchImages(cache, manifest.images || []);
-                    });
-                });
-            })
-            .catch(function () {
-                // Best-effort at the top level too — a failed manifest fetch
-                // (offline, or a transient error) simply skips this launch's
-                // refresh; nothing to mark, nothing special to retry, the
-                // next launch tries again from scratch.
-            });
-    }
-
-    /**
-     * Run `work` over `items`, CONCURRENCY at a time, in order.
-     * @template T
-     * @param {T[]} items
-     * @param {(item: T) => Promise<any>} work
-     * @returns {Promise<void>}
-     */
-    function inBatches(items, work) {
-        var queue = items.slice();
-        var lanes = [];
-        var lane = function () {
-            var next = queue.shift();
-            if (next === undefined) {
-                return Promise.resolve();
+    function askForRefresh() {
+        navigator.serviceWorker.ready.then(function (registration) {
+            if (registration.active) {
+                registration.active.postMessage(request);
             }
-            return Promise.resolve().then(function () { return work(next); }).catch(function () {}).then(lane);
-        };
-        for (var i = 0; i < CONCURRENCY; i++) {
-            lanes.push(lane());
-        }
-        return Promise.all(lanes).then(function () {});
-    }
-
-    // Extracted out of prefetchImages() (rather than nested inline in its
-    // already-deep .then/.map/.then chain) purely to keep function nesting
-    // shallow — same fetch/put/catch behavior either way.
-    /**
-     * @param {Cache} cache
-     * @param {string} url
-     * @returns {Promise<void>}
-     */
-    function fetchAndCacheImage(cache, url) {
-        return fetch(url).then(function (response) {
-            // `!response.redirected` is not belt and braces: fetch()
-            // follows redirects by default, so a session that expires
-            // mid-prefetch turns every request into a 200 for the login
-            // page — ok true, redirected true — and caching that stores
-            // the login page UNDER the content URL. sw.js carries the
-            // same guard on its own writes to this same cache; this is
-            // the second writer, and it had only `ok`.
-            if (response.ok && !response.redirected) {
-                return cache.put(url, response);
-            }
-            return undefined;
         }).catch(function () {
-            // Best-effort per image — one bad fetch must
-            // never stop the rest of the pre-download.
-        });
-    }
-
-    /**
-     * @param {Cache} cache
-     * @param {string[]} imageUrls
-     * @returns {Promise<any>}
-     */
-    function prefetchImages(cache, imageUrls) {
-        var wanted = {};
-        imageUrls.forEach(function (url) { wanted[url] = true; });
-
-        return cache.keys().then(function (requests) {
-            var stale = requests.filter(function (request) {
-                var path = new URL(request.url).pathname;
-                return IMAGE_URL_PATTERN.test(path) && !wanted[path];
-            });
-
-            return Promise.all(stale.map(function (request) {
-                return cache.delete(request).catch(function () {});
-            }));
-        }).then(function () {
-            return inBatches(imageUrls, function (url) {
-                return cache.match(url).then(function (cached) {
-                    if (cached) {
-                        return undefined;
-                    }
-                    return fetchAndCacheImage(cache, url);
-                });
-            });
-        });
-    }
-
-    /**
-     * @param {Cache} cache
-     * @param {string[]} pageUrls
-     * @returns {Promise<any>}
-     */
-    function prefetchPages(cache, pageUrls) {
-        return inBatches(pageUrls, function (url) {
-            return cache.match(url).then(function (cached) {
-                var headers = {};
-                var etag = cached ? cached.headers.get('ETag') : null;
-                if (etag) {
-                    headers['If-None-Match'] = etag;
-                }
-
-                return fetch(url, { headers: headers }).then(function (response) {
-                    if (response.status === 304 && cached) {
-                        return refreshCachedDate(cache, url, cached);
-                    }
-                    // Same guard as sw.js's own write to this cache, and
-                    // for the same reason: a session expiring during the
-                    // loop makes fetch() follow the 302 to /login and
-                    // hand back ok:true, redirected:true. Without this,
-                    // « Version hors ligne du… » is served over the login
-                    // page, under /notifications.
-                    if (response.ok && !response.redirected) {
-                        return cache.put(url, response);
-                    }
-                    return undefined;
-                }).catch(function () {
-                    // Best-effort per page.
-                });
-            });
-        });
-    }
-
-    /**
-     * @param {Cache} cache
-     * @param {string} url
-     * @param {Response} cached
-     * @returns {Promise<void>}
-     */
-    function refreshCachedDate(cache, url, cached) {
-        return cached.clone().blob().then(function (body) {
-            var headers = new Headers(cached.headers);
-            headers.set('Date', new Date().toUTCString());
-            var refreshed = new Response(body, {
-                status: cached.status,
-                statusText: cached.statusText,
-                headers: headers
-            });
-            return cache.put(url, refreshed);
+            // No worker: nothing is held offline, nothing to refresh.
         });
     }
 })();

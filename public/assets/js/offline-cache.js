@@ -3,10 +3,10 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Offline content caching (Lot 3) — hands the server-declared whitelist
-// (Core\Offline\OfflineWhitelist), the staleness setting, and the current
-// functional-consent/account-scope state to the service worker on every
-// page load (see public/sw.js's own 'message' handler) — the SW never
+// Offline content caching (Lot 3) — hands the staleness setting and the
+// current functional-consent/account-scope state to the service worker on
+// every page load (WHICH pages are held, the service worker asks the server
+// itself — GET /api/offline/manifest, #883) (see public/sw.js's own 'message' handler) — the SW never
 // hardcodes any of this itself, it's read from a #offline-config-data
 // JSON blob base.html.twig renders from server-side Twig globals.
 (function () {
@@ -35,7 +35,7 @@
     }
 
     // Personal data (Mon compte, member pages) is cacheable now that the
-    // whitelist covers them — the service worker's own page-cache WRITE
+    // offline list holds them — the service worker's own page-cache WRITE
     // is gated on this (public/sw.js's networkFirstWithCacheFallback())
     // so a single visit from a normal browser tab never blinds the
     // installed app with content it didn't ask to keep. READS stay
@@ -56,7 +56,6 @@
             type: 'offline-config',
             staleness_days: config.stalenessDays,
             consent: consent,
-            whitelist: config.whitelist,
             account_scope: config.accountScope,
             version: config.version,
             standalone: isStandalone()
@@ -83,7 +82,7 @@
     // a bare purge message alone would empty the caches but leave the
     // service worker's own stored config still saying consent is granted,
     // so it would start writing to the cache again on the very next
-    // whitelisted page visited in this same session. Sending a full
+    // listed page visited in this same session. Sending a full
     // 'offline-config' update with consent: false does both (see
     // public/sw.js's 'message' handler). The accept-all/reject-all
     // banner buttons are handled in cookie-consent.js itself, right where

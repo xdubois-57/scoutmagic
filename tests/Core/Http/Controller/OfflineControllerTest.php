@@ -5,34 +5,18 @@ declare(strict_types=1);
 namespace Tests\Core\Http\Controller;
 
 use Core\Config\AppConfig;
-use Core\Config\ScoutYearService;
-use Core\Database\Connection;
-use Core\File\FileRepository;
 use Core\Http\Controller\OfflineController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
-use Core\Import\AgeBranchRepository;
-use Core\Import\MemberYearRepository;
-use Core\Member\MemberService;
-use Core\Member\SectionService;
-use Core\Member\UnitStaffSectionService;
 use Core\Offline\OfflineManifestService;
+use Core\Offline\OfflinePageProviders;
 use Core\Offline\OfflineWhitelist;
-use Core\Photo\MemberPhotoRepository;
-use Core\Photo\MemberPhotoService;
-use Core\Photo\SectionPhotoRepository;
-use Core\Photo\SectionPhotoService;
 use Core\Security\AuthSession;
-use Core\Security\EncryptionService;
-use Core\View\EditableContentRepository;
-use Core\View\EditableContentService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
-use Core\Member\Repository\MemberProfileRepository;
-use Core\Member\Repository\SectionRepository;
 
 /**
  * @group database
@@ -48,31 +32,7 @@ class OfflineControllerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
 
-        $connection = Connection::withPdo($this->pdo);
-        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $offlineWhitelist = new OfflineWhitelist();
-        $this->offlineManifestService = new OfflineManifestService(
-            $offlineWhitelist,
-            new MemberService(
-    new MemberYearRepository($this->pdo),
-    new MemberProfileRepository($connection, $encryption)
-),
-            new MemberPhotoService(new MemberPhotoRepository($this->pdo)),
-            new SectionPhotoService(new SectionPhotoRepository($this->pdo)),
-            new SectionService(
-    new SectionRepository($connection),
-    new MemberProfileRepository($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo))
-),
-            new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)),
-            new \Core\ScoutYear\ScoutYearResolver(
-                new \Core\Config\ScoutYearService($this->pdo),
-                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                new \Core\Import\MemberYearRepository($this->pdo)
-            ),
-            new EditableContentService(new EditableContentRepository($this->pdo)),
-            new AgeBranchRepository($this->pdo),
-            null
-        );
+        $this->offlineManifestService = new OfflineManifestService(new OfflineWhitelist(), new OfflinePageProviders());
     }
 
     protected function tearDown(): void
@@ -91,7 +51,8 @@ class OfflineControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertContains('/', $data['pages']);
         $this->assertContains('/contact', $data['pages']);
-        $this->assertArrayHasKey('images', $data);
+        $this->assertArrayHasKey('last', $data);
+        $this->assertArrayNotHasKey('images', $data);
     }
 
     // --- RBAC boundary ---

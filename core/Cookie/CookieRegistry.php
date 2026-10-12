@@ -177,7 +177,9 @@ class CookieRegistry
                 //
                 // Strictly necessary rather than functional, and the
                 // distinction is real: the entry holds the CONFIGURATION,
-                // never a page and never a photo. Without it the worker
+                // never a page and never a photo. The exact list of the
+                // account's addresses (#883) sits beside it and is purged
+                // with the content caches (sw.js forgetListsExcept()). Without it the worker
                 // cannot decide whether offline caching is allowed at
                 // all — a functional-consent gate on the thing that
                 // carries the consent decision would have nothing to read.
@@ -185,7 +187,9 @@ class CookieRegistry
                 'category' => 'necessary',
                 'purpose' => 'Conserve les réglages du mode hors ligne (liste des pages consultables hors '
                     . 'connexion, durée de conservation) pour que l\'application installée sache quoi faire '
-                    . 'lorsqu\'elle s\'ouvre sans réseau — aucune page, aucune photo, aucune donnée personnelle.',
+                    . 'lorsqu\'elle s\'ouvre sans réseau — aucune page, aucune photo. La liste des adresses '
+                    . 'gardées pour votre compte est effacée à la déconnexion et quand les cookies fonctionnels '
+                    . 'sont refusés.',
                 'duration' => 'Jusqu\'à la prochaine mise à jour des réglages (remplacé automatiquement)',
             ],
         ];

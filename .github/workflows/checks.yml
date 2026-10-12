@@ -364,7 +364,15 @@ jobs:
     # and was cancelled at 30 while stopping its server (the boot matrix
     # alone took 15.7). A Release must not fail on a green suite, so the
     # bound leaves room for a year of growth rather than two minutes.
-    timeout-minutes: ${{ inputs.evidence && 45 || 20 }}
+    #
+    # 30, raised from 20, for the same reason on a pull request: on a busy
+    # runner the suite took 15.4 minutes with all 72 tests green (#883 added
+    # the offline-list journey, ~2 minutes in CI), and the job was cancelled
+    # at 20 while merging the PHP coverage it records — 3.5 minutes, against
+    # 2 on a quiet one. 9.1 minutes of tests on a quiet runner and 15.4 on a
+    # busy one: the bound has to cover the busy one, or a green suite reads
+    # as a red job.
+    timeout-minutes: ${{ inputs.evidence && 45 || 30 }}
     services:
       mysql:
         image: mysql:8.0

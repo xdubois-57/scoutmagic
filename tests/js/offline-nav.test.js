@@ -5,29 +5,44 @@
 // implementation in public/assets/js/offline-nav.js (imported below, never
 // reimplemented here).
 //
-// isWhitelisted() is the THIRD implementation of the same server-supplied
-// whitelist rule — Core\Offline\OfflineWhitelist::matches() (PHP) and
-// public/sw.js's own isWhitelisted() (the service worker, fixed and
-// covered earlier in docs/js-test-coverage-plan.md's P1.2 after a real
-// divergence was found there) are the other two. Before this file, this
-// copy was pinned only by tests/Core/View/OfflineNavDialogTest.php's
-// source-text grep for "entry.match === 'child'" — never actually
-// exercised. Tested here indirectly through applyState()'s observable
-// effect on real <a> elements (which greyed-out state a visitor actually
-// sees) rather than by extracting it into a seam, since that is the real
-// contract this file has with the page.
+// Which links are greyed offline is what is REALLY in the cache (#883):
+// the content cache of this account and version, the one public/sw.js
+// serves from — a copy the worker would serve, young enough for the
+// staleness setting. It used to be the third copy of a pattern rule
+// (Core\Offline\OfflineWhitelist::matches(), sw.js's isWhitelisted()),
+// which announced as available pages that had never been stored. Tested
+// through applyState()'s observable effect on real <a> elements, which is
+// the contract this file has with the page.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function setOnline(value) {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value });
 }
 
-function buildConfig(whitelist, extraJson = {}) {
+/**
+ * The page config, and a Cache Storage holding a copy of each of $cached
+ * in this account's content cache — dated $ageMs ago.
+ *
+ * @param {string[]} cached
+ * @param {object} [extraJson]
+ * @param {number} [ageMs]
+ */
+function buildConfig(cached, extraJson = {}, ageMs = 0) {
     const script = document.createElement('script');
     script.type = 'application/json';
     script.id = 'offline-config-data';
-    script.textContent = JSON.stringify({ whitelist, ...extraJson });
+    script.textContent = JSON.stringify({ accountScope: '7', version: '1.0', stalenessDays: 30, ...extraJson });
     document.body.appendChild(script);
+
+    const date = new Date(Date.now() - ageMs).toUTCString();
+    const copies = new Map(cached.map((path) => ['https://example.test' + path, { headers: { get: (h) => (h === 'Date' ? date : null) } }]));
+    globalThis.caches = {
+        has: vi.fn(async (name) => name === 'content-7-1.0'),
+        open: vi.fn(async () => ({
+            keys: vi.fn(async () => [...copies.keys()].map((url) => ({ url }))),
+            match: vi.fn(async (request) => copies.get(request.url)),
+        })),
+    };
 }
 
 function buildDialog() {
@@ -126,12 +141,8 @@ async function bootConfirmedOffline() {
     await settle();
 }
 
-const CORE_WHITELIST = [
-    { path: '/', match: 'exact' },
-    { path: '/contact', match: 'exact' },
-    { path: '/account', match: 'exact' },
-    { path: '/members/', match: 'child' },
-];
+/** The pages this device holds a copy of, in most tests below. */
+const CACHED_PAGES = ['/', '/contact', '/account', '/members/12'];
 
 let modalInstance;
 
@@ -232,7 +243,7 @@ describe('offline-nav.js: setup guards', () => {
     });
 });
 
-describe('offline-nav.js: applyState() greys out unavailable links (isWhitelisted through its real contract)', () => {
+describe('offline-nav.js: applyState() greys out links whose page is not in the cache', () => {
     function buildLinks(hrefs) {
         hrefs.forEach((href) => {
             const a = document.createElement('a');
@@ -241,8 +252,8 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
         });
     }
 
-    it('leaves every link untouched while online, regardless of the whitelist', async () => {
-        buildConfig(CORE_WHITELIST);
+    it('leaves every link untouched while online, stored or not', async () => {
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance', '/members/12', '/members/12/emails/5']);
         setOnline(true);
         await boot();
@@ -253,43 +264,51 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
         });
     });
 
-    it('exact match: greys out everything except the exact whitelisted paths', async () => {
-        buildConfig(CORE_WHITELIST);
+    it('greys out every link whose page this device holds no copy of', async () => {
+        buildConfig(CACHED_PAGES);
         buildLinks(['/', '/contact', '/finance', '/contacts']);
         setOnline(false);
         await boot();
+        await settle();
 
         const disabled = (href) => document.querySelector(`a[href="${href}"]`).classList.contains('offline-link-disabled');
         expect(disabled('/')).toBe(false);
         expect(disabled('/contact')).toBe(false);
         expect(disabled('/finance')).toBe(true);
-        // A path that merely STARTS WITH an exact-match entry must not
-        // pass — exact means exact, not prefix.
         expect(disabled('/contacts')).toBe(true);
     });
 
-    // The exact bug fixed in public/sw.js earlier in this plan
-    // (docs/js-test-coverage-plan.md's P1.2): a match:'child' entry
-    // accepts the path plus EXACTLY one more segment. This is the first
-    // time this file's OWN copy of that rule is exercised directly rather
-    // than through a PHP source-text grep.
-    it('child match: accepts the path plus exactly one segment, rejects zero or two+', async () => {
-        buildConfig(CORE_WHITELIST);
-        buildLinks(['/members/', '/members/12', '/members/12/emails/5']);
+    // #883: a pattern « /members/ plus one segment » announced every fiche
+    // as available. Only the fiche actually stored is.
+    it('greys out the fiche of a member whose page was never stored', async () => {
+        buildConfig(CACHED_PAGES);
+        buildLinks(['/members/12', '/members/13', '/members/12/emails/5']);
         setOnline(false);
         await boot();
+        await settle();
 
         const disabled = (href) => document.querySelector(`a[href="${href}"]`).classList.contains('offline-link-disabled');
-        expect(disabled('/members/')).toBe(true); // bare prefix: zero extra segments
-        expect(disabled('/members/12')).toBe(false); // exactly one: available
-        expect(disabled('/members/12/emails/5')).toBe(true); // two extra segments
+        expect(disabled('/members/12')).toBe(false);
+        expect(disabled('/members/13')).toBe(true);
+        expect(disabled('/members/12/emails/5')).toBe(true);
+    });
+
+    it('greys out a page whose copy is older than the service worker would serve', async () => {
+        buildConfig(['/contact'], { stalenessDays: 30 }, 40 * 24 * 60 * 60 * 1000);
+        buildLinks(['/contact']);
+        setOnline(false);
+        await boot();
+        await settle();
+
+        expect(document.querySelector('a[href="/contact"]').classList.contains('offline-link-disabled')).toBe(true);
     });
 
     it('sets aria-disabled on a greyed link and removes it once back online', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance']);
         setOnline(false);
         await boot();
+        await settle();
 
         const link = document.querySelector('a[href="/finance"]');
         expect(link.getAttribute('aria-disabled')).toBe('true');
@@ -301,7 +320,7 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
     });
 
     it('re-greys links on the "offline" event — once the probe confirms it', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance']);
         setOnline(true);
         probeReachable = true;
@@ -323,7 +342,7 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
      * so nothing is greyed.
      */
     it('leaves links alone when the browser claims offline but the network answers', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance']);
         setOnline(true);
         probeReachable = true;
@@ -338,7 +357,7 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
     });
 
     it('re-evaluates on visibilitychange only when the tab becomes visible (an installed app resuming from a frozen state)', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance']);
         setOnline(true);
         probeReachable = true;
@@ -375,7 +394,7 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
      * took.
      */
     it('ignores a probe that a newer one has already overtaken', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildLinks(['/finance']);
 
         const pending = [];
@@ -404,21 +423,25 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
         expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
     });
 
-    it('strips query strings and fragments before matching', async () => {
-        buildConfig(CORE_WHITELIST);
-        buildLinks(['/contact?ref=footer', '/finance#section']);
+    it('ignores a fragment, and never counts a link with a query string as a stored page', async () => {
+        buildConfig(CACHED_PAGES);
+        buildLinks(['/contact#horaires', '/contact?ref=footer', '/finance#section']);
         setOnline(false);
         await boot();
+        await settle();
 
-        expect(document.querySelector('a[href="/contact?ref=footer"]').classList.contains('offline-link-disabled')).toBe(false);
+        expect(document.querySelector('a[href="/contact#horaires"]').classList.contains('offline-link-disabled')).toBe(false);
+        // `/news?page=2` is not `/news`: only plain addresses are stored.
+        expect(document.querySelector('a[href="/contact?ref=footer"]').classList.contains('offline-link-disabled')).toBe(true);
         expect(document.querySelector('a[href="/finance#section"]').classList.contains('offline-link-disabled')).toBe(true);
     });
 
-    it('treats an empty whitelist as nothing available while offline', async () => {
+    it('treats an empty cache as nothing available while offline', async () => {
         buildConfig([]);
         buildLinks(['/']);
         setOnline(false);
         await boot();
+        await settle();
         expect(document.querySelector('a[href="/"]').classList.contains('offline-link-disabled')).toBe(true);
     });
 });
@@ -432,8 +455,8 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         return a;
     }
 
-    it('passes a click through untouched while online, whitelisted or not', async () => {
-        buildConfig(CORE_WHITELIST);
+    it('passes a click through untouched while online, stored or not', async () => {
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/finance');
         setOnline(true);
@@ -445,8 +468,8 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         expect(modalInstance.show).not.toHaveBeenCalled();
     });
 
-    it('passes a click through untouched while offline on a whitelisted link', async () => {
-        buildConfig(CORE_WHITELIST);
+    it('passes a click through untouched while offline on a link whose page is stored', async () => {
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/contact');
         await bootConfirmedOffline();
@@ -457,8 +480,8 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         expect(modalInstance.show).not.toHaveBeenCalled();
     });
 
-    it('blocks a click and opens the dialog with the PAGE message while offline on a non-whitelisted link, once the network confirmed it is away', async () => {
-        buildConfig(CORE_WHITELIST);
+    it('blocks a click and opens the dialog with the PAGE message while offline on a link whose page is not stored, once the network confirmed it is away', async () => {
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/finance');
         await bootConfirmedOffline();
@@ -491,7 +514,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
      * blank screen the attribute was added to avoid.
      */
     it('blocks a target="_blank" file link while offline, so a new tab never opens on nothing', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/files/42');
         link.target = '_blank';
@@ -519,7 +542,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
      * testing the mechanism that was removed.
      */
     it('leaves the click to the browser when navigator.onLine is stale and the server answers', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/finance');
         setOnline(false);
@@ -546,7 +569,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
      * a device that is not lands nowhere at all.
      */
     it('lets a click through while the probe has not answered yet', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('/finance');
         setOnline(false);
@@ -567,8 +590,24 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
      * script speaking out of turn. Confirmed offline, so the only reason
      * the click survives is the origin check.
      */
+    // Unknown counts as available, as an unknown network counts as online:
+    // a click let through costs a real offline visitor the worker's own
+    // /offline page, a click held back costs everybody a dead tap.
+    it('lets a click through while the cache has not been read yet', async () => {
+        buildConfig(CACHED_PAGES);
+        globalThis.caches.has = vi.fn(() => new Promise(() => {}));
+        buildDialog();
+        const link = buildLink('/finance');
+        await bootConfirmedOffline();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+        expect(evt.defaultPrevented).toBe(false);
+        expect(modalInstance.show).not.toHaveBeenCalled();
+    });
+
     it('says nothing about another origin: a protocol-relative "//host/…" href is left to the browser', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = buildLink('//evil.example/finance');
         await bootConfirmedOffline();
@@ -581,7 +620,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     });
 
     it('never cancels a click it could not explain — no dialog markup, or no Bootstrap yet', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const link = buildLink('/finance');
         delete global.bootstrap;
         await bootConfirmedOffline();
@@ -592,7 +631,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     });
 
     it('re-evaluates the click against the CURRENT DOM, not a cached class, so a link added after boot is still covered', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         await bootConfirmedOffline(); // applyState() ran already, before this link existed
         const lateLink = buildLink('/finance');
@@ -603,7 +642,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     });
 
     it('ignores a click that did not land on a link at all', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const div = document.createElement('div');
         document.body.appendChild(div);
@@ -615,7 +654,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     });
 
     it('ignores an external link (no leading "/") — never in scope for this delegated handler', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = document.createElement('a');
         link.href = 'https://example.com/';
@@ -636,7 +675,7 @@ describe('offline-nav.js: submit interception (layer 1b — forms, unconditional
     }
 
     it('passes a submit through while online', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const form = buildForm();
         setOnline(true);
@@ -650,7 +689,7 @@ describe('offline-nav.js: submit interception (layer 1b — forms, unconditional
     // No whitelist check at all for forms — every POST needs the network,
     // there is no "safe, cacheable" form action, unlike links.
     it('blocks every form submission while offline, with no whitelist exception', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const form = buildForm();
         setOnline(false);
@@ -675,7 +714,7 @@ describe('offline-nav.js: submit interception (layer 1b — forms, unconditional
         { path: '/', whitelisted: true },
         { path: '/finance', whitelisted: false },
     ])('blocks submission the same way whether the current page ($path) is whitelisted or not', async ({ path }) => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         // Put back afterwards: a later test resolving a link against
         // location.href would otherwise see '' and never navigate.
@@ -698,7 +737,7 @@ describe('offline-nav.js: submit interception (layer 1b — forms, unconditional
 
 describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     it('passes a GET through untouched while offline', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const inner = vi.fn(() => Promise.resolve('ok'));
         global.fetch = inner;
@@ -711,7 +750,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     });
 
     it('passes any method through while online', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const inner = vi.fn(() => Promise.resolve('ok'));
         global.fetch = inner;
@@ -723,7 +762,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     });
 
     it('blocks a POST while offline, rejects, opens the dialog, and never calls the real fetch', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const inner = vi.fn(() => Promise.resolve('ok'));
         installFetch(inner);
@@ -738,7 +777,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     });
 
     it('reads the method off a Request object when init is absent (fetch(new Request(...)) form)', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         installFetch();
         setOnline(false);
@@ -750,7 +789,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     });
 
     it('treats a missing method as GET and lets it through', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const inner = vi.fn(() => Promise.resolve('ok'));
         global.fetch = inner;
@@ -762,7 +801,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     });
 
     it('does nothing (no wrapper installed) when window.fetch was not a function to begin with', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         global.fetch = undefined;
         setOnline(false);
@@ -773,7 +812,7 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
 
 describe('offline-nav.js: showDialog()', () => {
     it('does nothing when the dialog element is absent from the page', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         // No buildDialog() call.
         const link = document.createElement('a');
         link.href = '/finance';
@@ -786,7 +825,7 @@ describe('offline-nav.js: showDialog()', () => {
     });
 
     it('does nothing when the bootstrap global is unavailable', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         global.bootstrap = undefined;
         const link = document.createElement('a');
@@ -799,7 +838,7 @@ describe('offline-nav.js: showDialog()', () => {
     });
 
     it('constructs the bootstrap.Modal instance only once and reuses it across multiple dialogs', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildDialog();
         const link = document.createElement('a');
         link.href = '/finance';
@@ -807,6 +846,7 @@ describe('offline-nav.js: showDialog()', () => {
         setOnline(false);
         window.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
         await boot();
+        await settle();
 
         link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -848,7 +888,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     }
 
     it('disables every submit control and marks the form while offline', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const form = buildForm();
         setOnline(false);
         await boot();
@@ -858,7 +898,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('leaves the fields editable so an offline draft can still be written', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildForm();
         setOnline(false);
         await boot();
@@ -869,7 +909,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('re-enables the submit control when the connection comes back', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const form = buildForm();
         setOnline(false);
         await boot();
@@ -887,7 +927,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
      * mid-submit) must not be silently released by coming back online.
      */
     it('never re-enables a control it did not disable itself', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildForm();
         document.getElementById('send').disabled = true;
         setOnline(false);
@@ -900,7 +940,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('leaves a form marked data-offline-safe alone', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         document.body.insertAdjacentHTML('beforeend',
             '<form id="filter" data-offline-safe><button type="submit" id="apply">Filtrer</button></form>');
         setOnline(false);
@@ -911,7 +951,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('reveals the read-only banner offline and hides it again online', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const banner = buildBanner();
         setOnline(false);
         await boot();
@@ -923,7 +963,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('does nothing at all while online', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const form = buildForm();
         const banner = buildBanner();
         setOnline(true);
@@ -935,7 +975,7 @@ describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
     });
 
     it('works on a page with no banner element at all', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         buildForm();
         setOnline(false);
 
@@ -975,7 +1015,7 @@ describe('offline-nav.js: window.ScoutMagicConnectivity (issue #842)', () => {
     });
 
     it('reports the confirmed verdict, not navigator.onLine', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         setOnline(false);
         probeReachable = true;
         installFetch();
@@ -993,7 +1033,7 @@ describe('offline-nav.js: window.ScoutMagicConnectivity (issue #842)', () => {
     });
 
     it('recheck() asks the same probe, repaints the page online and resolves true — even with navigator.onLine still false', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const banner = buildBanner();
         document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a><form><button type="submit" id="send">Envoyer</button></form>');
         await bootConfirmedOffline();
@@ -1014,7 +1054,7 @@ describe('offline-nav.js: window.ScoutMagicConnectivity (issue #842)', () => {
     });
 
     it('recheck() resolves false and leaves the page offline while the server is still unreachable', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         const banner = buildBanner();
         document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a>');
         await bootConfirmedOffline();
@@ -1034,7 +1074,7 @@ describe('offline-nav.js: window.ScoutMagicConnectivity (issue #842)', () => {
      * and never the stale one it issued itself.
      */
     it('recheck() overtaken by a newer probe resolves with the newer verdict', async () => {
-        buildConfig(CORE_WHITELIST);
+        buildConfig(CACHED_PAGES);
         document.body.insertAdjacentHTML('beforeend', '<a href="/finance">x</a>');
         const pending = [];
         global.fetch = window.fetch = vi.fn(

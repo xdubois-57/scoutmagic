@@ -51,8 +51,9 @@
            No link to the cookie preferences — that page is not available
            offline either — only where to find them once back online. #}
         <p class="text-body-secondary small" id="offline-conditions" style="max-width:32rem;">
-            Une page n'est disponible hors ligne que si les cookies fonctionnels sont activés
-            (depuis le pied de page, en ligne) et si vous l'avez ouverte dans l'application
+            Une page n'est disponible hors ligne que si elle fait partie des pages que l'application garde,
+            si les cookies fonctionnels sont activés (depuis le pied de page, en ligne) et si
+            l'application a été ouverte avec une connexion
             {% if staleness_days > 0 %}il y a moins de {{ staleness_days }} {{ staleness_days == 1 ? 'jour' : 'jours' }}{% else %}récemment{% endif %}.
         </p>
         {# Shown by offline-page.js only once it has found a recent copy of

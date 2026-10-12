@@ -2,7 +2,7 @@
   "id": "member_stats",
   "name": "Statistiques",
   "description": "Nombre d'animés par branche et par année.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "routes": [
     {
       "path": "/chiefs/stats",
@@ -27,14 +27,5 @@
   "cookies": [],
   "scheduled_tasks": [],
   "storage": {},
-  "offline": [
-    {
-      "path": "/chiefs/stats",
-      "label": "Statistiques",
-      "match": "exact",
-      "role_min": "chief",
-      "prefetch": false
-    }
-  ],
   "category": "membres"
 }

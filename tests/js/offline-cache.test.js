@@ -9,9 +9,10 @@
 // This closes out the offline-correctness thread from
 // docs/js-test-coverage-plan.md: P1.2 fixed a real divergence in sw.js's
 // copy of the whitelist rule, this plan's Step 3 covered offline-nav.js's
-// own copy, and this file is the piece that actually hands the whitelist
-// (and every other bit of offline config) to the service worker in the
-// first place.
+// own copy, and this file is the piece that actually hands the offline
+// config to the service worker in the first place. Since #883 there is no
+// whitelist rule left to copy: the worker asks the server for the exact
+// list of pages itself.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function el(html) {
@@ -31,7 +32,6 @@ function buildConfig(config) {
 const BASE_CONFIG = {
     stalenessDays: 7,
     consent: true,
-    whitelist: [{ path: '/', match: 'exact' }],
     accountScope: 'acct1',
     version: '1.2.3',
 };
@@ -118,14 +118,13 @@ describe('offline-cache.js: setup guards', () => {
 });
 
 describe('offline-cache.js: sendConfig() on page load', () => {
-    it('sends the whitelist, staleness, account scope, version and consent from the config blob', async () => {
+    it('sends the staleness, account scope, version and consent from the config blob — never a list of pages', async () => {
         buildConfig(BASE_CONFIG);
         await boot();
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({
             type: 'offline-config',
             staleness_days: 7,
             consent: true,
-            whitelist: BASE_CONFIG.whitelist,
             account_scope: 'acct1',
             version: '1.2.3',
             standalone: false,
@@ -226,7 +225,7 @@ describe('offline-cache.js: withdrawing functional cookie consent', () => {
 
     // A bare purge message alone would empty the caches but leave the
     // service worker still believing consent is granted, so it would
-    // start writing to cache again on the very next whitelisted page —
+    // start writing to cache again on the very next listed page —
     // this is why the file sends a FULL offline-config update with
     // consent: false instead, per the file's own comment. That is the one
     // real behavioural contract worth pinning here.
@@ -241,7 +240,6 @@ describe('offline-cache.js: withdrawing functional cookie consent', () => {
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(expect.objectContaining({
             type: 'offline-config',
             consent: false,
-            whitelist: BASE_CONFIG.whitelist,
         })));
     });
 

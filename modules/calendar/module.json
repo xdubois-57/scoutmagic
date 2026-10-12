@@ -296,7 +296,6 @@
     {
       "path": "/calendar",
       "label": "Calendrier",
-      "match": "exact",
       "role_min": "public"
     }
   ],

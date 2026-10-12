@@ -135,7 +135,6 @@ The directory name **must** match the `id` field in `module.json`.
     {
       "path": "/calendar",
       "label": "Calendrier",
-      "match": "exact",
       "role_min": "public"
     }
   ]
@@ -205,7 +204,7 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
   - `id`: must be prefixed `"{module_id}."` (e.g. `calendar.multiday_event_reminder`).
   - `editable`: optional boolean, defaults to `true`. `false` for any authentication e-mail — the refusal is enforced server-side, not by hiding a button.
   - `variables`: optional list of `{name, label, example}`. `name` is a lowercase identifier, unique within the entry; it is substituted as a plain string and never evaluated. See the E-mails section below.
-- **offline**: optional, each entry must have `path`, `label`, `role_min`. See the Offline pages section below.
+- **offline**: optional, each entry must have `label`, `role_min`, and either a fixed `path` or a `provider` with its `prefix`. See the Offline pages section below.
 - **requires**: optional array of module ids this module cannot function without (hard dependencies). Must be non-empty strings, without duplicates, and never the module's own id. See the Hard dependencies section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
 
@@ -371,8 +370,8 @@ offcanvas, a modal, or a `<select>`. The precedent is
 `modules/groups/views/list.html.twig`, which uses one because it "opens,
 closes and announces its own state with no JavaScript at all". That is
 what preserves the JS-off guarantee: an offcanvas panel could never be
-opened at all with JS off, which would break every page in
-`Core\Offline\OfflineWhitelist` (`/calendar`, `/trombinoscope`,
+opened at all with JS off, which would break every page on the offline
+list of `Core\Offline\OfflineWhitelist` (`/calendar`, `/trombinoscope`,
 `/notifications`). The panel is anchored under the bar with its own
 `max-height` and scroll — not a fixed bottom sheet, so there is no
 backdrop, no scroll-lock and no iOS safe-area handling to get wrong.
@@ -1099,25 +1098,36 @@ Title, greeting, what happened, one call to action, one closing note — in that
 
 ## Offline pages (`Core\Offline\OfflineWhitelist`)
 
-A module can make one or more of its own GET pages available for offline viewing in the installed app (ARCHITECTURE.md §8.25) by declaring them under `module.json`'s `offline` section — same aggregation shape as `cookies`/`notifications`: core never hardcodes a module's path, the module declares it, `Core\Module\ModuleManager` registers it into the single shared `Core\Offline\OfflineWhitelist` while loading the module, and a disabled module's page simply never gets registered.
+A module can make some of its own GET pages available offline in the installed app (ARCHITECTURE.md §8.25) by declaring them under `module.json`'s `offline` section — same aggregation shape as `cookies`/`notifications`: core never names a module's page, the module declares it, `Core\Module\ModuleManager` registers it into the single shared `Core\Offline\OfflineWhitelist` while loading the module, and a disabled module's pages are never registered.
+
+**The list is exact (#883).** A page on it is downloaded without being opened, kept fresh and served offline; a page off it is never cached, even after a visit. There are no patterns: an entry names either one fixed page, or a provider that names the exact pages for the person asking.
 
 ```json
 "offline": [
   {
     "path": "/calendar",
     "label": "Calendrier",
-    "match": "exact",
+    "role_min": "public"
+  },
+  {
+    "provider": "Modules\\News\\Offline\\NewsOfflinePages",
+    "prefix": "/news",
+    "label": "Actualités",
     "role_min": "public"
   }
 ]
 ```
 
-- Each entry must have `path`, `label` (French — shown nowhere in the UI today, but kept for parity with the rest of the manifest shapes and any future surface that lists whitelisted pages), and `role_min` (same role list as routes — the minimum role a viewer must currently hold for the page to be offered offline; re-checked against the viewer's *current* role every time the list is built, never cached across a role change).
-- `prefetch`: optional boolean, defaults to `true`. `false` keeps the page whitelisted (a visit caches it, it is served offline afterwards) but leaves it out of the installed app's pre-download at launch. Declare it on a page that is costly to render — a full roster, a page hydrating every staff — and rarely the reason the app was opened; the pre-download runs for every visitor whose role can see the page, so an expensive page there is paid by everyone.
-- `match`: optional, defaults to `"exact"` (the literal path only). `"child"` means the path plus **exactly one** additional URL segment — e.g. a hypothetical `/my-module/items/` with `match: "child"` covers `/my-module/items/42` but not `/my-module/items/42/comments/7`. Use this only for a genuine "one page per id" pattern; anything else should be a separate `exact` entry per concrete path.
-- **Only declare a page that is actually safe to keep offline.** The whole point of this mechanism is that a module never needs core's permission to add a page — but that also means a module author is the one who has to apply the same judgment ARCHITECTURE.md §8.25 already applies to core pages: never a page carrying financial data, private documents, or content meant for one specific recipient only (mass-mail bodies, anything owner-scoped via `Core\File\FileAccessGuard`). If in doubt, don't declare it — an un-whitelisted page is never a bug, it just isn't cacheable, and falls back to the generic "unavailable offline" dialog/page like any other page a visitor tries to reach without a connection.
-- If your page renders any image through `member_photo()`/`section_photo()`/`editable_image()` (§8.39) and you want it to actually show a photo (not just render offline with everything missing), you need a way for `Core\Offline\OfflineManifestService` to know which image URLs to include in `GET /api/offline/manifest`'s response — today this is done ad hoc per core page inside that service (it has no generic per-module hook for this yet). If your module's whitelisted page shows a photo, either reuse an existing image source that service already resolves (e.g. staff photos via `Core\Module\StaffDirectoryProvider`, the same hook that already backs the trombinoscope's offline photos) or raise it with a maintainer — don't grow that service by guessing at conventions ad hoc.
-- Whitelisting a page doesn't change its `role_min`, its route, or anything about how it's served online — it only makes it eligible for the service worker's network-first-with-cache-fallback treatment and the pre-download script's proactive warming while offline.
+- Every entry has a `label` (French) and a `role_min` (same role list as routes — the minimum role a viewer must currently hold for the entry to be offered; re-checked every time the list is built).
+- A **fixed page** is a `path` starting with a single `/`.
+- A **provider** is a class implementing `Core\Offline\OfflinePageProvider` — `pagesFor(Role $role, ?string $email): list<string>` — and the `prefix` its pages live under: plain segments, no trailing slash (`/news`). A page it names outside that prefix is dropped. Register the instance from the module's block of `public/index.php`, the way its hooks are wired: `$offlinePageProviders->register(new \Modules\News\Offline\NewsOfflinePages($newsArticleService));` — `tests/Architecture/OfflinePageProvidersAreWiredTest` fails while a declared provider is not registered. Name exactly the pages to hold, never a page that only some readers may open: `Modules\News\Offline\NewsOfflinePages` names the list and the articles of its first page, as this role sees them, and never `/news/manage`.
+- `last`: optional boolean. `true` downloads the entry after every other page and its images — what the core's help uses.
+- `match` and `prefetch` no longer exist and are refused by name: an entry on the list is always downloaded, and nothing is matched by pattern.
+- **Images come by themselves.** The service worker reads the images of every page it stores — `/files/{id}/thumb|md` in a `src`, a `srcset` or a `url(…)` — and downloads them. Render your images through `member_photo()`/`section_photo()`/`editable_image()` or `file_url(id, 'thumb'|'md')` (§8.39); an original `/files/{id}` is never cached.
+- A page on the list gets an `ETag` (a fixed path, or anything under a provider's prefix), so the daily refresh can be answered « 304 non modifié ».
+- **Only declare a page that is actually safe to keep offline.** A module never needs the core's permission to add one, so its author applies the judgment ARCHITECTURE.md §8.25 applies to core pages: never a page carrying financial data, private documents, or content meant for one recipient only (mass-mail bodies, anything owner-scoped via `Core\File\FileAccessGuard`), and never a discussion. If in doubt, don't declare it — a page off the list is never a bug; offline its link is greyed and the generic « indisponible hors ligne » dialog explains it.
+- Every page on the list is downloaded for every viewer its role reaches, at each launch of the installed app: a page costly to render is paid by everyone.
+- Declaring a page doesn't change its `role_min`, its route, or how it is served online.
 
 ## Help topics (`Core\Help\HelpRegistry`)
 

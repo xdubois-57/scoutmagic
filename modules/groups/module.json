@@ -632,7 +632,6 @@
     {
       "path": "/groups",
       "label": "Discussions",
-      "match": "exact",
       "role_min": "identified"
     }
   ],

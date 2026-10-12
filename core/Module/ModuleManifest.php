@@ -79,8 +79,6 @@ class ModuleManifest
 
     private const VALID_CHANNEL_VALUES = ['on', 'off', 'default_on', 'default_off'];
 
-    private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
-
     /**
      * @param array<
      *     int,
@@ -130,7 +128,14 @@ class ModuleManifest
      *         default_on_role_min: ?string
      *     }
      * > $notifications
-     * @param array<int, array{path: string, label: string, match: string, role_min: string, prefetch: bool}> $offline
+     * @param array<int, array{
+     *     path: ?string,
+     *     provider: ?string,
+     *     prefix: ?string,
+     *     label: string,
+     *     role_min: string,
+     *     last: bool
+     * }> $offline
      * @param array<int, string> $requires
      * @param array<int, string> $visibleWhen
      * @param array<
@@ -1113,50 +1118,88 @@ class ModuleManifest
     }
 
     /**
-     * A module's own offline-cacheable page(s) — aggregated by
-     * Core\Module\ModuleManager into Core\Offline\OfflineWhitelist. See
-     * docs/module-development.md for the module-author-facing contract.
+     * A module's own offline page(s) — aggregated by Core\Module\ModuleManager
+     * into Core\Offline\OfflineWhitelist. See docs/module-development.md for
+     * the module-author-facing contract.
+     *
+     * An entry is EITHER a fixed `path`, OR a `provider` (a class
+     * implementing Core\Offline\OfflinePageProvider) with the `prefix` its
+     * pages live under (#883). `match` and `prefetch` belonged to the
+     * pattern list this replaced and are refused by name, so a module still
+     * declaring them fails loudly rather than being read as something else.
      *
      * @param array<string, mixed>|mixed $entry
-     * @return array{path: string, label: string, match: string, role_min: string, prefetch: bool}
+     * @return array{path: ?string, provider: ?string, prefix: ?string, label: string, role_min: string, last: bool}
      */
     private static function validateOfflineEntry(string $moduleId, mixed $entry, int $index): array
     {
+        $where = "Module '{$moduleId}' offline[{$index}]";
         if (!is_array($entry)) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] must be an object");
+            throw new ModuleException("{$where} must be an object");
         }
 
-        $required = ['path', 'label', 'role_min'];
-        foreach ($required as $field) {
+        foreach (['label', 'role_min'] as $field) {
             if (empty($entry[$field]) || !is_string($entry[$field])) {
-                throw new ModuleException("Module '{$moduleId}' offline[{$index}] missing or invalid '{$field}'");
+                throw new ModuleException("{$where} missing or invalid '{$field}'");
             }
         }
-
-        if (!str_starts_with($entry['path'], '/')) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] path must start with '/'");
-        }
-
         if (!in_array($entry['role_min'], self::VALID_ROLES, true)) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid role_min '{$entry['role_min']}'");
+            throw new ModuleException("{$where} invalid role_min '{$entry['role_min']}'");
+        }
+        foreach (['match', 'prefetch'] as $retired) {
+            if (array_key_exists($retired, $entry)) {
+                throw new ModuleException("{$where} '{$retired}' no longer exists: an entry is a fixed 'path', or a "
+                    . "'provider' with its 'prefix' (docs/module-development.md, Offline pages)");
+            }
+        }
+        if (isset($entry['last']) && !is_bool($entry['last'])) {
+            throw new ModuleException("{$where} last must be a boolean");
         }
 
-        $match = (string) ($entry['match'] ?? 'exact');
-        if (!in_array($match, self::VALID_OFFLINE_MATCH_VALUES, true)) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid match '{$match}' — must be "
-                . "'exact' or 'child'");
+        $hasPath = array_key_exists('path', $entry);
+        $hasProvider = array_key_exists('provider', $entry);
+        if ($hasPath === $hasProvider) {
+            throw new ModuleException("{$where} must declare either a 'path' or a 'provider', and not both");
         }
 
-        if (isset($entry['prefetch']) && !is_bool($entry['prefetch'])) {
-            throw new ModuleException("Module '{$moduleId}' offline[{$index}] prefetch must be a boolean");
+        if ($hasPath) {
+            $path = $entry['path'];
+            // Plain segments, as a provider's prefix: the list holds exact
+            // addresses, never a '..', an encoded character nor a query.
+            if (!is_string($path) || preg_match('~^(/[a-z0-9_-]+)+$~', $path) !== 1) {
+                throw new ModuleException("{$where} path must be a string starting with a single '/', "
+                    . "of plain segments such as '/calendar'");
+            }
+            if (array_key_exists('prefix', $entry)) {
+                throw new ModuleException("{$where} a fixed path takes no 'prefix'");
+            }
+
+            return [
+                'path' => $entry['path'],
+                'provider' => null,
+                'prefix' => null,
+                'label' => $entry['label'],
+                'role_min' => $entry['role_min'],
+                'last' => $entry['last'] ?? false,
+            ];
+        }
+
+        if (empty($entry['provider']) || !is_string($entry['provider'])) {
+            throw new ModuleException("{$where} invalid 'provider'");
+        }
+        $prefix = $entry['prefix'] ?? null;
+        if (!is_string($prefix) || preg_match('~^(/[a-z0-9_-]+)+$~', $prefix) !== 1) {
+            throw new ModuleException("{$where} a provider needs a 'prefix' such as '/news' — a path of plain "
+                . "segments, without a trailing slash");
         }
 
         return [
-            'path' => $entry['path'],
+            'path' => null,
+            'provider' => $entry['provider'],
+            'prefix' => $prefix,
             'label' => $entry['label'],
-            'match' => $match,
             'role_min' => $entry['role_min'],
-            'prefetch' => $entry['prefetch'] ?? true,
+            'last' => $entry['last'] ?? false,
         ];
     }
 

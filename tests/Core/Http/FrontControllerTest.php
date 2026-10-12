@@ -340,6 +340,23 @@ class FrontControllerTest extends TestCase
         $this->assertArrayNotHasKey('ETag', $response->getHeaders());
     }
 
+    public function testNoEtagOnADownloadStreamedFromAFileEvenOnAWhitelistedPath(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'etag');
+        file_put_contents($file, 'export');
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'download', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig, $file));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+        unlink($file);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+    }
+
     public function testNoEtagOnAPostRequestEvenToAWhitelistedPath(): void
     {
         $router = new Router();
@@ -502,11 +519,24 @@ class FrontControllerTest extends TestCase
 
 class StubController extends AbstractController
 {
+    public function __construct(\Twig\Environment $twig, private ?string $file = null)
+    {
+        parent::__construct($twig);
+    }
+
     /**
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
     {
         return new Response('stub-ok', 200);
+    }
+
+    /**
+     * @param array<string, string> $params
+     */
+    public function download(Request $request, array $params): Response
+    {
+        return (new Response('', 200))->setBodyFile((string) $this->file);
     }
 }

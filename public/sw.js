@@ -46,27 +46,31 @@
 // several arriving the same evening must all remain visible, never
 // collapse into one.
 //
-// Scope of content caching (Lot 3): network-first, cache-fallback, for
-// exactly the server-declared whitelist (Core\Offline\OfflineWhitelist —
-// public pages, the calendar, the notification centre, the
-// trombinoscope). The plain, un-suffixed `/files/{id}` is NEVER in that
-// whitelist and is never reachable through this path — nothing here
-// changes the "network-only" rule above for it. Cache name is
+// Scope of content caching (Lot 3, #883): network-first, cache-fallback,
+// for an exact LIST of addresses — GET /api/offline/manifest
+// (Core\Offline\OfflineManifestService), the pages the person signed in
+// holds offline — and nothing else: a page off the list is never written,
+// visited or not. The plain, un-suffixed `/files/{id}` is never on it and
+// is never reachable through this path — nothing here changes the
+// "network-only" rule above for it. Cache name is
 // `content-{accountScope}-{version}`: scoped to the signed-in account (or
 // 'guest') so a different member on the same device never inherits the
 // previous one's cache, and to the app version like the shell cache
-// above. Config (staleness threshold, consent, the whitelist itself,
-// account scope) arrives via postMessage from base.html.twig on every
-// page load — never hardcoded here — and is persisted in its own small
-// Cache Storage entry so it survives this worker being terminated and
-// restarted between messages and fetches.
+// above — a new version takes the previous one's copies over
+// (adoptPreviousVersion()). Config (staleness threshold, consent, account
+// scope) arrives via postMessage from base.html.twig on every page load —
+// never hardcoded here — and is persisted in its own small Cache Storage
+// entry so it survives this worker being terminated and restarted between
+// messages and fetches; the list and the progress of a pass live beside it.
+//
+// The list is downloaded and kept fresh HERE, by refreshOfflineCopies(),
+// when offline-prefetch.js asks: pages, then the images they show, then
+// the help, and a pass interrupted is resumed rather than restarted.
 //
 // Image-variant derivatives (GET /files/{id}/thumb|md — Core\Photo\
-// ImageVariantService) get their own narrow, READ-ONLY branch further
-// down: network-first, falling back to whatever's already in Cache
-// Storage (written only by the pre-download script, public/assets/js/
-// offline-prefetch.js) on a network failure. This branch never writes —
-// see it for why.
+// ImageVariantService) get their own narrow branch further down:
+// network-first, falling back to Cache Storage on a network failure, and
+// written only when the page that shows them is on the list.
 
 const params = new URLSearchParams(self.location.search);
 const VERSION = params.get('v') || 'dev';
@@ -194,26 +198,39 @@ const APP_SHELL_URLS = APP_SHELL_BASE_URLS.concat(VERSIONED_ICON_URLS);
 const CONFIG_CACHE_NAME = 'offline-config';
 const CONFIG_URL = 'https://offline-config.internal/v1';
 const CONTENT_CACHE_PREFIX = 'content-';
+// The `offline_cache_staleness_days` setting's own default (SettingService,
+// ARCHITECTURE.md), for a configuration that carries none or a value that
+// is not a positive number. offline-nav.js and offline-page.js fall back to
+// the same figure: a link shown as available offline must be one this
+// worker will actually serve.
+const DEFAULT_STALENESS_DAYS = 30;
 
-/**
- * Strip leading and trailing '/' without a regex.
- *
- * `^\/+` and `\/+$` both let the engine backtrack across a run of
- * slashes, which is super-linear on a crafted path — and this runs on
- * every navigation, against a pathname an attacker can choose. Two
- * counters are linear by construction.
- *
- * @param {string} value
- * @returns {string}
- */
-function trimSlashes(value) {
-    let from = 0;
-    let to = value.length;
-    while (from < to && value[from] === '/') { from++; }
-    while (to > from && value[to - 1] === '/') { to--; }
-
-    return value.slice(from, to);
-}
+// --- #883: the exact list, and the pass that keeps it ---
+//
+// What is held offline is a LIST OF EXACT ADDRESSES for the person asking
+// (GET /api/offline/manifest, Core\Offline\OfflineManifestService), kept
+// here beside the configuration and for the same reason: this worker can
+// be stopped and restarted between any two events. A page on the list is
+// downloaded, kept fresh and served offline; a page off it is NEVER
+// written, visited or not. There used to be patterns instead — « /members/
+// plus one segment » — checked in three places, and they covered too much.
+const LIST_URL = 'https://offline-config.internal/list';
+// Where a pass is: when it started and whether it finished. A pass is
+// marked done only once it has finished, help included; an interrupted
+// one is resumed, and does again only what is missing (refreshOfflineCopies()).
+const PASS_URL = 'https://offline-config.internal/pass';
+// Stamped on every copy a pass stores: the device time it was stored at.
+// A resumed pass skips what already carries a stamp from its own start —
+// the cache is the memory of its progress. Device time on both sides, so
+// a server clock that drifts cannot make a copy look done or undone.
+const STORED_AT_HEADER = 'X-Offline-Stored-At';
+const PASS_CONCURRENCY = 2;
+// How long an unfinished pass is resumed rather than started again: long
+// enough to cover an app closed mid-pass and reopened, short enough that a
+// pass which keeps failing does not keep its first copies unchecked.
+const PASS_RESUME_WITHIN_MS = 60 * 60 * 1000;
+const MANIFEST_URL = '/api/offline/manifest';
+const IMAGE_VARIANT_PATH = /^\/files\/\d+\/(thumb|md)$/;
 
 function storeOfflineConfig(data) {
     return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
@@ -228,6 +245,160 @@ function getOfflineConfig() {
         return cache.match(CONFIG_URL);
     }).then(function (response) {
         return response ? response.json() : null;
+    });
+}
+
+function storeEntry(url, data) {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return cache.put(url, new Response(JSON.stringify(data), {
+            headers: { 'Content-Type': 'application/json' },
+        }));
+    });
+}
+
+function readEntry(url) {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return cache.match(url);
+    }).then(function (response) {
+        return response ? response.json() : null;
+    });
+}
+
+/**
+ * The list last received for this account: `{scope, pages, last}`, or
+ * null. A list stored for another account says nothing about this one.
+ *
+ * @param {{account_scope?: string|number}|null} config
+ * @returns {Promise<{scope: string, pages: string[], last: string[]}|null>}
+ */
+function getOfflineList(config) {
+    return readEntry(LIST_URL).catch(function () { return null; }).then(function (list) {
+        if (!list || !config || String(list.scope) !== String(config.account_scope)) {
+            return null;
+        }
+        return list;
+    });
+}
+
+/**
+ * Whether this URL is one of the list's exact addresses. A query string is
+ * never on the list: `/news?page=2` is not `/news`.
+ *
+ * @param {URL} url
+ * @param {{pages: string[], last: string[]}|null} list
+ * @returns {boolean}
+ */
+function isListed(url, list) {
+    if (!list || url.search !== '' || url.origin !== self.location.origin) {
+        return false;
+    }
+    return list.pages.includes(url.pathname) || list.last.includes(url.pathname);
+}
+
+/**
+ * The previous version's copies, carried over (#883).
+ *
+ * The content cache is named after the version, so each update started
+ * from an empty one — offline just after an update, nothing — while the
+ * previous version's copies sat there unused. They are copied into the new
+ * cache, keeping their date (the « Version hors ligne du … » banner stays
+ * true), and the old cache is deleted; the next pass refreshes them.
+ *
+ * The new cache EXISTING says nothing: any fetch opens it — and so creates
+ * it — the moment the configuration naming the new version is stored,
+ * before this runs, and a copy cut short by the worker stopping leaves it
+ * half full. So the copy always runs, newest previous cache first, and
+ * never replaces what the new cache already holds (a copy stored since is
+ * fresher); an old cache is deleted only once everything has been copied,
+ * so an interrupted adoption is simply done again by the next one.
+ *
+ * @param {string} scope
+ * @param {string} version
+ * @returns {Promise<void>}
+ */
+function adoptPreviousVersion(scope, version) {
+    const prefix = CONTENT_CACHE_PREFIX + scope + '-';
+    const current = prefix + version;
+    let previous = [];
+
+    return caches.keys().then(function (names) {
+        previous = names.filter(function (name) {
+            return name.startsWith(prefix) && name !== current;
+        });
+        return previous.length === 0 ? undefined : storedListFor(scope);
+    }).then(function (list) {
+        return previous.length === 0 ? undefined : adoptListed(previous, current, list ?? null);
+    }).then(function () {
+        return Promise.all(previous.map(function (name) { return caches.delete(name); }));
+    }).then(function () {});
+}
+
+/**
+ * The list stored for $scope, or null when none is, or it is another
+ * account's.
+ *
+ * @param {string} scope
+ * @returns {Promise<{pages: string[], last: string[]}|null>}
+ */
+function storedListFor(scope) {
+    return readEntry(LIST_URL).catch(function () { return null; }).then(function (list) {
+        return list?.scope === scope ? list : null;
+    });
+}
+
+/**
+ * The previous copies carried into $current, then pruned to $list: what
+ * the account's list holds and the images its pages show, never a page a
+ * previous build kept under a broader rule. No list stored for this
+ * account yet: nothing is adopted — the first pass fills the cache.
+ *
+ * @param {string[]} previous
+ * @param {string} current
+ * @param {{pages: string[], last: string[]}|null} list
+ * @returns {Promise<unknown>}
+ */
+function adoptListed(previous, current, list) {
+    if (!list) {
+        return Promise.resolve();
+    }
+    // caches.keys() lists by creation, oldest first.
+    const copy = previous.slice().reverse().reduce(function (done, name) {
+        return done.then(function () { return copyCache(name, current); });
+    }, Promise.resolve());
+
+    return copy.then(function () {
+        return caches.open(current);
+    }).then(function (cache) {
+        return pruneCopies(cache, list.pages.concat(list.last));
+    });
+}
+
+function copyCache(from, to) {
+    return Promise.all([caches.open(from), caches.open(to)]).then(function (both) {
+        const source = both[0];
+        const target = both[1];
+        return source.keys().then(function (requests) {
+            return Promise.all(requests.map(function (request) {
+                return copyEntryIfMissing(source, target, request);
+            }));
+        });
+    });
+}
+
+/**
+ * $request's entry, from $source into $target — unless $target already
+ * holds one, which is fresher (adoptPreviousVersion()).
+ *
+ * @param {Cache} source
+ * @param {Cache} target
+ * @param {Request} request
+ * @returns {Promise<void>}
+ */
+function copyEntryIfMissing(source, target, request) {
+    return target.match(request).then(function (held) {
+        return held ? undefined : source.match(request);
+    }).then(function (response) {
+        return response ? target.put(request, response) : undefined;
     });
 }
 
@@ -255,6 +426,11 @@ function purgeAllContentCaches() {
  * `null` keeps nothing — the plain purge, on logout or on functional
  * consent being withdrawn.
  *
+ * The exact list and the pass record go with the copies (#883): they sit
+ * in the configuration cache, which this purge otherwise leaves alone, and
+ * the list names the account's own pages — the members linked to it among
+ * them. Only a list stored for the scope kept survives.
+ *
  * @param {string|null} keepScope
  * @returns {Promise<any>}
  */
@@ -271,9 +447,52 @@ function purgeContentCachesExcept(keepScope) {
                     return keptPrefix === null || !name.startsWith(keptPrefix);
                 })
                 .map(function (name) { return caches.delete(name); })
+                .concat(names.includes(CONFIG_CACHE_NAME) ? [forgetListsExcept(keepScope)] : [])
         );
     });
 }
+
+/**
+ * Deletes the stored list and pass record unless they belong to
+ * `keepScope` (null keeps neither).
+ *
+ * @param {string|null} keepScope
+ * @returns {Promise<unknown>}
+ */
+function forgetListsExcept(keepScope) {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return Promise.all([LIST_URL, PASS_URL].map(function (url) {
+            return forgetUnlessKept(cache, url, keepScope);
+        }));
+    });
+}
+
+/**
+ * Deletes the entry at $url unless it belongs to `keepScope`.
+ *
+ * @param {Cache} cache
+ * @param {string} url
+ * @param {string|null} keepScope
+ * @returns {Promise<unknown>}
+ */
+function forgetUnlessKept(cache, url, keepScope) {
+    return cache.match(url).then(function (response) {
+        return response ? response.json() : null;
+    }).catch(function () { return null; }).then(function (entry) {
+        if (keepScope !== null && entry && String(entry.scope) === keepScope) {
+            return undefined;
+        }
+        return cache.delete(url);
+    });
+}
+
+/**
+ * The configuration write the last 'offline-config' started, so that a
+ * refresh asked right after it reads the configuration it delivered.
+ *
+ * @type {Promise<unknown>}
+ */
+let lastConfigWrite = Promise.resolve();
 
 self.addEventListener('message', function (event) {
     // A service worker only ever receives a postMessage() from a client
@@ -298,18 +517,509 @@ self.addEventListener('message', function (event) {
         // submits the logout form, so this message is the first — and
         // often only — moment the worker is told the identity behind the
         // caches it holds has changed (issue #252).
-        event.waitUntil(
-            storeOfflineConfig(data).then(function () {
-                if (!data.consent) {
-                    return purgeAllContentCaches();
-                }
-                return purgeContentCachesExcept(String(data.account_scope));
-            })
-        );
+        const scope = String(data.account_scope);
+        lastConfigWrite = storeOfflineConfig(data).then(function () {
+            return data.consent ? purgeContentCachesExcept(scope) : purgeAllContentCaches();
+        }).then(function () {
+            return data.consent ? adoptPreviousVersion(scope, String(data.version)) : undefined;
+        }).catch(function () {});
+        event.waitUntil(lastConfigWrite);
     } else if (data.type === 'purge-content-caches') {
         event.waitUntil(purgeAllContentCaches());
+    } else if (data.type === 'offline-refresh') {
+        // Asked by offline-prefetch.js, which owns WHEN (an installed app,
+        // with consent, once per launch). Run here rather than in the page
+        // so that moving to another page of the app does not interrupt it.
+        // The configuration that page just sent is written first.
+        // A finished pass announces itself (settlePass()). `listOnly`
+        // (Data Saver): the list is kept, nothing is downloaded ahead.
+        const listOnly = data.listOnly === true;
+        event.waitUntil(lastConfigWrite.then(function () {
+            return refreshOfflineCopies(listOnly);
+        }).catch(function () {}));
     }
 });
+
+
+/**
+ * Tells every open window of the app that the pass finished — not only the
+ * page that asked for it: that page may have been left for another long
+ * before a pass of many requests ends, and the launch is remembered only
+ * on this message (offline-prefetch.js). Missed, every later page of the
+ * launch would start a whole pass again.
+ *
+ * The scope is the pass's own — whose pages it downloaded — never the
+ * configuration current when it ends: a window of another account ignores
+ * it.
+ *
+ * @param {{scope: string, version: string}} record
+ * @returns {Promise<void>}
+ */
+function announcePassDone(record) {
+    const scope = record.scope + '|' + record.version;
+    if (!self.clients) {
+        return Promise.resolve();
+    }
+    // Never rejects: an announcement that fails must not fail the pass.
+    return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
+        windows.forEach(function (client) {
+            client.postMessage({ type: 'offline-refresh-done', scope: scope });
+        });
+    }).catch(function () {});
+}
+
+// --- #883: the pass that keeps the list offline ---
+
+/**
+ * The pass running now, if one is: a second request while it runs joins
+ * it rather than starting another.
+ *
+ * @type {{key: string, promise: Promise<boolean>}|null}
+ */
+let passInFlight = null;
+
+/**
+ * Brings the offline copies in line with the list, in the order the
+ * maintainer decided (#883):
+ *
+ *  1. the pages of the list, help excepted — re-asked with their ETag, a
+ *     « 304 non modifié » only refreshing the date;
+ *  2. their images, read in the HTML just stored — `/files/{id}/thumb|md`
+ *     only, never the original — downloaded if missing;
+ *  3. the help (`last`);
+ *  4. then what is no longer on the list goes: a page whose role changed,
+ *     an article that left the first page, an image no page shows any more.
+ *
+ * Marked done only once all of it has run. Interrupted — the worker
+ * stopped, the app closed — the next request resumes the same pass and
+ * skips every copy already stamped since it started.
+ *
+ * Only ever for an installed app, with consent, signed in: the same gate
+ * as every other write of this worker.
+ *
+ * @param {boolean} [listOnly] the list kept, nothing downloaded ahead (Data Saver)
+ * @returns {Promise<boolean>} whether a pass ran to its end
+ */
+function refreshOfflineCopies(listOnly = false) {
+    return getOfflineConfig().catch(function () { return null; }).then(function (config) {
+        return joinOrRunPass(config, listOnly);
+    });
+}
+
+/**
+ * The pass running for this configuration's account and version, joined;
+ * else a new one. A pass started for another account — signed out and
+ * back in as someone else while it ran — is never joined: its end would
+ * be taken for this account's — nor a list-only one by a request for a
+ * full pass.
+ *
+ * @param {boolean} listOnly
+ * @returns {Promise<boolean>}
+ */
+function joinOrRunPass(config, listOnly) {
+    const key = String(config?.account_scope) + '|' + String(config?.version) + (listOnly ? '|list' : '');
+    if (passInFlight !== null && passInFlight.key === key) {
+        return passInFlight.promise;
+    }
+    const pass = { key: key, promise: Promise.resolve(false) };
+    pass.promise = runPassIfAllowed(config, listOnly).catch(function () {
+        return false;
+    }).finally(function () {
+        if (passInFlight === pass) {
+            passInFlight = null;
+        }
+    });
+    passInFlight = pass;
+
+    return pass.promise;
+}
+
+/**
+ * A pass, when this configuration allows one: an installed app, with
+ * consent. A visitor not signed in, and anyone under Data Saver, gets the
+ * list only — its pages are then kept as they are visited, never
+ * downloaded ahead.
+ *
+ * @param {boolean} listOnly
+ * @returns {Promise<boolean>}
+ */
+function runPassIfAllowed(config, listOnly) {
+    if (!config?.consent || !config.standalone || !config.account_scope) {
+        return Promise.resolve(false);
+    }
+    if (listOnly || config.account_scope === 'guest') {
+        return keepListOnly(config);
+    }
+    return runPass(config);
+}
+
+/**
+ * The list stored, and nothing fetched ahead: what a visitor not signed in
+ * gets, and anyone under Data Saver. Without it no page would ever be written for them — a page is
+ * kept only when the stored list names it.
+ *
+ * @returns {Promise<boolean>}
+ */
+function keepListOnly(config) {
+    const record = { scope: String(config.account_scope), version: String(config.version) };
+
+    return fetchManifest(record.scope).then(function (list) {
+        return keepList(list, record);
+    });
+}
+
+/**
+ * $list stored for $record's scope, what left it removed, and the windows
+ * told; nothing without a list. The removal is a pass's own last step
+ * (passOver()): a copy is served whatever the list says, so a page that
+ * left it — a member unlinked, a role lowered — stays readable offline
+ * until removed. It fetches nothing, so Data Saver loses nothing to it.
+ *
+ * @param {{pages: string[], last: string[]}|null} list
+ * @param {{scope: string, version: string}} record
+ * @returns {Promise<boolean>}
+ */
+function keepList(list, record) {
+    if (!list) {
+        return Promise.resolve(false);
+    }
+    const kept = list.pages.concat(list.last);
+
+    return storeEntry(LIST_URL, { scope: record.scope, pages: list.pages, last: list.last })
+        .then(function () { return caches.open(CONTENT_CACHE_PREFIX + record.scope + '-' + record.version); })
+        .then(function (cache) { return pruneCopies(cache, kept); })
+        .then(function () { return announcePassDone(record); })
+        .then(function () { return true; });
+}
+
+function runPass(config) {
+    const scope = String(config.account_scope);
+    const version = String(config.version);
+    const cacheName = CONTENT_CACHE_PREFIX + scope + '-' + version;
+
+    return Promise.all([
+        fetchManifest(scope),
+        readEntry(PASS_URL).catch(function () { return null; }),
+        caches.open(cacheName),
+    ]).then(function (results) {
+        return passFrom(results[0], results[1], results[2], scope, version);
+    });
+}
+
+/**
+ * The pass over $list, resuming $previous when it is this scope and
+ * version's and did not finish; none without a list.
+ *
+ * @returns {Promise<boolean>}
+ */
+function passFrom(list, previous, cache, scope, version) {
+    if (!list) {
+        return Promise.resolve(false);
+    }
+    // Resumed only while recent: a pass that keeps failing stays open, and
+    // resuming it for ever would never re-ask a page stamped early in it.
+    const resuming = previous?.scope === scope && previous.version === version && !previous.completedAt
+        && Date.now() - Number(previous.startedAt) < PASS_RESUME_WITHIN_MS;
+    const startedAt = resuming ? Number(previous.startedAt) : Date.now();
+    const record = { scope: scope, version: version, startedAt: startedAt, completedAt: null };
+
+    return passOver(cache, list, record);
+}
+
+/**
+ * The steps of one pass, in order, over $list into $cache; $record is
+ * stored as it starts and again, completed, once every step has run.
+ *
+ * @param {Cache} cache
+ * @param {{pages: string[], last: string[]}} list
+ * @param {{scope: string, version: string, startedAt: number, completedAt: number|null}} record
+ * @returns {Promise<boolean>}
+ */
+function passOver(cache, list, record) {
+    const scope = record.scope;
+    const startedAt = record.startedAt;
+
+    // What could not be fetched — the network gone after the list came:
+    // counted, so that such a pass is not taken for a finished one.
+    let failed = 0;
+    const count = function (failures) { failed += failures; };
+
+    return storeEntry(LIST_URL, { scope: scope, pages: list.pages, last: list.last })
+        .then(function () { return storeEntry(PASS_URL, record); })
+        .then(function () { return refreshPages(cache, list.pages, startedAt, scope); })
+        .then(count)
+        .then(function () { return imagesOf(cache, list.pages); })
+        .then(function (images) { return fetchMissingImages(cache, images, scope); })
+        .then(count)
+        .then(function () { return refreshPages(cache, list.last, startedAt, scope); })
+        .then(count)
+        .then(function () { return pruneCopies(cache, list.pages.concat(list.last)); })
+        .then(function () { return settlePass(record, failed); });
+}
+
+/**
+ * Marks the pass done only when nothing failed. A pass with failures stays
+ * open — `completedAt` null — so the next request resumes it, asking only
+ * for what is still missing, and the page is told nothing: it would
+ * otherwise remember the launch as done and not ask again for a day.
+ *
+ * @param {{completedAt: number|null}} record
+ * @param {number} failed
+ * @returns {Promise<boolean>} whether the pass is done
+ */
+function settlePass(record, failed) {
+    if (failed > 0) {
+        return Promise.resolve(false);
+    }
+    record.completedAt = Date.now();
+    return storeEntry(PASS_URL, record).then(function () {
+        return announcePassDone(record);
+    }).then(function () { return true; });
+}
+
+/**
+ * A path the list may hold: a string starting with a single '/'.
+ *
+ * @param {unknown} path
+ * @returns {boolean}
+ */
+function isPlainPath(path) {
+    return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//');
+}
+
+/**
+ * The exact list for the person this worker serves, or null — and null
+ * too when the session answering is not the account the configuration
+ * belongs to: a list for somebody else must not be kept under this scope.
+ *
+ * @param {string} scope
+ * @returns {Promise<{pages: string[], last: string[]}|null>}
+ */
+function fetchManifest(scope) {
+    return fetch(MANIFEST_URL, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+        .then(function (response) {
+            const served = response.headers.get('X-Offline-Scope');
+            if (!response.ok || (served !== null && served !== scope)) {
+                return null;
+            }
+            return response.json();
+        })
+        .then(function (data) {
+            if (!data || !Array.isArray(data.pages)) {
+                return null;
+            }
+            return {
+                pages: data.pages.filter(isPlainPath),
+                last: Array.isArray(data.last) ? data.last.filter(isPlainPath) : [],
+            };
+        })
+        .catch(function () { return null; });
+}
+
+/**
+ * $response with the stamp of this moment, and a Date when it has none.
+ *
+ * @param {Response} response
+ * @param {boolean} refreshDate a 304 confirmed the copy now: its date moves
+ * @returns {Promise<Response>}
+ */
+function stamped(response, refreshDate) {
+    return response.blob().then(function (body) {
+        const headers = new Headers(response.headers);
+        headers.set(STORED_AT_HEADER, String(Date.now()));
+        if (refreshDate || !headers.get('Date')) {
+            headers.set('Date', new Date().toUTCString());
+        }
+        return new Response(body, { status: response.status, statusText: response.statusText, headers: headers });
+    });
+}
+
+function storedSince(cached, startedAt) {
+    return !!cached && Number(cached.headers.get(STORED_AT_HEADER)) >= startedAt;
+}
+
+/** Runs $work over $items, PASS_CONCURRENCY at a time, never failing. */
+function inLanes(items, work) {
+    const queue = items.slice();
+    let failures = 0;
+    const lanes = [];
+    for (let i = 0; i < Math.min(PASS_CONCURRENCY, queue.length); i++) {
+        lanes.push((function next() {
+            if (queue.length === 0) {
+                return Promise.resolve();
+            }
+            return Promise.resolve(work(queue.shift())).catch(function () {
+                failures += 1;
+            }).then(next);
+        })());
+    }
+    return Promise.all(lanes).then(function () { return failures; });
+}
+
+/**
+ * Each page, unless this pass already stored it: re-asked with the ETag
+ * of the copy (Core\Http\FrontController), « 304 » refreshing its date,
+ * anything else replacing it — and never a redirect, which is the login
+ * page answering for a session that ended, nor a page served to another
+ * account.
+ */
+function refreshPages(cache, pages, startedAt, scope) {
+    return inLanes(pages, function (path) {
+        return refreshPage(cache, path, startedAt, scope);
+    });
+}
+
+/**
+ * One page of refreshPages(): asked again unless stored since $startedAt,
+ * with the ETag of the copy held, and stored stamped.
+ *
+ * @returns {Promise<void>}
+ */
+function refreshPage(cache, path, startedAt, scope) {
+    let cached;
+
+    return cache.match(path).then(function (match) {
+        cached = match;
+        if (storedSince(cached, startedAt)) {
+            return undefined;
+        }
+        const headers = {};
+        const etag = cached ? cached.headers.get('ETag') : null;
+        if (etag) {
+            headers['If-None-Match'] = etag;
+        }
+        return fetch(path, { credentials: 'same-origin', headers: headers });
+    }).then(function (response) {
+        if (!response) {
+            return undefined;
+        }
+        return stampedAnswer(response, cached, scope);
+    }).then(function (copy) {
+        return copy ? cache.put(path, copy) : undefined;
+    });
+}
+
+/**
+ * The copy to store for a page's answer, or nothing.
+ *
+ * Nothing, and no failure, for an answer asking again will not change: a
+ * redirect — a profile to complete first, or the login page for a session
+ * that ended, after which the next page says « guest » and a new pass
+ * follows the next sign-in — or a definitive refusal (a 4xx). Counted, it
+ * would keep the pass open for ever. The copy already held stays.
+ *
+ * Rejects — inLanes() counts it, and a pass with one is not done
+ * (settlePass()) — for another account's page, and for an answer that may
+ * change: a server error, a 408, a 429.
+ *
+ * @param {Response} response
+ * @param {Response|undefined} cached
+ * @param {string} scope
+ * @returns {Promise<Response|undefined>}
+ */
+function stampedAnswer(response, cached, scope) {
+    const served = response.headers.get('X-Offline-Scope');
+    if (served !== null && served !== scope) {
+        return Promise.reject(new Error('Served to another account'));
+    }
+    if (response.status === 304 && cached) {
+        return stamped(cached, true);
+    }
+    if (response.ok && !response.redirected) {
+        return stamped(response, false);
+    }
+    if (response.redirected || isDefinitiveRefusal(response)) {
+        return Promise.resolve(undefined);
+    }
+    return Promise.reject(new Error('Not stored: ' + response.status));
+}
+
+/**
+ * Every image variant the stored pages show: `/files/{id}/thumb|md` in a
+ * `src`, a `srcset` or a `url(…)`. What a page shows is what it keeps — no
+ * list of images kept by hand, page by page.
+ *
+ * @returns {Promise<string[]>}
+ */
+function imagesOf(cache, pages) {
+    const found = new Set();
+    return inLanes(pages, function (path) {
+        return cache.match(path).then(function (cached) {
+            return cached ? cached.clone().text() : '';
+        }).then(function (html) {
+            imageVariantsIn(html).forEach(function (url) { found.add(url); });
+        });
+    }).then(function () { return Array.from(found); });
+}
+
+/**
+ * @param {string} html
+ * @returns {string[]}
+ */
+function imageVariantsIn(html) {
+    const urls = [];
+    const pattern = /\/files\/\d+\/(?:thumb|md)(?![\w/.-])/g;
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+        urls.push(match[0]);
+    }
+    return urls;
+}
+
+/** A derivative URL never changes for a given file: one already held is kept. */
+function fetchMissingImages(cache, images, scope) {
+    return inLanes(images, function (url) {
+        return cache.match(url).then(function (cached) {
+            return cached ? undefined : fetch(url, { credentials: 'same-origin' });
+        }).then(function (response) {
+            if (!response) {
+                return undefined;
+            }
+            const served = response.headers.get('X-Offline-Scope');
+            if (response.ok && !response.redirected && (served === null || served === scope)) {
+                return cache.put(url, response);
+            }
+            // A definitive refusal — a file deleted while a listed article
+            // still shows it, an image this person may not see: nothing to
+            // keep and nothing a later pass would get. Counted, it would
+            // keep the pass open for ever.
+            if (isDefinitiveRefusal(response)) {
+                return undefined;
+            }
+            // Stored nothing: counted, like a refreshed page (stampedAnswer()).
+            throw new Error('Not stored: ' + response.status);
+        });
+    });
+}
+
+/**
+ * A 4xx that asking again will not change: not a redirect (an expired
+ * session), not 408 nor 429 (the server asking to come back later).
+ *
+ * @param {Response} response
+ * @returns {boolean}
+ */
+function isDefinitiveRefusal(response) {
+    return !response.redirected && response.status >= 400 && response.status < 500
+        && response.status !== 408 && response.status !== 429;
+}
+
+/**
+ * What the list no longer holds: a page off it, and an image no remaining
+ * page shows.
+ */
+function pruneCopies(cache, kept) {
+    return imagesOf(cache, kept).then(function (images) {
+        const keep = new Set(kept.concat(images));
+        return cache.keys().then(function (requests) {
+            return Promise.all(requests.map(function (request) {
+                const url = new URL(request.url);
+                const key = url.search === '' ? url.pathname : null;
+                return key !== null && keep.has(key) ? undefined : cache.delete(request);
+            }));
+        });
+    });
+}
 
 // --- App-shell freshness: the two rules the `?v=` cannot enforce on its own ---
 //
@@ -488,25 +1198,19 @@ self.addEventListener('fetch', function (event) {
     }
 
     // Pre-generated image-variant derivatives (Core\Photo\ImageVariantService,
-    // GET /files/{id}/thumb|md) — read-only here: network-first, falling
-    // back to Cache Storage on a network failure ONLY. This branch never
-    // calls cache.put() — writing is entirely the pre-download script's job
-    // (public/assets/js/offline-prefetch.js), which owns the consent/
-    // standalone-mode policy for what gets written and where. A 403/404
-    // from a live network response (a real access-guard decision) is
-    // returned as-is, never masked by a stale cached copy — only an actual
-    // network failure (offline) falls through to the cache. Every OTHER
-    // /files/{id} request — the original itself, /thumbnail, anything not
-    // matching this exact pattern — falls through unmatched below and
-    // stays strictly network-only, same as before: this is the one
-    // regex that's allowed to touch Cache Storage for a /files/{id} URL,
-    // and even it never writes.
-    if (/^\/files\/\d+\/(thumb|md)$/.test(url.pathname)) {
-        event.respondWith(
-            fetch(request).catch(function () {
-                return caches.match(request);
-            })
-        );
+    // GET /files/{id}/thumb|md): network-first, falling back to Cache
+    // Storage on a network failure ONLY. A 403/404 from a live response (a
+    // real access-guard decision) is returned as-is, never masked by a
+    // stale cached copy. Every OTHER /files/{id} request — the original
+    // itself, anything not matching this exact pattern — falls through
+    // unmatched below and stays strictly network-only: this is the one
+    // pattern allowed to touch Cache Storage for a /files/{id} URL.
+    //
+    // Since #883 it may also WRITE what it fetched, and only when the page
+    // asking for the image is on the list: an image shown by a listed page
+    // is one the next pass would have downloaded anyway (variantResponse()).
+    if (IMAGE_VARIANT_PATH.test(url.pathname)) {
+        event.respondWith(variantResponse(request, event));
         return;
     }
 
@@ -664,8 +1368,9 @@ function offlineConditions(stalenessDays) {
         when = 'il y a moins de ' + days + (days === 1 ? ' jour' : ' jours');
     }
 
-    return 'Une page n\'est disponible hors ligne que si les cookies fonctionnels sont activés '
-        + '(depuis le pied de page, en ligne) et si vous l\'avez ouverte dans l\'application ' + when + '.';
+    return 'Une page n\'est disponible hors ligne que si elle fait partie des pages que l\'application garde, '
+        + 'si les cookies fonctionnels sont activés (depuis le pied de page, en ligne) et si '
+        + 'l\'application a été ouverte avec une connexion ' + when + '.';
 }
 
 /**
@@ -721,18 +1426,72 @@ function handleNavigate(request, url, preloadResponse, event) {
         // handles.
         return null;
     }).then(function (config) {
-        if (!config?.consent || !isWhitelisted(url.pathname, config.whitelist)) {
-            // Lot 1 behavior: a failed navigation falls back to the
-            // precached offline page. There is nothing cached to serve
-            // for a page outside the whitelist, so the one thing left to
-            // try before saying so is the request itself, once more.
+        if (!config?.consent) {
+            // Lot 1 behavior: without consent nothing is held, so a failed
+            // navigation falls back to the precached offline page, after
+            // trying the request itself once more.
             return network
                 .catch(function () { return retryOnce(request); })
                 .catch(function () { return offlinePage(); });
         }
 
-        return networkFirstWithCacheFallback(request, url, config, network, event);
+        // Offline, a page is available if and only if it is really in the
+        // cache (#883) — whatever put it there. Writing is another matter:
+        // only an address on the list ever is (networkFirstWithCacheFallback()).
+        return getOfflineList(config).then(function (list) {
+            return networkFirstWithCacheFallback(request, url, config, network, event, isListed(url, list));
+        });
     });
+}
+
+/**
+ * An image variant: the network, else the copy a cache holds — and, from
+ * the installed app with consent, the network's answer stored when the
+ * page that asked for it is on the list (#883). A page off the list
+ * stores nothing, its images neither.
+ *
+ * @param {Request} request
+ * @param {FetchEvent|undefined} event
+ * @returns {Promise<Response>}
+ */
+function variantResponse(request, event) {
+    return fetch(request).then(function (response) {
+        keepAlive(event, storeVariantIfListed(request, response.clone()));
+        return response;
+    }, function () {
+        return caches.match(request);
+    });
+}
+
+function storeVariantIfListed(request, response) {
+    if (!response.ok || response.redirected || !request.referrer) {
+        return Promise.resolve();
+    }
+    let referrer;
+    try {
+        referrer = new URL(request.referrer);
+    } catch {
+        return Promise.resolve();
+    }
+
+    // Never rejects: a copy not stored must not fail the image it was for.
+    let cacheName = null;
+
+    return getOfflineConfig().then(function (config) {
+        if (!config?.consent || !config.standalone) {
+            return undefined;
+        }
+        const served = response.headers.get('X-Offline-Scope');
+        if (served !== null && served !== String(config.account_scope)) {
+            return undefined;
+        }
+        cacheName = CONTENT_CACHE_PREFIX + String(config.account_scope) + '-' + String(config.version);
+        return getOfflineList(config);
+    }).then(function (list) {
+        return cacheName !== null && isListed(referrer, list) ? caches.open(cacheName) : undefined;
+    }).then(function (cache) {
+        return cache ? cache.put(request, response) : undefined;
+    }).catch(function () {});
 }
 
 /**
@@ -756,46 +1515,6 @@ function keepAlive(event, promise) {
     } catch (e) {
         // Already settled — nothing left to extend.
     }
-}
-
-// Third implementation of ONE rule, and the two others are the reference:
-// Core\Offline\OfflineWhitelist::matches() (server) and
-// public/assets/js/offline-nav.js's isWhitelisted() (page). There is no
-// shared runtime between PHP, the page, and this worker, so the algorithm
-// is necessarily reimplemented here — see OfflineWhitelist's own docblock
-// on that point. It must stay semantically identical to both.
-//
-// `match: 'child'` means the entry's path plus EXACTLY one additional
-// segment — '/members/' covers '/members/12' but not '/members/12/emails/5'
-// (two extra segments). Anything else is an exact path match.
-//
-// This used to ignore entry.match entirely and compare paths for equality
-// only. Because base.html.twig hands this worker the SAME role-filtered
-// list it hands offline-nav.js — with `match` intact and no server-side
-// expansion into concrete paths — every child-matched entry (/members/ is
-// one, and modules may declare more) failed the check here while
-// offline-nav.js counted it as available. The result: member pages were
-// presented as offline-ready in the UI and then never cached or served
-// from cache by this worker, so going offline showed the generic /offline
-// page on a link that claimed to work.
-function isWhitelisted(pathname, whitelist) {
-    if (!whitelist) {
-        return false;
-    }
-    for (const entry of whitelist) {
-        if (entry.match === 'child') {
-            if (pathname.indexOf(entry.path) !== 0) {
-                continue;
-            }
-            const remainder = trimSlashes(pathname.slice(entry.path.length));
-            if (remainder !== '' && !remainder.includes('/')) {
-                return true;
-            }
-        } else if (pathname === entry.path) {
-            return true;
-        }
-    }
-    return false;
 }
 
 /**
@@ -826,7 +1545,7 @@ function cachedCopy(request, cacheName, config, reason) {
 
         const dateHeader = cached.headers.get('date');
         const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
-        const stalenessDays = config.staleness_days || 7;
+        const stalenessDays = Number(config.staleness_days) || DEFAULT_STALENESS_DAYS;
         // Freshness is stated positively, and that is what makes it
         // right: an unparseable Date header gives NaN and a future-dated
         // one a negative age, and NEITHER is greater than the threshold —
@@ -857,7 +1576,7 @@ function cachedCopy(request, cacheName, config, reason) {
     });
 }
 
-function networkFirstWithCacheFallback(request, url, config, network, event) {
+function networkFirstWithCacheFallback(request, url, config, network, event, listed) {
     const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
 
     // The live attempt, with its cache write attached. It is NEVER
@@ -903,7 +1622,10 @@ function networkFirstWithCacheFallback(request, url, config, network, event) {
             keepAlive(event, purgeContentCachesExcept(servedScope).catch(function () {}));
         }
 
-        if (response?.ok && !response.redirected && config.standalone && scopeMatches) {
+        // `listed` (#883): only an exact address of the list is ever written.
+        // A page off it — another member's fiche, an older article — is
+        // served from the network and never kept, visited or not.
+        if (listed && response?.ok && !response.redirected && config.standalone && scopeMatches) {
             const copy = response.clone();
             // Kept alive for the same reason the slow path's refresh is:
             // on the fast path respondWith() settles the instant this
@@ -1092,7 +1814,16 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     appShellResponse: appShellResponse,
     VERSION: VERSION,
     APP_SHELL_URLS: APP_SHELL_URLS,
-    isWhitelisted: isWhitelisted,
+    isListed: isListed,
+    getOfflineList: getOfflineList,
+    adoptPreviousVersion: adoptPreviousVersion,
+    refreshOfflineCopies: refreshOfflineCopies,
+    announcePassDone: announcePassDone,
+    imageVariantsIn: imageVariantsIn,
+    variantResponse: variantResponse,
+    LIST_URL: LIST_URL,
+    PASS_URL: PASS_URL,
+    STORED_AT_HEADER: STORED_AT_HEADER,
     formatOfflineTimestamp: formatOfflineTimestamp,
     cachedCopy: cachedCopy,
     keepAlive: keepAlive,

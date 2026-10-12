@@ -3265,15 +3265,13 @@ $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 $twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? ''));
 
 // Offline content caching (Lot 3) — single server-side source of truth
-// for both public/sw.js (routing decisions) and offline-nav.js (greying
-// out unavailable links), delivered to the page as JSON and handed to
-// the service worker via postMessage (base.html.twig) — never
+// for public/sw.js and offline-nav.js, delivered to the page as JSON and
+// handed to the service worker via postMessage (base.html.twig) — never
 // hardcoded/duplicated client-side. accountScope is what the cache name
 // is namespaced by, so a different member logging in on the same device
-// never inherits the previous one's cache (offline-cache.js). The
-// 'offline_whitelist' global itself is set further below, once every
-// enabled module has had a chance to register its own offline pages
-// (loadEnabledModules()) — see that block's own comment for why.
+// never inherits the previous one's cache (offline-cache.js). WHICH pages
+// are held is not in it: the service worker asks GET /api/offline/manifest
+// for the exact list (#883).
 $twig->addGlobal(
     'offline_cache_staleness_days',
     (int) $settingService->get('offline_cache_staleness_days', null, '30')
@@ -3702,6 +3700,10 @@ $router = new Router();
 // as modules load) are visible both to the Twig global built later and to
 // FrontController's ETag logic (§8.25).
 $offlineWhitelist = new OfflineWhitelist();
+// The providers its entries name by class (#883) — the core ones are
+// registered with Core\Offline\OfflineManifestService below, a module's
+// from its own block, as its hooks are.
+$offlinePageProviders = new \Core\Offline\OfflinePageProviders();
 
 // Contextual help (Core\Help, ARCHITECTURE.md §8.64) — same single-shared-
 // instance reasoning as $offlineWhitelist just above: core topics live in
@@ -6045,17 +6047,9 @@ if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
 $menus = $menuBuilder->build();
 $twig->addGlobal('menus', $menus);
 
-// Offline whitelist (Core\Offline\OfflineWhitelist) — built only now, once
-// every enabled module has registered its own offline pages via
-// loadEnabledModules() above, and filtered by the current viewer's
-// effective role so a logged-out visitor is never handed a chief-only
-// path like /previsions or /chiefs/stats (and the client never tries to
-// cache a page it will only ever get a 403 for).
-$twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role::fromString($currentRole)));
-
 // The help corpus the instant search ranks (Core\Help\HelpSearchIndex),
 // serialized into every page by base.html.twig — same timing and the same
-// reason as the offline whitelist just above: built once every enabled
+// reason the menus just above are built here: once every enabled
 // module has registered its own topics, and filtered to the viewer's
 // effective role, because a blob in the page source is readable whatever
 // the script does with it. Front matter only, no bodies: ~15 KB, and the
@@ -6948,24 +6942,16 @@ $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
 // FileController (and the FileAccessGuard it consumes) is registered at
 // the end of this file instead of here — see the comment there.
-// The staff directory (Core\Module\StaffDirectoryProvider) reaches the
-// manifest through $moduleHooks, registered from the trombinoscope block
-// below and resolved per request — no re-registration needed; without the
-// module it resolves to null and the manifest carries no trombinoscope
-// photos.
-$offlineManifestService = new \Core\Offline\OfflineManifestService(
-    $offlineWhitelist,
+// The exact pages held offline (#883): the core's two providers here, a
+// module's from its own block below — resolved per request, so a module
+// block registering later is no problem.
+$offlinePageProviders->register(new \Core\Offline\LinkedMemberPages(
     $memberService,
-    $memberPhotoService,
-    $sectionPhotoService,
-    $sectionService,
-    $unitStaffSectionService,
     $scoutYearResolver,
-    $editableContentService,
-    $ageBranchRepo,
-    $moduleHooks,
     $temporaryMemberProvider
-);
+));
+$offlinePageProviders->register(new \Core\Offline\HelpPages($helpService));
+$offlineManifestService = new \Core\Offline\OfflineManifestService($offlineWhitelist, $offlinePageProviders);
 $offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
 $photoIngestionService = new \Core\Photo\PhotoIngestionService(
@@ -9455,6 +9441,9 @@ if ($isEnabled('news')) {
     // The home page's news hook (§7.4) — resolved per request through
     // $moduleHooks, no PageController re-registration.
     $moduleHooks->register(\Core\Module\HomeNewsProvider::class, $newsArticleService);
+
+    // The news held offline (#883), named by the module's `offline` entry.
+    $offlinePageProviders->register(new \Modules\News\Offline\NewsOfflinePages($newsArticleService));
 
     // Menu hook (Core\Module\MenuEntryProvider, §7.4): the « Scanner un
     // billet » shortcut, and only when this unit has ever run a ticketed

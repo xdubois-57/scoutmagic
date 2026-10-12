@@ -242,19 +242,27 @@ class ServiceWorkerPrecacheTest extends TestCase
     }
 
     /**
-     * §2.5: /files/{id}/{variant} must be answered network-first with a
-     * cache-match fallback, and this branch must never write to the
-     * cache itself — writing stays the pre-download script's job.
+     * §2.5: /files/{id}/{variant} is answered network-first with a
+     * cache-match fallback. Since #883 it may write, and only through the
+     * one gate that checks the page asking for it is on the list — under
+     * the same consent, installed-app and account-scope rules as a page.
      */
-    public function testFileVariantBranchIsNetworkFirstAndNeverWrites(): void
+    public function testFileVariantBranchIsNetworkFirstAndWritesOnlyForAListedPage(): void
     {
-        preg_match('/if \(\/\^\\\\\/files\\\\\/\\\\d\+\\\\\/\(thumb\|md\)\$\/\.test\(url\.pathname\)\) \{(.*?)\n    \}/s', $this->swJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate the /files/{id}/{variant} fetch-handler branch in public/sw.js');
+        $this->assertStringContainsString("const IMAGE_VARIANT_PATH = /^\\/files\\/\\d+\\/(thumb|md)$/;", $this->swJs);
+        $this->assertStringContainsString('event.respondWith(variantResponse(request, event));', $this->swJs);
 
+        preg_match('/function variantResponse\(request, event\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate variantResponse() in public/sw.js');
         $this->assertStringContainsString('fetch(request)', $m[1]);
         $this->assertStringContainsString('caches.match(request)', $m[1]);
-        $this->assertStringNotContainsString('cache.put', $m[1]);
         $this->assertStringNotContainsString('.put(', $m[1]);
+
+        preg_match('/function storeVariantIfListed\(request, response\) \{(.*?)\n\}/s', $this->swJs, $store);
+        $this->assertNotEmpty($store, 'Could not locate storeVariantIfListed() in public/sw.js');
+        foreach (['!response.ok || response.redirected', 'config?.consent || !config.standalone', "headers.get('X-Offline-Scope')", 'isListed(referrer, list)'] as $gate) {
+            $this->assertStringContainsString($gate, $store[1]);
+        }
     }
 
     /**
@@ -274,11 +282,11 @@ class ServiceWorkerPrecacheTest extends TestCase
      */
     public function testNetworkFirstWithCacheFallbackGatesTheWriteOnStandalone(): void
     {
-        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s', $this->swJs, $m);
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config, network, event, listed\) \{(.*?)\n\}/s', $this->swJs, $m);
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
-            '/if \(response\?\.ok && !response\.redirected && config\.standalone && scopeMatches\) \{/',
+            '/if \(listed && response\?\.ok && !response\.redirected && config\.standalone && scopeMatches\) \{/',
             $m[1]
         );
     }
@@ -294,7 +302,7 @@ class ServiceWorkerPrecacheTest extends TestCase
     public function testTheWriteIsAlsoGatedOnTheScopeTheResponseWasServedUnder(): void
     {
         preg_match(
-            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event, listed\) \{(.*?)\n\}/s',
             $this->swJs,
             $m
         );
@@ -367,7 +375,7 @@ class ServiceWorkerPrecacheTest extends TestCase
     public function testTheLiveRefreshOutlivesANavigationAnsweredFromTheCache(): void
     {
         preg_match(
-            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event, listed\) \{(.*?)\n\}/s',
             $this->swJs,
             $m
         );
@@ -395,7 +403,7 @@ class ServiceWorkerPrecacheTest extends TestCase
     public function testEveryCacheWriteIsHeldOpenByTheFetchEvent(): void
     {
         preg_match(
-            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event, listed\) \{(.*?)\n\}/s',
             $this->swJs,
             $m
         );

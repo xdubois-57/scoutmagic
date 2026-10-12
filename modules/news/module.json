@@ -2,8 +2,16 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles publics, avec formulaire d'inscription et paiement.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "enabled_by_default": true,
+  "offline": [
+    {
+      "provider": "Modules\\News\\Offline\\NewsOfflinePages",
+      "prefix": "/news",
+      "label": "Actualités",
+      "role_min": "public"
+    }
+  ],
   "routes": [
     {
       "path": "/news",

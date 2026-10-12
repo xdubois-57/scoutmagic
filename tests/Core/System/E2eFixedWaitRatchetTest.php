@@ -43,12 +43,6 @@ class E2eFixedWaitRatchetTest extends TestCase
                 . 'having decoded the moment the form was issued — which is the opposite of '
                 . 'guessing, and is why every scenario calls this instead of counting itself.',
         ],
-        'tests/e2e/specs/pwa-prefetch-once.spec.js' => [
-            'count' => 1,
-            'reason' => 'Proving a prefetch happens ONCE means watching a window in which a '
-                . 'second one would have happened. There is no event for "nothing else came", '
-                . 'so the window is the assertion.',
-        ],
     ];
 
     public function testNoScenarioWaitsAFixedNumberOfMilliseconds(): void
