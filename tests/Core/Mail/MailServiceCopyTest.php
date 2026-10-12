@@ -12,8 +12,8 @@ use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Mail\MailTransportInterface;
 use Core\Mail\PhpMailerTransport;
+use Core\Mail\RecipientFirstSmtp;
 use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -161,6 +161,25 @@ class MailServiceCopyTest extends TestCase
     }
 
     /**
+     * **One rule, whatever the process did before.** PHPMailer switches its
+     * global validator to a looser one, for the rest of the process, the
+     * first time a UTF-8 address is added; the rule a box checks a typed
+     * address with must not depend on what an earlier request sent.
+     */
+    public function testTheAddressRuleDoesNotFollowPhpMailersGlobalSwitch(): void
+    {
+        $previous = PHPMailer::$validator;
+        PHPMailer::$validator = 'eai';
+
+        try {
+            $this->assertFalse(MailService::isValidAddress('josé@exemple.test'));
+            $this->assertTrue(MailService::isValidAddress('unite@exemple.test'));
+        } finally {
+            PHPMailer::$validator = $previous;
+        }
+    }
+
+    /**
      * **The copy is inside the signed message, and the message is still
      * multipart.** PHPMailer signs `Cc` among its default headers; this
      * pins that the header is really there when the signature is computed
@@ -222,17 +241,53 @@ class MailServiceCopyTest extends TestCase
     }
 
     /**
-     * The other way round is still a failure: the recipient refused — the
-     * copy alone accepted — is a message the person it was for never got.
+     * **The other way round, the copy is not even asked for.** A refused
+     * recipient with an accepted copy would have had the DATA sent to the
+     * copy alone — the unit told of a message the family never got, again
+     * from every relay the chain tries. No DATA, a failure, and the
+     * relay's answer about the recipient as the reason.
      */
-    public function testARefusedRecipientStillFailsWhenTheCopyWasAccepted(): void
+    public function testARefusedRecipientSendsNothingToTheCopy(): void
     {
         $relay = $this->fakeRelay(['parent@exemple.test']);
 
-        $this->expectException(MailException::class);
+        try {
+            $this->service($this->overRelay($relay), null, null, 'smtp')
+                ->send('parent@exemple.test', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
+            $this->fail('A refused recipient must fail the message.');
+        } catch (MailException $e) {
+            $this->assertStringContainsString('550 5.1.1', $e->getMessage());
+        }
 
-        $this->service($this->overRelay($relay), null, null, 'smtp')
+        $this->assertSame(0, $relay->dataSent, 'nothing may reach the copy.');
+        $this->assertSame(['parent@exemple.test'], $relay->asked, 'the copy is never asked for.');
+    }
+
+    /** A callback a caller set on the message is still called. */
+    public function testACallbackAlreadySetIsStillCalled(): void
+    {
+        $relay = $this->fakeRelay(['unite@exemple.test']);
+        $seen = [];
+        $transport = new class ($relay, $seen) implements MailTransportInterface {
+            /** @param list<string> $seen */
+            public function __construct(private RecipientFirstSmtp $relay, private array &$seen)
+            {
+            }
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                $seen = &$this->seen;
+                $mail->action_function = static function (bool $isSent, array $to) use (&$seen): void {
+                    $seen[] = $to[0][0] . ($isSent ? ' sent' : ' refused');
+                };
+                (new PhpMailerTransport(fn (): RecipientFirstSmtp => $this->relay))->deliver($mail, $purpose);
+            }
+        };
+
+        $this->service($transport, null, null, 'smtp')
             ->send('parent@exemple.test', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
+
+        $this->assertSame(['parent@exemple.test sent', 'unite@exemple.test refused'], $seen);
     }
 
     /** And without a copy, a refused recipient fails exactly as before. */
@@ -252,19 +307,23 @@ class MailServiceCopyTest extends TestCase
 
     /**
      * An SMTP relay that accepts everything except the addresses given,
-     * and opens no socket.
+     * and opens no socket — behind the real {@see RecipientFirstSmtp}
+     * session, which only its two wire calls are replaced in.
      *
      * @param list<string> $refused
      */
-    private function fakeRelay(array $refused): SMTP
+    private function fakeRelay(array $refused): RecipientFirstSmtp
     {
-        return new class ($refused) extends SMTP {
+        return new class ($refused) extends RecipientFirstSmtp {
             public int $dataSent = 0;
+            /** @var list<string> */
+            public array $asked = [];
             private string $lastRefused = '';
 
             /** @param list<string> $refused */
             public function __construct(private array $refused)
             {
+                parent::__construct(['parent@exemple.test']);
             }
 
             public function connected()
@@ -272,13 +331,14 @@ class MailServiceCopyTest extends TestCase
                 return true;
             }
 
-            public function mail($from)
+            protected function openTransaction(string $from): bool
             {
                 return true;
             }
 
-            public function recipient($address, $dsn = '')
+            protected function askRelay(string $address, string $dsn): bool
             {
+                $this->asked[] = $address;
                 if (in_array($address, $this->refused, true)) {
                     $this->lastRefused = $address;
 
@@ -316,18 +376,23 @@ class MailServiceCopyTest extends TestCase
         };
     }
 
-    /** The real PhpMailerTransport, talking to the given relay. */
-    private function overRelay(SMTP $relay): MailTransportInterface
+    /**
+     * The real PhpMailerTransport, talking to the given relay: as the
+     * session of a message carrying a copy, and preset for one without.
+     */
+    private function overRelay(RecipientFirstSmtp $relay): MailTransportInterface
     {
         return new class ($relay) implements MailTransportInterface {
-            public function __construct(private SMTP $relay)
+            public function __construct(private RecipientFirstSmtp $relay)
             {
             }
 
             public function deliver(PHPMailer $mail, MailPurpose $purpose): void
             {
-                $mail->setSMTPInstance($this->relay);
-                (new PhpMailerTransport())->deliver($mail, $purpose);
+                if ($mail->getCcAddresses() === []) {
+                    $mail->setSMTPInstance($this->relay);
+                }
+                (new PhpMailerTransport(fn (): RecipientFirstSmtp => $this->relay))->deliver($mail, $purpose);
             }
         };
     }

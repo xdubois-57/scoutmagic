@@ -647,7 +647,13 @@ aucune recommandation pour une année passée.
   `mail_copy_refused` (avertissement, adresses masquées). Sans cela, la
   chaîne de fournisseurs renvoyait le message par le relais suivant, et
   `RequestEmailService` croyait à un échec et ne stockait pas le jeton du
-  lien que la famille venait de recevoir.
+  lien que la famille venait de recevoir. **À l'inverse, un destinataire
+  refusé n'atteint jamais la copie** : PHPMailer envoie le DATA dès qu'un
+  seul destinataire est accepté ; un message SMTP portant une copie passe
+  donc par `RecipientFirstSmtp`, qui ne demande plus aucune copie une fois
+  un `To:` refusé — pas de DATA, l'unité ne reçoit pas copie d'un message
+  que la famille n'a pas eu (une adresse mal tapée sur le formulaire
+  public), ni une fois par relais ou par nouvel essai.
 - **Module : boîte « Copie des e-mails d'inscription »** sur Réglages
   (`views/config/_settings_copy.html.twig`, incluse par une ligne) :
   interrupteur « Mettre une adresse en copie » (activé par défaut), champ
@@ -687,7 +693,9 @@ aucune recommandation pour une année passée.
   rien ne part et le journal ne nomme personne, en-tête signé DKIM et
   multipart ; sur un faux relais SMTP derrière le vrai
   `PhpMailerTransport` : copie refusée → envoi réussi, DATA une fois,
-  `mail_copy_refused` ; destinataire refusé → échec, avec ou sans copie), `MailServiceDeferralTest` (la copie est mise en file),
+  `mail_copy_refused` ; destinataire refusé → échec, copie jamais demandée
+  ni DATA envoyé ; rappel déjà posé conservé ; règle d'adresse
+  indépendante du validateur global de PHPMailer), `MailServiceDeferralTest` (la copie est mise en file),
   `DrainDeferredMailHandlerTest` (rejouée avec sa copie ; ligne ancienne
   sans clé → aucune), `FamilyEmailCopyServiceTest`,
   `RequestEmailServiceTest` (acceptation, renvoi et refus en copie ;
@@ -732,7 +740,9 @@ aucune recommandation pour une année passée.
   boîte affiche un avertissement. Côté cœur, en revanche, une adresse
   invalide refuse tout le message, comme demandé : le module ne lui en
   passe jamais, la boîte vérifiant l'adresse par la même fonction que
-  `send()` (`MailService::isValidAddress()`, exposée pour cela).
+  `send()` (`MailService::isValidAddress()`, exposée pour cela, qui nomme
+  le motif `'php'` de PHPMailer plutôt que son défaut global, que PHPMailer
+  assouplit pour tout le processus après une adresse UTF-8).
 - **Une adresse invalide est refusée même l'option coupée** : le réglage
   est de type `email`, et une valeur qu'on ne voit pas agir ne s'enregistre
   pas fausse. Option coupée, le champ n'est pas soumis et l'adresse

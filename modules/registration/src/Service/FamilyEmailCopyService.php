@@ -135,7 +135,7 @@ class FamilyEmailCopyService
     {
         $address = $address === null ? $this->configuredAddress() : trim($address);
 
-        if ($address !== '' && !self::isValidAddress($address)) {
+        if ($address !== '' && !MailService::isValidAddress($address)) {
             throw new RegistrationException(self::MESSAGE_INVALID);
         }
         if ($enabled && $this->resolve($address) === null) {
@@ -159,20 +159,14 @@ class FamilyEmailCopyService
     }
 
     /**
-     * The rule Core\Mail\MailService applies to a copy address itself —
-     * the same one, not a copy of it, so an address this box accepts is
-     * never one the send then refuses.
+     * The typed address when there is one, else the unit's — if valid by
+     * the rule MailService itself applies to a copy, so an address this
+     * box accepts is never one the send then refuses.
      */
-    public static function isValidAddress(string $address): bool
-    {
-        return MailService::isValidAddress($address);
-    }
-
-    /** The typed address when there is one, else the unit's — if valid. */
     private function resolve(string $typed): ?string
     {
         $address = $typed !== '' ? $typed : $this->unitAddress();
 
-        return $address !== '' && self::isValidAddress($address) ? $address : null;
+        return $address !== '' && MailService::isValidAddress($address) ? $address : null;
     }
 }

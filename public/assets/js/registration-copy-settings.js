@@ -36,10 +36,10 @@
     }
 
     function init() {
-        document.querySelectorAll('#registration-email-copy').forEach(
-            /** @param {HTMLElement} form */
-            function (form) { bind(form); }
-        );
+        var form = document.getElementById('registration-email-copy');
+        if (form) {
+            bind(form);
+        }
     }
 
     window.ScoutMagicRegistrationCopySettings = { syncAddress: syncAddress, init: init };

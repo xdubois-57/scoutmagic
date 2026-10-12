@@ -848,7 +848,11 @@ class MailService
      */
     public static function isValidAddress(string $address): bool
     {
-        return PHPMailer::validateAddress($address);
+        // The pattern named, not PHPMailer's global default: that one is
+        // switched to a looser validator, for the rest of the process,
+        // the first time any UTF-8 address is added — and a rule that
+        // depends on what an earlier request did is not one rule.
+        return PHPMailer::validateAddress($address, 'php');
     }
 
     /**

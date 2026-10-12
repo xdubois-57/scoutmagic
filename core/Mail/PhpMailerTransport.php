@@ -31,6 +31,20 @@ final class PhpMailerTransport implements MailTransportInterface
      */
     private static ?\WeakMap $refusedCopies = null;
 
+    /** @var \Closure(list<string>): RecipientFirstSmtp */
+    private \Closure $copySession;
+
+    /**
+     * @param (\Closure(list<string>): RecipientFirstSmtp)|null $copySession
+     *        The SMTP session a message carrying a copy is sent through —
+     *        a seam for tests, which hand a relay that opens no socket.
+     */
+    public function __construct(?\Closure $copySession = null)
+    {
+        $this->copySession = $copySession
+            ?? static fn (array $recipients): RecipientFirstSmtp => new RecipientFirstSmtp($recipients);
+    }
+
     /**
      * The purpose is ignored here, and deliberately so: putting a message
      * on the wire is the same operation whatever it says. Only a transport
@@ -48,18 +62,37 @@ final class PhpMailerTransport implements MailTransportInterface
      * the message has left: the exception stops here, and what the relay
      * said is kept for MailService to journal. Anything else — the
      * recipient refused, no DATA sent, no copy at all — throws as before.
+     *
+     * **And the reverse never reaches the copy.** A refused `To:` with an
+     * accepted `Cc:` would still have DATA sent to the copy alone — the
+     * unit told of a message the family never got, again from every relay
+     * the chain tried and on every retry of the queue. An SMTP message
+     * carrying a copy goes through a {@see RecipientFirstSmtp} session,
+     * which asks for no copy once the recipient is refused: no DATA, and
+     * the failure is the recipient's, as without a copy.
      */
     public function deliver(PHPMailer $mail, MailPurpose $purpose): void
     {
+        if ($mail->Mailer === 'smtp' && $mail->getCcAddresses() !== []) {
+            $mail->setSMTPInstance(($this->copySession)(
+                array_map(static fn (array $address): string => (string) $address[0], $mail->getToAddresses())
+            ));
+        }
+
         /** @var array<string, true> $accepted */
         $accepted = [];
         $previousCallback = $mail->action_function;
         // PHPMailer reports each recipient's fate here once the DATA has
-        // been accepted, before it throws for the ones that failed.
-        $mail->action_function = static function (bool $isSent, array $to) use (&$accepted): void {
+        // been accepted, before it throws for the ones that failed. A
+        // callback somebody had set is still called.
+        $mail->action_function = static function (bool $isSent, array $to, ...$rest) use (
+            &$accepted,
+            $previousCallback
+        ): void {
             foreach ($isSent ? $to : [] as $address) {
                 $accepted[strtolower((string) $address[0])] = true;
             }
+            self::callIfSet($previousCallback, [$isSent, $to, ...$rest]);
         };
 
         try {
@@ -90,6 +123,19 @@ final class PhpMailerTransport implements MailTransportInterface
         unset(self::$refusedCopies[$mail]);
 
         return $reason;
+    }
+
+    /**
+     * PHPMailer's `action_function` is declared callable and defaults to
+     * `''`, which is not — hence `mixed`, read as PHPMailer reads it.
+     *
+     * @param list<mixed> $arguments
+     */
+    private static function callIfSet(mixed $callback, array $arguments): void
+    {
+        if ($callback !== '' && is_callable($callback)) {
+            $callback(...$arguments);
+        }
     }
 
     /**

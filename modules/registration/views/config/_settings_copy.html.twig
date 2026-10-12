@@ -35,7 +35,7 @@
             value: email_copy.address,
             placeholder: email_copy.unit_address != '' ? email_copy.unit_address ~ " (adresse de l'unité)" : '',
             help: "Laissée vide, c'est l'adresse par défaut de l'unité qui est utilisée.",
-            autocomplete: 'email',
+            autocomplete: 'off',
             disabled: not email_copy.enabled,
             data: { 'email-copy-address': '1' },
             wrapper_class: 'mb-0',
