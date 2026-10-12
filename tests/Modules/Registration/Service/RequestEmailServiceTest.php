@@ -278,12 +278,15 @@ class RequestEmailServiceTest extends TestCase
     {
         $this->writeBodies();
         $mailService = $this->createMock(MailService::class);
-        $calls = 0;
-        $mailService->expects($this->exactly(2))->method('send')->willReturnCallback(function () use (&$calls): void {
-            if (++$calls === 1) {
-                throw new MailException('550 5.1.1 <marie@example.com>: Recipient address rejected');
-            }
-        });
+        $sentTo = [];
+        $mailService->expects($this->exactly(2))
+            ->method('send')
+            ->willReturnCallback(function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+                if (count($sentTo) === 1) {
+                    throw new MailException('550 5.1.1 <marie@example.com>: Recipient address rejected');
+                }
+            });
         $service = $this->buildService($mailService);
         $requestId = $this->createRequest('refused');
 
@@ -312,6 +315,7 @@ class RequestEmailServiceTest extends TestCase
         ));
         $this->assertSame([1, 2], array_map(static fn(DecisionEmail $email) => $email->attempt, $history));
         $this->assertFalse($history[1]->isResend, 'a retry after a failure is not a resend');
+        $this->assertSame(['marie@example.com', 'marie@example.com'], $sentTo);
         $this->assertNotNull($this->requestRepository->findById($requestId)->refusedEmailSentAt());
     }
 
@@ -467,7 +471,7 @@ class RequestEmailServiceTest extends TestCase
     {
         $this->writeBodies();
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->once())->method('send');
+        $mailService->expects($this->once())->method('send')->with($this->identicalTo('marie@example.com'));
         $journal = new JournalService(new JournalRepository($this->pdo));
         $requestId = $this->createRequest('accepted');
         $scheduled = (new DecisionEmailService($this->decisionEmails, $journal))->schedule(
@@ -493,7 +497,7 @@ class RequestEmailServiceTest extends TestCase
     {
         $this->writeBodies();
         $mailService = $this->createMock(MailService::class);
-        $mailService->expects($this->once())->method('send');
+        $mailService->expects($this->once())->method('send')->with($this->identicalTo('marie@example.com'));
         $requestId = $this->createRequest('accepted');
         $stale = new \DateTimeImmutable('-' . (DecisionEmailService::STALE_SENDING_MINUTES + 1) . ' minutes');
         $this->decisionEmails->insert($requestId, 'accepted', DecisionEmail::STATE_SENDING, null, 1, false, $stale);
