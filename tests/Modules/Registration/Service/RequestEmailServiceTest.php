@@ -460,6 +460,52 @@ class RequestEmailServiceTest extends TestCase
     }
 
     /**
+     * The message left, then recording it failed (a database error). The
+     * family must still get a working link — the one the e-mail carries —
+     * and the lost record is journaled; the chief is not told the send
+     * failed, because it did not.
+     */
+    public function testARecordingFailureAfterTheSendStillStoresTheNewLink(): void
+    {
+        $this->writeBodies();
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())->method('send')->with($this->identicalTo('p@example.com'));
+        $failingRecords = new class ($this->pdo) extends DecisionEmailRepository {
+            public function markSent(int $id, \DateTimeImmutable $now): bool
+            {
+                throw new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+            }
+        };
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $service = new RequestEmailService(
+            $this->requestRepository,
+            $mailService,
+            $this->editableContentService,
+            $journal,
+            'https://example.com',
+            'Unité Test',
+            new DecisionEmailService($failingRecords, $journal)
+        );
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+
+        $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+
+        $this->assertFalse(
+            $this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']),
+            'the link the e-mail carries replaced the old one'
+        );
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_decision_email_outcome_lost'"
+        )->fetchColumn());
+    }
+
+    /**
      * The claim: while another send of this request's e-mail is in flight
      * — another click, the automatic sending — a second one sends nothing
      * and says so.

@@ -146,7 +146,14 @@ class RequestEmailService
         // can leave a delivered e-mail looking unsent. Only then does the
         // link it carries replace the family's previous one (R6) — a
         // failure there leaves the old link working, never a dead one.
-        $recorded = $this->decisionEmails->recordSuccess($attempt);
+        try {
+            $recorded = $this->decisionEmails->recordSuccess($attempt);
+        } catch (\Throwable) {
+            // A database error here must not cost the family its new link:
+            // the message is out, so the token it carries is stored all the
+            // same, and the lost record is journaled below.
+            $recorded = false;
+        }
         $this->repository->storeTrackingTokenHash($request->id, $trackingToken);
 
         $this->journalService->log(

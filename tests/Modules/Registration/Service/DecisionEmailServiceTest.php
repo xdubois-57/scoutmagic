@@ -302,6 +302,27 @@ class DecisionEmailServiceTest extends TestCase
         $this->assertFalse($attempt->isResend);
     }
 
+    /**
+     * A send of the old decision still in flight when the chief changes
+     * the decision: the new decision's e-mail can start at once, rather
+     * than waiting for stale-send recovery — and the old one still records
+     * its own outcome.
+     */
+    public function testAnInFlightEmailOfTheOldDecisionDoesNotBlockTheNewOne(): void
+    {
+        $request = $this->request('accepted');
+        $inFlight = $this->service->begin($request, DecisionEmail::DECISION_ACCEPTED);
+
+        $this->statusService->refuse($this->reload($request->id));
+        $attempt = $this->service->begin($this->reload($request->id), DecisionEmail::DECISION_REFUSED);
+
+        $this->assertSame(DecisionEmail::DECISION_REFUSED, $attempt->decision);
+        $this->assertSame(DecisionEmail::STATE_SENDING, $attempt->state);
+        $this->assertTrue($this->service->recordSuccess($inFlight));
+        $this->assertSame(DecisionEmail::STATE_SENT, $this->repository->findById($inFlight->id)?->state);
+        $this->assertSame($attempt->id, $this->repository->findActiveForRequest($request->id)?->id);
+    }
+
     public function testAnInterruptedSendIsRecordedAndJournaled(): void
     {
         $request = $this->request('accepted');

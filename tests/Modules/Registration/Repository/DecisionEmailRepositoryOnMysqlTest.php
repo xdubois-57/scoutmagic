@@ -305,6 +305,20 @@ class DecisionEmailRepositoryOnMysqlTest extends TestCase
             [$due],
             array_map(static fn(DecisionEmail $e) => $e->id, $this->repository->findDue($this->now, 5))
         );
+
+        // The limit is a bound integer on the native prepares of this
+        // engine, never concatenated: it still limits.
+        $this->repository->insert(
+            $this->request('accepted', 'Eli'),
+            'accepted',
+            'scheduled',
+            $this->now->modify('-2 hours'),
+            1,
+            false,
+            $this->now
+        );
+        $this->assertCount(1, $this->repository->findDue($this->now, 1));
+        $this->assertCount(2, $this->repository->findDue($this->now, 5));
     }
 
     /**

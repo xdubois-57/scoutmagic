@@ -274,6 +274,10 @@ class DecisionEmailRepositoryTest extends TestCase
 
         $this->assertSame(0, $this->repository->supersedeForRequest($requestId, $this->now));
         $this->assertSame('sending', $this->email($sending)->state);
+        $this->assertNull(
+            $this->repository->findActiveForRequest($requestId),
+            'an e-mail of the old decision must not hold the new one back'
+        );
 
         // It finishes after the change: sent, but it describes the old
         // decision, so it makes nothing visible.
@@ -324,6 +328,7 @@ class DecisionEmailRepositoryTest extends TestCase
 
         $this->assertSame([$later, $late, $exact], array_map(static fn(DecisionEmail $email) => $email->id, $due));
         $this->assertCount(2, $this->repository->findDue($this->now, 2));
+        $this->assertCount(1, $this->repository->findDue($this->now, 0), 'a limit below one reads one');
     }
 
     public function testAStaleClaimIsRecordedAsInterruptedAndARecentOneIsLeftAlone(): void

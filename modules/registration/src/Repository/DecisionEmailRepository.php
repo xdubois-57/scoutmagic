@@ -88,9 +88,11 @@ class DecisionEmailRepository
             "SELECT * FROM registration_decision_emails
              WHERE state = 'scheduled' AND due_at IS NOT NULL AND due_at <= ?
              ORDER BY due_at ASC, id ASC
-             LIMIT " . max(1, $limit)
+             LIMIT ?"
         );
-        $stmt->execute([self::format($now)]);
+        $stmt->bindValue(1, self::format($now));
+        $stmt->bindValue(2, max(1, $limit), \PDO::PARAM_INT);
+        $stmt->execute();
 
         return array_map(static fn(array $row) => self::hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
@@ -277,7 +279,11 @@ class DecisionEmailRepository
      * one stops describing it. A row still scheduled never happened and
      * is cancelled (« Annulé suite à un changement de décision »), which
      * also frees the request for the new decision's e-mail; a row sent,
-     * failed or in flight keeps its state and is only dated.
+     * failed or in flight keeps its state and is only dated. A row in
+     * flight also gives up `active_request_id`: it no longer describes the
+     * request's decision, so it must not hold the new decision's e-mail
+     * back until stale-send recovery — its own outcome is still recorded
+     * by markSent() / markFailed(), which read its state, not that column.
      *
      * $keptDecision spares the rows of one decision — the acceptance, when
      * a request becomes `encoded`: the family was told the same decision.
@@ -306,7 +312,7 @@ class DecisionEmailRepository
         $cancelled = $cancel->rowCount();
 
         $supersede = $this->pdo->prepare(
-            'UPDATE registration_decision_emails SET superseded_at = ?, updated_at = ?
+            'UPDATE registration_decision_emails SET superseded_at = ?, active_request_id = NULL, updated_at = ?
              WHERE registration_request_id = ? AND superseded_at IS NULL' . $spare
         );
         $supersede->execute(array_merge([$stamp, $stamp, $requestId], $spared));
